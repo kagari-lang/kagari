@@ -59,25 +59,26 @@ fn native_data_returned_directory_views_are_rejected_before_restoration() {
     let text = conversion.encode("unrelated".to_owned()).unwrap();
     let tuple = conversion.encode((42_i32,)).unwrap();
     let enumeration = conversion.encode(Some(42_i32)).unwrap();
-    let Value::Str(text_id) = text.value(heap).unwrap() else {
+    let Value::Str(text_id) = unsafe { text.value_transport(heap) }.unwrap() else {
         panic!("string")
     };
-    let Value::Tuple(tuple_id) = tuple.value(heap).unwrap() else {
+    let Value::Tuple(tuple_id) = unsafe { tuple.value_transport(heap) }.unwrap() else {
         panic!("tuple")
     };
-    let Value::Enum(enum_id) = enumeration.value(heap).unwrap() else {
+    let Value::Enum(enum_id) = unsafe { enumeration.value_transport(heap) }.unwrap() else {
         panic!("enum")
     };
     let callback: Function<(), i32> = vm.execute_typed(&owner, "callback", ()).unwrap();
-    let callback_value = callback.closure_value().unwrap().value(heap).unwrap();
+    let callback_value =
+        unsafe { callback.closure_value().unwrap().value_transport(heap) }.unwrap();
     let before = heap.stats();
     let returned = state
         .read_data(&cx, |_| {
             Ok((
-                heap.string(text_id),
-                heap.tuple(tuple_id),
-                heap.enum_view(enum_id),
-                runtime.resolve_closure(&callback_value).ok(),
+                unsafe { heap.string_transport(text_id) },
+                unsafe { heap.tuple_transport(tuple_id) },
+                unsafe { heap.enum_view_transport(enum_id) },
+                unsafe { runtime.resolve_closure_transport(&callback_value) }.ok(),
             ))
         })
         .unwrap();
@@ -89,11 +90,17 @@ fn native_data_returned_directory_views_are_rejected_before_restoration() {
     );
     assert_eq!(heap.stats(), before);
     assert_eq!(state.read_data(&cx, |state| Ok(state.value)).unwrap(), 42);
-    assert_eq!(&*heap.string(text_id).unwrap(), "unrelated");
-    assert_eq!(&*heap.tuple(tuple_id).unwrap(), &[Value::I32(42)]);
-    assert!(heap.enum_view(enum_id).is_some());
-    assert!(runtime.resolve_closure(&callback_value).is_ok());
-    let existing_view = heap.string(text_id).unwrap();
+    assert_eq!(
+        &*unsafe { heap.string_transport(text_id) }.unwrap(),
+        "unrelated"
+    );
+    assert_eq!(
+        &*unsafe { heap.tuple_transport(tuple_id) }.unwrap(),
+        &[Value::I32(42)]
+    );
+    assert!(unsafe { heap.enum_view_transport(enum_id) }.is_some());
+    assert!(unsafe { runtime.resolve_closure_transport(&callback_value) }.is_ok());
+    let existing_view = unsafe { heap.string_transport(text_id) }.unwrap();
     let mut entered = false;
     assert!(
         state
@@ -124,7 +131,7 @@ fn native_data_saved_directory_view_cannot_break_unwind_restoration() {
         .unwrap()
         .encode("unrelated".to_owned())
         .unwrap();
-    let Value::Str(id) = text.value(heap).unwrap() else {
+    let Value::Str(id) = unsafe { text.value_transport(heap) }.unwrap() else {
         panic!("string")
     };
     let before = heap.stats();
@@ -132,7 +139,7 @@ fn native_data_saved_directory_view_cannot_break_unwind_restoration() {
         let mut saved = None;
         let result = catch_unwind(AssertUnwindSafe(|| {
             state.read_data(&cx, |_| -> NativeResult<()> {
-                saved = heap.string(id);
+                saved = unsafe { heap.string_transport(id) };
                 if unwind {
                     panic!("native data callback unwind")
                 }

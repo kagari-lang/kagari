@@ -66,10 +66,12 @@ pub(crate) fn iter(
         let mut conversion = cx.conversion_scope(cx.owner())?;
         values.clone().into_kagari(&mut conversion, &argument)?
     };
+    // SAFETY: source retains the vector through cursor allocation and traced publication.
+    let source_value = unsafe { source.value_transport(cx.runtime()) }?;
     ty.create(
         cx,
         VecCursor {
-            source,
+            source: source_value,
             contract,
             index: 0,
             revision,

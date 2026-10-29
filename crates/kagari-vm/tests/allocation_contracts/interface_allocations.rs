@@ -71,27 +71,31 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             .lookup_child(contract.declaration, DefinitionKind::Method, "m0", 0)
             .unwrap();
         let vm = Vm::new(runtime);
-        let receiver = vm
-            .execute(&loaded, "make")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
+        let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+        // SAFETY: The source remains retained until the independent data root is published.
+        let receiver = unsafe { source_root.value_transport(vm.runtime().gc()) }
             .expect("retained execution result");
-        let root = vm.runtime().root_value(receiver).unwrap();
+        let root = unsafe { vm.runtime().gc().root_value_transport(receiver) }.unwrap();
+        drop(source_root);
         for _ in 0..5 {
             assert_eq!(
-                vm.invoke_interface_method(&receiver, &method, &[]).unwrap(),
+                unsafe { vm.invoke_interface_method_transport(&receiver, &method, &[]) }.unwrap(),
                 Value::I32(1)
             );
         }
-        let (counts, elapsed) = measured(|| {
-            for _ in 0..1000 {
-                assert_eq!(
-                    black_box(vm.invoke_interface_method(&receiver, &method, &[]).unwrap()),
-                    Value::I32(1)
-                );
-            }
-        });
+        let (counts, elapsed) = unsafe {
+            measured(|| {
+                for _ in 0..1000 {
+                    assert_eq!(
+                        black_box(
+                            vm.invoke_interface_method_transport(&receiver, &method, &[])
+                                .unwrap()
+                        ),
+                        Value::I32(1)
+                    );
+                }
+            })
+        };
         println!(
             "width={width},calls=1000,ns={},counts={counts:?}",
             elapsed.as_nanos()
@@ -141,31 +145,34 @@ fn inherited_closed_dispatch_does_not_allocate_parent_wrappers_or_copy_unused_me
                 0,
             )
             .unwrap();
-        let receiver = vm
-            .execute(&loaded, "make")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
+        let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+        // SAFETY: The source remains retained until the independent data root is published.
+        let receiver = unsafe { source_root.value_transport(vm.runtime().gc()) }
             .expect("retained execution result");
-        let root = vm.runtime().root_value(receiver).unwrap();
+        let root = unsafe { vm.runtime().gc().root_value_transport(receiver) }.unwrap();
+        drop(source_root);
         for _ in 0..5 {
             assert_eq!(
-                vm.invoke_interface_method(&receiver, &method, &[Value::I32(42)])
-                    .unwrap(),
+                unsafe {
+                    vm.invoke_interface_method_transport(&receiver, &method, &[Value::I32(42)])
+                }
+                .unwrap(),
                 Value::I32(42)
             );
         }
         let live = vm.runtime().collect_garbage().unwrap().live_objects;
         let before = vm.runtime().gc().stats();
-        let (counts, _) = measured(|| {
-            for _ in 0..1000 {
-                assert_eq!(
-                    vm.invoke_interface_method(&receiver, &method, &[Value::I32(42)])
-                        .unwrap(),
-                    Value::I32(42)
-                );
-            }
-        });
+        let (counts, _) = unsafe {
+            measured(|| {
+                for _ in 0..1000 {
+                    assert_eq!(
+                        vm.invoke_interface_method_transport(&receiver, &method, &[Value::I32(42)])
+                            .unwrap(),
+                        Value::I32(42)
+                    );
+                }
+            })
+        };
         println!("inherited-width={width},calls=1000,counts={counts:?}");
         let shape = (counts.allocations, counts.requested_bytes);
         if let Some(expected) = baseline {
@@ -246,22 +253,19 @@ pub fn make() -> List<i32> { Sequence { items: Vec::from([3, 1, 2]) } }
         .members()
         .map(|member| member.key())
         .collect::<Vec<_>>();
-    let receiver = vm
-        .execute(&loaded, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let receiver = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(receiver).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(receiver) }.unwrap();
+    drop(source_root);
     for _ in 0..3 {
-        let reversed = vm
-            .invoke_interface_method(&receiver, &methods[0], &[])
-            .unwrap();
-        let result_root = vm.runtime().root_value(reversed).unwrap();
+        let reversed =
+            unsafe { vm.invoke_interface_method_transport(&receiver, &methods[0], &[]) }.unwrap();
+        let result_root = unsafe { vm.runtime().gc().root_value_transport(reversed) }.unwrap();
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
-            vm.invoke_interface_method(&reversed, &methods[1], &[])
-                .unwrap(),
+            unsafe { vm.invoke_interface_method_transport(&reversed, &methods[1], &[]) }.unwrap(),
             Value::U64(3)
         );
         drop(result_root);

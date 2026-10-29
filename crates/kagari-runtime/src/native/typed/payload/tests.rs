@@ -330,7 +330,7 @@ fn scoped_payload_read_restores_loan_after_error_and_panic_and_excludes_reentry(
                 assert!(
                     error
                         .message()
-                        .contains("script reentry during native storage access")
+                        .contains("script reentry during heap storage access")
                 );
                 Ok(())
             })

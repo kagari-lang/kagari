@@ -196,8 +196,13 @@ the enclosing function on every path produces no parameter value and does not
 invoke the host callback. Arity checks, inner diagnostics and incompatible values
 on normally completing paths still reject compilation.
 
-Callbacks receive `(&HostCallContext, &[Value])`. The context exposes the checked
-runtime and a call-scoped borrow guard; it cannot be constructed by hosts. Runtime
+External-ID provider callbacks are registered through unsafe
+`native::host::HostCallback::new` and receive `(&HostCallContext, &[Value])`.
+The provider must protect raw managed copies through collection/reentry and return
+live transport immediately for runtime publication. Captures and escaping values
+need traced protection for every use; external capabilities retain their original
+scope. Ordinary owned Rust callbacks use NativeContext and typed conversions.
+The context exposes the checked runtime and a call-scoped borrow guard; it cannot be constructed by hosts. Runtime
 entry registers a HostResourceScope in the active session and keeps argument roots
 and borrow leases there until the call ends. Callbacks can add temporary values with
 retain_temporaries; permanent retention still requires RootedValue. Borrowed
@@ -205,10 +210,21 @@ results are rejected before their scope ends. The public registry/function invok
 bypasses are removed; host invocation goes through Runtime effect, cancellation,
 signature and heap validation.
 
-`kagari_vm::reenter(context, loaded, function, args)` drives the existing explicit
-frame executor synchronously. The loaded handle and FunctionRef select a linked
-version, which must belong to the current root program.
-Reentry does not switch to the latest epoch. Argument and
+HostPathAdapter's raw read, prepare-write and validation callbacks similarly require
+unsafe `with_read_transport`, `with_prepare_write_transport` and
+`with_validate_transport` admission. Context/mutation-record edges remain protected
+by the existing checked path operation. Deferred commits copy host data or retain
+managed edges before they escape preparation, and preserve the no-reentry commit
+contract. Low-level Runtime::host_scope_transport requires protected raw inputs;
+ordinary host borrowing uses with_host_scope and branded arguments. Resource-scope
+raw retention is crate-private; provider temporaries use HostCallContext under its
+already admitted callback contract.
+
+Unsafe `kagari_vm::reentry::reenter_transport(context, loaded, function, args)`
+drives the existing frame executor synchronously. The provider protects raw
+arguments until frame publication. The runtime validates the supplied executable
+handle and resolves the function route against current publication before admitting
+the nested frame. Already admitted frames retain their selected bodies. Argument and
 result representations are checked against the linked signature, and arguments
 must contain valid references owned by this runtime. The return is a RootedValue;
 keeping it alive retains the object across subsequent GC and host operations.
@@ -275,7 +291,7 @@ bit does not override any other forbidden effect.
 The source `print` entry and explicit CLI log binding use the common cold
 `kagari_types::declaration::logging::declaration()` ModuleDecl. Adopt it with
 `ModuleBuilder::from_declaration`, obtain `declared_function("log")`, bind a
-HostCallContext callback and install the resulting NativeModule. The declaration
+an explicitly admitted HostCallback and install the resulting NativeModule. The declaration
 owns its String parameter, shared passing capability and service/trap/mutation
 effects. No callback runs during authoring or compilation.
 
@@ -552,7 +568,19 @@ stored `Value`. For example, a map removal first retains the selected value, the
 commits removal and ends the loan; a callback may collect before the caller reads
 the returned handle. Returning only a copied raw `Value` would leave that gap
 unprotected. `StorageContext::element_contract` supplies the scoped `StorageType`
-contract; it does not infer script types again.
+contract; it does not infer script types again. Its raw array factory entry,
+`allocate_array_transport`, is unsafe: input edges need protection through array
+publication, and the result needs protection through destination payload scanning.
+StorageAccess itself is available only inside an unsafe provider loan. Its safe
+helper methods do not authorize arbitrary raw edges or retention beyond that loan's
+source protection; the outer provider contract owns those obligations.
+
+Backend synchronous reentry uses an opaque `ScriptInvoker` admitted by an unsafe
+constructor. The backend must enter the retained target's authenticated execution
+scope, publish arguments before source protection ends, and transfer a live terminal
+result before any intervening collection. VM integration installs this service once;
+ordinary typed calls reuse it. Installing a plain raw callback through a safe
+NativeContext or execution-stack entry is not supported.
 
 `EditPlan { max_logical_units, structural }` preflights accounting and structural
 revision capacity. Perform fallible preparation first, then call `commit_structure`
@@ -802,8 +830,17 @@ the interpreter's `Vm::execute_scoped` requires explicit ExecutionOptions, uses 
 ordinary checked public entry and validates its concrete parameters before execution.
 The SDK facade uses Runtime::with_host_scope and its static execute_scoped
 with explicit ExecutionContext; it forwards cancellation, inputs and observation,
-and rejects unsupported JIT policies before entering the interpreter. Heap results remain rooted
-until scope exit; an owning handle is required to retain them beyond that scope.
+and rejects unsupported JIT policies before entering the interpreter. Inputs and
+results use `ScopedValue` with the invariant scope brand: borrowed views expose
+`argument()`, scalars use `scope.scalar(value)`, and owned script results use
+`scope.retain(&root)` or `scope.retain_typed(&script_value)`. Retention takes an independent snapshot of the source root
+slot, so replacing a source alias cannot invalidate the scoped value.
+`ScopedValue::inspect` uses the shared non-reentrant storage loan. Heap results
+remain rooted until scope exit; `ScopedValue::retain()` returns an independent
+`RootedValue` for ordinary script values that must outlive the scope. External
+HostRoot/HostPathView capabilities remain scoped and cannot become owning roots;
+borrowed/ephemeral execution results are rejected. Raw backend execution requires
+an explicitly unsafe transport contract.
 
 External addresses live in the existing host borrow frame owner. GC view headers
 contain only owner/frame/epoch/object/access identities, never an address. Rust
@@ -1541,7 +1578,7 @@ layer run only when scheduled. Future-valued outputs are not implicitly flattene
 See [typed async calls](embedding-api.md#typed-async-calls-scheduling-and-native-waits)
 for bounds, context and cleanup guarantees.
 
-Backend `Vm::start_future` remains a lower-level primitive: it queues a supplied
+Backend `Vm::start_future_transport` remains a lower-level primitive: it queues a supplied
 script or native Future, which the first drive claims. Cancelling that queued owner
 before its first drive releases its root without claiming the cold Future. Backend
 owner wakers and retirement draining retain their low-level contracts; they are not

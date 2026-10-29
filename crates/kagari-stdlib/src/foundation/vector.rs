@@ -44,18 +44,22 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 MethodDecl::static_method("new")
                     .returns(receiver.clone())
                     .documentation(inherent_docs("new"))
-                    .implementation_send(NativeBinding::new(vec![], Codec::Value, vectors::new)),
+                    .implementation_send(unsafe {
+                        NativeBinding::new_transport(vec![], Codec::Value, vectors::new)
+                    }),
             )?;
             methods.define(
                 MethodDecl::static_method("from")
                     .parameter("array", array(items[0].clone())?)
                     .returns(receiver.clone())
                     .documentation(inherent_docs("from"))
-                    .implementation_send(NativeBinding::new(
-                        vec![Codec::Value],
-                        Codec::Value,
-                        vectors::from_array,
-                    )),
+                    .implementation_send(unsafe {
+                        NativeBinding::new_transport(
+                            vec![Codec::Value],
+                            Codec::Value,
+                            vectors::from_array,
+                        )
+                    }),
             )?;
             methods.define(
                 MethodDecl::instance("push")
@@ -119,11 +123,13 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         0,
         PendingBinding::implementation_with_send(|view| {
             let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?;
-            Ok(NativeBinding::new(
-                vec![Codec::Value, Codec::Exact(Type::u64())],
-                symbols.option_codec()?,
-                move |cx| vectors::get(&symbols, cx),
-            ))
+            Ok(unsafe {
+                NativeBinding::new_transport(
+                    vec![Codec::Value, Codec::Exact(Type::u64())],
+                    symbols.option_codec()?,
+                    move |cx| vectors::get(&symbols, cx),
+                )
+            })
         }),
     )?);
     module.trait_implementation_with(1, |items| {
@@ -294,7 +300,9 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
 }
 
 fn scoped(arguments: Vec<Codec>, entry: Entry) -> NativeBinding {
-    NativeBinding::new(arguments, Codec::Value, entry)
+    // SAFETY: Entries are this provider's audited operations, with call-rooted
+    // inputs and protected removed elements before mutation or callback reentry.
+    unsafe { NativeBinding::new_transport(arguments, Codec::Value, entry) }
 }
 
 const TYPE_DOCS: (&str, &str) = (

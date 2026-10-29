@@ -40,10 +40,11 @@ fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, Varia
         .unwrap();
     let scalar = Ty::Builtin(BuiltinType::I32);
     let boolean = Ty::Builtin(BuiltinType::Bool);
+    let text = Ty::Builtin(BuiltinType::String);
     let pair = Ty::Tuple(vec![scalar.clone(), scalar.clone()]);
     let types = [
-        (declared, scalar.clone(), scalar.clone()),
-        (declared, pair.clone(), scalar.clone()),
+        (declared, scalar.clone(), text.clone()),
+        (declared, pair.clone(), text),
         (declared, pair, boolean.clone()),
         (foreign, scalar.clone(), scalar),
     ];
@@ -125,19 +126,41 @@ fn composition_preserves_original_optional_origin_and_checks_payload_identity() 
         let layout = runtime
             .checked_enum_variant(&owner, &types[0], &error)
             .unwrap();
+        let text = runtime
+            .gc()
+            .alloc_string("retained payload".to_owned())
+            .unwrap();
+        let text_root = runtime.root_value(text).unwrap();
         let original = runtime
             .gc()
-            .alloc_enum_origin(EnumTag::Declared(layout), vec![Value::I32(7)], || {
-                origin.clone()
-            })
+            .alloc_enum_origin(EnumTag::Declared(layout), vec![text], || origin.clone())
             .unwrap();
         let root = runtime.root_value(Value::Enum(original)).unwrap();
+        drop(text_root);
         let outputs = [Some(root), None];
         let cx = PairContext {
             runtime: &runtime,
             contract: &contract,
             outputs: &outputs,
         };
+        assert!(cx.output(1).unwrap().is_none());
+        assert!(cx.output(2).is_err());
+        let retained_output = cx.output(0).unwrap().unwrap();
+        let replacement = runtime.root_value(Value::Unit).unwrap();
+        retained_output.replace(runtime.gc(), &replacement).unwrap();
+        assert!(
+            cx.is_variant(0, &error).unwrap(),
+            "output owns a separate slot"
+        );
+        let payload = cx.field(0, &error, 0).unwrap();
+        assert!(cx.field(0, &error, 1).is_err());
+        assert!(cx.field(0, &foreign, 0).is_err());
+        let other_runtime = Runtime::default();
+        let foreign_payload = other_runtime.root_value(Value::Bool(true)).unwrap();
+        assert!(
+            cx.allocate_enum(&types[2], &error, vec![foreign_payload])
+                .is_err()
+        );
         let forwarded = cx.forward_variant(0, &types[1], &error).unwrap();
         let value = cx.value(&forwarded).unwrap();
         match (&origin, runtime.gc().result_error_trace(&value)) {
@@ -158,8 +181,12 @@ fn composition_preserves_original_optional_origin_and_checks_payload_identity() 
             "foreign same-spelled variant"
         );
         assert!(
-            cx.allocate_enum(&types[1], &error, vec![Value::Bool(true)])
-                .is_err(),
+            cx.allocate_enum(
+                &types[1],
+                &error,
+                vec![runtime.root_value(Value::Bool(true)).unwrap()]
+            )
+            .is_err(),
             "malformed target payload"
         );
         runtime.collect_garbage().unwrap();
@@ -172,7 +199,24 @@ fn composition_preserves_original_optional_origin_and_checks_payload_identity() 
                 })
                 .unwrap()
                 .fields,
-            vec![Value::I32(7)]
+            vec![text]
+        );
+        drop(outputs);
+        drop(forwarded);
+        drop(retained_output);
+        drop(replacement);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(
+            payload
+                .inspect(&runtime, |view| Ok(view.as_str()?.to_owned()))
+                .unwrap(),
+            "retained payload"
+        );
+        drop(payload);
+        assert_eq!(
+            runtime.collect_garbage().unwrap().live_objects,
+            0,
+            "payload releases its final root"
         );
     }
 }

@@ -150,7 +150,25 @@ pub fn fixed_integer(
     Ok(scalar::decode(builtin_representation(operation.input), bits).expect("integer result"))
 }
 
-pub fn integer_method(
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn integer_method_transport(
+    heap: &GcHeap,
+    operation: IntegerMethod,
+    ty: BuiltinType,
+    args: &[Value],
+) -> Result<Option<Value>, RuntimeError> {
+    integer_method(heap, operation, ty, args)
+}
+
+pub(crate) fn integer_method(
     heap: &GcHeap,
     operation: IntegerMethod,
     ty: BuiltinType,

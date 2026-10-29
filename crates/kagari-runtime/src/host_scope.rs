@@ -8,6 +8,7 @@ use crate::{
 };
 use std::cell::RefCell;
 pub mod scoped;
+pub mod value;
 
 /// Scoped leases into runtime-owned borrow and root tables.
 /// The guard unregisters its identity and releases leases before leaving the session.
@@ -57,7 +58,7 @@ impl<'a> HostResourceScope<'a> {
 
     /// Keep values alive through subsequent host preparation and nested calls.
     /// Permanent host retention uses RootedValue instead.
-    pub fn retain_values(&self, values: &[Value]) -> Result<(), RuntimeError> {
+    pub(crate) fn retain_values(&self, values: &[Value]) -> Result<(), RuntimeError> {
         self.runtime.resources().ensure_execution_allowed()?;
         self.validate_borrows(values)?;
         if values.is_empty() {

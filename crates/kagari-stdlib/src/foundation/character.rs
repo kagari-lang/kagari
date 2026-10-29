@@ -25,9 +25,11 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     default_impl(
         module,
         character.clone(),
-        NativeBinding::new(vec![], Codec::Exact(character.clone()), |_| {
-            Ok(Value::Char('\0'))
-        }),
+        unsafe {
+            NativeBinding::new_transport(vec![], Codec::Exact(character.clone()), |_| {
+                Ok(Value::Char('\0'))
+            })
+        },
         "Return the NUL Unicode scalar U+0000.",
     )?;
     let from = interface(module, "From", 1)?;
@@ -48,11 +50,13 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             &from,
             "from",
             0,
-            PendingBinding::implementation_send(NativeBinding::new(
-                vec![Codec::Exact(character.clone())],
-                Codec::Exact(target.clone()),
-                callback,
-            )),
+            PendingBinding::implementation_send(unsafe {
+                NativeBinding::new_transport(
+                    vec![Codec::Exact(character.clone())],
+                    Codec::Exact(target.clone()),
+                    callback,
+                )
+            }),
         )?
         .documentation(documentation);
         module.trait_implementation_with(0, |_| {
@@ -96,7 +100,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
 }
 
 fn argument(cx: &CallContext<'_>) -> NativeResult<char> {
-    let Value::Char(value) = cx.argument(0)? else {
+    // SAFETY: Decode the scalar immediately while the argument frame is live.
+    let Value::Char(value) = unsafe { cx.argument_transport(0) }? else {
         return Err(RuntimeError::module_validation("character argument"));
     };
     Ok(value)
@@ -108,11 +113,14 @@ fn to_u32(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 fn to_string(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let text = argument(cx)?.to_string();
-    cx.encode_result(text)
+    // SAFETY: This terminal return publishes the encoded result before any further callback or
+    // safepoint.
+    unsafe { cx.encode_result_transport(text) }
 }
 
 fn try_from_u32(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let scalar = u32::decode(cx.argument(0)?)?;
+    // SAFETY: Decode the scalar immediately while the argument frame is live.
+    let scalar = u32::decode(unsafe { cx.argument_transport(0) }?)?;
     let (member, value) = match char::from_u32(scalar) {
         Some(value) => ("Ok", Value::Char(value)),
         None => (
@@ -127,10 +135,11 @@ fn try_from_u32(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult
             )?,
         ),
     };
-    let _root = cx
-        .heap()
-        .root_value(value)
-        .ok_or_else(|| RuntimeError::module_validation("character conversion result"))?;
+    let _root = unsafe {
+        // SAFETY: The scalar/error conversion result transfers directly into its root before carrier allocation.
+        cx.heap().root_value_transport(value)
+    }
+    .ok_or_else(|| RuntimeError::module_validation("character conversion result"))?;
     enums::allocate(
         symbols,
         cx,

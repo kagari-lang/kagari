@@ -50,7 +50,7 @@ impl<S> Interface<S> {
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("interface receiver argument"))?;
         values.insert(0, *method.receiver());
-        let result = invoke(runtime, &owner, ScriptCall::Interface(&method), &values)?;
+        let result = invoke.invoke(runtime, &owner, ScriptCall::Interface(&method), &values)?;
         conversion.decode_prepared(&binding.record.signature.result, &result)
     }
 
@@ -62,7 +62,7 @@ impl<S> Interface<S> {
         runtime: &Runtime,
         binding: &InterfaceMethod<A, R>,
     ) -> NativeResult<RootedInterfaceMethod> {
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         let member = &binding.record.member;
         runtime.validate_executable_module(&member.owner)?;

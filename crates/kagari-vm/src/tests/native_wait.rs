@@ -380,7 +380,7 @@ impl Fixture {
             .start_fixture(
                 &self.module,
                 FunctionRef::new(0),
-                &[array.value(self.vm.runtime().gc()).unwrap()],
+                &[unsafe { array.value_transport(self.vm.runtime().gc()) }.unwrap()],
                 ExecutionOptions::default(),
             )
             .unwrap();
@@ -486,10 +486,14 @@ fn async_wait_live_storage_contract() {
         };
         let live_root = allocate(41i32);
         let dead_root = allocate(99i32);
-        let Value::GcHandle(live) = live_root.value(f.vm.runtime().gc()).unwrap() else {
+        let Value::GcHandle(live) =
+            unsafe { live_root.value_transport(f.vm.runtime().gc()) }.unwrap()
+        else {
             panic!("live Vec fixture")
         };
-        let Value::GcHandle(dead) = dead_root.value(f.vm.runtime().gc()).unwrap() else {
+        let Value::GcHandle(dead) =
+            unsafe { dead_root.value_transport(f.vm.runtime().gc()) }.unwrap()
+        else {
             panic!("dead Vec fixture")
         };
         let execution =
@@ -497,7 +501,7 @@ fn async_wait_live_storage_contract() {
                 &f.module,
                 FunctionRef::new(2),
                 &[
-                    future.value(f.vm.runtime().gc()).unwrap(),
+                    unsafe { future.value_transport(f.vm.runtime().gc()) }.unwrap(),
                     Value::GcHandle(live),
                     Value::GcHandle(dead),
                 ],
@@ -511,7 +515,7 @@ fn async_wait_live_storage_contract() {
         ));
         f.vm.runtime().collect_garbage().unwrap();
         assert!(
-            f.vm.runtime().gc().object_kind(dead).is_none(),
+            unsafe { f.vm.runtime().gc().object_kind_transport(dead) }.is_none(),
             "dead slots must not keep objects alive"
         );
         let vector: ScriptVec<i32> = ConversionContext::new(f.vm.runtime(), &f.module)
@@ -535,7 +539,10 @@ fn async_wait_live_storage_contract() {
                     panic!("resumed Vec read");
                 };
                 assert_eq!(
-                    result.unwrap().value(f.vm.runtime().gc()),
+                    result
+                        .unwrap()
+                        .inspect(f.vm.runtime(), |view| view.as_i32().map(Value::I32))
+                        .ok(),
                     Some(Value::I32(42)),
                     "live aliases survive physical slot reuse"
                 );
@@ -557,7 +564,7 @@ fn async_wait_live_storage_contract() {
             .push(&mut f.vm.context(&f.module).unwrap(), 3)
             .unwrap();
         assert_eq!(
-            live_root.value(f.vm.runtime().gc()),
+            unsafe { live_root.value_transport(f.vm.runtime().gc()) },
             Some(Value::GcHandle(live))
         );
         assert_eq!(f.vm.runtime().resources().counters().current_call_depth, 0);
@@ -570,7 +577,7 @@ fn async_native_completion_contract() {
     let future = f.cold(41);
     assert_eq!(f.starts.load(Ordering::Relaxed), 0);
     f.vm.runtime().collect_garbage().unwrap();
-    let value = future.value(f.vm.runtime().gc()).unwrap();
+    let value = unsafe { future.value_transport(f.vm.runtime().gc()) }.unwrap();
     let execution =
         f.vm.start_fixture(
             &f.module,
@@ -610,7 +617,10 @@ fn async_native_completion_contract() {
         panic!("completion resumes");
     };
     assert_eq!(
-        result.unwrap().value(f.vm.runtime().gc()),
+        result
+            .unwrap()
+            .inspect(f.vm.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(42))
     );
     assert_eq!(f.cancels.load(Ordering::Relaxed), 0);
@@ -634,7 +644,7 @@ fn async_native_completion_contract() {
             f.vm.start_fixture(
                 &f.module,
                 FunctionRef::new(1),
-                &[future.value(f.vm.runtime().gc()).unwrap()],
+                &[unsafe { future.value_transport(f.vm.runtime().gc()) }.unwrap()],
                 ExecutionOptions::default(),
             )
             .unwrap();
@@ -642,7 +652,10 @@ fn async_native_completion_contract() {
             panic!("immediate completion");
         };
         assert_eq!(
-            result.unwrap().value(f.vm.runtime().gc()),
+            result
+                .unwrap()
+                .inspect(f.vm.runtime(), |view| view.as_i32().map(Value::I32))
+                .ok(),
             Some(Value::I32(expected))
         );
     }
@@ -651,7 +664,7 @@ fn async_native_completion_contract() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[future.value(f.vm.runtime().gc()).unwrap()],
+            &[unsafe { future.value_transport(f.vm.runtime().gc()) }.unwrap()],
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -680,7 +693,7 @@ fn async_native_completion_contract_retirement_and_admission() {
     assert_eq!(f.starts.load(Ordering::Relaxed), 0);
     assert_eq!(f.cancels.load(Ordering::Relaxed), 0);
     let cold = f.cold(11);
-    let value = cold.value(f.vm.runtime().gc()).unwrap();
+    let value = unsafe { cold.value_transport(f.vm.runtime().gc()) }.unwrap();
     assert!(
         Executor::new(
             f.vm.runtime(),
@@ -724,7 +737,7 @@ fn async_native_completion_contract_retirement_and_admission() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[other.value(f.vm.runtime().gc()).unwrap()],
+            &[unsafe { other.value_transport(f.vm.runtime().gc()) }.unwrap()],
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -750,7 +763,7 @@ fn async_native_completion_contract_retirement_and_admission() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[failed.value(f.vm.runtime().gc()).unwrap()],
+            &[unsafe { failed.value_transport(f.vm.runtime().gc()) }.unwrap()],
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -764,7 +777,7 @@ fn async_native_completion_contract_retirement_and_admission() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[failed.value(f.vm.runtime().gc()).unwrap()],
+            &[unsafe { failed.value_transport(f.vm.runtime().gc()) }.unwrap()],
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -793,7 +806,7 @@ fn async_native_completion_contract_retirement_and_admission() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[last.value(f.vm.runtime().gc()).unwrap()],
+            &[unsafe { last.value_transport(f.vm.runtime().gc()) }.unwrap()],
             ExecutionOptions::default(),
         )
         .unwrap();
@@ -816,7 +829,7 @@ fn async_native_completion_contract_cleanup_quarantine() {
         f.vm.start_fixture(
             &f.module,
             FunctionRef::new(1),
-            &[future.value(f.vm.runtime().gc()).unwrap()],
+            &[unsafe { future.value_transport(f.vm.runtime().gc()) }.unwrap()],
             ExecutionOptions::default(),
         )
         .unwrap();

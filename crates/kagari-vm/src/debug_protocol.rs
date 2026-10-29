@@ -1,10 +1,9 @@
-use kagari_runtime::value::Value;
 use std::cell::{Ref, RefMut};
 
 use crate::{
     debug::{
         BreakpointId, DebugFrameId, DebugPause, DebugSession, DebugWatch, ResolvedBreakpoint,
-        SourceBreakpoint,
+        SourceBreakpoint, value::DebugValue,
     },
     error::VmError,
     vm::Vm,
@@ -70,7 +69,7 @@ pub enum DebugAdapterResponse {
     PauseRequested,
     StepConfigured,
     WatchValue {
-        value: Value,
+        value: DebugValue,
     },
     EventsFlushed {
         emitted: usize,

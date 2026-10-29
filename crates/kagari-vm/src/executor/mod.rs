@@ -20,6 +20,11 @@ use std::{
 
 use crate::error::VmError;
 
+// Backend transport invariant: callers protect entry arguments until frame
+// admission. Slot reads remain protected by the active frame until destination
+// publication; callbacks receive independent argument protection. Successful
+// terminal returns cross no observer, callback or safepoint before the caller
+// roots/publishes them. report_operation invokes observers only on errors.
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
     stack: Option<ExecutionStack<'a>>,
@@ -48,16 +53,16 @@ impl<'a> Executor<'a> {
             runtime,
             stack: Some(runtime.enter_execution_stack(loaded)?),
         };
-        executor
-            .stack()
-            .push_callable(
+        unsafe {
+            executor.stack().push_callable_transport(
                 runtime,
                 loaded.clone(),
                 CallableTarget::Script(entry),
                 args,
                 None,
             )
-            .map_err(|error| runtime.resources().admit_execution_error(error))?;
+        }
+        .map_err(|error| runtime.resources().admit_execution_error(error))?;
         Ok(executor)
     }
 
@@ -68,8 +73,7 @@ impl<'a> Executor<'a> {
     ) -> Result<Self, VmError> {
         let loaded = method.implementation(runtime)?;
         let stack = runtime.enter_execution_stack(&loaded)?;
-        stack
-            .push_interface_method(runtime, method, args, None)
+        unsafe { stack.push_interface_method_transport(runtime, method, args, None) }
             .map_err(|error| runtime.resources().admit_execution_error(error))?;
         Ok(Self {
             runtime,

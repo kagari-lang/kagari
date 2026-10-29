@@ -35,7 +35,7 @@ impl GcHeap {
         };
         // Sealed control-plane reads remain available for failure reporting after
         // quarantine. They call no provider code and expose no storage borrow.
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         let objects = self
             .objects
             .try_borrow()
@@ -53,7 +53,7 @@ impl GcHeap {
         task: TaskId,
         outcome: Result<Value, TaskFailure>,
     ) -> NativeResult<()> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         // Error publication is cleanup of an already reserved, sealed slot. It
         // allocates no heap object and adds no GC edges, even after quarantine.
         if outcome.is_ok() {

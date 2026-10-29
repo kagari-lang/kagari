@@ -40,7 +40,7 @@ fn ordinary_execution(
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_bool().map(Value::Bool))
             .expect("retained execution result"),
         Value::Bool(true)
     );

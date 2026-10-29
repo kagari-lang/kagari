@@ -2,11 +2,17 @@
 use crate::{
     Runtime,
     error::RuntimeError,
+    gc::{
+        GcHeap,
+        roots::{RootSet, RootedValue},
+    },
     host::HostBorrowTable,
-    host_scope::HostResourceScope,
+    host_scope::{HostResourceScope, value::ScopedValue},
     native::{
         binding::NativeResult,
         rust_type::{RustField, RustType},
+        scalar::NativeScalar,
+        value_handle::ScriptValue,
     },
     value::{EphemeralValue, Value},
 };
@@ -24,6 +30,7 @@ pub struct HostScope<'scope, 'host: 'scope> {
 /// A shared external view. It owns no Rust object and exposes no Rust reference.
 pub struct Ref<'scope, T> {
     value: Value,
+    heap: &'scope GcHeap,
     brand: PhantomData<(&'scope T, &'scope mut &'scope (), Rc<()>)>,
 }
 
@@ -31,6 +38,7 @@ pub struct Ref<'scope, T> {
 /// checked capabilities, rather than independent exclusive Rust references.
 pub struct RefMut<'scope, T> {
     value: Value,
+    heap: &'scope GcHeap,
     brand: PhantomData<(&'scope mut T, &'scope mut &'scope (), Rc<()>)>,
 }
 
@@ -100,10 +108,11 @@ impl Runtime {
 impl<'scope, 'host> HostScope<'scope, 'host> {
     fn project<T: Send + 'static, F: Send + 'static>(
         &self,
-        value: Value,
+        argument: ScopedValue<'scope>,
         field: &RustField<T, F>,
     ) -> NativeResult<Value> {
         let runtime = self.resources.runtime();
+        let value = argument.value(runtime.gc())?;
         let view = runtime.scoped_view(&value)?;
         let projected = runtime.host_borrows.project_scoped(runtime, view, field)?;
         let value = runtime
@@ -128,6 +137,7 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
             unsafe { self.register(ty, (value as *const T).cast_mut(), ReferenceAccess::Shared)? };
         Ok(Ref {
             value,
+            heap: self.resources.runtime().gc(),
             brand: PhantomData,
         })
     }
@@ -144,6 +154,7 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
         let value = unsafe { self.register(ty, value as *mut T, ReferenceAccess::Mutable)? };
         Ok(RefMut {
             value,
+            heap: self.resources.runtime().gc(),
             brand: PhantomData,
         })
     }
@@ -174,25 +185,77 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
         Ok(value)
     }
 
-    /// Execute through the backend's ordinary checked synchronous entry. Arguments
-    /// are retained through invocation. Scoped values may never be returned, stored
-    /// in owning values or used by suspended execution. Heap results stay rooted
-    /// until this scope ends; retaining them beyond it requires an owning handle.
-    pub fn execute(
+    /// Access the reserved runtime while this host scope is active.
+    pub fn runtime(&self) -> &Runtime {
+        self.resources.runtime()
+    }
+
+    /// Copy a scalar into a scoped argument without allocating a root slot.
+    pub fn scalar<T: NativeScalar>(&self, value: T) -> ScopedValue<'scope> {
+        ScopedValue::new(self.resources.runtime().gc(), value.encode())
+    }
+
+    /// Retain an owned result independently of its replaceable source root slot.
+    /// Rejects foreign roots and values unavailable to this host scope.
+    pub fn retain(&self, root: &RootedValue) -> NativeResult<ScopedValue<'scope>> {
+        let heap = self.resources.runtime().gc();
+        let value = root.value(heap).ok_or_else(|| {
+            RuntimeError::module_validation("foreign or expired scoped argument root")
+        })?;
+        self.retain_value(value)
+    }
+
+    /// Retain a typed script value, including manually authored native mappings.
+    /// Its exact type and runtime are checked before taking an independent snapshot.
+    pub fn retain_typed(&self, value: &ScriptValue) -> NativeResult<ScopedValue<'scope>> {
+        self.retain_value(value.value(self.resources.runtime())?)
+    }
+
+    /// Import one protected execution slot, preserving its original host capability.
+    /// Rejects foreign packs, invalid slots and revoked external host borrows.
+    pub fn retain_slot(&self, roots: &RootSet, index: usize) -> NativeResult<ScopedValue<'scope>> {
+        let value = roots
+            .get(self.resources.runtime().gc(), index)
+            .ok_or_else(|| {
+                RuntimeError::module_validation("foreign or invalid scoped argument slot")
+            })?;
+        self.retain_value(value)
+    }
+
+    fn retain_value(&self, value: Value) -> NativeResult<ScopedValue<'scope>> {
+        self.resources.retain_values(&[value])?;
+        Ok(ScopedValue::new(self.resources.runtime().gc(), value))
+    }
+
+    /// Execute a backend transport callback under this scope's argument protection.
+    /// The result stays protected by this scope. Ordinary script values can be
+    /// retained independently; borrowed/ephemeral results are rejected here.
+    ///
+    /// # Safety
+    /// The backend must protect arguments through its checked frame admission and
+    /// execution. Raw copies cannot escape without an independent traced owner;
+    /// host capabilities additionally require their original scope. Return live
+    /// transport with no intervening safepoint before this method roots it.
+    #[doc(hidden)]
+    pub unsafe fn execute_transport(
         &self,
-        arguments: &[Value],
+        arguments: &[ScopedValue<'scope>],
         invoke: impl FnOnce(&Runtime, &[Value]) -> NativeResult<Value>,
-    ) -> NativeResult<Value> {
-        self.resources.retain_values(arguments)?;
-        let result = invoke(self.resources.runtime(), arguments)?;
-        HostBorrowTable::validate_no_escape(self.resources.runtime().gc(), &result)?;
-        if result.contains_ephemeral(self.resources.runtime().gc()) {
+    ) -> NativeResult<ScopedValue<'scope>> {
+        let runtime = self.resources.runtime();
+        let arguments = arguments
+            .iter()
+            .map(|value| value.value(runtime.gc()))
+            .collect::<NativeResult<Vec<_>>>()?;
+        self.resources.retain_values(&arguments)?;
+        let result = invoke(runtime, &arguments)?;
+        HostBorrowTable::validate_no_escape(runtime.gc(), &result)?;
+        if result.contains_ephemeral(runtime.gc()) {
             return Err(RuntimeError::host_borrow_escape(
                 "scoped execution result cannot retain an ephemeral value",
             ));
         }
-        self.resources.retain_values(&[result])?;
-        Ok(result)
+        self.retain_value(result)
     }
 }
 
@@ -205,15 +268,15 @@ impl<'scope, T: Send + 'static> Ref<'scope, T> {
         field: &RustField<T, F>,
     ) -> NativeResult<Ref<'scope, F>> {
         Ok(Ref {
-            value: scope.project(self.value, field)?,
+            value: scope.project(self.argument(), field)?,
+            heap: scope.resources.runtime().gc(),
             brand: PhantomData,
         })
     }
 
-    /// Raw script identity for a synchronous scoped argument. It becomes inert at
-    /// scope exit and is checked again by execution and every access boundary.
-    pub fn value(&self) -> Value {
-        self.value
+    /// Pass this borrowed view without exposing raw managed transport.
+    pub fn argument(&self) -> ScopedValue<'scope> {
+        ScopedValue::new(self.heap, self.value)
     }
 
     /// Lend a checked shared reference for this closure. Compatible shared loans
@@ -231,7 +294,8 @@ impl<'scope, T: Send + 'static> Ref<'scope, T> {
         read: impl for<'loan> FnOnce(&'loan T) -> NativeResult<R>,
     ) -> NativeResult<R> {
         let runtime = scope.resources.runtime();
-        let view = runtime.scoped_view(&self.value)?;
+        let value = self.argument().value(runtime.gc())?;
+        let view = runtime.scoped_view(&value)?;
         runtime.host_borrows.read_scoped(runtime, view, read)
     }
 }
@@ -245,15 +309,16 @@ impl<'scope, T: Send + 'static> RefMut<'scope, T> {
         field: &RustField<T, F>,
     ) -> NativeResult<RefMut<'scope, F>> {
         Ok(RefMut {
-            value: scope.project(self.value, field)?,
+            value: scope.project(self.argument(), field)?,
+            heap: scope.resources.runtime().gc(),
             brand: PhantomData,
         })
     }
 
-    /// Raw script identity for a synchronous scoped argument. Alias creation does
-    /// not bypass exclusive-loan conflict checks or extend the host lifetime.
-    pub fn value(&self) -> Value {
-        self.value
+    /// Pass this capability within its original scope and runtime.
+    /// Copying an argument does not bypass dynamic exclusive-loan checks.
+    pub fn argument(&self) -> ScopedValue<'scope> {
+        ScopedValue::new(self.heap, self.value)
     }
 
     /// Read through the mutable capability under an ordinary shared loan.
@@ -263,7 +328,8 @@ impl<'scope, T: Send + 'static> RefMut<'scope, T> {
         read: impl for<'loan> FnOnce(&'loan T) -> NativeResult<R>,
     ) -> NativeResult<R> {
         let runtime = scope.resources.runtime();
-        let view = runtime.scoped_view(&self.value)?;
+        let value = self.argument().value(runtime.gc())?;
+        let view = runtime.scoped_view(&value)?;
         runtime.host_borrows.read_scoped(runtime, view, read)
     }
 
@@ -282,7 +348,8 @@ impl<'scope, T: Send + 'static> RefMut<'scope, T> {
         edit: impl for<'loan> FnOnce(&'loan mut T) -> NativeResult<R>,
     ) -> NativeResult<R> {
         let runtime = scope.resources.runtime();
-        let view = runtime.scoped_view(&self.value)?;
+        let value = self.argument().value(runtime.gc())?;
+        let view = runtime.scoped_view(&value)?;
         runtime.host_borrows.edit_scoped(runtime, view, edit)
     }
 }

@@ -4,9 +4,7 @@ use crate::{
     frame::types::EnvironmentRecord,
     module::ExecutableModule,
     native::{
-        conversion::{FromKagari, context::ConversionContext},
-        function_handle::Function,
-        typed::NativeContext,
+        conversion::context::ConversionContext, function_handle::Function, typed::NativeContext,
     },
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -109,8 +107,10 @@ fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
     let runtime_owner = runtime.resources().lifetime_probe();
     let mut conversion = ConversionContext::new(&runtime, &loaded).unwrap();
     let signature = conversion.type_for::<Function<(), i32>>().unwrap();
+    // SAFETY: PreparedClosure retains its environment throughout conversion.
     let rooted =
-        Function::<(), i32>::from_kagari(&mut conversion, &signature, prepared.value()).unwrap();
+        unsafe { conversion.decode_transport::<Function<(), i32>>(&signature, prepared.value()) }
+            .unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
     assert!(runtime.gc.environment(environment_id).is_some());
     assert_eq!(

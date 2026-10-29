@@ -16,7 +16,24 @@ use std::{
 
 /// Identity is available only for script object categories, never allocation
 /// details of values such as strings, tuples or enums.
-pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn identity_equal_transport(
+    gc: &GcHeap,
+    lhs: &Value,
+    rhs: &Value,
+) -> Result<bool, RuntimeError> {
+    identity_equal(gc, lhs, rhs)
+}
+
+pub(crate) fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
     let object = |value: &Value| match value {
         Value::Struct(id) => Some((*id, GcObjectKind::Struct)),
         Value::Array(id) => Some((*id, GcObjectKind::Array)),
@@ -41,7 +58,24 @@ pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Run
     Ok(a == b)
 }
 
-pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn script_equal_transport(
+    gc: &GcHeap,
+    lhs: &Value,
+    rhs: &Value,
+) -> Result<bool, RuntimeError> {
+    script_equal(gc, lhs, rhs)
+}
+
+pub(crate) fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
     let invalid = || {
         RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
@@ -111,7 +145,28 @@ fn members_equal(gc: &GcHeap, lhs: &[Value], rhs: &[Value]) -> Result<bool, Runt
 
 /// Bounded standard formatting. Mutable objects are identity previews; this
 /// never calls script code while traversing the heap.
-pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, RuntimeError> {
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn format_value_transport(
+    gc: &GcHeap,
+    value: &Value,
+    debug: bool,
+) -> Result<String, RuntimeError> {
+    format_value(gc, value, debug)
+}
+
+pub(crate) fn format_value(
+    gc: &GcHeap,
+    value: &Value,
+    debug: bool,
+) -> Result<String, RuntimeError> {
     #[derive(Default)]
     struct Output {
         text: String,
@@ -227,7 +282,28 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
 }
 
 /// Builtin ordering leaves user dispatch to the checked call site.
-pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Ordering>, RuntimeError> {
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn builtin_order_transport(
+    gc: &GcHeap,
+    a: &Value,
+    b: &Value,
+) -> Result<Option<Ordering>, RuntimeError> {
+    builtin_order(gc, a, b)
+}
+
+pub(crate) fn builtin_order(
+    gc: &GcHeap,
+    a: &Value,
+    b: &Value,
+) -> Result<Option<Ordering>, RuntimeError> {
     let invalid = || {
         RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,

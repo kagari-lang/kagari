@@ -7,7 +7,10 @@ use crate::{
     frame::{ExecutionFrame, ExecutionStack},
     host::HostCallContext,
     module::{ExecutableModule, Program},
-    native::{builder::ModuleBuilder, callable::PreparedClosure, declarations::FunctionDecl},
+    native::{
+        builder::ModuleBuilder, callable::PreparedClosure, declarations::FunctionDecl,
+        host::HostCallback,
+    },
     reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
     test_support::native::{
@@ -294,7 +297,7 @@ fn publication_allows_parked_frames_but_excludes_resume_and_scheduler_turns() {
 }
 
 #[test]
-fn publication_rechecks_native_borrows_and_rejects_foreign_targets() {
+fn publication_rechecks_storage_borrows_and_rejects_foreign_targets() {
     let mut runtime = Runtime::default();
     let target = load(&mut runtime, "same-label");
     let mut foreign = Runtime::default();
@@ -399,14 +402,17 @@ fn publication_is_rejected_inside_observers_and_native_callbacks() {
     let callback_calls = calls.clone();
     let candidate = Mutex::new(Some(stage(&runtime, &target)));
     builder
-        .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-            rejected(cx.runtime(), &callback_target);
-            let candidate = candidate.lock().unwrap().take().unwrap();
-            assert!(matches!(cx.runtime().publish_staged_reload(candidate),
+        .bind(function, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                rejected(cx.runtime(), &callback_target);
+                let candidate = candidate.lock().unwrap().take().unwrap();
+                assert!(matches!(cx.runtime().publish_staged_reload(candidate),
                 Err(ReloadValidationError::Runtime(error))
                     if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation));
-            callback_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(Value::Unit)
+                callback_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Unit)
+            })
         })
         .unwrap();
     let native = builder.finish().unwrap();

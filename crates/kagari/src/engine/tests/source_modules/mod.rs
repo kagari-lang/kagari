@@ -7,7 +7,7 @@ use kagari_common::{
 };
 use kagari_runtime::{
     host::HostCallContext,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     value::Value,
 };
 use kagari_source::{identity::FileId, source_database::SourceLayer};
@@ -60,9 +60,12 @@ fn host_fixture() -> (
         )
         .unwrap();
     builder
-        .bind(record, move |_: &HostCallContext<'_>, args: &[Value]| {
-            recorded.lock().unwrap().push(args[0]);
-            Ok(args[0])
+        .bind(record, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_: &HostCallContext<'_>, args: &[Value]| {
+                recorded.lock().unwrap().push(args[0]);
+                Ok(args[0])
+            })
         })
         .unwrap();
     let engine =

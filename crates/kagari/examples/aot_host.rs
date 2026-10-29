@@ -7,6 +7,7 @@ use kagari::{
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     native::builder::ModuleBuilder,
+    native::host::HostCallback,
     value::Value,
 };
 use kagari_types::declaration::logging;
@@ -39,17 +40,20 @@ fn main() {
     .expect("logging module");
     let log = logging.declared_function("log").expect("log function");
     logging
-        .bind(log, |cx: &HostCallContext<'_>, args: &[Value]| {
-            let [Value::Str(message)] = args else {
-                return Err(HostError::new("host.log expects one string argument"));
-            };
-            let message = cx
-                .runtime()
-                .gc()
-                .string(*message)
-                .ok_or_else(|| HostError::new("invalid host.log string"))?;
-            println!("{}", &*message);
-            Ok(Value::Unit)
+        .bind(log, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|cx: &HostCallContext<'_>, args: &[Value]| {
+                let [Value::Str(message)] = args else {
+                    return Err(HostError::new("host.log expects one string argument"));
+                };
+                let message = cx
+                    .runtime()
+                    .gc()
+                    .string(*message)
+                    .ok_or_else(|| HostError::new("invalid host.log string"))?;
+                println!("{}", &*message);
+                Ok(Value::Unit)
+            })
         })
         .expect("log binding");
     engine
@@ -71,8 +75,10 @@ fn main() {
         JitExecutionStatus::Native
     );
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
-        Some(Value::I32(42))
+        runtime
+            .inspect(&report.return_value, |view| view.as_i32())
+            .unwrap(),
+        42
     );
     println!("Native: 42 (compiler-free host)");
 }

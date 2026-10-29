@@ -75,7 +75,7 @@ fn public_source_glob_reexports_members_through_artifacts() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -103,7 +103,7 @@ fn parent_module_can_execute_pub_super_child_function() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -141,7 +141,7 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -192,7 +192,7 @@ fn parent_module_can_call_pub_super_inherent_method() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -225,7 +225,7 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -267,7 +267,7 @@ fn wildcard_import_can_expose_a_public_inline_child_module() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -301,7 +301,7 @@ fn wildcard_import_follows_a_public_module_alias() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -329,7 +329,7 @@ fn wildcard_import_follows_a_public_native_module_alias() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -372,7 +372,7 @@ fn declared_external_child_module_resolves_qualified_calls() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

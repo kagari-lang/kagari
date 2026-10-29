@@ -10,7 +10,7 @@ use crate::{
     gc::roots::RootedValue,
     host::{HostCallContext, HostPathDescriptorId},
     module::Program,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     reload::ReloadValidationError,
     session::{DeterministicInputs, ExecutionPhase},
     value::Value,
@@ -286,9 +286,12 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
             .unwrap();
         let calls = calls.clone();
         builder
-            .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
-                calls.fetch_add(1, Ordering::SeqCst);
-                Ok(Value::Unit)
+            .bind(function, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(Value::Unit)
+                })
             })
             .unwrap();
     }
@@ -388,9 +391,9 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
                 .unwrap();
         let retained = retained.clone();
         builder
-            .bind(
-                function,
-                move |context: &HostCallContext<'_>, _: &[Value]| {
+            .bind(function, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |context: &HostCallContext<'_>, _: &[Value]| {
                     if symbol == "old" {
                         let retained = retained.lock().unwrap();
                         return Ok(retained
@@ -420,8 +423,8 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
                             )
                             .unwrap(),
                     ))
-                },
-            )
+                })
+            })
             .unwrap();
     }
     let declarations = builder.finish().unwrap();

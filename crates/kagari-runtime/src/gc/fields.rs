@@ -207,11 +207,24 @@ impl GcHeap {
 }
 
 impl GcHeap {
-    pub fn struct_layout(&self, id: HeapObjectId) -> Option<StructLayoutRef> {
+    /// Query checked heap metadata for protected backend transport.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through this query. Type/owner validation cannot
+    /// establish the lifetime of an expired direct reference.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn struct_layout_transport(&self, id: HeapObjectId) -> Option<StructLayoutRef> {
+        self.struct_layout(id)
+    }
+
+    pub(crate) fn struct_layout(&self, id: HeapObjectId) -> Option<StructLayoutRef> {
         self.with_struct(id, |storage| storage.description.semantic.clone())
     }
 
-    pub fn struct_name(&self, id: HeapObjectId) -> Option<String> {
+    pub(crate) fn struct_name(&self, id: HeapObjectId) -> Option<String> {
         self.with_struct(id, |storage| {
             let layout = &storage.description.semantic;
             layout
@@ -222,7 +235,27 @@ impl GcHeap {
         })
     }
 
-    pub fn struct_snapshot(&self, id: HeapObjectId) -> Option<(String, Vec<StructValueField>)> {
+    /// Read a checked backend snapshot without adding independent retention.
+    ///
+    /// # Safety
+    /// Keep source objects live through the read. Protect copied managed edges
+    /// or identities before callbacks, collection or source mutation can remove
+    /// their last traced owner. A returned snapshot is not a root.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn struct_snapshot_transport(
+        &self,
+        id: HeapObjectId,
+    ) -> Option<(String, Vec<StructValueField>)> {
+        self.struct_snapshot(id)
+    }
+
+    pub(crate) fn struct_snapshot(
+        &self,
+        id: HeapObjectId,
+    ) -> Option<(String, Vec<StructValueField>)> {
         self.with_struct(id, |storage| {
             let layout = &storage.description.semantic;
             let fields = layout
@@ -249,7 +282,26 @@ impl GcHeap {
         .flatten()
     }
 
-    pub fn struct_get_slot(
+    /// Read a checked backend snapshot without adding independent retention.
+    ///
+    /// # Safety
+    /// Keep source objects live through the read. Protect copied managed edges
+    /// or identities before callbacks, collection or source mutation can remove
+    /// their last traced owner. A returned snapshot is not a root.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn struct_get_slot_transport(
+        &self,
+        id: HeapObjectId,
+        expected: &StructLayoutRef,
+        slot: usize,
+    ) -> Option<Value> {
+        self.struct_get_slot(id, expected, slot)
+    }
+
+    pub(crate) fn struct_get_slot(
         &self,
         id: HeapObjectId,
         expected: &StructLayoutRef,
@@ -266,7 +318,27 @@ impl GcHeap {
         .flatten()
     }
 
-    pub fn struct_set_slot(
+    /// Mutate backend storage through existing type, bounds and publication checks.
+    ///
+    /// # Safety
+    /// Keep the target and every managed input live through checked publication
+    /// and commit. Preserve source protection across preparation; an unrooted copy
+    /// cannot be used after callbacks or mutation remove its last traced owner.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn struct_set_slot_transport(
+        &self,
+        id: HeapObjectId,
+        expected: &StructLayoutRef,
+        slot: usize,
+        next_value: Value,
+    ) -> Result<(), RuntimeError> {
+        self.struct_set_slot(id, expected, slot, next_value)
+    }
+
+    pub(crate) fn struct_set_slot(
         &self,
         id: HeapObjectId,
         expected: &StructLayoutRef,

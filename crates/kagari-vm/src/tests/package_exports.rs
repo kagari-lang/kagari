@@ -109,7 +109,10 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
         ] {
             let report = vm.execute(owner, selection).unwrap();
             assert_eq!(
-                report.return_value.value(vm.runtime().gc()),
+                report
+                    .return_value
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                    .ok(),
                 Some(Value::I32(expected))
             );
             assert_eq!(
@@ -118,7 +121,10 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
             );
             let report = vm.execute_prepared(owner, selection, &fallback).unwrap();
             assert_eq!(
-                report.return_value.value(vm.runtime().gc()),
+                report
+                    .return_value
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                    .ok(),
                 Some(Value::I32(expected))
             );
             let execution = vm.start(owner, selection, &[], Default::default()).unwrap();
@@ -127,7 +133,10 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
                     DriveResult::Runnable => continue,
                     DriveResult::Complete(result) => {
                         assert_eq!(
-                            result.unwrap().value(vm.runtime().gc()),
+                            result
+                                .unwrap()
+                                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                                .ok(),
                             Some(Value::I32(expected))
                         );
                         break;

@@ -69,7 +69,7 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -119,7 +119,7 @@ fn main() -> i32 {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -224,7 +224,7 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(7)
         );
@@ -292,7 +292,7 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -360,7 +360,7 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(9)
         );
@@ -571,7 +571,7 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(18)
         );
@@ -670,7 +670,7 @@ fn dependency_generic_instances_follow_transitive_method_calls() {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(4)
     );
@@ -737,7 +737,7 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -783,7 +783,8 @@ fn public_generic_inherent_members_execute_across_source_and_artifact_modules() 
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc()),
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .ok(),
             Some(Value::I32(42))
         );
     }

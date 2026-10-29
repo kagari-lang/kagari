@@ -37,7 +37,7 @@ fn interpreter_conformance_executes_control_flow_match_arrays_and_structs() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(13)
     );
@@ -112,7 +112,10 @@ fn public_entries_use_verified_identity_despite_duplicate_display_names() {
                     vm.execute(&loaded, path).unwrap()
                 };
                 assert_eq!(
-                    report.return_value.value(vm.runtime().gc()),
+                    report
+                        .return_value
+                        .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                        .ok(),
                     Some(Value::I32(expected)),
                     "{encoded}/{jit}/{path}"
                 );
@@ -234,7 +237,7 @@ fn machine_boundaries_preserve_wide_indices_and_repeat_resource_errors() {
     }
     for index in [1_u64 << 32, u64::MAX] {
         let report = vm.execute(&loaded, "make").unwrap();
-        let value = report.return_value.value(vm.runtime().gc()).unwrap();
+        let value = unsafe { report.return_value.value_transport(vm.runtime().gc()) }.unwrap();
         let error = vm
             .runtime_mut()
             .with_host_scope(|scope| {
@@ -242,9 +245,10 @@ fn machine_boundaries_preserve_wide_indices_and_repeat_resource_errors() {
                     scope,
                     &_loaded_program,
                     "write_order",
-                    &[value, Value::U64(index)],
+                    &[scope.retain(&report.return_value)?, scope.scalar(index)],
                     Default::default(),
                 )
+                .map(|_| ())
             })
             .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
@@ -253,7 +257,7 @@ fn machine_boundaries_preserve_wide_indices_and_repeat_resource_errors() {
             unreachable!()
         };
         assert_eq!(
-            vm.runtime().gc().array_snapshot(id),
+            unsafe { vm.runtime().gc().array_snapshot_transport(id) },
             Some(vec![Value::I32(123), Value::I32(7)])
         );
     }
@@ -303,7 +307,7 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(12)
     );
@@ -328,7 +332,9 @@ fn main() -> i32 {
                 callee.id,
                 &DebugWatch::Binding("doubled".to_owned()),
             )
-            .expect("watch should read live local"),
+            .expect("watch should read live local")
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+            .unwrap(),
         Value::I32(8)
     );
     assert!(matches!(
@@ -347,26 +353,31 @@ fn main() -> i32 {
         .iter()
         .find(|binding| binding.name == "numbers")
         .expect("numbers binding should be inspectable")
-        .value;
+        .value
+        .retain(vm.runtime())
+        .unwrap();
     let point = callee
         .bindings
         .iter()
         .find(|binding| binding.name == "point")
         .expect("point binding should be inspectable")
-        .value;
-    let Value::Array(numbers) = numbers else {
+        .value
+        .retain(vm.runtime())
+        .unwrap();
+    let Value::Array(numbers) = unsafe { numbers.value_transport(vm.runtime().gc()) }.unwrap()
+    else {
         panic!("expected array binding");
     };
-    let Value::Struct(point) = point else {
+    let Value::Struct(point) = unsafe { point.value_transport(vm.runtime().gc()) }.unwrap() else {
         panic!("expected struct binding");
     };
 
     assert_eq!(
-        vm.runtime().gc().array_snapshot(numbers),
+        unsafe { vm.runtime().gc().array_snapshot_transport(numbers) },
         Some(vec![Value::I32(4), Value::I32(8)])
     );
     assert_eq!(
-        vm.runtime().gc().struct_snapshot(point),
+        unsafe { vm.runtime().gc().struct_snapshot_transport(point) },
         Some((
             "Point".to_owned(),
             vec![
@@ -422,7 +433,7 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(3)
     );

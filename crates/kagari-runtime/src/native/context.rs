@@ -1,4 +1,5 @@
 //! Synchronous native access borrows stable, already rooted caller slots.
+pub mod arguments;
 mod enums;
 mod iteration;
 pub mod operations;
@@ -10,23 +11,21 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
     execution_metadata::{MetadataEdge, MetadataRoot},
-    frame::{
-        types::{
-            TypeEnvironment,
-            arguments::{ScopedSignature, TypeArgument},
-            compatibility::TypeView,
-        },
-        values::FrameSlots,
+    frame::types::{
+        TypeEnvironment,
+        arguments::{ScopedSignature, TypeArgument},
+        compatibility::TypeView,
     },
     gc::{
         GcCollection, GcHeap,
         roots::{RootSet, RootedValue},
     },
-    module::{ExecutableModule, execution::layout::Location},
+    module::ExecutableModule,
     native::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
         callable::{CallableHandle, PreparedClosure},
+        context::arguments::{ArgumentSlots, ArgumentView},
         conversion::{IntoKagari, context::ConversionContext},
         declarations::SelectedCall,
         function_handle::PreparedFunction,
@@ -36,7 +35,6 @@ use crate::{
             NativePayload, StorageContext,
             access::{EditPlan, StorageAccess},
         },
-        storage_type::StorageType,
         stored_selection::StoredSelection,
         typed::NativeContext,
     },
@@ -46,86 +44,6 @@ use kagari_bytecode::{module::CallableTarget, program::ModuleRef};
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{slice, sync::Arc};
-
-#[derive(Clone, Copy)]
-pub(crate) enum ArgumentSlots<'call> {
-    Prepared(&'call [Location]),
-    Contiguous {
-        start: usize,
-        count: usize,
-    },
-    /// Only sealed scalar argument packs can construct this unrooted view.
-    Scalars(&'call [Value]),
-}
-
-#[derive(Clone)]
-pub struct ArgumentView<'call> {
-    heap: &'call GcHeap,
-    frame: Option<FrameSlots>,
-    slots: ArgumentSlots<'call>,
-    narrowed: Option<RootSet>,
-}
-
-impl<'call> ArgumentView<'call> {
-    pub(crate) fn frame(
-        heap: &'call GcHeap,
-        frame: FrameSlots,
-        slots: ArgumentSlots<'call>,
-    ) -> Self {
-        Self {
-            heap,
-            frame: Some(frame),
-            slots,
-            narrowed: None,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        match self.slots {
-            ArgumentSlots::Prepared(slots) => slots.len(),
-            ArgumentSlots::Contiguous { count, .. } => count,
-            ArgumentSlots::Scalars(values) => values.len(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub(crate) fn contains(&self, index: usize) -> bool {
-        if let Some(roots) = &self.narrowed {
-            return roots.contains_slot(self.heap, index);
-        }
-        if let ArgumentSlots::Scalars(values) = self.slots {
-            return index < values.len();
-        }
-        self.with_value(index, |_| ()).is_some()
-    }
-
-    /// Read rooted immutable slot data without an owning clone. The closure cannot
-    /// retain a slot reference; it must not reenter while this borrow is active.
-    pub fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
-        if let Some(roots) = &self.narrowed {
-            return roots.with_value(self.heap, index, read);
-        }
-        match self.slots {
-            ArgumentSlots::Scalars(values) => values.get(index).map(read),
-            ArgumentSlots::Prepared(slots) => {
-                self.frame?
-                    .with_location(self.heap, *slots.get(index)?, read)
-            }
-            ArgumentSlots::Contiguous { start, count } if index < count => {
-                self.frame?
-                    .with_value(self.heap, start.checked_add(index)?, read)
-            }
-            ArgumentSlots::Contiguous { .. } => None,
-        }
-    }
-
-    pub fn get(&self, index: usize) -> Option<Value> {
-        self.with_value(index, Value::clone)
-    }
-}
 
 /// A target selected from a verified program during linking, without source lookup.
 #[derive(Debug, Clone)]
@@ -255,8 +173,47 @@ pub enum ScriptCall<'target> {
     Interface(&'target RootedInterfaceMethod),
 }
 
-pub type ScriptInvoker =
-    fn(&Runtime, &ExecutableModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>;
+/// A backend service admitted with an explicit raw-transport lifetime contract.
+/// Copying this immutable service preserves its installation proof, not GC roots.
+#[derive(Clone, Copy)]
+pub struct ScriptInvoker {
+    invoke: fn(&Runtime, &ExecutableModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>,
+}
+
+impl ScriptInvoker {
+    /// Admit synchronous execution supplied by a backend.
+    ///
+    /// # Safety
+    /// Each invocation receives live, protected arguments and a retained selected
+    /// target. Enter that target's authenticated execution scope and publish inputs
+    /// into its frame before source protection ends. Keep all extracted edges
+    /// protected through callbacks, mutation and collection; raw copies may escape
+    /// only into independently traced owners. Preserve host capabilities, exact
+    /// target selection, loan exclusions and cleanup on every exit. Return live
+    /// transport without collecting between releasing its last traced owner and
+    /// the caller's immediate destination publication. The service must not retain
+    /// input/output references or access them after their protection ends.
+    ///
+    /// ```compile_fail,E0133
+    /// use kagari_runtime::{native::context::ScriptInvoker, value::Value};
+    /// let service = ScriptInvoker::new(|_, _, _, _| Ok(Value::Unit));
+    /// ```
+    pub const unsafe fn new(
+        invoke: fn(&Runtime, &ExecutableModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>,
+    ) -> Self {
+        Self { invoke }
+    }
+
+    pub(crate) fn invoke(
+        self,
+        runtime: &Runtime,
+        owner: &ExecutableModule,
+        target: ScriptCall<'_>,
+        arguments: &[Value],
+    ) -> NativeResult<Value> {
+        (self.invoke)(runtime, owner, target, arguments)
+    }
+}
 
 pub struct CallContext<'call> {
     pub(crate) runtime: &'call Runtime,
@@ -271,8 +228,17 @@ impl<'call> CallContext<'call> {
         CallableHandle::from_argument(self, index)
     }
 
-    pub fn allocate_result(&self) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
+    /// Allocate raw provider transport for terminal return publication.
+    ///
+    /// # Safety
+    /// Publish the returned value or retain it before any callback or safepoint.
+    #[doc(hidden)]
+    pub unsafe fn allocate_result_transport(&self) -> NativeResult<Value> {
+        self.allocate_result()
+    }
+
+    pub(crate) fn allocate_result(&self) -> NativeResult<Value> {
+        self.heap().ensure_no_storage_borrow()?;
         let ty = self.result_type();
         let storage = match ty {
             Ty::NativeObject(nominal) => self
@@ -299,6 +265,20 @@ impl<'call> CallContext<'call> {
         })
     }
 
+    /// Build raw result transport through the installed payload scanner.
+    ///
+    /// # Safety
+    /// Keep the builder's managed edges protected through scanner publication.
+    /// Retain or publish the returned value before any callback or safepoint.
+    #[doc(hidden)]
+    pub unsafe fn allocate_result_payload_transport<P: NativePayload>(
+        &self,
+        selected_slots: &[usize],
+        build: impl FnOnce(&CallContext<'_>, &TypeArgument) -> NativeResult<P>,
+    ) -> NativeResult<Value> {
+        self.allocate_result_payload(selected_slots, build)
+    }
+
     /// Build a payload for this call's exact admitted native result.
     ///
     /// Result occurrence, Rust payload mapping and executable publication are checked
@@ -313,12 +293,12 @@ impl<'call> CallContext<'call> {
     /// payload scanner/publication path. Errors do not undo completed builder effects.
     /// The returned value is a terminal native-result handoff: publish it before any
     /// subsequent callback or safepoint, or retain it with an explicit root.
-    pub fn allocate_result_payload<P: NativePayload>(
+    pub(crate) fn allocate_result_payload<P: NativePayload>(
         &self,
         selected_slots: &[usize],
         build: impl FnOnce(&CallContext<'_>, &TypeArgument) -> NativeResult<P>,
     ) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
+        self.heap().ensure_no_storage_borrow()?;
         let admitted = self
             .runtime
             .native_payload_result_argument(self.owner, self.function)?;
@@ -361,12 +341,27 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native result retention"))
     }
 
+    /// Invoke a stored selection with provider-owned transport inputs.
+    ///
+    /// # Safety
+    /// Protect every input through admission and the synchronous call; mutable
+    /// source slots require independent roots. Host capabilities keep their scope.
+    #[doc(hidden)]
+    pub unsafe fn call_stored_values_transport(
+        &mut self,
+        argument: usize,
+        slot: usize,
+        values: &[Value],
+    ) -> NativeResult<RootedValue> {
+        self.call_stored_values(argument, slot, values)
+    }
+
     /// Invoke a stored selection from a native object, map or set argument.
     /// The argument roots its relationship evidence; temporary call authority pins
     /// the newly selected computation without changing the root session.
     /// Rejects missing slots, incompatible values and forbidden candidate reentry.
     /// The returned root survives callbacks, mutation and subsequent safepoints.
-    pub fn call_stored_values(
+    pub(crate) fn call_stored_values(
         &mut self,
         argument: usize,
         slot: usize,
@@ -486,12 +481,22 @@ impl<'call> CallContext<'call> {
             .parameter(self.runtime, self.owner, index)
     }
 
+    /// Convert a Rust result into terminal provider transport.
+    ///
+    /// # Safety
+    /// Retain or publish the returned value before any callback or safepoint.
+    /// Ordinary host conversion uses ConversionContext::encode_value instead.
+    #[doc(hidden)]
+    pub unsafe fn encode_result_transport<T: IntoKagari>(&self, value: T) -> NativeResult<Value> {
+        self.encode_result(value)
+    }
+
     /// Convert an owned Rust result after all scoped input views are released.
     /// This uses the typed boundary's limits and temporary roots. The caller
     /// publishes the returned value before the next safepoint.
-    pub fn encode_result<T: IntoKagari>(&self, value: T) -> NativeResult<Value> {
+    pub(crate) fn encode_result<T: IntoKagari>(&self, value: T) -> NativeResult<Value> {
         let signature = self.function.type_signature()?;
-        ConversionContext::in_native_call(self)?.encode_value(&signature.result, value)
+        ConversionContext::in_native_call(self)?.encode_transport(&signature.result, value)
     }
 
     /// Retain the complete result type, including nominal payload scopes.
@@ -509,26 +514,29 @@ impl<'call> CallContext<'call> {
         applied.parameter(self.runtime, self.owner, index)
     }
 
-    /// Forward optional enum failure provenance after checked construction.
-    /// Both values must remain rooted across this allocation.
-    pub fn forward_enum_origin(&self, original: &Value, value: &Value) -> NativeResult<Value> {
-        self.runtime
-            .forward_enum_origin(self.owner, original, value)
+    /// Copy diagnostic provenance between protected provider values.
+    ///
+    /// # Safety
+    /// Retain both inputs through allocation, and retain or publish the returned
+    /// value before any callback or safepoint.
+    #[doc(hidden)]
+    pub unsafe fn forward_enum_origin_transport(
+        &self,
+        original: &Value,
+        value: &Value,
+    ) -> NativeResult<Value> {
+        self.forward_enum_origin(original, value)
     }
 
-    /// Allocate a fixed-length builtin array with an explicit element contract.
-    pub fn allocate_array(
+    /// Forward optional enum failure provenance after checked construction.
+    /// Both values must remain rooted across this allocation.
+    pub(crate) fn forward_enum_origin(
         &self,
-        element: TypeArgument,
-        elements: Vec<Value>,
+        original: &Value,
+        value: &Value,
     ) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
-        element.validate(self.runtime)?;
-        self.runtime.validate_heap_payloads(&elements)?;
-        let contract = Arc::new(StorageType::prepare_scoped(element, self.owner)?);
-        self.heap()
-            .alloc_array_with_contract(contract, elements)
-            .map(Value::Array)
+        self.runtime
+            .forward_enum_origin(self.owner, original, value)
     }
 
     /// Open typed conversion access with this call's selected functions and invoker.
@@ -548,7 +556,19 @@ impl<'call> CallContext<'call> {
         self.arguments.clone()
     }
 
-    pub fn argument(&self, index: usize) -> NativeResult<Value> {
+    /// Read a raw provider argument under this call's existing frame protection.
+    ///
+    /// # Safety
+    /// Keep the referent protected through every use and destination publication.
+    /// A copy must not outlive this call without an independent traced owner.
+    /// Scoped host capabilities additionally require their originating host scope.
+    /// Use arguments().retain for an ordinary owned value that may escape the call.
+    #[doc(hidden)]
+    pub unsafe fn argument_transport(&self, index: usize) -> NativeResult<Value> {
+        self.argument(index)
+    }
+
+    pub(crate) fn argument(&self, index: usize) -> NativeResult<Value> {
         self.arguments
             .get(index)
             .ok_or_else(|| RuntimeError::module_validation("native argument slot"))
@@ -592,12 +612,28 @@ impl<'call> CallContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native selected callable slot"))
     }
 
-    pub fn call_values(
+    /// Invoke a selected operation with protected provider transport.
+    ///
+    /// # Safety
+    /// Protect inputs through admission and the synchronous call, including the
+    /// original scope of host capabilities. Independently root edges read from
+    /// mutable slots before reentry. Retain or publish the returned value before
+    /// the next callback or safepoint.
+    #[doc(hidden)]
+    pub unsafe fn call_values_transport(
         &mut self,
         target: &LinkedCallable,
         arguments: &[Value],
     ) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
+        self.call_values(target, arguments)
+    }
+
+    pub(crate) fn call_values(
+        &mut self,
+        target: &LinkedCallable,
+        arguments: &[Value],
+    ) -> NativeResult<Value> {
+        self.heap().ensure_no_storage_borrow()?;
         let target = target.select_current(self.runtime, self.owner)?;
         self.call_selected_values(&target, arguments)
     }
@@ -626,7 +662,7 @@ impl<'call> CallContext<'call> {
                 // authority across the backend boundary, not an ordinary Program
                 // entry that is restricted to the old native frame's graph.
                 let prepared = PreparedFunction::selected(self.runtime, &owner, target.clone())?;
-                (self.invoke_script)(
+                self.invoke_script.invoke(
                     self.runtime,
                     &owner,
                     ScriptCall::Pinned(&prepared),
@@ -645,7 +681,7 @@ impl<'call> CallContext<'call> {
         target: &LinkedCallable,
         arguments: A,
     ) -> NativeResult<R> {
-        self.heap().ensure_no_native_borrow()?;
+        self.heap().ensure_no_storage_borrow()?;
         let target = target.select_current(self.runtime, self.owner)?;
         if Ty::Builtin(R::abi_type()) != target.result || !A::matches(&target.params) {
             return Err(RuntimeError::module_validation(

@@ -8,7 +8,7 @@ impl GcHeap {
     /// Returns an error during a native payload loan or a conflicting storage borrow.
     /// Loaned inline payloads cannot be inspected until their exclusive loan ends.
     pub fn storage_usage(&self) -> Result<StorageUsage, RuntimeError> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         let objects = self.objects.try_borrow().map_err(|_| {
             RuntimeError::module_validation("heap storage is borrowed during diagnostics")
         })?;

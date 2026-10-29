@@ -6,7 +6,7 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
@@ -16,7 +16,7 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_vm::reentry::reenter;
+use kagari_vm::reentry::reenter_transport;
 use std::{
     cell::Cell,
     slice,
@@ -59,33 +59,37 @@ fn main() {
     let retained = Arc::new(Mutex::new(None));
     let output = retained.clone();
     module
-        .bind(notify, move |call: &HostCallContext<'_>, _: &[Value]| {
-            let scratch = Value::Array(
-                call.runtime()
-                    .alloc_array(
-                        &call.runtime().execution_root().unwrap(),
-                        Ty::Builtin(BuiltinType::I32),
-                        vec![Value::I32(3)],
-                    )
-                    .unwrap(),
-            );
-            call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
-            let root = call.runtime().execution_root().unwrap();
-            // Resolve only in the current pinned program, never through source
-            // analysis or a newer globally published generation.
-            let make = root
-                .bytecode
-                .functions
-                .iter()
-                .find(|function| function.name == "make")
-                .ok_or_else(|| HostError::new("missing pinned make entry"))?
-                .id;
-            let value = reenter(call, &root, make, &[])
-                .map_err(|error| HostError::new(format!("script callback failed: {error:?}")))?;
-            call.runtime().collect_garbage().unwrap();
-            assert!(call.runtime().gc().validate_value(&scratch));
-            *output.lock().unwrap() = Some(value);
-            Ok(Value::Unit)
+        .bind(notify, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |call: &HostCallContext<'_>, _: &[Value]| {
+                let scratch = Value::Array(
+                    call.runtime()
+                        .alloc_array_transport(
+                            &call.runtime().execution_root().unwrap(),
+                            Ty::Builtin(BuiltinType::I32),
+                            vec![Value::I32(3)],
+                        )
+                        .unwrap(),
+                );
+                call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
+                let root = call.runtime().execution_root().unwrap();
+                // Resolve only in the current pinned program, never through source
+                // analysis or a newer globally published generation.
+                let make = root
+                    .bytecode
+                    .functions
+                    .iter()
+                    .find(|function| function.name == "make")
+                    .ok_or_else(|| HostError::new("missing pinned make entry"))?
+                    .id;
+                let value = reenter_transport(call, &root, make, &[]).map_err(|error| {
+                    HostError::new(format!("script callback failed: {error:?}"))
+                })?;
+                call.runtime().collect_garbage().unwrap();
+                assert!(call.runtime().gc().validate_value_transport(&scratch));
+                *output.lock().unwrap() = Some(value);
+                Ok(Value::Unit)
+            })
         })
         .unwrap();
     builder.install(module.finish().unwrap()).unwrap();
@@ -116,7 +120,7 @@ fn main() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -127,28 +131,32 @@ fn main() {
             .unwrap()
             .0
             .get(),
-        2
+        // The unified stack contains main, the Native notify entry, and make.
+        3
     );
     assert_eq!(session.counters().current_call_depth, 0);
     assert_eq!(session.host_scope_count(), 0);
     drop(session);
     runtime.runtime().collect_garbage().unwrap();
-    let Value::Array(id) = retained
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .value(runtime.runtime().gc())
-        .unwrap()
-    else {
+    // SAFETY: The retained slot owns the array throughout this immediate snapshot.
+    // After clearing it below, id is used only for checked-ID expiry rejection.
+    let Value::Array(id) = unsafe {
+        retained
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .value_transport(runtime.runtime().gc())
+    }
+    .unwrap() else {
         panic!("array result")
     };
     assert_eq!(
-        runtime.runtime().gc().array_snapshot(id).unwrap(),
+        unsafe { runtime.runtime().gc().array_snapshot_transport(id) }.unwrap(),
         [Value::I32(7), Value::I32(8)]
     );
     retained.lock().unwrap().take();
     runtime.runtime().collect_garbage().unwrap();
-    assert!(runtime.runtime().gc().array_snapshot(id).is_none());
+    assert!(unsafe { runtime.runtime().gc().array_snapshot_transport(id) }.is_none());
     println!("host reentry returned an array; its explicit root survived collection");
 }

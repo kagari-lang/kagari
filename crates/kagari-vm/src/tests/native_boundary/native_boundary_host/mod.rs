@@ -10,7 +10,7 @@ use kagari_runtime::{
     module::{ExecutableModule, entry::ProgramEntry},
     native::{
         builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
-        module::NativeModule, typed::NativeContext, types::Type,
+        host::HostCallback, module::NativeModule, typed::NativeContext, types::Type,
     },
     value::Value,
 };
@@ -112,16 +112,16 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
-    let Value::Tuple(values) = vm
-        .execute(&loaded, "fixtures")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let fixture_root = vm.execute(&loaded, "fixtures").unwrap().return_value;
+    // SAFETY: fixture_root retains every input across the collecting host calls below.
+    let Value::Tuple(values) = unsafe { fixture_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("fixtures")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [
         array,
         wrong_array,
@@ -142,9 +142,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             .resolve_type_arguments(&loaded, &[ty])
             .unwrap()
             .remove(0);
-        runtime
-            .make_enum_member(&loaded, &applied, member, fields)
-            .unwrap()
+        unsafe { runtime.make_enum_member_transport(&loaded, &applied, member, fields) }.unwrap()
     };
     let some = |value| {
         let ty = match value {
@@ -180,20 +178,20 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
                 Ty::Builtin(BuiltinType::String),
             ]),
-            runtime
-                .gc()
-                .alloc_tuple(vec![
+            unsafe {
+                runtime.gc().alloc_tuple_transport(vec![
                     *array,
-                    runtime.gc().alloc_string("ok".into()).unwrap(),
+                    runtime.gc().alloc_string_transport("ok".into()).unwrap(),
                 ])
-                .unwrap(),
-            runtime
-                .gc()
-                .alloc_tuple(vec![
+            }
+            .unwrap(),
+            unsafe {
+                runtime.gc().alloc_tuple_transport(vec![
                     *wrong_array,
-                    runtime.gc().alloc_string("ok".into()).unwrap(),
+                    runtime.gc().alloc_string_transport("ok".into()).unwrap(),
                 ])
-                .unwrap(),
+            }
+            .unwrap(),
         ),
         (
             Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
@@ -300,7 +298,10 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 Ty::Builtin(BuiltinType::String),
             )
             .unwrap(),
-            result("Err", runtime.gc().alloc_string("error".into()).unwrap()),
+            result(
+                "Err",
+                unsafe { runtime.gc().alloc_string_transport("error".into()) }.unwrap(),
+            ),
             some(Value::I32(7)),
         ),
     ];
@@ -337,9 +338,12 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             )
             .unwrap();
         builder
-            .bind(echo, move |_: &HostCallContext<'_>, args: &[Value]| {
-                called.fetch_add(1, Ordering::SeqCst);
-                Ok(args[0])
+            .bind(echo, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_: &HostCallContext<'_>, args: &[Value]| {
+                    called.fetch_add(1, Ordering::SeqCst);
+                    Ok(args[0])
+                })
             })
             .unwrap();
         let called = calls.clone();
@@ -351,9 +355,12 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             )
             .unwrap();
         builder
-            .bind(output, move |_: &HostCallContext<'_>, _: &[Value]| {
-                called.fetch_add(1, Ordering::SeqCst);
-                Ok(bad)
+            .bind(output, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                    called.fetch_add(1, Ordering::SeqCst);
+                    Ok(bad)
+                })
             })
             .unwrap();
         let ty = syntax[index];
@@ -409,14 +416,14 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
         )
         .unwrap();
     builder
-        .bind(
-            echo,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+        .bind(echo, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context: &HostCallContext<'_>, args: &[Value]| {
                 called.fetch_add(1, Ordering::SeqCst);
                 context.runtime().collect_garbage().unwrap();
                 Ok(args[0])
-            },
-        )
+            })
+        })
         .unwrap();
     let provider = builder.finish().unwrap();
     let program = native_program::free_function_program(&provider.to_declaration());
@@ -425,33 +432,39 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
     let _entry_program = entry;
     let entry = runtime.select_program(&_entry_program).unwrap();
     let id = native_slot(&runtime, &entry, &provider, "echo");
-    let array = runtime
-        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-        .unwrap();
-    let value = runtime.gc().alloc_tuple(vec![Value::Array(array)]).unwrap();
+    let array = unsafe {
+        runtime.alloc_array_transport(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+    }
+    .unwrap();
+    let value = unsafe {
+        runtime
+            .gc()
+            .alloc_tuple_transport(vec![Value::Array(array)])
+    }
+    .unwrap();
     assert_eq!(
         native_invocation::invoke(&runtime, &entry, id, std::slice::from_ref(&value)).unwrap(),
         value
     );
-    assert!(runtime.gc().array_snapshot(array).is_some());
+    assert!(unsafe { runtime.gc().array_snapshot_transport(array) }.is_some());
     let mut other = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut other).unwrap();
     let other_owner = allocation_owner(&mut other);
-    let foreign = other
-        .gc()
-        .alloc_tuple(vec![Value::Array(
+    let foreign = unsafe {
+        other.gc().alloc_tuple_transport(vec![Value::Array(
             other
-                .alloc_array(
+                .alloc_array_transport(
                     &other_owner,
                     Ty::Builtin(BuiltinType::I32),
                     vec![Value::I32(7)],
                 )
                 .unwrap(),
         )])
-        .unwrap();
+    }
+    .unwrap();
     assert!(native_invocation::invoke(&runtime, &entry, id, &[foreign]).is_err());
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc().array_snapshot(array).is_none());
+    assert!(unsafe { runtime.gc().array_snapshot_transport(array) }.is_none());
     assert!(native_invocation::invoke(&runtime, &entry, id, &[value]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -481,8 +494,11 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
         )
         .unwrap();
     builder
-        .bind(consume, |_: &HostCallContext<'_>, _: &[Value]| {
-            panic!("an owned parameter must reject nested borrows before the callback")
+        .bind(consume, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| {
+                panic!("an owned parameter must reject nested borrows before the callback")
+            })
         })
         .unwrap();
     let provider = builder.finish().unwrap();
@@ -493,32 +509,38 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
     let entry = runtime.select_program(&_entry_program).unwrap();
     let id = native_slot(&runtime, &entry, &provider, "consume");
     for unique in [false, true] {
-        let scope = runtime.host_scope(&[]).unwrap();
+        let scope = unsafe {
+            // SAFETY: Empty inputs; this guard owns only host borrow/session leases.
+            runtime.host_scope_transport(&[])
+        }
+        .unwrap();
         let value = if unique {
-            runtime
-                .gc()
-                .alloc_host_mut(
+            unsafe {
+                runtime.gc().alloc_host_mut_transport(
                     scope
                         .borrows()
                         .borrow_unique(HostObjectId(1), TypeId::new(0))
                         .unwrap(),
                 )
-                .unwrap()
+            }
+            .unwrap()
         } else {
-            runtime
-                .gc()
-                .alloc_host_ref(
+            unsafe {
+                runtime.gc().alloc_host_ref_transport(
                     scope
                         .borrows()
                         .borrow_shared(HostObjectId(1), TypeId::new(0))
                         .unwrap(),
                 )
-                .unwrap()
+            }
+            .unwrap()
         };
-        let value = runtime
-            .gc()
-            .alloc_tuple(vec![runtime.gc().alloc_tuple(vec![value]).unwrap()])
-            .unwrap();
+        let value = unsafe {
+            runtime.gc().alloc_tuple_transport(vec![
+                runtime.gc().alloc_tuple_transport(vec![value]).unwrap(),
+            ])
+        }
+        .unwrap();
         assert_eq!(
             native_invocation::invoke(&runtime, &entry, id, std::slice::from_ref(&value))
                 .unwrap_err()
@@ -526,9 +548,10 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
             RuntimeErrorKind::HostBorrowEscape
         );
         assert!(
-            runtime
-                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![value])
-                .is_err()
+            unsafe {
+                runtime.alloc_array_transport(&owner, Ty::Builtin(BuiltinType::I32), vec![value])
+            }
+            .is_err()
         );
         drop(scope);
         assert!(native_invocation::invoke(&runtime, &entry, id, &[value]).is_err());
@@ -547,16 +570,19 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = Vm::new(runtime);
-    let Value::Tuple(values) = vm
+    let fixture_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: fixture_root retains every input across the collecting host calls below.
+    let Value::Tuple(values) = unsafe { fixture_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("containers")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [map @ Value::GcHandle(_), set @ Value::GcHandle(_)] = values.as_slice() else {
         panic!("handles")
     };
@@ -597,13 +623,22 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
     let host = runtime
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
         .unwrap();
-    let scope = runtime.host_scope(&[]).unwrap();
-    let borrowed = runtime
-        .gc()
-        .alloc_host_ref(scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap())
-        .unwrap();
+    let scope = unsafe {
+        // SAFETY: Empty inputs; this guard owns only host borrow/session leases.
+        runtime.host_scope_transport(&[])
+    }
+    .unwrap();
+    let borrowed = unsafe {
+        runtime
+            .gc()
+            .alloc_host_ref_transport(scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap())
+    }
+    .unwrap();
     let heap = runtime.gc();
-    let invalid_values = [heap.alloc_host_root(host).unwrap(), borrowed];
+    let invalid_values = [
+        unsafe { heap.alloc_host_root_transport(host) }.unwrap(),
+        borrowed,
+    ];
     let before = heap.stats();
     for invalid in invalid_values {
         assert!(
@@ -618,10 +653,12 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
         assert_eq!(heap.stats(), before);
         let mut conversion = ConversionContext::new(runtime, &loaded).unwrap();
         let map = conversion
-            .decode::<ScriptMap<i32, i32>>(&runtime.root_value(map).unwrap())
+            .decode::<ScriptMap<i32, i32>>(
+                &unsafe { runtime.gc().root_value_transport(map) }.unwrap(),
+            )
             .unwrap();
         let set = conversion
-            .decode::<ScriptSet<i32>>(&runtime.root_value(set).unwrap())
+            .decode::<ScriptSet<i32>>(&unsafe { runtime.gc().root_value_transport(set) }.unwrap())
             .unwrap();
         let cx = NativeContext::new(runtime, &loaded).unwrap();
         assert_eq!(map.len(&cx).unwrap(), 0);

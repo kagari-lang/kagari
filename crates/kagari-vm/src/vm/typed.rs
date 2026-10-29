@@ -3,13 +3,14 @@ use crate::{
     error::VmError,
     executor::{
         Executor,
-        native::{invoke_script, native_error},
+        native::{INVOKE_SCRIPT, native_error},
     },
     vm::Vm,
 };
 use kagari_runtime::{
+    Runtime,
     error::RuntimeError,
-    host_scope::scoped::HostScope,
+    host_scope::{scoped::HostScope, value::ScopedValue},
     module::{ExecutableModule, Program, entry::ProgramEntry},
     native::{
         binding::NativeResult,
@@ -25,15 +26,15 @@ use std::slice;
 impl Vm {
     /// Execute a closed public entry using a branded external host scope. This
     /// uses the interpreter's ordinary checked entry, session and trap cleanup.
-    pub fn execute_scoped<'entry>(
-        scope: &HostScope<'_, '_>,
+    pub fn execute_scoped<'entry, 'scope>(
+        scope: &HostScope<'scope, '_>,
         program: &Program,
         entry: impl Into<ProgramEntry<'entry>>,
-        arguments: &[Value],
+        arguments: &[ScopedValue<'scope>],
         options: ExecutionOptions,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScopedValue<'scope>> {
         let entry = entry.into();
-        scope.execute(arguments, |runtime, arguments| {
+        let invoke = |runtime: &Runtime, arguments: &[Value]| {
             let module = runtime.select_program(program)?;
             let (owner, function) = entry
                 .resolve(&module)
@@ -56,14 +57,19 @@ impl Vm {
             let parameters = runtime.resolve_type_arguments(&owner, &parameters)?;
             let conversion = ConversionContext::new(runtime, &owner)?;
             for (expected, value) in parameters.iter().zip(arguments) {
-                conversion.check_value(expected, value)?;
+                // SAFETY: HostScope::execute_transport retained the complete argument pack
+                // before entering this closure; the originating host scope is active.
+                unsafe { conversion.check_transport(expected, value) }?;
             }
             let _session = runtime.begin_execution(&owner, options)?;
             runtime.attach_execution_observer()?;
             Executor::new(runtime, &owner, function, arguments)
                 .and_then(|mut executor| executor.run())
                 .map_err(native_error)
-        })
+        };
+        // SAFETY: The admitted argument pack stays rooted through Executor frame
+        // publication. Its terminal result is immediately rooted by the scope.
+        unsafe { scope.execute_transport(arguments, invoke) }
     }
 
     /// Access and call typed handles with the interpreter's synchronous service.
@@ -71,7 +77,7 @@ impl Vm {
         &'a self,
         owner: &'a ExecutableModule,
     ) -> Result<NativeContext<'a>, VmError> {
-        NativeContext::with_invoker(&self.runtime, owner, invoke_script).map_err(VmError::from)
+        NativeContext::with_invoker(&self.runtime, owner, INVOKE_SCRIPT).map_err(VmError::from)
     }
 
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
@@ -154,12 +160,18 @@ impl Vm {
         conversion.check_type::<R>(&result)?;
         let _session = self.begin_execution(module)?;
         let roots = arguments.into_arguments(&mut conversion, &params)?;
+        // SAFETY: The private argument pack stays live until Executor publishes
+        // every input to its frame; no caller callback runs during that handoff.
         let arguments = (0..params.len())
-            .map(|slot| roots.get(self.runtime.gc(), slot).ok_or_else(invalid))
+            .map(|slot| unsafe { roots.get_transport(self.runtime.gc(), slot) }.ok_or_else(invalid))
             .collect::<Result<Vec<_>, _>>()?;
         let value = Executor::new(&self.runtime, module, function, &arguments)?.run()?;
-        let rooted = self.runtime.root_value(value).ok_or_else(invalid)?;
-        let value = rooted.value(self.runtime.gc()).ok_or_else(invalid)?;
+        let rooted = unsafe {
+            // SAFETY: Publish the terminal result before any user result conversion can run or collect.
+            self.runtime.gc().root_value_transport(value)
+        }
+        .ok_or_else(invalid)?;
+        let value = conversion.retain(&result, rooted)?;
         conversion
             .decode_value(&result, &value)
             .map_err(VmError::from)

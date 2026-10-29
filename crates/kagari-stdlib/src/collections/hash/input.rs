@@ -16,8 +16,10 @@ pub(crate) enum Input<'value, 'call> {
 impl Input<'_, '_> {
     pub(crate) fn is_scalar(self, cx: &NativeContext<'_>) -> NativeResult<bool> {
         let value = match self {
-            Self::Retained(value) => value.value(cx.runtime())?,
-            Self::Argument(call, index) => call.argument(index)?,
+            // SAFETY: Only the discriminant is read; no callbacks or raw copies escape.
+            Self::Retained(value) => unsafe { value.value_transport(cx.runtime()) }?,
+            // SAFETY: Only the discriminant is inspected while the argument frame is live.
+            Self::Argument(call, index) => unsafe { call.argument_transport(index) }?,
         };
         Ok(matches!(
             value,

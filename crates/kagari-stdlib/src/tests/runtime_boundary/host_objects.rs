@@ -17,8 +17,8 @@ use kagari_runtime::{
         objects::{Object, ObjectType},
         typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::{
@@ -229,7 +229,11 @@ impl KagariType for FailAfterGc {
 }
 
 impl IntoKagari for FailAfterGc {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        _: &TypeArgument,
+    ) -> NativeResult<ScriptValue> {
         self.0.store(true, Ordering::Relaxed);
         cx.runtime().collect_garbage()?;
         Err(RuntimeError::module_validation("converter failure"))

@@ -7,6 +7,7 @@ use crate::{
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         schema::TypeRegistration,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -32,25 +33,35 @@ macro_rules! tuple {
             }
         }
         impl<$($ty: IntoKagari),+> IntoKagari for ($($ty,)+) {
-            fn into_kagari(self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<Value> {
+            fn into_kagari(self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<ScriptValue> {
                 cx.check_elements($count)?;
                 let values = vec![$({
                     let element = cx.parameter(expected, $slot)?;
-                    cx.encode_value(&element, self.$slot)?
+                    cx.encode_transport(&element, self.$slot)?
                 }),+];
-                cx.runtime().gc().alloc_tuple(values)
+                let value = cx.runtime().gc().alloc_tuple(values)?;
+                cx.retain_converted(expected, value)
             }
         }
         impl<$($ty: FromKagari),+> FromKagari for ($($ty,)+) {
-            fn from_kagari(cx: &mut ConversionContext<'_>, expected: &TypeArgument, value: &Value) -> NativeResult<Self> {
+            fn from_kagari(cx: &mut ConversionContext<'_>, expected: &TypeArgument, value: &ScriptValue) -> NativeResult<Self> {
+                let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+                let value = &raw;
                 let Value::Tuple(elements) = value else { return Err(RuntimeError::module_validation("tuple conversion value")); };
                 let elements = cx.runtime().gc().tuple(*elements).ok_or_else(|| RuntimeError::module_validation("invalid tuple"))?.to_vec();
                 if elements.len() != $count { return Err(RuntimeError::module_validation("tuple conversion arity")); }
                 cx.check_elements($count)?;
-                Ok(($({
+                let roots = cx.runtime().gc().root_execution_values(elements)
+                    .ok_or_else(|| RuntimeError::module_validation("tuple conversion snapshot roots"))?;
+                let result = Ok(($({
                     let element = cx.parameter(expected, $slot)?;
-                    cx.decode_value::<$ty>(&element, &elements[$slot])?
-                },)+))
+                    let value = roots.get(cx.runtime().gc(), $slot)
+                        .ok_or_else(|| RuntimeError::module_validation("tuple conversion snapshot field"))?;
+                    // SAFETY: The immutable complete tuple snapshot owns every child.
+                    unsafe { cx.decode_transport::<$ty>(&element, &value) }?
+                },)+));
+                drop(roots);
+                result
             }
         }
     };

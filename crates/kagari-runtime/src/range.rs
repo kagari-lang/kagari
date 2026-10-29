@@ -129,7 +129,23 @@ pub(crate) fn integer_value(ty: BuiltinType, n: i128) -> Value {
 ///
 /// The consuming memory operation owns machine conversion and out-of-range policy.
 /// Invalid identities, type arguments or variant payloads retain the range error.
-pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<u64>, RuntimeError> {
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn index_bound_transport(
+    gc: &GcHeap,
+    value: &Value,
+) -> Result<Bound<u64>, RuntimeError> {
+    index_bound(gc, value)
+}
+
+pub(crate) fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<u64>, RuntimeError> {
     let Value::Enum(id) = value else {
         return Err(invalid());
     };

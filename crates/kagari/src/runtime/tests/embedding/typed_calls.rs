@@ -30,10 +30,10 @@ use kagari_runtime::{
         objects::Object,
         storage::NativeStorage,
         types::Type,
+        value_handle::ScriptValue,
     },
     session::{ExecutionEvent, ExecutionObserver},
     source::{SourceQuery, SourceUnavailableReason},
-    value::Value,
 };
 use kagari_source::{
     source::SourceFile,
@@ -94,7 +94,7 @@ impl IntoKagari for EntryArgument {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         assert_eq!(
             cx.runtime()
@@ -126,7 +126,7 @@ impl FromKagari for BorrowedResult {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         assert_eq!(
             cx.runtime()
@@ -555,12 +555,20 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
             SourceFile::new(
                 "memory://calls.kgr",
                 r#"
-        pub struct Player { pub var hp: i32 }
+        pub struct Position { pub val x: i32 }
+        pub struct Player {
+            pub var hp: i32,
+            pub val position: Position,
+            pub val name: String,
+            val secret: i32,
+        }
         impl Player {
             pub fn damage(self, amount: i32) -> i32 { self.hp = self.hp - amount; self.hp }
         }
-        pub fn damage_evidence() -> i32 { make().damage(1) }
-        pub fn make() -> Player { Player { hp: 42 } }
+        pub fn damage_evidence(player: Player) -> i32 { player.damage(1) }
+        pub fn make(name: String) -> Player {
+            Player { hp: 42, position: Position { x: 7 }, name, secret: 1 }
+        }
         pub fn make_callback() -> fn() -> i32 { val data = [42]; || data[0] }
     "#,
             ),
@@ -575,7 +583,7 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let make = runtime
         .runtime()
-        .bind_function::<(), Object>(&loaded.root(), "make")
+        .bind_function::<(String,), Object>(&loaded.root(), "make")
         .unwrap();
     let make_callback = runtime
         .runtime()
@@ -585,12 +593,26 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     assert!(
         runtime
             .with_context(prepared.owner(), &context, |cx| {
-                prepared.call_with_options::<(), bool>(cx, (), Default::default())
+                prepared.call_with_options::<(String,), bool>(
+                    cx,
+                    ("Ada".to_owned(),),
+                    Default::default(),
+                )
             })
             .is_err()
     );
     drop(prepared);
-    let player = runtime.call_with_context(&make, (), &context).unwrap();
+    let player = runtime
+        .call_with_context(&make, ("Ada".to_owned(),), &context)
+        .unwrap();
+    let name: String = runtime.get_field(&player, "name").unwrap();
+    assert_eq!(name, "Ada");
+    let position: Object = runtime.get_field(&player, "position").unwrap();
+    assert!(runtime.get_field::<i32>(&player, "missing").is_err());
+    assert!(runtime.get_field::<i32>(&player, "secret").is_err());
+    assert!(runtime.get_field::<bool>(&player, "hp").is_err());
+    let mut foreign = engine.runtime(Default::default());
+    assert!(foreign.get_field::<i32>(&player, "hp").is_err());
     let callback = runtime
         .call_with_context(&make_callback, (), &context)
         .unwrap();
@@ -623,7 +645,16 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     assert!(observations.load(Ordering::Relaxed) > 0);
     let cancelled = ExecutionContext::default();
     cancelled.cancellation.cancel();
-    assert!(runtime.call_with_context(&make, (), &cancelled).is_err());
+    assert!(
+        runtime
+            .get_field_with_context::<i32>(&player, "hp", &cancelled)
+            .is_err()
+    );
+    assert!(
+        runtime
+            .call_with_context(&make, ("Ada".to_owned(),), &cancelled)
+            .is_err()
+    );
     assert!(
         runtime
             .with_context(&_selected_loaded, &cancelled, |cx| player.set(cx, &hp, 0))
@@ -631,7 +662,7 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     );
     assert_eq!(
         runtime
-            .with_context(&_selected_loaded, &context, |cx| player.get(cx, &hp))
+            .get_field_with_context::<i32>(&player, "hp", &context)
             .unwrap(),
         90
     );
@@ -650,5 +681,8 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     );
     drop(callback);
     drop(player);
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.get_field::<i32>(&position, "x").unwrap(), 7);
+    drop(position);
     assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
 }

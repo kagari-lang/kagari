@@ -67,7 +67,7 @@ fn fixture(stripped: bool) -> Fixture {
 }
 
 fn id(f: &Fixture, handle: &RootedValue) -> TaskId {
-    f.runtime.runtime().task_id(&f.value(handle)).unwrap()
+    unsafe { f.runtime.runtime().task_id_transport(&f.value(handle)) }.unwrap()
 }
 
 fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
@@ -209,7 +209,7 @@ fn async_failure_provenance_contract() {
         // Cancellation before first drive has a spawn origin even without a body stack.
         let queued = f.invoke("submit", slice::from_ref(&capability));
         let queued_id = id(&f, &queued);
-        runtime.cancel_task(&f.value(&queued)).unwrap();
+        unsafe { runtime.cancel_task_transport(&f.value(&queued)) }.unwrap();
         runtime.drain_cancelled_tasks().unwrap();
         let cancelled = runtime
             .take_task_report(&scope, queued_id)
@@ -263,8 +263,7 @@ fn async_failure_provenance_contract() {
         assert_eq!(bounded.source_task, producer_id);
         // Host admission has no script spawn site, but always retains factory identity.
         let factory = f.invoke("factory", &[]);
-        let hosted = runtime
-            .spawn_task(&capability, &f.value(&factory))
+        let hosted = unsafe { runtime.spawn_task_transport(&capability, &f.value(&factory)) }
             .unwrap()
             .unwrap();
         let hosted_id = id(&f, &hosted);

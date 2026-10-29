@@ -9,7 +9,7 @@ use crate::{
     native::{
         arguments::CallArguments,
         binding::NativeResult,
-        context::{ArgumentView, CallContext, ScriptCall},
+        context::{CallContext, ScriptCall, arguments::ArgumentView},
         scalar::NativeScalar,
         storage::NativePayload,
     },
@@ -32,7 +32,7 @@ impl PreparedClosure {
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> NativeResult<()> {
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         let Value::Closure(id) = self.value else {
             return Err(RuntimeError::module_validation("native callback handle"));
         };
@@ -49,8 +49,7 @@ impl PreparedClosure {
         Ok(())
     }
 
-    /// Inspect the owning runtime's live closure record without retaining it.
-    pub fn snapshot<'runtime>(
+    pub(crate) fn snapshot<'runtime>(
         &self,
         runtime: &'runtime Runtime,
     ) -> NativeResult<Ref<'runtime, ClosureValueSnapshot>> {
@@ -81,15 +80,25 @@ impl PreparedClosure {
         Ok((Self { value }, root))
     }
 
-    /// The checked-at-use GC identity; this descriptor does not create a root.
-    pub fn value(&self) -> &Value {
+    /// Expose a backend descriptor's transport without creating a root.
+    ///
+    /// # Safety
+    /// The caller must retain the closure independently through every use and
+    /// destination publication. The descriptor may outlive its original root;
+    /// an expired descriptor is not a live input to backend execution.
+    #[doc(hidden)]
+    pub unsafe fn value_transport(&self) -> &Value {
+        self.value()
+    }
+
+    pub(crate) fn value(&self) -> &Value {
         &self.value
     }
 
     fn invoke(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
         let (prepared, _root) = self.prepare_call(cx.runtime)?;
         let owner = prepared.snapshot(cx.runtime)?.implementation.clone();
-        (cx.invoke_script)(
+        cx.invoke_script.invoke(
             cx.runtime,
             &owner,
             ScriptCall::Closure(&prepared),
@@ -109,12 +118,12 @@ impl PreparedClosure {
                 "native callback conversion differs from its declaration",
             ));
         }
-        cx.heap().ensure_no_native_borrow()?;
+        cx.heap().ensure_no_storage_borrow()?;
         arguments.with_values(|arguments| self.invoke(cx, arguments).and_then(R::decode))
     }
 
     fn call_values(&self, cx: &CallContext<'_>, arguments: &[Value]) -> NativeResult<Value> {
-        cx.heap().ensure_no_native_borrow()?;
+        cx.heap().ensure_no_storage_borrow()?;
         let (owner, signature) = {
             let closure = self.snapshot(cx.runtime)?;
             (
@@ -150,7 +159,7 @@ pub struct CallableHandle<'call> {
 
 impl<'call> CallableHandle<'call> {
     pub(crate) fn from_argument(cx: &CallContext<'call>, index: usize) -> NativeResult<Self> {
-        cx.heap().ensure_no_native_borrow()?;
+        cx.heap().ensure_no_storage_borrow()?;
         let Ty::Function { params, result } = cx.argument_type(index)? else {
             return Err(RuntimeError::module_validation(
                 "native callback declaration",
@@ -198,9 +207,26 @@ impl<'call> CallableHandle<'call> {
         self.target.call(cx, self.params, self.result, arguments)
     }
 
+    /// Invoke a closure with protected provider transport.
+    ///
+    /// # Safety
+    /// The selected closure and every input must remain protected throughout the
+    /// call. A stored descriptor requires its independently rooted tracing owner;
+    /// the descriptor itself is not a root. Protect mutable-slot copies before
+    /// reentry and keep host capabilities inside their original scope. Retain or
+    /// publish the returned value before any callback or safepoint.
+    #[doc(hidden)]
+    pub unsafe fn call_values_transport(
+        &self,
+        cx: &mut CallContext<'_>,
+        arguments: &[Value],
+    ) -> NativeResult<Value> {
+        self.call_values(cx, arguments)
+    }
+
     /// Values read from mutable storage need working roots before callbacks.
     /// A returned GC value needs an explicit root before further reentry or GC.
-    pub fn call_values(
+    pub(crate) fn call_values(
         &self,
         cx: &mut CallContext<'_>,
         arguments: &[Value],
@@ -208,8 +234,14 @@ impl<'call> CallableHandle<'call> {
         self.target.call_values(cx, arguments)
     }
 
-    /// Retained payloads must trace this value; this does not create a global root.
-    pub fn store(&self) -> StoredCallable {
+    /// Extract an unrooted closure edge for an explicitly traced provider payload.
+    ///
+    /// # Safety
+    /// Keep the closure protected through every scan/call and transfer into a
+    /// traced owner. Extracted copies do not extend that owner's protection.
+    /// This descriptor is not owning host storage; use Function for that purpose.
+    #[doc(hidden)]
+    pub unsafe fn store_transport(&self) -> StoredCallable {
         StoredCallable(self.target.clone())
     }
 }
@@ -244,10 +276,27 @@ unsafe impl NativePayload for StoredCallable {
 }
 
 impl StoredCallable {
+    /// Invoke a closure with protected provider transport.
+    ///
+    /// # Safety
+    /// The selected closure and every input must remain protected throughout the
+    /// call. A stored descriptor requires its independently rooted tracing owner;
+    /// the descriptor itself is not a root. Protect mutable-slot copies before
+    /// reentry and keep host capabilities inside their original scope. Retain or
+    /// publish the returned value before any callback or safepoint.
+    #[doc(hidden)]
+    pub unsafe fn call_values_transport(
+        &self,
+        cx: &mut CallContext<'_>,
+        arguments: &[Value],
+    ) -> NativeResult<Value> {
+        self.call_values(cx, arguments)
+    }
+
     /// Invoke a descriptor retained by a currently rooted native payload. The
     /// closure is validated before entering the prepared frame; callers retaining
     /// it independently should use Function. Returned values need a root before GC.
-    pub fn call_values(
+    pub(crate) fn call_values(
         &self,
         cx: &mut CallContext<'_>,
         arguments: &[Value],

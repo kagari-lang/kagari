@@ -123,7 +123,7 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
     runtime
         .with_host_scope(|scope| {
             let whole = scope.borrow_mut(&player_type, &mut player)?;
-            scope.execute(&[whole.value()], |runtime, values| {
+            let invoke = |runtime: &Runtime, values: &[Value]| {
                 let view = runtime.scoped_view(&values[0])?;
                 let compatible = runtime.host_borrows.read_field(
                     runtime,
@@ -237,7 +237,10 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
                         Ok(())
                     })?;
                 Ok(Value::Unit)
-            })?;
+            };
+            // SAFETY: The probe uses protected arguments only within this active host scope.
+            unsafe { scope.execute_transport(&[whole.argument()], invoke) }?;
+
             Ok(())
         })
         .unwrap();

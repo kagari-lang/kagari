@@ -200,9 +200,12 @@ impl PreparedFunction {
             Target::Entry(target) if target.primitive.is_some() => runtime
                 .invoke_standard_builtin(&self.owner, target.primitive.unwrap(), values)
                 .map_err(|error| error.into_runtime_error())?,
-            _ => cx.invoke_script.ok_or_else(|| {
-                RuntimeError::module_validation("call context has no execution backend")
-            })?(runtime, &self.owner, ScriptCall::Pinned(self), values)?,
+            _ => cx
+                .invoke_script
+                .ok_or_else(|| {
+                    RuntimeError::module_validation("call context has no execution backend")
+                })?
+                .invoke(runtime, &self.owner, ScriptCall::Pinned(self), values)?,
         };
         self.signature.result.validate(runtime)?;
         if !self.signature.result.matches(runtime, &value, &self.owner) {

@@ -58,15 +58,20 @@ pub(crate) fn from_array(
     let owner = cx.owner().clone();
     let mut conversion = ConversionContext::new(cx.runtime(), &owner)?;
     let element = conversion.parameter(&argument, 0)?;
-    let Value::Array(id) = conversion.encode_value(&argument, source)? else {
+    let retained = conversion.encode_value(&argument, source)?;
+    // SAFETY: retained owns the input array throughout snapshotting and insertion.
+    let Value::Array(id) = unsafe { retained.value_transport(cx.runtime()) }? else {
         return Err(invalid());
     };
-    let count = cx.runtime().gc().array_len(id).ok_or_else(invalid)?;
+    let count = unsafe { cx.runtime().gc().array_len_transport(id) }.ok_or_else(invalid)?;
     let result = set_new(cx, ())?;
     for index in 0..count {
         cx.poll()?;
-        let value = cx.runtime().gc().array_get(id, index).ok_or_else(invalid)?;
-        let key = conversion.decode_value(&element, &value)?;
+        let value =
+            unsafe { cx.runtime().gc().array_get_transport(id, index) }.ok_or_else(invalid)?;
+        // SAFETY: The retained array owns this child. ScriptValue admission has no
+        // user type-mapping callback before it establishes independent protection.
+        let key = unsafe { conversion.decode_transport(&element, &value) }?;
         let object = result.borrow(cx)?;
         operations::insert(cx, &object, Input::Retained(&key), None)?;
     }

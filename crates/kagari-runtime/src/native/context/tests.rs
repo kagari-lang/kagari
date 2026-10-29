@@ -8,8 +8,8 @@ use crate::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         context::{
-            ArgumentSlots, ArgumentView, CallContext, CallableOwner, LinkedCallable,
-            LinkedOperation, ScriptCall,
+            CallContext, CallableOwner, LinkedCallable, LinkedOperation, ScriptCall, ScriptInvoker,
+            arguments::{ArgumentSlots, ArgumentView},
         },
         declarations::FunctionDecl,
         storage::NativeStorage,
@@ -73,7 +73,10 @@ fn factory_call<'a>(
             slots: ArgumentSlots::Scalars(&[]),
             narrowed: None,
         },
-        invoke_script: |_, _, _, _| unreachable!(),
+        invoke_script: unsafe {
+            // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+            ScriptInvoker::new(|_, _, _, _| unreachable!())
+        },
     }
 }
 
@@ -329,7 +332,10 @@ fn invoke_stored(
     };
     let stack = runtime.enter_pinned_execution_stack(function)?;
     stack.push_pinned_call(runtime, function, arguments)?;
-    stack.start_native_entry(runtime, invoke_stored)?;
+    stack.start_native_entry(runtime, unsafe {
+        // SAFETY: The helper admits the selected target, roots its frame and transfers the terminal result immediately.
+        ScriptInvoker::new(invoke_stored)
+    })?;
     let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
         panic!("stored native return")
     };
@@ -355,7 +361,10 @@ fn call_scalar_equal(
             slots: ArgumentSlots::Scalars(&[]),
             narrowed: None,
         },
-        invoke_script: |_, _, _, _| panic!("scalar native callback must use direct entry"),
+        invoke_script: unsafe {
+            // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+            ScriptInvoker::new(|_, _, _, _| panic!("scalar native callback must use direct entry"))
+        },
     };
     context.call(target, (7_i32, 7_i32))
 }
@@ -571,7 +580,10 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
             )
             .unwrap();
         let error = stack
-            .start_native_entry(&runtime, |_, _, _, _| Ok(Value::Unit))
+            .start_native_entry(&runtime, unsafe {
+                // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                ScriptInvoker::new(|_, _, _, _| Ok(Value::Unit))
+            })
             .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
         assert!(error.message().contains("selected call result"));
@@ -589,7 +601,12 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
         )
         .unwrap();
     drop(root);
-    stack.start_native_entry(&runtime, invoke_stored).unwrap();
+    stack
+        .start_native_entry(&runtime, unsafe {
+            // SAFETY: The helper admits the selected target, roots its frame and transfers the terminal result immediately.
+            ScriptInvoker::new(invoke_stored)
+        })
+        .unwrap();
     let ReturnAction::Complete(result) = stack.finish_native_return(&runtime).unwrap() else {
         panic!("probe return")
     };

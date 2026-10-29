@@ -80,8 +80,9 @@ pub(crate) enum OwnedResult {
 
 impl OwnedResult {
     pub(crate) fn rooted(root: &RootedValue, heap: &GcHeap) -> Result<Self, WebError> {
-        let value = root
-            .value(heap)
+        // SAFETY: root protects the callback-free conversion to owned wire data.
+        // No heap identity or borrowed string escapes Self::value.
+        let value = unsafe { root.value_transport(heap) }
             .ok_or_else(|| WebError::new("WEB_RESULT_ROOT", "result root is stale"))?;
         Self::value(value, heap)
     }
@@ -106,8 +107,9 @@ impl OwnedResult {
                 value: value.to_string(),
             },
             Value::Str(id) => {
-                let text = heap
-                    .string(id)
+                // SAFETY: rooted() keeps the source root alive through this owned
+                // byte copy; no callback can replace it during the storage loan.
+                let text = unsafe { heap.string_transport(id) }
                     .ok_or_else(|| WebError::new("WEB_RESULT_ROOT", "result String is stale"))?;
                 Self::String {
                     value: prefix(&text, RESULT_BYTES).to_owned(),
@@ -196,13 +198,13 @@ mod tests {
     fn strings_are_bounded_owned_copies_not_retained_heap_handles() {
         let runtime = Runtime::default();
         let heap = runtime.gc();
-        let value = heap.alloc_string("😀".repeat(RESULT_BYTES)).unwrap();
-        let root = heap.root_value(value).unwrap();
+        let value = unsafe { heap.alloc_string_transport("😀".repeat(RESULT_BYTES)) }.unwrap();
+        let root = unsafe { heap.root_value_transport(value) }.unwrap();
         runtime.collect_garbage().unwrap();
         let owned = OwnedResult::rooted(&root, heap).unwrap_or_else(|_| panic!("rooted String"));
         drop(root);
         runtime.collect_garbage().unwrap();
-        assert!(!heap.validate_value(&value));
+        assert!(!unsafe { heap.validate_value_transport(&value) });
         let json = serde_json::to_value(owned).unwrap();
         assert_eq!(json["tag"], "string");
         assert_eq!(json["value"].as_str().unwrap().len(), RESULT_BYTES);

@@ -7,7 +7,7 @@ use crate::{
 
 impl GcHeap {
     pub(crate) fn take_native<T: NativeTake>(&self, id: HeapObjectId) -> NativeResult<T> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         if self.native_operations.is_active(id) {

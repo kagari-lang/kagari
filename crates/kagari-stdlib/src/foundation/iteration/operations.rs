@@ -26,34 +26,61 @@ pub(crate) fn terminal_binding(terminal: Terminal, symbols: EnumSymbols) -> Nati
     } else {
         2
     };
-    NativeBinding::new(vec![Codec::Value; arity], Codec::Value, move |cx| {
-        consume(&symbols, cx, terminal)
-    })
+    unsafe {
+        NativeBinding::new_transport(vec![Codec::Value; arity], Codec::Value, move |cx| {
+            consume(&symbols, cx, terminal)
+        })
+    }
 }
 
 pub(crate) fn identity(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.argument(0)
+    // SAFETY: The call frame retains the input through callback execution and destination publication.
+    unsafe { cx.argument_transport(0) }
 }
 
 pub(crate) fn destination(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])
+    // SAFETY: The call frame retains the input through callback execution and destination publication.
+    unsafe { cx.call_values_transport(cx.selected_at(0)?, &[cx.argument_transport(0)?]) }
 }
 
 pub(crate) fn fold(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let callback = cx.callable(2)?.store();
-    let mut accumulator = cx.argument(1)?;
-    let root = cx.heap().root_value(accumulator).ok_or_else(invalid)?;
-    let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
-    let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
+    // SAFETY: Call arguments and cursor/item/accumulator roots cover reentry; results are decoded
+    // or published before the next poll.
+    let callback = unsafe { cx.callable(2)?.store_transport() };
+    // SAFETY: The call frame retains the input through callback execution and destination publication.
+    let mut accumulator = unsafe { cx.argument_transport(1) }?;
+    let root = unsafe {
+        // SAFETY: Frame inputs and current iterator results remain live; working roots publish before the next callback or poll.
+        cx.heap().root_value_transport(accumulator)
+    }
+    .ok_or_else(invalid)?;
+    // SAFETY: The argument frame protects the source; the returned cursor is rooted next.
+    let cursor =
+        unsafe { cx.call_values_transport(cx.selected_at(0)?, &[cx.argument_transport(0)?]) }?;
+    let _cursor = unsafe {
+        // SAFETY: Frame inputs and current iterator results remain live; working roots publish before the next callback or poll.
+        cx.heap().root_value_transport(cursor)
+    }
+    .ok_or_else(invalid)?;
     loop {
         cx.poll()?;
-        let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
+        // SAFETY: Call arguments and cursor/item/accumulator roots cover reentry; results are
+        // decoded or published before the next poll.
+        let result = unsafe { cx.call_values_transport(cx.selected_at(1)?, &[cursor]) }?;
         let Some(item) = enums::read_option(symbols, cx, &result)? else {
             return Ok(accumulator);
         };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
-        accumulator = callback.call_values(cx, &[accumulator, item])?;
-        root.set(cx.heap(), accumulator).ok_or_else(invalid)?;
+        let _item = unsafe {
+            // SAFETY: Frame inputs and current iterator results remain live; working roots publish before the next callback or poll.
+            cx.heap().root_value_transport(item)
+        }
+        .ok_or_else(invalid)?;
+        // SAFETY: Call arguments and cursor/item/accumulator roots cover reentry; results are
+        // decoded or published before the next poll.
+        accumulator = unsafe { callback.call_values_transport(cx, &[accumulator, item]) }?;
+        // SAFETY: Publish the callback result before any next poll/callback.
+        // The displaced accumulator has no remaining raw readers.
+        unsafe { root.set_transport(cx.heap(), accumulator) }.ok_or_else(invalid)?;
     }
 }
 
@@ -65,14 +92,24 @@ fn consume(
     let callback = if matches!(terminal, Terminal::Count) {
         None
     } else {
-        Some(cx.callable(1)?.store())
+        // SAFETY: Call arguments and cursor/item/accumulator roots cover reentry; results are
+        // decoded or published before the next poll.
+        Some(unsafe { cx.callable(1)?.store_transport() })
     };
-    let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
-    let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
+    // SAFETY: The argument frame protects the source; the returned cursor is rooted next.
+    let cursor =
+        unsafe { cx.call_values_transport(cx.selected_at(0)?, &[cx.argument_transport(0)?]) }?;
+    let _cursor = unsafe {
+        // SAFETY: Frame inputs and current iterator results remain live; working roots publish before the next callback or poll.
+        cx.heap().root_value_transport(cursor)
+    }
+    .ok_or_else(invalid)?;
     let mut count = 0u64;
     loop {
         cx.poll()?;
-        let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
+        // SAFETY: Call arguments and cursor/item/accumulator roots cover reentry; results are
+        // decoded or published before the next poll.
+        let result = unsafe { cx.call_values_transport(cx.selected_at(1)?, &[cursor]) }?;
         let Some(item) = enums::read_option(symbols, cx, &result)? else {
             return match terminal {
                 Terminal::Count => Ok(count.encode()),
@@ -82,15 +119,23 @@ fn consume(
                 Terminal::ForEach => Ok(Value::Unit),
             };
         };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
+        let _item = unsafe {
+            // SAFETY: Frame inputs and current iterator results remain live; working roots publish before the next callback or poll.
+            cx.heap().root_value_transport(item)
+        }
+        .ok_or_else(invalid)?;
         if matches!(terminal, Terminal::Count) {
             count = increment(count)?;
             continue;
         }
-        let result = callback
-            .as_ref()
-            .ok_or_else(invalid)?
-            .call_values(cx, &[item])?;
+        // SAFETY: Call arguments and cursor/item/accumulator roots cover reentry; results are
+        // decoded or published before the next poll.
+        let result = unsafe {
+            callback
+                .as_ref()
+                .ok_or_else(invalid)?
+                .call_values_transport(cx, &[item])
+        }?;
         match terminal {
             Terminal::Find if bool::decode(result)? => return option(symbols, cx, Some(item)),
             Terminal::Any if bool::decode(result)? => return Ok(true.encode()),
@@ -111,12 +156,16 @@ pub(super) fn increment(value: u64) -> NativeResult<u64> {
 }
 
 pub(crate) fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.iter_operation(0, IterOp::New)
+    // SAFETY: Call arguments and cursor/item/accumulator roots cover reentry; results are decoded
+    // or published before the next poll.
+    unsafe { cx.iter_operation_transport(0, IterOp::New) }
 }
 
 pub(crate) fn next(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let (some, none) = symbols.option_members()?;
-    cx.iterator_next_result(0, some, none)
+    // SAFETY: Call arguments and cursor/item/accumulator roots cover reentry; results are decoded
+    // or published before the next poll.
+    unsafe { cx.iterator_next_result_transport(0, some, none) }
 }
 
 #[cfg(test)]

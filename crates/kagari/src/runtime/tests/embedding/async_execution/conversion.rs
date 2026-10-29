@@ -15,6 +15,7 @@ use kagari_runtime::{
         declarations::FunctionDecl,
         future::NativeStart,
         types::Type,
+        value_handle::ScriptValue,
     },
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
 };
@@ -58,7 +59,7 @@ impl IntoKagari for Reply {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.encoded.fetch_add(1, Ordering::SeqCst);
         let value = cx.encode_value(expected, VecValues(vec![7_i32]))?;
         cx.runtime().collect_garbage()?;
@@ -155,12 +156,13 @@ fn async_output_publication_contract() {
             .unwrap();
         let items = f.invoke("items", &[]);
         let factory = f.invoke("factory", &[f.value(&items)]);
-        let handle = runtime
-            .spawn_task(&f.value(scope.capability()), &f.value(&factory))
-            .unwrap()
-            .unwrap();
+        let handle = unsafe {
+            runtime.spawn_task_transport(&f.value(scope.capability()), &f.value(&factory))
+        }
+        .unwrap()
+        .unwrap();
         drop(factory);
-        let task = runtime.task_id(&f.value(&handle)).unwrap();
+        let task = unsafe { runtime.task_id_transport(&f.value(&handle)) }.unwrap();
         assert_eq!(drive(&f, &scope, task), TaskDriveResult::Waiting);
         let reply = Reply {
             boundary,

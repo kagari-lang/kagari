@@ -2,16 +2,18 @@ use crate::{
     Runtime,
     error::RuntimeErrorKind,
     execution_metadata::MetadataRoot,
+    frame::types::arguments::TypeArgument,
     gc::roots::RootedValue,
     module::Program,
     native::{
-        binding::NativeBinding,
+        binding::{NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        conversion::{FromKagari, IntoKagari, context::ConversionContext},
+        conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         declarations::FunctionDecl,
         payload::Opaque,
         typed::NativeContext,
+        types::Type,
         value_handle::ScriptValue,
     },
     test_support::{
@@ -26,9 +28,151 @@ use crate::{
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
 use std::{
+    cell::RefCell,
     panic::{AssertUnwindSafe, catch_unwind},
     thread,
 };
+
+#[test]
+fn direct_tuple_conversion_snapshots_children_before_root_alias_replacement() {
+    thread_local! {
+        static INPUT: RefCell<Option<RootedValue>> = const { RefCell::new(None) };
+    }
+
+    struct ReplaceInput;
+
+    impl KagariType for ReplaceInput {
+        fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+            i32::kagari_type(catalog)
+        }
+    }
+
+    impl FromKagari for ReplaceInput {
+        fn from_kagari(
+            cx: &mut ConversionContext<'_>,
+            expected: &TypeArgument,
+            value: &ScriptValue,
+        ) -> NativeResult<Self> {
+            assert_eq!(i32::from_kagari(cx, expected, value)?, 1);
+            INPUT.with_borrow_mut(|slot| {
+                let replacement = cx.runtime().root_value(Value::Unit).unwrap();
+                slot.take()
+                    .unwrap()
+                    .replace(cx.runtime().gc(), &replacement)
+                    .unwrap();
+            });
+            cx.runtime().collect_garbage()?;
+            Ok(Self)
+        }
+    }
+
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let root = cx.encode((1_i32, "survives".to_owned())).unwrap();
+    let expected = cx.type_for::<(ReplaceInput, String)>().unwrap();
+    let input = cx.retain(&expected, root.clone()).unwrap();
+    INPUT.set(Some(root));
+    let (_, text) = <(ReplaceInput, String)>::from_kagari(&mut cx, &expected, &input).unwrap();
+    assert_eq!(text, "survives");
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn converter_results_own_retention_after_the_conversion_context_ends() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let converted = {
+        let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+        let expected = cx.type_for::<String>().unwrap();
+        [
+            "retained result"
+                .to_owned()
+                .into_kagari(&mut cx, &expected)
+                .unwrap(),
+            cx.encode_value(&expected, "retained result".to_owned())
+                .unwrap(),
+            "retained result"
+                .to_owned()
+                .snapshot_field(&mut cx, &expected)
+                .unwrap(),
+        ]
+    };
+    let aliases = converted.clone();
+    drop(converted);
+    runtime.collect_garbage().unwrap();
+    for alias in aliases {
+        assert_eq!(
+            alias
+                .inspect(&runtime, |view| Ok(view.as_str()?.to_owned()))
+                .unwrap(),
+            "retained result"
+        );
+    }
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn untyped_results_retain_declared_types_and_reject_foreign_roots() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let expected = cx.type_for::<String>().unwrap();
+    let root = cx.encode("result".to_owned()).unwrap();
+    let before = runtime.gc().active_roots();
+    let retained = cx.retain(&expected, root.clone()).unwrap();
+    assert_eq!(runtime.gc().active_roots(), before);
+    let wrong = cx.type_for::<bool>().unwrap();
+    assert!(cx.retain(&wrong, root.clone()).is_err());
+    let foreign = Runtime::default();
+    let foreign_root = foreign.root_value(Value::Bool(true)).unwrap();
+    assert!(cx.retain(&wrong, foreign_root).is_err());
+    drop(cx);
+    drop(root);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        retained
+            .inspect(&runtime, |view| Ok(view.as_str()?.to_owned()))
+            .unwrap(),
+        "result"
+    );
+    drop(retained);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn retained_slots_survive_pack_replacement_and_validate_owner_type_and_bounds() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let expected = cx.type_for::<String>().unwrap();
+    let text = runtime.gc().alloc_string("slot".to_owned()).unwrap();
+    let pack = runtime
+        .gc()
+        .root_execution_values(vec![Value::I32(5), text])
+        .unwrap();
+    assert!(cx.retain_slot(&expected, &pack, 0).is_err());
+    assert!(cx.retain_slot(&expected, &pack, 2).is_err());
+    let foreign = Runtime::default();
+    let foreign_pack = foreign
+        .gc()
+        .root_execution_values(vec![Value::I32(5)])
+        .unwrap();
+    assert!(cx.retain_slot(&expected, &foreign_pack, 0).is_err());
+    let retained = cx.retain_slot(&expected, &pack, 1).unwrap();
+    pack.clone().set(runtime.gc(), 1, Value::Unit).unwrap();
+    drop(cx);
+    drop(pack);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(
+        retained
+            .inspect(&runtime, |view| Ok(view.as_str()?.to_owned()))
+            .unwrap(),
+        "slot"
+    );
+    drop(retained);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
 
 fn retained_payload() -> (Runtime, Program, ScriptValue, RootedValue) {
     let mut builder =
@@ -90,7 +234,7 @@ fn retained_payload_borrow_preserves_mapping_order_roots_and_alias_checks() {
                     assert!(
                         error
                             .message()
-                            .contains("script reentry during native storage access"),
+                            .contains("script reentry during heap storage access"),
                         "{error}"
                     );
                     Ok(*payload)
@@ -235,22 +379,28 @@ fn scalar_script_values_keep_type_owner_and_cross_thread_lifetime_without_roots(
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let expected = cx.type_for::<i32>().unwrap();
     let before = runtime.gc().active_roots();
-    assert!(ScriptValue::from_kagari(&mut cx, &expected, &Value::Bool(true)).is_err());
-    let value = ScriptValue::from_kagari(&mut cx, &expected, &Value::I32(42)).unwrap();
+    // SAFETY: Both inputs are scalars without managed references; the wrong type still rejects.
+    assert!(unsafe { cx.decode_transport::<ScriptValue>(&expected, &Value::Bool(true)) }.is_err());
+    let value = unsafe { cx.decode_transport::<ScriptValue>(&expected, &Value::I32(42)) }.unwrap();
     assert_eq!(runtime.gc().active_roots(), before);
-    assert_eq!(value.value(&runtime).unwrap(), Value::I32(42));
+    assert_eq!(value.inspect(&runtime, |view| view.as_i32()).unwrap(), 42);
     let wrong = cx.type_for::<bool>().unwrap();
     assert!(value.clone().into_kagari(&mut cx, &wrong).is_err());
     assert_eq!(
-        value.clone().into_kagari(&mut cx, &expected).unwrap(),
-        Value::I32(42)
+        value
+            .clone()
+            .into_kagari(&mut cx, &expected)
+            .unwrap()
+            .inspect(&runtime, |view| view.as_i32())
+            .unwrap(),
+        42
     );
     let clone = thread::spawn(move || value.clone()).join().unwrap();
     let mut foreign = Runtime::default();
     let foreign_owner = allocation_owner(&mut foreign);
     let mut foreign_cx = ConversionContext::new(&foreign, &foreign_owner).unwrap();
     let foreign_type = foreign_cx.type_for::<i32>().unwrap();
-    assert!(clone.value(&foreign).is_err());
+    assert!(clone.inspect(&foreign, |view| view.as_i32()).is_err());
     assert!(
         clone
             .clone()
@@ -259,11 +409,11 @@ fn scalar_script_values_keep_type_owner_and_cross_thread_lifetime_without_roots(
     );
     drop(cx);
     runtime.collect_garbage().unwrap();
-    assert_eq!(clone.value(&runtime).unwrap(), Value::I32(42));
+    assert_eq!(clone.inspect(&runtime, |view| view.as_i32()).unwrap(), 42);
     runtime.resources().close_execution();
-    assert_eq!(clone.value(&runtime).unwrap(), Value::I32(42));
+    assert_eq!(clone.inspect(&runtime, |view| view.as_i32()).unwrap(), 42);
     drop(runtime);
-    assert!(clone.value(&foreign).is_err());
+    assert!(clone.inspect(&foreign, |view| view.as_i32()).is_err());
     thread::spawn(move || drop(clone)).join().unwrap();
 }
 
@@ -293,7 +443,9 @@ fn from_root_keeps_scalar_alias_mutation_and_attached_program_until_final_drop()
         .unwrap();
     let value = ScriptValue::from_root(root.clone(), expected, old.clone());
     let clone = value.clone();
-    root.set(runtime.gc(), Value::I32(2)).unwrap();
+    let replacement = runtime.root_value(Value::I32(2)).unwrap();
+    root.replace(runtime.gc(), &replacement).unwrap();
+    drop(replacement);
     assert_eq!(value.value(&runtime).unwrap(), Value::I32(2));
     assert_eq!(clone.value(&runtime).unwrap(), Value::I32(2));
     let candidate = runtime

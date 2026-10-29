@@ -613,10 +613,14 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
     let child: Opaque<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
     // Handwritten NativePayload is an advanced tracing boundary. The typed
     // native handle API itself never exposes a mutable traced field.
-    let root = ConversionContext::new(vm.runtime(), &owner)
-        .unwrap()
-        .encode_value(child.type_argument(), child.clone())
-        .unwrap();
+    let root = unsafe {
+        ConversionContext::new(vm.runtime(), &owner)
+            .unwrap()
+            .encode_value(child.type_argument(), child.clone())
+            .unwrap()
+            .value_transport(vm.runtime())
+    }
+    .unwrap();
     let parent = native.create(&mut cx, Edge(root), &[]).unwrap();
     drop(child);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
@@ -627,10 +631,14 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
         .select_program(&_foreign_owner_program)
         .unwrap();
     let child: Opaque<Counter> = foreign.execute_typed(&foreign_owner, "make", (0,)).unwrap();
-    let foreign_value = ConversionContext::new(foreign.runtime(), &foreign_owner)
-        .unwrap()
-        .encode_value(child.type_argument(), child.clone())
-        .unwrap();
+    let foreign_value = unsafe {
+        ConversionContext::new(foreign.runtime(), &foreign_owner)
+            .unwrap()
+            .encode_value(child.type_argument(), child.clone())
+            .unwrap()
+            .value_transport(foreign.runtime())
+    }
+    .unwrap();
     assert!(native.create(&mut cx, Edge(foreign_value), &[]).is_err());
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
     drop(parent);

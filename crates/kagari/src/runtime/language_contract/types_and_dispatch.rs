@@ -6,8 +6,14 @@ fn generic_aggregate_layout_instances() {
         "generic-aggregate-layout-instances",
         "pub struct Cell<T> { var value: T } pub enum Packet<T> { Data(T) } impl<T: PartialEq> PartialEq for Packet<T> { fn eq(self, other: Self) -> bool { match (self, other) { (Packet::Data(a), Packet::Data(b)) => a == b } } } pub enum Unused<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool, bool) { val a = Cell { value: 7 }; val b = Cell { value: true }; a.value = 8; (get(a), get(b), Packet::Data(7) == Packet::Data(7)) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(8), Value::Bool(true), Value::Bool(true)])
-                .unwrap()
+            unsafe {
+                heap.alloc_tuple_transport(vec![
+                    Value::I32(8),
+                    Value::Bool(true),
+                    Value::Bool(true),
+                ])
+            }
+            .unwrap()
         }),
     );
     run_routes(&generic_aggregates);
@@ -19,8 +25,7 @@ fn checked_where_bounds_through_forwarding() {
         "checked-where-bounds-through-forwarding",
         "use std::hash::{Hash};\ntrait Get { fn get(self) -> i32; } struct P {} impl Get for P { fn get(self) -> i32 { 42 } } fn read<T>(value: T) -> i32 where T: Get { value.get() } fn wrap<U>(value: U) -> i32 where U: Get { read(value) } fn pass<T>(value: T) -> T where T: Eq + Hash { value } fn main() -> (i32, i32) { (wrap(P {}), pass(7)) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(42), Value::I32(7)])
-                .unwrap()
+            unsafe { heap.alloc_tuple_transport(vec![Value::I32(42), Value::I32(7)]) }.unwrap()
         }),
     );
     run_routes(&checked_where_bounds);
@@ -32,8 +37,7 @@ fn nominal_trait_methods_on_one_receiver() {
         "nominal-trait-methods-on-one-receiver",
         "trait Left { fn get(self) -> i32; } trait Right { fn get(self) -> i32; } struct Point {} impl Left for Point { fn get(self) -> i32 { 11 } } impl Right for Point { fn get(self) -> i32 { 22 } } fn left<T: Left>(x: T) -> i32 { x.get() } fn right<T: Right>(x: T) -> i32 { x.get() } fn main() -> (i32, i32) { val p = Point {}; (left(p), right(p)) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(11), Value::I32(22)])
-                .unwrap()
+            unsafe { heap.alloc_tuple_transport(vec![Value::I32(11), Value::I32(22)]) }.unwrap()
         }),
     );
     run_routes(&distinct_trait_methods);
@@ -275,11 +279,13 @@ fn generic_values() {
         "generic-values",
         "fn echo<T>(x: T) -> T { x } fn pass<U>(x: U) -> U { echo(x) } fn main() -> (i32, bool, String) { (pass(7), pass(true), echo(\"ok\")) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![
-                Value::I32(7),
-                Value::Bool(true),
-                heap.alloc_string("ok".into()).unwrap(),
-            ])
+            unsafe {
+                heap.alloc_tuple_transport(vec![
+                    Value::I32(7),
+                    Value::Bool(true),
+                    heap.alloc_string_transport("ok".into()).unwrap(),
+                ])
+            }
             .unwrap()
         }),
     ));
@@ -300,8 +306,13 @@ fn generic_array_elements() {
         "generic-array-elements",
         "fn first<T>(xs: [T]) -> T { xs[0] } fn main() -> (i32, String) { (first([7]), first([\"ok\"])) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(7), heap.alloc_string("ok".into()).unwrap()])
-                .unwrap()
+            unsafe {
+                heap.alloc_tuple_transport(vec![
+                    Value::I32(7),
+                    heap.alloc_string_transport("ok".into()).unwrap(),
+                ])
+            }
+            .unwrap()
         }),
     ));
 }
@@ -312,7 +323,7 @@ fn generic_equality() {
         "generic-equality",
         "fn same<T: PartialEq>(a: T, b: T) -> bool { a == b } fn main() -> (bool, bool) { (same(1, 1), same(\"a\", \"b\")) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::Bool(true), Value::Bool(false)])
+            unsafe { heap.alloc_tuple_transport(vec![Value::Bool(true), Value::Bool(false)]) }
                 .unwrap()
         }),
     ));
@@ -374,8 +385,7 @@ fn generic_impl_specialization() {
         "generic-impl-specialization",
         "trait Get { fn get(self) -> i32; } struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(42), Value::I32(42)])
-                .unwrap()
+            unsafe { heap.alloc_tuple_transport(vec![Value::I32(42), Value::I32(42)]) }.unwrap()
         }),
     ));
 }
@@ -512,10 +522,12 @@ fn applied_trait_impls_share_receiver() {
         "applied-trait-impls-share-receiver",
         "trait Echo<T> { fn get(self) -> T; } struct Holder {} impl Echo<i32> for Holder { fn get(self) -> i32 { 42 } } impl Echo<String> for Holder { fn get(self) -> String { \"ok\" } } fn read_int<U: Echo<i32>>(x: U) -> i32 { x.get() } fn read_string<U: Echo<String>>(x: U) -> String { x.get() } fn main() -> (i32, String) { (read_int(Holder {}), read_string(Holder {})) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![
-                Value::I32(42),
-                heap.alloc_string("ok".into()).unwrap(),
-            ])
+            unsafe {
+                heap.alloc_tuple_transport(vec![
+                    Value::I32(42),
+                    heap.alloc_string_transport("ok".into()).unwrap(),
+                ])
+            }
             .unwrap()
         }),
     ));
@@ -581,8 +593,7 @@ fn generic_parameter_order() {
         "generic-parameter-order",
         "fn reverse<T, U>(first: U, second: T) -> (T, U) { (second, first) } fn main() -> (i32, bool) { reverse(true, 7) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true)])
-                .unwrap()
+            unsafe { heap.alloc_tuple_transport(vec![Value::I32(7), Value::Bool(true)]) }.unwrap()
         }),
     ));
 }
@@ -593,8 +604,7 @@ fn generic_numeric_instances() {
         "generic-numeric-instances",
         "use std::ops::Add; fn add<T: Add<T, Output = T>>(a: T, b: T) -> T { a + b } fn main() -> (i32, f32) { (add(1, 2), add(1.5, 2.5)) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(3), Value::F32(4.0)])
-                .unwrap()
+            unsafe { heap.alloc_tuple_transport(vec![Value::I32(3), Value::F32(4.0)]) }.unwrap()
         }),
     ));
 }
@@ -605,8 +615,7 @@ fn generic_same_storage_distinct_types() {
         "generic-same-storage-distinct-types",
         "trait Get { fn get(self) -> i32; } struct P { val n: i32 } struct Q { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } impl Get for Q { fn get(self) -> i32 { self.n + 1 } } fn read<T: Get>(value: T) -> i32 { value.get() } fn main() -> (i32, i32) { (read(P { n: 42 }), read(Q { n: 42 })) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(42), Value::I32(43)])
-                .unwrap()
+            unsafe { heap.alloc_tuple_transport(vec![Value::I32(42), Value::I32(43)]) }.unwrap()
         }),
     ));
 }

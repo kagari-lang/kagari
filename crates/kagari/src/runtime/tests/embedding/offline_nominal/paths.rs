@@ -5,7 +5,7 @@ use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{
     host::{HostCallContext, HostError, HostPathAdapter, PreparedHostPathWrite},
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
 };
 
 use kagari_types::ty::Ty;
@@ -41,14 +41,14 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
     let calls = trace.clone();
     schema
         .builder
-        .bind_path(
-            &path,
-            HostPathAdapter::new().with_read(move |context, _| {
+        .bind_path(&path, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(move |context, _| {
                 calls.lock().unwrap().push("read");
                 context.runtime().collect_garbage().unwrap();
                 Ok(Value::I32(42))
-            }),
-        )
+            })
+        })
         .unwrap();
     let expected = schema.required_types(&definitions);
     let providers = schema.providers.clone();
@@ -142,7 +142,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -255,13 +255,16 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         .unwrap();
     let calls = trace.clone();
     builder
-        .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
-            calls.lock().unwrap().push("make");
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            cx.runtime()
-                .gc()
-                .alloc_host_root(root)
-                .map_err(|error| HostError::new(error.to_string()))
+        .bind(make, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                calls.lock().unwrap().push("make");
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                cx.runtime()
+                    .gc()
+                    .alloc_host_root_transport(root)
+                    .map_err(|error| HostError::new(error.to_string()))
+            })
         })
         .unwrap();
     for (name, result) in [("first", 1), ("second", 2), ("rhs", 3)] {
@@ -275,19 +278,22 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             .unwrap();
         let calls = trace.clone();
         builder
-            .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
-                calls.lock().unwrap().push(name);
-                Ok(Value::I32(result))
+            .bind(function, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                    calls.lock().unwrap().push(name);
+                    Ok(Value::I32(result))
+                })
             })
             .unwrap();
     }
     let (reads, value) = (trace.clone(), state.clone());
     let (writes, target) = (trace.clone(), state.clone());
     builder
-        .bind_path(
-            &path,
+        .bind_path(&path, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |cx, path| {
+                .with_read_transport(move |cx, path| {
                     cx.runtime().collect_garbage().unwrap();
                     let values = path
                         .dynamic_args
@@ -301,7 +307,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                     reads.lock().unwrap().push("read");
                     Ok(Value::I32(value.load(Ordering::SeqCst)))
                 })
-                .with_prepare_write(move |cx, _, record| {
+                .with_prepare_write_transport(move |cx, _, record| {
                     cx.runtime().collect_garbage().unwrap();
                     writes.lock().unwrap().push("prepare");
                     let Value::I32(next) = record.new_value else {
@@ -312,8 +318,8 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                         writes.lock().unwrap().push("commit");
                         target.store(next, Ordering::SeqCst);
                     }))
-                }),
-        )
+                })
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let engine = KagariEngine::with_native_modules(Default::default(), vec![module]).unwrap();
@@ -374,7 +380,10 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         }
         .unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report
+                .return_value
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap(),
             Value::I32(13)
         );
         assert_eq!(state.load(Ordering::SeqCst), 13);
@@ -384,7 +393,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                 "make", "first", "second", "rhs", "read", "prepare", "commit", "read"
             ]
         );
-        let dirty = runtime.runtime().host_dirty_paths();
+        let dirty = unsafe { runtime.runtime().host_dirty_paths_transport() };
         assert_eq!(dirty.len(), 1);
         assert_eq!(dirty[0].old_value, Some(Value::I32(10)));
         assert_eq!(dirty[0].new_value, Value::I32(13));
@@ -433,15 +442,18 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             let (calls, times) = (trace.clone(), root_calls.clone());
             schema
                 .builder
-                .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                    calls.lock().unwrap().push("root");
-                    let object = if times.fetch_add(1, Ordering::SeqCst) == 0 {
-                        7
-                    } else {
-                        8
-                    };
-                    let root = cx.runtime().host().root(HostObjectId(object)).unwrap();
-                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+                .bind(make, unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                        calls.lock().unwrap().push("root");
+                        let object = if times.fetch_add(1, Ordering::SeqCst) == 0 {
+                            7
+                        } else {
+                            8
+                        };
+                        let root = cx.runtime().host().root(HostObjectId(object)).unwrap();
+                        Ok(cx.runtime().gc().alloc_host_root_transport(root).unwrap())
+                    })
                 })
                 .unwrap();
             let rhs = schema
@@ -459,21 +471,24 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             let (calls, value, absent) = (trace.clone(), state.clone(), removed.clone());
             schema
                 .builder
-                .bind(rhs, move |_: &HostCallContext<'_>, _: &[Value]| {
-                    calls.lock().unwrap().push("rhs");
-                    value.store(after_rhs, Ordering::SeqCst);
-                    absent.store(deleted, Ordering::SeqCst);
-                    Ok(Value::I32(rhs_value))
+                .bind(rhs, unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                        calls.lock().unwrap().push("rhs");
+                        value.store(after_rhs, Ordering::SeqCst);
+                        absent.store(deleted, Ordering::SeqCst);
+                        Ok(Value::I32(rhs_value))
+                    })
                 })
                 .unwrap();
             let (reads, value, absent) = (trace.clone(), state.clone(), removed.clone());
             let (writes, target) = (trace.clone(), state.clone());
             schema
                 .builder
-                .bind_path(
-                    &path,
+                .bind_path(&path, unsafe {
+                    // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
                     HostPathAdapter::new()
-                        .with_read(move |cx, path| {
+                        .with_read_transport(move |cx, path| {
                             assert_eq!(
                                 path.root,
                                 cx.runtime().host().root(HostObjectId(7)).unwrap()
@@ -484,7 +499,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                             }
                             Ok(Value::I32(value.load(Ordering::SeqCst)))
                         })
-                        .with_prepare_write(move |context, _, record| {
+                        .with_prepare_write_transport(move |context, _, record| {
                             writes.lock().unwrap().push("prepare");
                             context.runtime().collect_garbage().unwrap();
                             let Value::I32(next) = record.new_value else {
@@ -495,8 +510,8 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                                 writes.lock().unwrap().push("commit");
                                 target.store(next, Ordering::SeqCst);
                             }))
-                        }),
-                )
+                        })
+                })
                 .unwrap();
             let engine = schema.engine();
             let artifact = engine
@@ -576,7 +591,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                             vec!["root", "rhs", "read", "prepare", "commit"]
                         }
                     );
-                    let records = runtime.runtime().host_dirty_paths();
+                    let records = unsafe { runtime.runtime().host_dirty_paths_transport() };
                     assert_eq!(records.len(), 1);
                     assert_eq!(records[0].old_value, Some(Value::I32(after_rhs)));
                     assert_eq!(records[0].new_value, Value::I32(expected));
@@ -591,7 +606,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                             vec!["root", "rhs", "read"]
                         }
                     );
-                    assert!(runtime.runtime().host_dirty_paths().is_empty());
+                    assert!(unsafe { runtime.runtime().host_dirty_paths_transport() }.is_empty());
                 }
                 assert_eq!(runtime.runtime().gc().active_roots(), 0);
             }

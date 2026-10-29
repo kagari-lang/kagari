@@ -15,8 +15,8 @@ use kagari_runtime::{
         schema::TypeRegistration,
         typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
 };
 use std::{
     ops::{Deref, DerefMut},
@@ -50,7 +50,7 @@ impl<T: KagariType> FromKagari for ScriptVec<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         Self::check_type(cx, expected)?;
         let object = Opaque::<VecStorage>::from_kagari(cx, expected, value)?;
@@ -63,7 +63,7 @@ impl<T: KagariType> IntoKagari for ScriptVec<T> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.writable()?;
         Self::check_type(cx, expected)?;
         self.object.into_kagari(cx, expected)
@@ -116,7 +116,7 @@ impl<T: IntoKagari> IntoKagari for VecValues<T> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         Self::check_type(cx, expected)?;
         cx.check_elements(self.0.len())?;
         let ty = cx.native_type::<VecStorage>(expected)?;
@@ -131,7 +131,11 @@ impl<T: IntoKagari> IntoKagari for VecValues<T> {
             // Reuse the caller's conversion frame for depth, cycle and node limits.
             // Its roots protect all initialized entries until payload admission.
             let value = cx.encode_value(&element, value)?;
-            payload.values.push(value)?;
+            // SAFETY: The conversion frame retains each entry even after this
+            // local handle drops, until ty.create publishes the complete payload.
+            payload
+                .values
+                .push(unsafe { value.value_transport(cx.runtime()) }?)?;
         }
         ty.create(&mut native, payload, &[])?
             .into_kagari(cx, expected)
@@ -142,7 +146,7 @@ impl<T: FromKagari> FromKagari for VecValues<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         let source = ScriptVec::<T>::from_kagari(cx, expected, value)?;
         let native = NativeContext::new(cx.runtime(), cx.owner())?;

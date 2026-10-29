@@ -47,13 +47,21 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
     for helper in [false, true] {
         for mode in 0..=if helper { 4 } else { 6 } {
             let root = vm.execute(&loaded, "make").unwrap().return_value;
-            let value = root.value(vm.runtime().gc()).unwrap();
-            vm.invoke_interface_method(&value, &method("mode"), &[Value::I32(mode)])
-                .unwrap();
+            let value = unsafe { root.value_transport(vm.runtime().gc()) }.unwrap();
+            unsafe {
+                vm.invoke_interface_method_transport(&value, &method("mode"), &[Value::I32(mode)])
+            }
+            .unwrap();
             let result = if mode >= 5 {
-                vm.invoke_interface_method(&value, &method("hash_items"), &[])
+                unsafe { vm.invoke_interface_method_transport(&value, &method("hash_items"), &[]) }
             } else {
-                vm.invoke_interface_method(&value, &method("compare"), &[Value::Bool(helper)])
+                unsafe {
+                    vm.invoke_interface_method_transport(
+                        &value,
+                        &method("compare"),
+                        &[Value::Bool(helper)],
+                    )
+                }
             };
             match mode {
                 0 => assert_eq!(result.unwrap(), Value::Bool(true)),
@@ -74,16 +82,16 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
             }
             assert_eq!(vm.runtime().gc().active_roots(), 1);
             assert!(!vm.runtime().is_quarantined());
-            let calls = vm
-                .invoke_interface_method(&value, &method("calls"), &[])
-                .unwrap();
+            let calls =
+                unsafe { vm.invoke_interface_method_transport(&value, &method("calls"), &[]) }
+                    .unwrap();
             if mode == 4 || mode == 6 {
                 assert!(matches!(calls, Value::I32(count) if count > 1));
             } else {
                 assert_eq!(calls, Value::I32(1));
             }
             assert_eq!(
-                vm.invoke_interface_method(&value, &method("size"), &[])
+                unsafe { vm.invoke_interface_method_transport(&value, &method("size"), &[]) }
                     .unwrap(),
                 Value::U64(if matches!(mode, 1 | 2 | 5) { 0 } else { 1 }),
             );
@@ -94,22 +102,29 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
     }
     for limit in [1, 16, 32] {
         let root = vm.execute(&loaded, "make").unwrap().return_value;
-        let value = root.value(vm.runtime().gc()).unwrap();
-        vm.invoke_interface_method(&value, &method("mode"), &[Value::I32(4)])
+        let value = unsafe { root.value_transport(vm.runtime().gc()) }.unwrap();
+        unsafe { vm.invoke_interface_method_transport(&value, &method("mode"), &[Value::I32(4)]) }
             .unwrap();
         let session = support::cancel_after(vm.runtime(), &loaded, limit);
-        let error = vm
-            .invoke_interface_method(&value, &method("compare"), &[Value::Bool(true)])
-            .unwrap_err();
+        let error = unsafe {
+            vm.invoke_interface_method_transport(&value, &method("compare"), &[Value::Bool(true)])
+        }
+        .unwrap_err();
         drop(session);
         assert!(format!("{error:?}").contains("cancel"), "{error:?}");
         assert_eq!(vm.runtime().gc().active_roots(), 1);
         assert!(!vm.runtime().is_quarantined());
-        vm.invoke_interface_method(&value, &method("mode"), &[Value::I32(0)])
+        unsafe { vm.invoke_interface_method_transport(&value, &method("mode"), &[Value::I32(0)]) }
             .unwrap();
         assert_eq!(
-            vm.invoke_interface_method(&value, &method("compare"), &[Value::Bool(true)])
-                .unwrap(),
+            unsafe {
+                vm.invoke_interface_method_transport(
+                    &value,
+                    &method("compare"),
+                    &[Value::Bool(true)],
+                )
+            }
+            .unwrap(),
             Value::Bool(true)
         );
         drop(root);

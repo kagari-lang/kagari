@@ -12,6 +12,7 @@ use kagari_runtime::{
     native::{
         builder::ModuleBuilder,
         declarations::FunctionDecl,
+        host::HostCallback,
         module::NativeModule,
         types::{TraitRef, Type, TypeRef},
     },
@@ -121,18 +122,21 @@ impl Fixture {
                             },
                         },
                     )?;
-                    methods.bind("read", move |cx: &HostCallContext<'_>, args: &[Value]| {
-                        let [Value::HostRoot(_), Value::I32(amount)] = args else {
-                            panic!("checked host arguments")
-                        };
-                        calls.lock().unwrap().push(*amount);
-                        let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-                        assert!(
-                            cx.borrows()
-                                .borrow_unique(root.object_id(), root.type_id())
-                                .is_err()
-                        );
-                        read(cx, args)
+                    methods.bind("read", unsafe {
+                        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                        HostCallback::new(move |cx: &HostCallContext<'_>, args: &[Value]| {
+                            let [Value::HostRoot(_), Value::I32(amount)] = args else {
+                                panic!("checked host arguments")
+                            };
+                            calls.lock().unwrap().push(*amount);
+                            let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
+                            assert!(
+                                cx.borrows()
+                                    .borrow_unique(root.object_id(), root.type_id())
+                                    .is_err()
+                            );
+                            read(cx, args)
+                        })
                     })
                 })
             })
@@ -159,10 +163,13 @@ impl Fixture {
             .unwrap();
         let calls = trace.clone();
         module
-            .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                calls.lock().unwrap().push(0);
-                let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+            .bind(make, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                    calls.lock().unwrap().push(0);
+                    let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
+                    Ok(cx.runtime().gc().alloc_host_root_transport(root).unwrap())
+                })
             })
             .unwrap();
         let module = module.finish().unwrap();

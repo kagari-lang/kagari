@@ -49,20 +49,18 @@ fn generic_operation_environment_does_not_root_its_callback_cycle() {
         .unwrap();
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
-    let closure = vm
-        .execute(&old, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let closure_root = vm.execute(&old, "make").unwrap().return_value;
+    // SAFETY: closure_root protects this value through its uses and traced publication.
+    let closure = unsafe { closure_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
     assert!(
-        vm.runtime()
-            .resolve_closure(&closure)
+        unsafe { vm.runtime().resolve_closure_transport(&closure) }
             .unwrap()
             .environment
             .is_some()
     );
-    let root = vm.runtime().root_value(closure).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(closure) }.unwrap();
+    drop(closure_root);
     vm.reload_program(&_old_program, Some("generic-cycle".into()), code)
         .unwrap();
     let retained = vm.runtime().collect_garbage().unwrap();
@@ -71,7 +69,7 @@ fn generic_operation_environment_does_not_root_its_callback_cycle() {
     drop(root);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.live_objects, 0);
-    assert!(!vm.runtime().gc().validate_value(&closure));
+    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&closure) });
     assert_reclaimed(
         vm.runtime(),
         &old,
@@ -89,25 +87,24 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .unwrap();
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
-    let value = vm
-        .execute(&old, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let old_snapshot = (*vm.runtime().resolve_closure(&value).unwrap()).clone();
+    let old_root = vm.execute(&old, "make").unwrap().return_value;
+    // SAFETY: old_root protects this value through its uses and traced publication.
+    let value =
+        unsafe { old_root.value_transport(vm.runtime().gc()) }.expect("retained execution result");
+    let old_snapshot =
+        (*unsafe { vm.runtime().resolve_closure_transport(&value) }.unwrap()).clone();
+    drop(old_root);
     vm.reload_program(&_old_program, Some("environment".into()), code.clone())
         .unwrap();
     let _current_program = _old_program.clone();
     let current = vm.runtime().select_program(&_current_program).unwrap();
-    let value = vm
-        .execute(&current, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&current, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let current_root = vm.runtime().root_value(value).unwrap();
-    let snapshot = (*vm.runtime().resolve_closure(&value).unwrap()).clone();
+    let current_root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
+    let snapshot = (*unsafe { vm.runtime().resolve_closure_transport(&value) }.unwrap()).clone();
     assert!(
         vm.runtime()
             .collect_garbage()
@@ -116,41 +113,43 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
             .contains(&old.key())
     );
     let before = vm.runtime().resources().counters();
-    let failure = vm
-        .runtime()
-        .make_closure(
+    let failure = unsafe {
+        vm.runtime().make_closure_transport(
             &snapshot.implementation,
             snapshot.script_function().unwrap(),
             snapshot.captures.clone(),
             old_snapshot.environment.clone(),
         )
-        .unwrap_err();
+    }
+    .unwrap_err();
     assert_eq!(failure.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(!vm.runtime().is_quarantined());
     assert_eq!(vm.runtime().resources().counters(), before);
     assert!(
-        vm.runtime()
-            .make_closure(
+        unsafe {
+            vm.runtime().make_closure_transport(
                 &snapshot.implementation,
                 snapshot.script_function().unwrap(),
                 snapshot.captures.clone(),
                 snapshot.environment.clone(),
             )
-            .is_ok()
+        }
+        .is_ok()
     );
     drop(current_root);
     let unrooted = vm.runtime().collect_garbage().unwrap();
     assert_eq!(unrooted.live_objects, 0);
     // Published application descriptors retain reusable environments, not values.
     assert!(
-        vm.runtime()
-            .make_closure(
+        unsafe {
+            vm.runtime().make_closure_transport(
                 &snapshot.implementation,
                 snapshot.script_function().unwrap(),
                 snapshot.captures.clone(),
                 snapshot.environment.clone(),
             )
-            .is_ok()
+        }
+        .is_ok()
     );
     vm.reload_program(&_current_program, Some("environment".into()), code)
         .unwrap();
@@ -165,15 +164,15 @@ fn detached_environment_snapshots_cannot_republish_released_executable_dependenc
         .validate_executable_module(&replacement)
         .unwrap();
     let before = vm.runtime().resources().counters();
-    let failure = vm
-        .runtime()
-        .make_closure(
+    let failure = unsafe {
+        vm.runtime().make_closure_transport(
             &replacement,
             snapshot.script_function().unwrap(),
             snapshot.captures.clone(),
             snapshot.environment.clone(),
         )
-        .unwrap_err();
+    }
+    .unwrap_err();
     assert_eq!(failure.kind(), RuntimeErrorKind::ModuleValidation);
     assert_eq!(vm.runtime().resources().counters(), before);
     assert!(!vm.runtime().is_quarantined());
@@ -189,7 +188,7 @@ fn assert_reclaimed(runtime: &Runtime, old: &ExecutableModule, reclaimed: &HashS
     for member in old.members() {
         assert!(reclaimed.contains(&member.key()));
         assert!(runtime.modules().loaded(member.key()).is_none());
-        assert!(runtime.module_instance_snapshot(&member).is_none());
+        assert!(unsafe { runtime.module_instance_snapshot_transport(&member) }.is_none());
     }
 }
 
@@ -199,13 +198,12 @@ fn old_callback_cycle_is_retained_only_by_external_roots() {
     let old = vm.runtime_mut().load_program("cycle", program(42)).unwrap();
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
-    let closure = vm
-        .execute(&old, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&old, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let closure = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(closure).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(closure) }.unwrap();
+    drop(source_root);
     vm.reload_program(&_old_program, Some("cycle".into()), program(99))
         .unwrap();
     let _current_program = _old_program.clone();
@@ -213,7 +211,7 @@ fn old_callback_cycle_is_retained_only_by_external_roots() {
     let first = vm.runtime().collect_garbage().unwrap();
     assert!(!first.reclaimed_modules.contains(&old.key()));
     assert_eq!(first.live_objects, 2);
-    let snapshot = vm.runtime().resolve_closure(&closure).unwrap();
+    let snapshot = unsafe { vm.runtime().resolve_closure_transport(&closure) }.unwrap();
     assert_eq!(snapshot.implementation.key(), old.key());
     let implementation = snapshot.implementation.clone();
     drop(snapshot);
@@ -222,7 +220,7 @@ fn old_callback_cycle_is_retained_only_by_external_roots() {
         vm.execute(&implementation, "answer")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(99)
     );
@@ -230,7 +228,7 @@ fn old_callback_cycle_is_retained_only_by_external_roots() {
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.reclaimed_objects, 2);
     assert_eq!(collected.live_objects, 0);
-    assert!(!vm.runtime().gc().validate_value(&closure));
+    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&closure) });
     assert_reclaimed(
         vm.runtime(),
         &old,
@@ -252,20 +250,16 @@ fn cycles_between_obsolete_programs_are_collected_together() {
         .unwrap();
     let _right_program = right;
     let right = vm.runtime().select_program(&_right_program).unwrap();
-    let from_left = vm
-        .execute(&left, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let left_root = vm.execute(&left, "make").unwrap().return_value;
+    // SAFETY: left_root protects this value through its uses and traced publication.
+    let from_left =
+        unsafe { left_root.value_transport(vm.runtime().gc()) }.expect("retained execution result");
+    let right_root = vm.execute(&right, "make").unwrap().return_value;
+    // SAFETY: right_root protects this value through its uses and traced publication.
+    let from_right = unsafe { right_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let from_right = vm
-        .execute(&right, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let left_snapshot = vm.runtime().resolve_closure(&from_left).unwrap();
-    let right_snapshot = vm.runtime().resolve_closure(&from_right).unwrap();
+    let left_snapshot = unsafe { vm.runtime().resolve_closure_transport(&from_left) }.unwrap();
+    let right_snapshot = unsafe { vm.runtime().resolve_closure_transport(&from_right) }.unwrap();
     let Value::Array(left_array) = left_snapshot.captures[0] else {
         panic!("callback array")
     };
@@ -273,15 +267,20 @@ fn cycles_between_obsolete_programs_are_collected_together() {
         panic!("callback array")
     };
     drop((left_snapshot, right_snapshot));
-    vm.runtime()
-        .gc()
-        .array_set(left_array, 0, from_right)
-        .unwrap();
-    vm.runtime()
-        .gc()
-        .array_set(right_array, 0, from_left)
-        .unwrap();
-    let root = vm.runtime().root_value(from_right).unwrap();
+    unsafe {
+        vm.runtime()
+            .gc()
+            .array_set_transport(left_array, 0, from_right)
+    }
+    .unwrap();
+    unsafe {
+        vm.runtime()
+            .gc()
+            .array_set_transport(right_array, 0, from_left)
+    }
+    .unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(from_right) }.unwrap();
+    drop((left_root, right_root));
     vm.reload_program(&_left_program, Some("left".into()), code.clone())
         .unwrap();
     let _newer_left_program = _left_program.clone();

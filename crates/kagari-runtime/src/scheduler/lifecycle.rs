@@ -85,7 +85,7 @@ impl Runtime {
     /// quarantined and do not prevent retiring other owners. Repeated close is safe.
     pub fn close(&self) -> NativeResult<()> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         if self.scheduler.driving.get() {
             return Err(RuntimeError::module_validation(
                 "close during scheduler turn",

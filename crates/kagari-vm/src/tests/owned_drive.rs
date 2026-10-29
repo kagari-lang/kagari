@@ -18,7 +18,7 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, conversion::context::ConversionContext,
-        declarations::FunctionDecl, typed::NativeContext,
+        declarations::FunctionDecl, host::HostCallback, typed::NativeContext,
     },
     resource::RuntimeLimits,
     session::ExecutionOptions,
@@ -122,7 +122,10 @@ fn resumed_frames_select_current_direct_recursive_shared_and_module_calls() {
             DriveResult::Runnable => {}
             DriveResult::Waiting => panic!("synchronous calls cannot wait"),
             DriveResult::Complete(value) => {
-                result = value.unwrap().value(vm.runtime().gc());
+                result = value
+                    .unwrap()
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                    .ok();
                 break;
             }
         }
@@ -160,18 +163,26 @@ fn async_owned_drive_contract() {
         },
         ..Default::default()
     });
-    logging_module(move |context, args| {
-        let root = context.runtime().execution_root().unwrap();
-        assert!(
-            context
-                .runtime()
-                .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
-                .is_err()
-        );
-        let nested = reenter(context, &root, ping, &[]).unwrap();
-        assert_eq!(nested.value(context.runtime().gc()), Some(Value::I32(7)));
-        received.lock().unwrap().extend_from_slice(args);
-        Ok(Value::Unit)
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(move |context, args| {
+            let root = context.runtime().execution_root().unwrap();
+            assert!(
+                context
+                    .runtime()
+                    .start_owned_execution_transport(&root, ping, &[], ExecutionOptions::default())
+                    .is_err()
+            );
+            let nested = reenter(context, &root, ping, &[]).unwrap();
+            assert_eq!(
+                nested
+                    .inspect(context.runtime(), |view| view.as_i32().map(Value::I32))
+                    .ok(),
+                Some(Value::I32(7))
+            );
+            received.lock().unwrap().extend_from_slice(args);
+            Ok(Value::Unit)
+        })
     })
     .install(&mut runtime)
     .unwrap();
@@ -180,10 +191,12 @@ fn async_owned_drive_contract() {
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let synchronous = vm.execute(&loaded, ProgramEntry::Main).unwrap();
-    let Value::Array(expected) = synchronous.return_value.value(vm.runtime().gc()).unwrap() else {
+    let Value::Array(expected) =
+        unsafe { synchronous.return_value.value_transport(vm.runtime().gc()) }.unwrap()
+    else {
         panic!("array output")
     };
-    let expected = vm.runtime().gc().array_snapshot(expected).unwrap();
+    let expected = unsafe { vm.runtime().gc().array_snapshot_transport(expected) }.unwrap();
     assert_eq!(expected, vec![Value::I32(9), Value::I32(1)]);
     events.lock().unwrap().clear();
     let first = vm
@@ -218,10 +231,15 @@ fn async_owned_drive_contract() {
                 DriveResult::Waiting => panic!("synchronous loop cannot wait"),
                 DriveResult::Complete(result) => {
                     let value = result.unwrap();
-                    let Value::Array(id) = value.value(vm.runtime().gc()).unwrap() else {
+                    let Value::Array(id) =
+                        unsafe { value.value_transport(vm.runtime().gc()) }.unwrap()
+                    else {
                         panic!("array output")
                     };
-                    assert_eq!(vm.runtime().gc().array_snapshot(id).unwrap(), expected);
+                    assert_eq!(
+                        unsafe { vm.runtime().gc().array_snapshot_transport(id) }.unwrap(),
+                        expected
+                    );
                     complete[index] = true;
                 }
             }
@@ -333,7 +351,10 @@ fn async_owned_drive_contract() {
     assert!(!vm.runtime().resources().is_quarantined());
     let result = vm.execute(&loaded, "ping").unwrap();
     assert_eq!(
-        result.return_value.value(vm.runtime().gc()).unwrap(),
+        result
+            .return_value
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+            .unwrap(),
         Value::I32(7)
     );
     let shutdown = vm
@@ -364,9 +385,12 @@ fn async_owned_drive_contract_iterator_invalidation() {
     let seen = Arc::new(Mutex::new(0));
     let observed = seen.clone();
     let mut runtime = standard_runtime(Default::default());
-    logging_module(move |_, _| {
-        *observed.lock().unwrap() += 1;
-        Ok(Value::Unit)
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(move |_, _| {
+            *observed.lock().unwrap() += 1;
+            Ok(Value::Unit)
+        })
     })
     .install(&mut runtime)
     .unwrap();
@@ -380,7 +404,7 @@ fn async_owned_drive_contract_iterator_invalidation() {
     for exit in 0..4 {
         *seen.lock().unwrap() = 0;
         let source = vm.execute(&loaded, "make").unwrap().return_value;
-        let value = source.value(vm.runtime().gc()).unwrap();
+        let value = unsafe { source.value_transport(vm.runtime().gc()) }.unwrap();
         let vector: ScriptVec<i32> = ConversionContext::new(vm.runtime(), &loaded)
             .unwrap()
             .decode(&source)
@@ -403,7 +427,8 @@ fn async_owned_drive_contract_iterator_invalidation() {
             vm.execute(&loaded, "ping")
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc()),
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                .ok(),
             Some(Value::I32(42))
         );
         if exit != 0 {
@@ -418,7 +443,10 @@ fn async_owned_drive_contract_iterator_invalidation() {
                 for _ in 0..100 {
                     if let DriveResult::Complete(result) = vm.drive(&owner, slice).unwrap() {
                         assert_eq!(
-                            result.unwrap().value(vm.runtime().gc()),
+                            result
+                                .unwrap()
+                                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                                .ok(),
                             Some(Value::I32(24))
                         );
                         finished = true;

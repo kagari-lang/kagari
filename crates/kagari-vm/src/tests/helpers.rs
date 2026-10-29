@@ -24,7 +24,10 @@ use kagari_runtime::{
         HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
         HostSchemaEpoch, PreparedHostPathWrite,
     },
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
+    native::{
+        builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback,
+        module::NativeModule,
+    },
     value::Value,
 };
 
@@ -90,9 +93,12 @@ fn player_module() -> NativeModule {
         )
         .unwrap();
     module
-        .bind(entry, |cx: &HostCallContext<'_>, _: &[Value]| {
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+        .bind(entry, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|cx: &HostCallContext<'_>, _: &[Value]| {
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                Ok(cx.runtime().gc().alloc_host_root_transport(root).unwrap())
+            })
         })
         .unwrap();
     module.finish().unwrap()
@@ -135,11 +141,11 @@ fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>
     let read_hp = Arc::clone(&hp);
     let write_hp = Arc::clone(&hp);
     runtime
-        .register_host_path_adapter(
-            descriptor_id,
+        .register_host_path_adapter(descriptor_id, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(*read_hp.lock().unwrap())))
-                .with_prepare_write(move |_, _, record| {
+                .with_read_transport(move |_, _| Ok(Value::I32(*read_hp.lock().unwrap())))
+                .with_prepare_write_transport(move |_, _, record| {
                     let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
                     };
@@ -147,8 +153,8 @@ fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>
                     Ok(PreparedHostPathWrite::new(move || {
                         *write_hp.lock().unwrap() = value;
                     }))
-                }),
-        )
+                })
+        })
         .unwrap();
 
     (runtime, hp)

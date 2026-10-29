@@ -90,22 +90,25 @@ pub fn make()->(Test,HashSet<Key>) {
     };
     let vm = Vm::new(runtime);
     for mode in 1..=4 {
-        let value = vm
-            .execute(&loaded, "make")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
+        let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+        // SAFETY: The source remains retained until the independent data root is published.
+        let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
             .expect("retained execution result");
-        let root = vm.runtime().root_value(value).unwrap();
+        let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+        drop(source_root);
         let Value::Tuple(values) = value else {
             panic!("tuple")
         };
-        let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-        vm.invoke_interface_method(&values[0], &method("mode"), &[Value::I32(mode)])
-            .unwrap();
-        let error = vm
-            .invoke_interface_method(&values[0], &method("attempt"), &[])
-            .unwrap_err();
+        let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+            .unwrap()
+            .to_vec();
+        unsafe {
+            vm.invoke_interface_method_transport(&values[0], &method("mode"), &[Value::I32(mode)])
+        }
+        .unwrap();
+        let error =
+            unsafe { vm.invoke_interface_method_transport(&values[0], &method("attempt"), &[]) }
+                .unwrap_err();
         let message = format!("{error:?}");
         assert!(
             message.contains(if mode == 1 || mode == 3 {
@@ -119,22 +122,21 @@ pub fn make()->(Test,HashSet<Key>) {
         );
         assert!(matches!(values[1], Value::GcHandle(_)));
         assert_eq!(
-            vm.invoke_interface_method(&values[0], &method("len"), &[])
+            unsafe { vm.invoke_interface_method_transport(&values[0], &method("len"), &[]) }
                 .unwrap(),
             Value::U64(1)
         );
         assert_eq!(vm.runtime().gc().active_roots(), 1);
         if mode <= 2 {
             assert_eq!(
-                vm.invoke_interface_method(&values[0], &method("calls"), &[])
+                unsafe { vm.invoke_interface_method_transport(&values[0], &method("calls"), &[]) }
                     .unwrap(),
                 Value::I32(1)
             );
         }
-        vm.invoke_interface_method(&values[0], &method("clear"), &[])
-            .unwrap();
+        unsafe { vm.invoke_interface_method_transport(&values[0], &method("clear"), &[]) }.unwrap();
         assert_eq!(
-            vm.invoke_interface_method(&values[0], &method("len"), &[])
+            unsafe { vm.invoke_interface_method_transport(&values[0], &method("len"), &[]) }
                 .unwrap(),
             Value::U64(0)
         );
@@ -143,60 +145,60 @@ pub fn make()->(Test,HashSet<Key>) {
     }
 
     // Nested reads use a second guard; dropping it must preserve the outer guard.
-    let value = vm
-        .execute(&loaded, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     let Value::Tuple(values) = value else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    vm.invoke_interface_method(&values[0], &method("mode"), &[Value::I32(5)])
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
+    unsafe { vm.invoke_interface_method_transport(&values[0], &method("mode"), &[Value::I32(5)]) }
         .unwrap();
-    vm.invoke_interface_method(&values[0], &method("attempt"), &[])
-        .unwrap();
+    unsafe { vm.invoke_interface_method_transport(&values[0], &method("attempt"), &[]) }.unwrap();
     assert!(matches!(values[1], Value::GcHandle(_)));
     assert_eq!(
-        vm.invoke_interface_method(&values[0], &method("len"), &[])
-            .unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&values[0], &method("len"), &[]) }.unwrap(),
         Value::U64(2)
     );
     assert_eq!(vm.runtime().gc().active_roots(), 1);
     drop(root);
 
     for limit in [2, 12, 24, 40] {
-        let value = vm
-            .execute(&loaded, "make")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
+        let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+        // SAFETY: The source remains retained until the independent data root is published.
+        let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
             .expect("retained execution result");
-        let root = vm.runtime().root_value(value).unwrap();
+        let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+        drop(source_root);
         let Value::Tuple(values) = value else {
             panic!("tuple")
         };
-        let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+        let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+            .unwrap()
+            .to_vec();
         assert!(matches!(values[1], Value::GcHandle(_)));
         let _options = vm.runtime().execution_options();
 
         let session = support::cancel_after(vm.runtime(), &loaded, limit);
-        let result = vm.invoke_interface_method(&values[0], &method("attempt"), &[]);
+        let result =
+            unsafe { vm.invoke_interface_method_transport(&values[0], &method("attempt"), &[]) };
         drop(session);
         if result.is_err() {
             assert_eq!(
-                vm.invoke_interface_method(&values[0], &method("len"), &[])
+                unsafe { vm.invoke_interface_method_transport(&values[0], &method("len"), &[]) }
                     .unwrap(),
                 Value::U64(1)
             );
         }
         assert_eq!(vm.runtime().gc().active_roots(), 1);
-        vm.invoke_interface_method(&values[0], &method("clear"), &[])
-            .unwrap();
+        unsafe { vm.invoke_interface_method_transport(&values[0], &method("clear"), &[]) }.unwrap();
         assert_eq!(
-            vm.invoke_interface_method(&values[0], &method("len"), &[])
+            unsafe { vm.invoke_interface_method_transport(&values[0], &method("len"), &[]) }
                 .unwrap(),
             Value::U64(0)
         );

@@ -215,7 +215,20 @@ impl Display for ResultFailure {
 }
 
 impl Runtime {
-    pub fn result_failure(&self, value: &Value) -> Option<ResultFailure> {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn result_failure_transport(&self, value: &Value) -> Option<ResultFailure> {
+        self.result_failure(value)
+    }
+
+    pub(crate) fn result_failure(&self, value: &Value) -> Option<ResultFailure> {
         let trace = self.gc.result_error_trace(value)?;
         let Value::Enum(id) = value else {
             return None;
@@ -236,7 +249,25 @@ impl Runtime {
         Some(ResultFailure { message, trace })
     }
 
-    pub fn forward_enum_origin(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn forward_enum_origin_transport(
+        &self,
+        owner: &ExecutableModule,
+        original: &Value,
+        value: &Value,
+    ) -> Result<Value, RuntimeError> {
+        self.forward_enum_origin(owner, original, value)
+    }
+
+    pub(crate) fn forward_enum_origin(
         &self,
         owner: &ExecutableModule,
         original: &Value,

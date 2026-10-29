@@ -117,7 +117,7 @@ impl GcHeap {
             }
         }
         self.resources.ensure_not_publishing()?;
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.resources.ensure_execution_allowed()?;
         let mut invocation = Invocation::new(self, entry);
         let mut kind = ServiceKind::Normal;

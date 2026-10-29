@@ -164,14 +164,14 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 if operation.checked() {
                     methods.define(declaration.implementation_with_send(move |view| {
                         let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?;
-                        Ok(NativeBinding::new(parameters, result, move |cx| {
+                        Ok(unsafe { NativeBinding::new_transport(parameters, result, move |cx| {
                             // Checked outcomes are bare scalars, so no temporary heap root is needed.
                             let value = invoke(cx, operation, receiver)?;
                             enums::option(&symbols, cx, value)
-                        }))
+                        }) })
                     }))?;
                 } else {
-                    methods.define(declaration.implementation_send(NativeBinding::new(
+                    methods.define(declaration.implementation_send(unsafe { NativeBinding::new_transport(
                         parameters,
                         result,
                         move |cx| {
@@ -180,7 +180,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                                 RuntimeError::module_validation("integer policy result missing")
                             })
                         },
-                    )))?;
+                    ) }))?;
                 }
             }
             Ok(())
@@ -194,6 +194,9 @@ fn invoke(
     operation: IntegerMethod,
     receiver: BuiltinType,
 ) -> NativeResult<Option<Value>> {
-    let arguments = [cx.argument(0)?, cx.argument(1)?];
-    numeric::integer_method(cx.heap(), operation, receiver, &arguments)
+    // SAFETY: Both scalar inputs remain in the call frame through checked numeric conversion.
+    let arguments = [unsafe { cx.argument_transport(0) }?, unsafe {
+        cx.argument_transport(1)
+    }?];
+    unsafe { numeric::integer_method_transport(cx.heap(), operation, receiver, &arguments) }
 }

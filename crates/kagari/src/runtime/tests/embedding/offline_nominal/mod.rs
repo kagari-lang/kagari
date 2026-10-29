@@ -18,7 +18,7 @@ use kagari_runtime::{
         PreparedHostPathWrite,
     },
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
@@ -131,10 +131,13 @@ fn assert_source_index_path(field_prefix: bool) {
         .unwrap();
     let calls = trace.clone();
     builder
-        .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
-            calls.lock().unwrap().push("make");
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+        .bind(make, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                calls.lock().unwrap().push("make");
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                Ok(cx.runtime().gc().alloc_host_root_transport(root).unwrap())
+            })
         })
         .unwrap();
     for (name, result) in [("index", 1), ("rhs", 2)] {
@@ -148,26 +151,29 @@ fn assert_source_index_path(field_prefix: bool) {
             .unwrap();
         let calls = trace.clone();
         builder
-            .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
-                calls.lock().unwrap().push(name);
-                Ok(Value::I32(result))
+            .bind(function, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                    calls.lock().unwrap().push(name);
+                    Ok(Value::I32(result))
+                })
             })
             .unwrap();
     }
     let (reads, value) = (trace.clone(), state.clone());
     let (writes, target) = (trace.clone(), state.clone());
     builder
-        .bind_path(
-            &path,
+        .bind_path(&path, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |_, path| {
+                .with_read_transport(move |_, path| {
                     if path.dynamic_args.as_slice()[0].value != Value::I32(1) {
                         return Err(HostError::new("unexpected index"));
                     }
                     reads.lock().unwrap().push("read");
                     Ok(Value::I32(value.load(Ordering::SeqCst)))
                 })
-                .with_prepare_write(move |_, _, record| {
+                .with_prepare_write_transport(move |_, _, record| {
                     writes.lock().unwrap().push("prepare");
                     let Value::I32(next) = record.new_value else {
                         return Err(HostError::new("expected i32"));
@@ -177,8 +183,8 @@ fn assert_source_index_path(field_prefix: bool) {
                         writes.lock().unwrap().push("commit");
                         target.store(next, Ordering::SeqCst);
                     }))
-                }),
-        )
+                })
+        })
         .unwrap();
     let engine =
         KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
@@ -247,7 +253,10 @@ fn assert_source_index_path(field_prefix: bool) {
         }
         .unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report
+                .return_value
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap(),
             Value::I32(12)
         );
         assert_eq!(state.load(Ordering::SeqCst), 12);

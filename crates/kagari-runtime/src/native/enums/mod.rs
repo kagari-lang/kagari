@@ -106,7 +106,7 @@ impl<A: IntoKagariArguments> EnumVariant<A> {
         let record = &self.record;
         let ty = &record.member.enum_type;
         let runtime = cx.runtime();
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(ty.owner())?;
         cx.poll()?;

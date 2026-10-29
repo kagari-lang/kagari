@@ -25,7 +25,10 @@ use kagari_runtime::{
     frame::driver::ReturnAction,
     host::HostCallContext,
     module::ExecutableModule,
-    native::{binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog},
+    native::{
+        binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
+        context::ScriptInvoker, host::HostCallback,
+    },
     session::TraceValue,
     value::Value,
 };
@@ -80,17 +83,21 @@ fn cold_declarations() -> Result<DefinitionMetadata<ModuleDecl>, Box<dyn Error>>
 
 fn invoke_limit(runtime: &Runtime, owner: &ExecutableModule) -> NativeResult<Value> {
     let stack = runtime.enter_execution_stack(owner)?;
-    stack.push_callable(
-        runtime,
-        owner.clone(),
-        CallableTarget::Native(NativeImportId::new(0)),
-        &[],
-        None,
-    )?;
-    stack.start_native_entry(runtime, |_, _, _, _| {
-        unreachable!("limit never calls script")
+    unsafe {
+        stack.push_callable_transport(
+            runtime,
+            owner.clone(),
+            CallableTarget::Native(NativeImportId::new(0)),
+            &[],
+            None,
+        )
+    }?;
+    stack.start_native_entry(runtime, unsafe {
+        // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+        ScriptInvoker::new(|_, _, _, _| unreachable!("limit never calls script"))
     })?;
-    let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
+    let ReturnAction::Complete(value) = unsafe { stack.finish_native_return_transport(runtime) }?
+    else {
         panic!("root native return");
     };
     Ok(value)
@@ -175,8 +182,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         ModuleBuilder::from_declaration(cold, &DeclarationCatalog::default(), BTreeMap::new())?;
     let function = builder.declared_function("limit")?;
     let immutable_limit = 42;
-    builder.bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
-        Ok(Value::I32(immutable_limit))
+    builder.bind(function, unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+            Ok(Value::I32(immutable_limit))
+        })
     })?;
     let installed = builder.finish()?;
     let mut runtime = Runtime::default();

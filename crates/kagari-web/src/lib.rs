@@ -146,10 +146,15 @@ impl BrowserSession {
             .select_program(module)
             .map_err(EmbeddingError::from)
             .and_then(|module| {
-                self.runtime
-                    .backend()
-                    .start(&module, ProgramEntry::Main, &[], Default::default())
-                    .map_err(EmbeddingError::from)
+                unsafe {
+                    self.runtime.backend().start_transport(
+                        &module,
+                        ProgramEntry::Main,
+                        &[],
+                        Default::default(),
+                    )
+                }
+                .map_err(EmbeddingError::from)
             });
         match result {
             Ok(active) => {

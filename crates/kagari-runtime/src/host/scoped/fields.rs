@@ -112,8 +112,11 @@ impl HostBorrowTable {
             |[pointer]| {
                 // SAFETY: The entire path's exact Rust identity and shared loan precede
                 // this generated reader. Its output owns no borrowed Rust reference.
-                let value = unsafe { (field.projector.snapshot)(pointer, &mut cx, &field.target) }?;
+                let retained =
+                    unsafe { (field.projector.snapshot)(pointer, &mut cx, &field.target) }?;
+                let value = retained.call_argument(runtime, &field.target, &field.owner)?;
                 cx.check_value(&field.target, &value)?;
+                // Keep the snapshot alive until the independent execution pack is published.
                 runtime
                     .gc()
                     .root_execution_values(vec![value])

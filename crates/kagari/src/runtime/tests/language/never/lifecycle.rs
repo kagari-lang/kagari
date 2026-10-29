@@ -4,7 +4,7 @@ use crate::{
 };
 use kagari_runtime::{
     host::HostCallContext, module::entry::ProgramEntry, native::builder::ModuleBuilder,
-    value::Value,
+    native::host::HostCallback, value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::logging;
@@ -42,15 +42,18 @@ pub fn healthy() -> i32 { 42 }
     .unwrap();
     let log = builder.declared_function("log").unwrap();
     builder
-        .bind(log, move |cx: &HostCallContext<'_>, args: &[Value]| {
-            let [Value::Str(id)] = args else {
-                panic!("log string")
-            };
-            captured
-                .lock()
-                .unwrap()
-                .push(cx.runtime().gc().string(*id).unwrap().to_owned());
-            Ok(Value::Unit)
+        .bind(log, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |cx: &HostCallContext<'_>, args: &[Value]| {
+                let [Value::Str(id)] = args else {
+                    panic!("log string")
+                };
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(cx.runtime().gc().string_transport(*id).unwrap().to_owned());
+                Ok(Value::Unit)
+            })
         })
         .unwrap();
     let installed =
@@ -102,7 +105,7 @@ pub fn healthy() -> i32 { 42 }
                 .execute(&loaded, "healthy", &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );

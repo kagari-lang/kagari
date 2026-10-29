@@ -20,6 +20,7 @@ use kagari_runtime::{
         },
         typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
     resource::HeapCharge,
     value::Value,
@@ -127,7 +128,7 @@ impl<K: KagariType, V: KagariType> FromKagari for ScriptMap<K, V> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         cx.check_type::<Self>(expected)?;
         Ok(Self {
@@ -143,7 +144,7 @@ impl<K: KagariType, V: KagariType> IntoKagari for ScriptMap<K, V> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.check_mutable()?;
         cx.check_type::<Self>(expected)?;
         self.object.into_kagari(cx, expected)

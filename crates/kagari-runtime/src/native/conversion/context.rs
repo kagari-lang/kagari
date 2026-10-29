@@ -3,7 +3,10 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::{HeapObjectId, roots::RootedValue},
+    gc::{
+        HeapObjectId,
+        roots::{RootSet, RootedValue},
+    },
     module::{ExecutableModule, ModuleEpochRetention, ModuleStore, retention::ProgramLease},
     native::{
         binding::NativeResult,
@@ -12,6 +15,7 @@ use crate::{
         payload::NativeType,
         storage::NativePayload,
         types::{Type, TypeRef},
+        value_handle::ScriptValue,
     },
     session::ExecutionRetention,
     value::Value,
@@ -218,7 +222,7 @@ impl<'runtime> ConversionContext<'runtime> {
         limits: ConversionLimits,
         authority: Option<ScopeAuthority<'runtime>>,
     ) -> NativeResult<Self> {
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(owner)?;
         let covered = authority
@@ -255,7 +259,7 @@ impl<'runtime> ConversionContext<'runtime> {
     /// The synchronous call already retains its exact program through the
     /// execution frame or selected-call lease. Only escaping handles add leases.
     pub(crate) fn in_native_call(call: &'runtime CallContext<'_>) -> NativeResult<Self> {
-        call.heap().ensure_no_native_borrow()?;
+        call.heap().ensure_no_storage_borrow()?;
         call.runtime.resources().ensure_execution_allowed()?;
         // CallContext is constructed only from an authenticated execution frame
         // or a checked selected-call lease. That owner remains pinned throughout
@@ -334,7 +338,7 @@ impl<'runtime> ConversionContext<'runtime> {
         let value = self.encode_value(&ty, value)?;
         let rooted = self
             .runtime
-            .root_value(value)
+            .root_value(value.value(self.runtime)?)
             .ok_or_else(|| RuntimeError::module_validation("converted result root"));
         self.roots.truncate(base);
         rooted
@@ -342,21 +346,68 @@ impl<'runtime> ConversionContext<'runtime> {
 
     pub fn decode<T: FromKagari>(&mut self, value: &RootedValue) -> NativeResult<T> {
         let ty = self.type_for::<T>()?;
+        self.check_type::<T>(&ty)?;
         let value = value
             .value(self.runtime.gc())
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired conversion root"))?;
-        self.decode_value(&ty, &value)
+        self.decode_prepared(&ty, &value)
     }
 
-    /// Returned raw values remain protected only until the enclosing conversion
-    /// scope ends. Public callers normally use `encode` to receive an owning root.
+    /// Attach an exact declared type to an owning result without copying its graph.
+    /// Rejects foreign/expired roots and mismatched types. The existing root lease
+    /// and its alias behavior are preserved; no additional root is registered.
+    pub fn retain(
+        &mut self,
+        expected: &TypeArgument,
+        root: RootedValue,
+    ) -> NativeResult<ScriptValue> {
+        self.runtime.gc().ensure_execution_allowed()?;
+        let value = root
+            .value(self.runtime.gc())
+            .ok_or_else(|| RuntimeError::module_validation("foreign or expired conversion root"))?;
+        self.check_value(expected, &value)?;
+        Ok(ScriptValue::from_root(
+            root,
+            expected.clone(),
+            self.owner.clone(),
+        ))
+    }
+
+    /// Retain a checked slot independently of its source pack and later replacements.
+    /// Rejects foreign/expired packs, absent slots and mismatched declarations.
+    /// Managed values acquire independent retention; scalars need no root entry.
+    pub fn retain_slot(
+        &mut self,
+        expected: &TypeArgument,
+        roots: &RootSet,
+        index: usize,
+    ) -> NativeResult<ScriptValue> {
+        let value = roots.get(self.runtime.gc(), index).ok_or_else(|| {
+            RuntimeError::module_validation("foreign, expired or missing conversion slot")
+        })?;
+        self.retain_converted(expected, value)
+    }
+
+    /// Retain a built-in converter's result before returning to caller code.
+    /// This callback-free transition stays private; external converters compose
+    /// owning conversions instead of importing freely copied managed transport.
+    pub(crate) fn retain_converted(
+        &mut self,
+        expected: &TypeArgument,
+        value: Value,
+    ) -> NativeResult<ScriptValue> {
+        ScriptValue::from_transport(self, expected, &value)
+    }
+
+    /// Encode against an explicit declared type and return independent retention.
+    /// Managed results remain live after this context and its scratch roots end.
     pub fn encode_value<T: IntoKagari>(
         &mut self,
         expected: &TypeArgument,
         value: T,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.check_type::<T>(expected)?;
-        self.encode_prepared(expected, value)
+        self.encode_retained_prepared(expected, value)
     }
 
     /// The owning binding has already checked the Rust mapping. Value checks,
@@ -366,15 +417,34 @@ impl<'runtime> ConversionContext<'runtime> {
         expected: &TypeArgument,
         value: T,
     ) -> NativeResult<Value> {
+        self.encode_retained_prepared(expected, value)?
+            .value(self.runtime)
+    }
+
+    /// Internal transport stays protected by this context until publication.
+    pub(crate) fn encode_transport<T: IntoKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        value: T,
+    ) -> NativeResult<Value> {
+        self.encode_value(expected, value)?.value(self.runtime)
+    }
+
+    fn encode_retained_prepared<T: IntoKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        value: T,
+    ) -> NativeResult<ScriptValue> {
         let (value, root) = {
             let mut frame = self.enter(None)?;
-            let value = value
+            let converted = value
                 .into_kagari(&mut frame, expected)
                 .map_err(|error| frame.runtime.resources().admit_execution_error(error))?;
+            let value = converted.value(frame.runtime)?;
             frame.check_value(expected, &value)?;
-            let root = frame.protect(&value)?;
+            let root = converted.retained_root().cloned();
             frame.runtime.gc_safepoint()?;
-            (value, root)
+            (converted, root)
         };
         if let Some(root) = root {
             self.roots
@@ -385,7 +455,43 @@ impl<'runtime> ConversionContext<'runtime> {
         Ok(value)
     }
 
+    /// Decode a retained value against an exact declared type and access view.
+    /// Custom type checks run before snapshotting the input; conversion then owns
+    /// independent protection across callbacks, collection and source replacement.
+    ///
+    /// ```compile_fail
+    /// use kagari_runtime::{
+    ///     frame::types::arguments::TypeArgument,
+    ///     native::{conversion::context::ConversionContext, value_handle::ScriptValue},
+    ///     value::Value,
+    /// };
+    /// fn unprotected(cx: &mut ConversionContext<'_>, ty: &TypeArgument, raw: Value) {
+    ///     let _: ScriptValue = cx.decode_value(ty, &raw).unwrap();
+    /// }
+    /// ```
     pub fn decode_value<T: FromKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        value: &ScriptValue,
+    ) -> NativeResult<T> {
+        self.check_type::<T>(expected)?;
+        let raw = value.call_argument(self.runtime, expected, self.owner)?;
+        self.decode_prepared(expected, &raw)
+    }
+
+    /// Decode backend transport whose storage is protected by its caller.
+    /// Ordinary host adapters use `decode_value` with a retained handle.
+    /// Type, owner, conversion limits and result validation remain checked.
+    ///
+    /// # Safety
+    /// Every managed value must remain live in its originating runtime until
+    /// this call establishes independent retention. The caller must own an
+    /// immutable rooted snapshot or otherwise prevent collection and replacement
+    /// of the source before admission. Raw transport may not be recovered from
+    /// an expired root. This obligation applies even when conversion returns an
+    /// error; dynamic type checks do not make dangling transport safe.
+    #[doc(hidden)]
+    pub unsafe fn decode_transport<T: FromKagari>(
         &mut self,
         expected: &TypeArgument,
         value: &Value,
@@ -400,7 +506,7 @@ impl<'runtime> ConversionContext<'runtime> {
         value: &Value,
     ) -> NativeResult<T> {
         self.check_value(expected, value)?;
-        let _root = self.protect(value)?;
+        let protected = self.retain_converted(expected, *value)?;
         let tracked = if T::PRESERVES_IDENTITY {
             None
         } else {
@@ -408,7 +514,7 @@ impl<'runtime> ConversionContext<'runtime> {
         };
         let mut frame = self.enter(tracked)?;
         frame.runtime.gc_safepoint()?;
-        let result = T::from_kagari(&mut frame, expected, value);
+        let result = T::from_kagari(&mut frame, expected, &protected);
         result.map_err(|error| frame.runtime.resources().admit_execution_error(error))
     }
 
@@ -504,21 +610,37 @@ impl<'runtime> ConversionContext<'runtime> {
     pub fn decode_scope<R>(
         &mut self,
         expected: &TypeArgument,
-        value: &Value,
-        decode: impl FnOnce(&mut Self) -> NativeResult<R>,
+        value: &ScriptValue,
+        decode: impl FnOnce(&mut Self, &ScriptValue) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        self.check_value(expected, value)?;
-        let _root = self.protect(value)?;
-        let mut frame = self.enter(identity(value))?;
+        let raw = value.call_argument(self.runtime, expected, self.owner)?;
+        self.check_value(expected, &raw)?;
+        let protected = self.retain_converted(expected, raw)?;
+        let mut frame = self.enter(identity(&raw))?;
         frame.runtime.gc_safepoint()?;
-        let result = decode(&mut frame);
+        let result = decode(&mut frame, &protected);
         result.map_err(|error| frame.runtime.resources().admit_execution_error(error))
+    }
+
+    /// Validate protected backend transport using the ordinary type/access checks.
+    ///
+    /// # Safety
+    /// The caller must keep the input live in its originating runtime through this
+    /// check. Scoped capabilities require their original active host scope. This
+    /// does not retain the value or turn expired transport into a live input.
+    #[doc(hidden)]
+    pub unsafe fn check_transport(
+        &self,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<()> {
+        self.check_value(expected, value)
     }
 
     /// Validate a raw boundary value against its checked type and supplying
     /// generation. External references additionally require a live scope and
     /// sufficient access capability; this never dereferences their Rust storage.
-    pub fn check_value(&self, expected: &TypeArgument, value: &Value) -> NativeResult<()> {
+    pub(crate) fn check_value(&self, expected: &TypeArgument, value: &Value) -> NativeResult<()> {
         expected.validate(self.runtime)?;
         if !expected.matches(self.runtime, value, self.owner) {
             return Err(RuntimeError::module_validation(
@@ -526,16 +648,6 @@ impl<'runtime> ConversionContext<'runtime> {
             ));
         }
         Ok(())
-    }
-
-    fn protect(&self, value: &Value) -> NativeResult<Option<RootedValue>> {
-        if value.object_id().is_none() {
-            return Ok(None);
-        }
-        self.runtime
-            .root_value(*value)
-            .map(Some)
-            .ok_or_else(|| RuntimeError::module_validation("conversion temporary root"))
     }
 }
 

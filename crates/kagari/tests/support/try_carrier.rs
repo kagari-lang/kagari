@@ -36,56 +36,64 @@ pub fn module() -> NativeResult<NativeModule> {
             |methods| {
                 let stop = stop.clone();
                 let none = none.clone();
-                methods.bind(
-                    "from_residual",
-                    NativeBinding::new([option.codec()], carrier.codec(), move |cx| {
+                methods.bind("from_residual", unsafe {
+                    NativeBinding::new_transport([option.codec()], carrier.codec(), move |cx| {
                         if !cx.enum_argument_is(0, &none)? {
                             return Err(RuntimeError::module_validation("uninhabited residual"));
                         }
-                        cx.allocate_enum(&cx.result_type_argument()?, &stop, vec![])
-                    }),
-                )
+                        // SAFETY: The argument pack and residual root protect payloads; each result
+                        // is rooted or returned before any safepoint.
+                        cx.allocate_enum_transport(&cx.result_type_argument()?, &stop, vec![])
+                    })
+                })
             },
         )?;
         implementation.trait_impl(standard.protocol(Protocol::Try).apply([])?, |methods| {
             methods.associated_type("Output", item)?;
             methods.associated_type("Residual", residual.clone())?;
             let from_data = data.clone();
-            methods.bind(
-                "from_output",
-                NativeBinding::new([Codec::Value], carrier.codec(), move |cx| {
-                    cx.allocate_enum(
+            methods.bind("from_output", unsafe {
+                NativeBinding::new_transport([Codec::Value], carrier.codec(), move |cx| {
+                    // SAFETY: The frame retains the payload through terminal enum publication.
+                    cx.allocate_enum_transport(
                         &cx.result_type_argument()?,
                         &from_data,
-                        vec![cx.argument(0)?],
+                        vec![cx.argument_transport(0)?],
                     )
-                }),
-            )?;
+                })
+            })?;
             methods.documentation(
                 "branch",
                 "Inspect the installed carrier once; preserve its traced item.",
             )?;
-            methods.bind(
-                "branch",
-                NativeBinding::new([carrier.codec()], flow.codec(), move |cx| {
+            methods.bind("branch", unsafe {
+                NativeBinding::new_transport([carrier.codec()], flow.codec(), move |cx| {
                     let result = cx.result_type_argument()?;
                     cx.collect_garbage()?;
                     if cx.enum_argument_is(0, &data)? {
-                        let value = cx.enum_argument_field(0, &data, 0)?;
-                        return cx.allocate_enum(&result, &continued, vec![value]);
+                        // SAFETY: The call retains the source enum through destination publication.
+                        let value = cx.enum_argument_field_transport(0, &data, 0)?;
+                        // SAFETY: The argument pack and residual root protect payloads; each result
+                        // is rooted or returned before any safepoint.
+                        return cx.allocate_enum_transport(&result, &continued, vec![value]);
                     }
                     if !cx.enum_argument_is(0, &stop)? {
                         return Err(RuntimeError::module_validation("carrier member"));
                     }
                     let applied_residual = cx.type_parameter(&result, 0)?;
-                    let residual = cx.allocate_enum(&applied_residual, &none, vec![])?;
+                    let residual =
+                        // SAFETY: The argument pack and residual root protect payloads; each result
+                        // is rooted or returned before any safepoint.
+                        cx.allocate_enum_transport(&applied_residual, &none, vec![])?;
                     let _root = cx
                         .heap()
-                        .root_value(residual)
+                        .root_value_transport(residual)
                         .ok_or_else(|| RuntimeError::module_validation("residual root"))?;
-                    cx.allocate_enum(&result, &stopped, vec![residual])
-                }),
-            )
+                    // SAFETY: The argument pack and residual root protect payloads; each result is
+                    // rooted or returned before any safepoint.
+                    cx.allocate_enum_transport(&result, &stopped, vec![residual])
+                })
+            })
         })
     })?;
     module.finish()

@@ -2,7 +2,7 @@ use super::*;
 use crate::{context::JitPolicy, program::PreparedProgram};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_contract::types::PublicItem;
-use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{module::entry::ProgramEntry, native::host::HostCallback};
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_types::declaration::{TraitDef, host::PathAccess};
 use std::sync::{Arc, Mutex};
@@ -209,16 +209,24 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
                             effects: Default::default(),
                         },
                     )?;
-                    methods.bind("get", |context: &HostCallContext<'_>, values: &[Value]| {
-                        context.runtime().collect_garbage().unwrap();
-                        let [Value::HostRoot(id)] = values else {
-                            panic!("root")
-                        };
-                        assert_eq!(
-                            context.runtime().gc().host_root(*id).unwrap().object_id(),
-                            HostObjectId(7)
-                        );
-                        Ok(Value::I32(42))
+                    methods.bind("get", unsafe {
+                        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                        HostCallback::new(|context: &HostCallContext<'_>, values: &[Value]| {
+                            context.runtime().collect_garbage().unwrap();
+                            let [Value::HostRoot(id)] = values else {
+                                panic!("root")
+                            };
+                            assert_eq!(
+                                context
+                                    .runtime()
+                                    .gc()
+                                    .host_root_transport(*id)
+                                    .unwrap()
+                                    .object_id(),
+                                HostObjectId(7)
+                            );
+                            Ok(Value::I32(42))
+                        })
                     })
                 })
             })
@@ -237,13 +245,16 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
             )
             .unwrap();
         builder
-            .bind(make, |context: &HostCallContext<'_>, _: &[Value]| {
-                let root = context.runtime().host().root(HostObjectId(7)).unwrap();
-                context
-                    .runtime()
-                    .gc()
-                    .alloc_host_root(root)
-                    .map_err(|error| HostError::new(error.to_string()))
+            .bind(make, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(|context: &HostCallContext<'_>, _: &[Value]| {
+                    let root = context.runtime().host().root(HostObjectId(7)).unwrap();
+                    context
+                        .runtime()
+                        .gc()
+                        .alloc_host_root_transport(root)
+                        .map_err(|error| HostError::new(error.to_string()))
+                })
             })
             .unwrap();
         builder.finish().unwrap()
@@ -324,7 +335,10 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
+        report
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(42))
     );
     // Public lookup still works without a reference record, but the installed
@@ -529,8 +543,11 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             builder
                 .implement(counter.clone(), |group| {
                     group.trait_impl(readable.apply([ty.clone()])?, |methods| {
-                        methods.bind("extra", |_: &HostCallContext<'_>, _: &[Value]| {
-                            Ok(Value::Unit)
+                        methods.bind("extra", unsafe {
+                            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                            HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| {
+                                Ok(Value::Unit)
+                            })
                         })
                     })
                 })
@@ -548,7 +565,10 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
                             effects: Default::default(),
                         },
                     )?;
-                    methods.bind("get", |_: &HostCallContext<'_>, args: &[Value]| Ok(args[1]))
+                    methods.bind("get", unsafe {
+                        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                        HostCallback::new(|_: &HostCallContext<'_>, args: &[Value]| Ok(args[1]))
+                    })
                 })
             })
             .unwrap();
@@ -756,10 +776,13 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                                     effects: Default::default(),
                                 },
                             )?;
-                            methods.bind("get", move |_: &HostCallContext<'_>, args: &[Value]| {
-                                trace.lock().unwrap().push(name);
-                                assert!(matches!(args, [Value::HostRoot(_)]));
-                                Ok(result)
+                            methods.bind("get", unsafe {
+                                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                                HostCallback::new(move |_: &HostCallContext<'_>, args: &[Value]| {
+                                    trace.lock().unwrap().push(name);
+                                    assert!(matches!(args, [Value::HostRoot(_)]));
+                                    Ok(result)
+                                })
                             })
                         })?;
                     }
@@ -782,14 +805,17 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             .unwrap();
         let trace = calls.clone();
         builder
-            .bind(make, move |context: &HostCallContext<'_>, _: &[Value]| {
-                trace.lock().unwrap().push("make");
-                let root = context.runtime().host().root(HostObjectId(7)).unwrap();
-                context
-                    .runtime()
-                    .gc()
-                    .alloc_host_root(root)
-                    .map_err(|error| HostError::new(error.to_string()))
+            .bind(make, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |context: &HostCallContext<'_>, _: &[Value]| {
+                    trace.lock().unwrap().push("make");
+                    let root = context.runtime().host().root(HostObjectId(7)).unwrap();
+                    context
+                        .runtime()
+                        .gc()
+                        .alloc_host_root_transport(root)
+                        .map_err(|error| HostError::new(error.to_string()))
+                })
             })
             .unwrap();
         builder.finish().unwrap()
@@ -893,7 +919,10 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         }
         .unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report
+                .return_value
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap(),
             Value::I32(42)
         );
         assert_eq!(*calls.lock().unwrap(), ["make", "flag", "make", "number"]);

@@ -8,6 +8,7 @@ use kagari_runtime::{
         context::CallContext,
         declarations::FunctionDecl,
         function_handle::Function,
+        functions::NativeCallback,
         payload::Opaque,
         typed::NativeContext,
         types::Type,
@@ -32,26 +33,34 @@ fn safe_sequence_and_iterator_facades_respect_exclusive_operations() {
         )
         .unwrap();
     module
-        .bind(
-            sequence,
-            |cx: &mut CallContext<'_>, values: ValueHandle<'_>| -> NativeResult<Value> {
-                let mut native = cx.native_context()?;
-                let vector: ScriptVec<i32> = native
-                    .conversion()
-                    .decode_value(&cx.argument_type_argument(0)?, &values.value())?;
-                let guard = values.try_enter_operation()?.unwrap();
-                assert!(cx.heap().validate_value(&values.value()));
-                assert!(vector.len(&native).is_err());
-                assert!(vector.get(&mut native, 0).is_err());
-                assert!(vector.set(&mut native, 0, 99).is_err());
-                drop(guard);
-                assert_eq!(
-                    vector.with_slice::<i32, _>(&native, |values| Ok(values.to_vec()))?,
-                    [10, 20]
-                );
-                Ok(Value::Unit)
-            },
-        )
+        .bind(sequence, unsafe {
+            NativeCallback::new(
+                |cx: &mut CallContext<'_>, values: ValueHandle<'_>| -> NativeResult<Value> {
+                    let mut native = cx.native_context()?;
+                    // SAFETY: The callback argument snapshot retains the ValueHandle referent before
+                    // the exclusive operation starts.
+                    let vector: ScriptVec<i32> = native.conversion().decode_transport(
+                        &cx.argument_type_argument(0)?,
+                        &values.value_transport(),
+                    )?;
+                    let guard = values.try_enter_operation()?.unwrap();
+                    assert!(
+                        cx.heap()
+                            // SAFETY: The active call retains this input until its copy is published or consumed.
+                            .validate_value_transport(&values.value_transport())
+                    );
+                    assert!(vector.len(&native).is_err());
+                    assert!(vector.get(&mut native, 0).is_err());
+                    assert!(vector.set(&mut native, 0, 99).is_err());
+                    drop(guard);
+                    assert_eq!(
+                        vector.with_slice::<i32, _>(&native, |values| Ok(values.to_vec()))?,
+                        [10, 20]
+                    );
+                    Ok(Value::Unit)
+                },
+            )
+        })
         .unwrap();
     let iterator = module
         .define_function(

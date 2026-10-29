@@ -3,7 +3,7 @@ use crate::protocol::prefix;
 use kagari::{engine::KagariEngine, error::EmbeddingError};
 use kagari_runtime::{
     host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     value::Value,
 };
 use kagari_types::{
@@ -66,24 +66,25 @@ pub(crate) fn engine(output: Arc<Mutex<Output>>) -> Result<KagariEngine, Embeddi
         )
         .map_err(registration)?;
     module
-        .bind(
-            print,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+        .bind(print, unsafe {
+            // SAFETY: The input frame protects String bytes until Output copies them
+            // into Rust storage. No managed copy escapes; the result is Unit.
+            HostCallback::new(move |context: &HostCallContext<'_>, args: &[Value]| {
                 let [Value::Str(id)] = args else {
                     return Err(HostError::new("web::print requires String"));
                 };
                 let text = context
                     .runtime()
                     .gc()
-                    .string(*id)
+                    .string_transport(*id)
                     .ok_or_else(|| HostError::new("invalid rooted output String"))?;
                 output
                     .lock()
                     .map_err(|_| HostError::new("output queue poisoned"))?
                     .push(&text);
                 Ok(Value::Unit)
-            },
-        )
+            })
+        })
         .map_err(registration)?;
     builder
         .install(module.finish().map_err(registration)?)

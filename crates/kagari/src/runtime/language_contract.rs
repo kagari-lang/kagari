@@ -24,14 +24,14 @@ use kagari_runtime::{
     host::{HostCallContext, HostError},
     module::{Program, entry::ProgramEntry},
     native::{
-        builder::ModuleBuilder, conversion::context::ConversionContext, module::NativeModule,
-        types::Type,
+        builder::ModuleBuilder, conversion::context::ConversionContext, host::HostCallback,
+        module::NativeModule, types::Type,
     },
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
-    value_semantics::script_equal,
+    value_semantics::script_equal_transport,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{collections::vector::VecValues, declarations::StandardDeclarations};
@@ -190,10 +190,12 @@ impl<'a> Case<'a> {
 }
 
 fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
-    + Send
-    + Sync
-    + 'static,
+    entry: HostCallback<
+        impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
+    >,
 ) -> NativeModule {
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
@@ -354,12 +356,11 @@ fn assert_outcome(
 ) {
     match (&case.expected, outcome.as_ref().map_err(VmError::cause)) {
         (Expected::Value(expected), Ok(report)) => {
-            let actual = report
-                .return_value
-                .value(runtime.gc())
+            let actual = unsafe { report.return_value.value_transport(runtime.gc()) }
                 .expect("retained execution result");
             assert!(
-                script_equal(runtime.gc(), &actual, &expected(runtime.gc())).unwrap(),
+                unsafe { script_equal_transport(runtime.gc(), &actual, &expected(runtime.gc())) }
+                    .unwrap(),
                 "{} ({route:?}, attempt {attempt})",
                 case.name
             );
@@ -446,30 +447,33 @@ fn run(
     let cancel_call = case.cancel_call;
     let cancellation = CancellationToken::default();
     let cancel = cancellation.clone();
-    logging_module(move |cx, args| {
-        let [Value::Str(id)] = args else {
-            return Err(HostError::new("log requires one string"));
-        };
-        let message = cx.runtime().gc().string(*id).unwrap().to_owned();
-        let mut state = capture.lock().unwrap();
-        state.calls.push(HostCall {
-            symbol: "host.log",
-            args: vec![message.clone()],
-        });
-        if reject_call == Some(state.calls.len()) {
-            return Err(HostError::new("test host rejected append"));
-        }
-        let previous_len = state.log.len();
-        state.log.push(message.clone());
-        state.mutations.push(Mutation {
-            target: "host.log",
-            previous_len,
-            appended: message.clone(),
-        });
-        if cancel_call == Some(state.calls.len()) {
-            cancel.cancel();
-        }
-        Ok(Value::Unit)
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(move |cx, args| {
+            let [Value::Str(id)] = args else {
+                return Err(HostError::new("log requires one string"));
+            };
+            let message = cx.runtime().gc().string_transport(*id).unwrap().to_owned();
+            let mut state = capture.lock().unwrap();
+            state.calls.push(HostCall {
+                symbol: "host.log",
+                args: vec![message.clone()],
+            });
+            if reject_call == Some(state.calls.len()) {
+                return Err(HostError::new("test host rejected append"));
+            }
+            let previous_len = state.log.len();
+            state.log.push(message.clone());
+            state.mutations.push(Mutation {
+                target: "host.log",
+                previous_len,
+                appended: message.clone(),
+            });
+            if cancel_call == Some(state.calls.len()) {
+                cancel.cancel();
+            }
+            Ok(Value::Unit)
+        })
     })
     .install(&mut runtime)
     .unwrap();
@@ -485,13 +489,16 @@ fn run(
         .unwrap();
         let vector = builder.declared_function("vector").unwrap();
         builder
-            .bind(vector, move |_: &HostCallContext<'_>, _: &[Value]| {
-                capture_host.lock().unwrap().calls.push(HostCall {
-                    symbol: "observe.vector",
-                    args: vec![],
-                });
-                (*capture_vector.lock().unwrap())
-                    .ok_or_else(|| HostError::new("Vec fixture is not initialized"))
+            .bind(vector, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                    capture_host.lock().unwrap().calls.push(HostCall {
+                        symbol: "observe.vector",
+                        args: vec![],
+                    });
+                    (*capture_vector.lock().unwrap())
+                        .ok_or_else(|| HostError::new("Vec fixture is not initialized"))
+                })
             })
             .unwrap();
         builder.finish().unwrap().install(&mut runtime).unwrap();
@@ -503,7 +510,8 @@ fn run(
     let retained = case.vector.map(|(initial, _)| {
         let mut conversion = ConversionContext::new(&runtime, &selected).unwrap();
         let rooted = conversion.encode(VecValues(initial.to_vec())).unwrap();
-        *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
+        *observed_vector.lock().unwrap() =
+            Some(unsafe { rooted.value_transport(runtime.gc()) }.unwrap());
         rooted
     });
     if let Some(at) = case.cancel_at {
@@ -560,15 +568,15 @@ fn run(
         });
         // Queue the exact old body before publication; no synchronous activation
         // remains while the host publishes. Its ordinary calls still select current.
-        let old_execution = vm
-            .vm
-            .start(
+        let old_execution = unsafe {
+            vm.vm.start_transport(
                 &selected,
                 ProgramEntry::Main,
                 &[],
                 vm.runtime().execution_options(),
             )
-            .unwrap();
+        }
+        .unwrap();
         let stale = vm
             .runtime()
             .stage_reload_verified_program(&loaded, None, program.bytecode().clone())
@@ -591,11 +599,13 @@ fn run(
         };
         let result = result.unwrap();
         assert!(
-            script_equal(
-                vm.runtime().gc(),
-                &result.value(vm.runtime().gc()).unwrap(),
-                &(reload.selected_result)(vm.runtime().gc()),
-            )
+            unsafe {
+                script_equal_transport(
+                    vm.runtime().gc(),
+                    &result.value_transport(vm.runtime().gc()).unwrap(),
+                    &(reload.selected_result)(vm.runtime().gc()),
+                )
+            }
             .unwrap(),
             "{} ({route:?}): old body must call the current dependency",
             case.name

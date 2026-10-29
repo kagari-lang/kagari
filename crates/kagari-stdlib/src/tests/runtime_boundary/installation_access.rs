@@ -20,6 +20,7 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::CallContext,
         declarations::{FunctionDecl, MethodDecl},
+        host::HostCallback,
         module::NativeModule,
         types::Type,
     },
@@ -51,8 +52,9 @@ fn installed_function_needs_no_execution_permissions() {
         )
         .unwrap();
     builder
-        .bind(function, |_: &HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::I32(42))
+        .bind(function, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| Ok(Value::I32(42)))
         })
         .unwrap();
     let module = builder.finish().unwrap();
@@ -87,9 +89,12 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
         )
         .unwrap();
     builder
-        .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
-            callback_cancel.cancel();
-            Ok(Value::I32(42))
+        .bind(function, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                callback_cancel.cancel();
+                Ok(Value::I32(42))
+            })
         })
         .unwrap();
     let module = builder.finish().unwrap();

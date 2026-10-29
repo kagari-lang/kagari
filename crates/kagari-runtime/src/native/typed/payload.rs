@@ -57,7 +57,7 @@ impl NativeContext<'_> {
     ) -> NativeResult<R> {
         let runtime = self.runtime();
         let heap = runtime.gc();
-        heap.ensure_no_native_borrow()?;
+        heap.ensure_no_storage_borrow()?;
         // Preserve source retention's type/publication ordering, but not its root.
         // Consuming the checked target releases its directory borrow before access.
         contract.checked_target(runtime, &value)?.publish()?;

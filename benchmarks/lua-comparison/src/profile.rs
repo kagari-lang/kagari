@@ -94,7 +94,7 @@ fn execute(
         black_box(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result")
         ),
         Value::I32(expected)
@@ -166,7 +166,10 @@ pub(super) fn count(
         runtime.runtime().attach_execution_observer().unwrap();
         let report = runtime.execute(module, entry, &[], context).unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report
+                .return_value
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap(),
             Value::I32(expected)
         );
         drop(report);

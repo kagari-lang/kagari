@@ -34,13 +34,12 @@ fn main() -> i32 { boxed().read() }
         .unwrap();
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
-        .execute(&loaded, "boxed")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&loaded, "boxed").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     let method = DefinitionPath {
         module: loaded.bytecode.identity.clone(),
         path: vec![
@@ -57,15 +56,16 @@ fn main() -> i32 { boxed().read() }
         ],
     };
     let method = loaded.definitions().lookup(&method).unwrap();
-    let resolved = vm
-        .runtime()
-        .resolve_interface_method(&value, &method)
-        .unwrap();
+    let resolved = unsafe {
+        vm.runtime()
+            .resolve_interface_method_transport(&value, &method)
+    }
+    .unwrap();
     let parent = resolved.interface_type().clone();
     drop(resolved);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
-        vm.invoke_interface_method(&value, &method, &[]).unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&value, &method, &[]) }.unwrap(),
         Value::I32(42)
     );
     let replacement =
@@ -83,12 +83,12 @@ fn main() -> i32 { boxed().read() }
         vm.execute(&new, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(43)
     );
     assert_eq!(
-        vm.invoke_interface_method(&value, &method, &[]).unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&value, &method, &[]) }.unwrap(),
         Value::I32(43)
     );
     assert_eq!(
@@ -107,9 +107,9 @@ fn main() -> i32 { boxed().read() }
         NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut registered).unwrap();
         registered
     };
-    assert!(foreign.resolve_interface_method(&value, &method).is_err());
+    assert!(unsafe { foreign.resolve_interface_method_transport(&value, &method) }.is_err());
     drop(root);
     vm.runtime().collect_garbage().unwrap();
-    assert!(vm.invoke_interface_method(&value, &method, &[]).is_err());
+    assert!(unsafe { vm.invoke_interface_method_transport(&value, &method, &[]) }.is_err());
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }

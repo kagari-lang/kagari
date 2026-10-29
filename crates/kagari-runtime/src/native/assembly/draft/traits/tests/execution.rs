@@ -13,7 +13,7 @@ use crate::{
         },
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::ScriptCall,
+        context::{ScriptCall, ScriptInvoker},
         declarations::{MethodDecl, SelectedCall},
         module::NativeModule,
         typed::NativeContext,
@@ -46,7 +46,10 @@ fn invoke_selected(
     };
     let stack = runtime.enter_pinned_execution_stack(function)?;
     stack.push_pinned_call(runtime, function, arguments)?;
-    stack.start_native_entry(runtime, invoke_selected)?;
+    stack.start_native_entry(runtime, unsafe {
+        // SAFETY: The helper admits the selected target, roots its frame and transfers the terminal result immediately.
+        ScriptInvoker::new(invoke_selected)
+    })?;
     let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
         panic!("selected return")
     };
@@ -199,7 +202,12 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
                 None,
             )
             .unwrap();
-        stack.start_native_entry(&runtime, invoke_selected).unwrap();
+        stack
+            .start_native_entry(&runtime, unsafe {
+                // SAFETY: The helper admits the selected target, roots its frame and transfers the terminal result immediately.
+                ScriptInvoker::new(invoke_selected)
+            })
+            .unwrap();
         let ReturnAction::Complete(result) = stack.finish_native_return(&runtime).unwrap() else {
             panic!("override return")
         };

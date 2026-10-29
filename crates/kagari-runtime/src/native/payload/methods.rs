@@ -40,7 +40,7 @@ impl<T: NativePayload> Opaque<T> {
         method: &Method<A, R>,
         arguments: A,
     ) -> NativeResult<R> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().gc().ensure_no_storage_borrow()?;
         method.call_on(
             cx,
             self.prepare_native_type(cx)?.method_receiver(),

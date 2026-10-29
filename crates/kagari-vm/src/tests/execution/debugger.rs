@@ -68,7 +68,11 @@ pub fn overflow() -> i32 { choose(true, 2147483647) }
                 let result = vm.execute(&loaded, entry);
                 if let Some(expected) = expected {
                     assert_eq!(
-                        result.unwrap().return_value.value(vm.runtime().gc()),
+                        result
+                            .unwrap()
+                            .return_value
+                            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                            .ok(),
                         Some(Value::I32(expected))
                     );
                 } else {
@@ -101,6 +105,8 @@ pub fn overflow() -> i32 { choose(true, 2147483647) }
                                 frame.id,
                                 &DebugWatch::Binding("y".into())
                             )
+                            .unwrap()
+                            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                             .unwrap(),
                         Value::I32(if expected.is_some() { 5 } else { i32::MAX })
                     );
@@ -169,7 +175,7 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
@@ -221,7 +227,9 @@ fn main() -> i32 {
                 frame.id,
                 &DebugWatch::Binding("value".to_owned()),
             )
-            .expect("watch should read live local"),
+            .expect("watch should read live local")
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+            .unwrap(),
         Value::I32(3)
     );
 }
@@ -265,7 +273,7 @@ fn main() -> i32 {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );

@@ -19,7 +19,7 @@ use kagari_runtime::{
     module::{ExecutableModule, ModuleEpochRetention, entry::ProgramEntry, state::StaticState},
     native::{
         adapter::Async, builder::ModuleBuilder, completion::Completion, declarations::FunctionDecl,
-        future::NativeStart, types::Type,
+        future::NativeStart, host::HostCallback, types::Type,
     },
     reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
@@ -40,7 +40,7 @@ fn call(vm: &Vm, loaded: &ExecutableModule, name: &str) -> Value {
     vm.execute(loaded, name)
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
         .unwrap()
 }
 
@@ -51,8 +51,7 @@ fn state(runtime: &Runtime, loaded: &ExecutableModule, name: &str) -> StaticStat
         .iter()
         .position(|slot| slot.contract.name == name)
         .unwrap();
-    runtime
-        .module_instance_snapshot(loaded)
+    unsafe { runtime.module_instance_snapshot_transport(loaded) }
         .unwrap()
         .module_slots[index]
         .clone()
@@ -322,10 +321,13 @@ fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable
         let options = runtime.execution_options();
         let cancellation = options.cancellation.clone();
         let cancel_during_initializer = cancellation.clone();
-        logging_module(move |cx, _| {
-            cx.runtime().collect_garbage().unwrap();
-            cancel_during_initializer.cancel();
-            Ok(Value::Unit)
+        logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |cx, _| {
+                cx.runtime().collect_garbage().unwrap();
+                cancel_during_initializer.cancel();
+                Ok(Value::Unit)
+            })
         })
         .install(&mut runtime)
         .unwrap();
@@ -340,18 +342,25 @@ fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable
             .runtime()
             .create_task_scope(&loaded, options, Arc::new(|_| Ok(())))
             .unwrap();
-        let task = vm
-            .runtime()
-            .spawn_task(
-                &scope.capability().value(vm.runtime().gc()).unwrap(),
-                &factory.return_value.value(vm.runtime().gc()).unwrap(),
+        let task = unsafe {
+            vm.runtime().spawn_task_transport(
+                &scope
+                    .capability()
+                    .value_transport(vm.runtime().gc())
+                    .unwrap(),
+                &factory
+                    .return_value
+                    .value_transport(vm.runtime().gc())
+                    .unwrap(),
             )
-            .unwrap()
-            .unwrap();
-        let task_id = vm
-            .runtime()
-            .task_id(&task.value(vm.runtime().gc()).unwrap())
-            .unwrap();
+        }
+        .unwrap()
+        .unwrap();
+        let task_id = unsafe {
+            vm.runtime()
+                .task_id_transport(&task.value_transport(vm.runtime().gc()).unwrap())
+        }
+        .unwrap();
         drop(factory);
         if before_start {
             cancellation.cancel();
@@ -746,14 +755,17 @@ fn native_reentry_cannot_swallow_a_cycle_and_commit_success() {
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let mut runtime = standard_runtime(Default::default());
-    logging_module(move |cx, _| {
-        called.fetch_add(1, Ordering::Relaxed);
-        cx.runtime().collect_garbage().unwrap();
-        let root = cx.runtime().execution_root().unwrap();
-        let (owner, function) = root.exported_function("read").unwrap();
-        let mut executor = Executor::new(cx.runtime(), &owner, function, &[]).unwrap();
-        assert!(executor.run().is_err());
-        Ok(Value::Unit)
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(move |cx, _| {
+            called.fetch_add(1, Ordering::Relaxed);
+            cx.runtime().collect_garbage().unwrap();
+            let root = cx.runtime().execution_root().unwrap();
+            let (owner, function) = root.exported_function("read").unwrap();
+            let mut executor = Executor::new(cx.runtime(), &owner, function, &[]).unwrap();
+            assert!(executor.run().is_err());
+            Ok(Value::Unit)
+        })
     })
     .install(&mut runtime)
     .unwrap();
@@ -790,8 +802,7 @@ impl ExecutionObserver for InitializerObserver {
             return Ok(());
         }
         let root = runtime.execution_root().unwrap();
-        if runtime
-            .module_instance_snapshot(&root)
+        if unsafe { runtime.module_instance_snapshot_transport(&root) }
             .unwrap()
             .module_slots
             .iter()
@@ -840,7 +851,11 @@ fn managed_return_gc_observer_failure_and_cancellation_settle_initializer_frames
         drop(session);
         if mode == 0 {
             assert_eq!(
-                result.unwrap().return_value.value(vm.runtime().gc()),
+                result
+                    .unwrap()
+                    .return_value
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                    .ok(),
                 Some(Value::I32(7))
             );
             assert!(matches!(
@@ -866,10 +881,11 @@ fn managed_return_gc_observer_failure_and_cancellation_settle_initializer_frames
 }
 
 fn runtime_error_is_not_new_cancellation(vm: &Vm, loaded: &ExecutableModule) {
-    let error = vm
-        .runtime()
-        .read_module_slot(loaded, ModuleSlot::new(0))
-        .unwrap_err();
+    let error = unsafe {
+        vm.runtime()
+            .read_module_slot_transport(loaded, ModuleSlot::new(0))
+    }
+    .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(error.message().contains("initialization failed"));
 }
@@ -907,7 +923,10 @@ fn owned_slices_never_publish_a_parked_initializing_cell() {
             DriveResult::Waiting => panic!("synchronous initializer cannot wait"),
             DriveResult::Complete(result) => {
                 assert_eq!(
-                    result.unwrap().value(vm.runtime().gc()),
+                    result
+                        .unwrap()
+                        .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                        .ok(),
                     Some(Value::I32(30))
                 );
                 complete = true;
@@ -937,7 +956,10 @@ fn unsupported_native_static_entry_falls_back_before_initialization() {
             .execute_prepared(&loaded, ProgramEntry::Main, &native_fixtures::unsupported())
             .unwrap();
         assert_eq!(
-            report.return_value.value(vm.runtime().gc()),
+            report
+                .return_value
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                .ok(),
             Some(Value::I32(expected))
         );
         assert_eq!(

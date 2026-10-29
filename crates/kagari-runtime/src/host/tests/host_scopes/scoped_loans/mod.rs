@@ -47,11 +47,17 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
         .bind_native_type::<State>(&owner_program.root(), &declaration, &[])
         .unwrap();
     let mut external = State { count: 1 };
-    let mut saved = Value::Unit;
+    let mut saved = None;
     runtime
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-            saved = view.value();
+            // SAFETY: Only inert host-frame identity escapes; it contains no Rust address.
+            unsafe {
+                scope.execute_transport(&[view.argument()], |runtime, values| {
+                    saved = Some(runtime.scoped_view(&values[0])?);
+                    Ok(Value::Unit)
+                })
+            }?;
             view.read(scope, |state| {
                 view.read(scope, |other| {
                     assert_eq!(state.count, other.count);
@@ -81,23 +87,27 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
                 state.count += 1;
                 Ok(())
             })?;
-            scope.execute(&[view.value()], |runtime, _| {
-                runtime.collect_garbage()?;
-                Ok(Value::Unit)
-            })?;
+            scope.runtime().collect_garbage()?;
             Ok(())
         })
         .unwrap();
     assert_eq!(external.count, 4);
     let error = runtime
-        .with_host_scope(|scope| scope.execute(&[saved], |_, _| Ok(Value::Unit)))
+        .host_borrows
+        .validate_scoped(saved.unwrap())
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ExpiredHostBorrow);
     assert!(
         catch_unwind(AssertUnwindSafe(|| runtime.with_host_scope(
             |scope| -> Result<(), RuntimeError> {
                 let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-                saved = view.value();
+                // SAFETY: Only inert host-frame identity escapes; it contains no Rust address.
+                unsafe {
+                    scope.execute_transport(&[view.argument()], |runtime, values| {
+                        saved = Some(runtime.scoped_view(&values[0])?);
+                        Ok(Value::Unit)
+                    })
+                }?;
                 view.edit(scope, |state| {
                     state.count += 1;
                     Ok(())
@@ -110,7 +120,8 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
     assert_eq!(external.count, 5);
     assert!(
         runtime
-            .with_host_scope(|scope| scope.execute(&[saved], |_, _| Ok(Value::Unit)))
+            .host_borrows
+            .validate_scoped(saved.unwrap())
             .is_err()
     );
     runtime

@@ -133,7 +133,7 @@ fn resolve_member(
     source: &TypeArgument,
     accepts: impl Fn(DefinitionId, &str) -> bool,
 ) -> NativeResult<InterfaceMember> {
-    runtime.gc().ensure_no_native_borrow()?;
+    runtime.gc().ensure_no_storage_borrow()?;
     runtime.validate_executable_module(source_owner)?;
     source.validate(runtime)?;
     let definitions = source_owner.definitions();
@@ -273,7 +273,7 @@ impl Runtime {
         member: &InterfaceMember,
         arguments: &[TypeArgument],
     ) -> NativeResult<InterfaceMethod<A, R>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.validate_executable_module(&member.owner)?;
         member.source.validate(self)?;
         if member.contract.methods[member.slot].generic_params.len() != arguments.len() {

@@ -5,10 +5,12 @@ use crate::{
     module::EnumVariantRef,
     native::{
         binding::NativeResult,
+        context::arguments::ArgumentView,
         conversion::{
             arguments::{FromKagariArguments, IntoKagariArguments, encode_arguments},
             context::ConversionContext,
         },
+        value_handle::ScriptValue,
     },
     value::{EnumTag, Value},
 };
@@ -34,7 +36,7 @@ impl ConversionContext<'_> {
         expected: &TypeArgument,
         member: &str,
         payload: A,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.poll()?;
         let layout = self
             .runtime()
@@ -42,14 +44,19 @@ impl ConversionContext<'_> {
         let fields = self.variant_fields(&layout)?;
         let (_roots, values) = encode_arguments(self, &fields, payload)
             .map_err(|error| error.at_conversion(format_args!("variant {member}")))?;
-        self.runtime()
-            .alloc_enum(EnumTag::Declared(layout), values)
-            .map(Value::Enum)
+        let value = self
+            .runtime()
+            .alloc_enum(EnumTag::Declared(layout), values)?;
+        self.retain_converted(expected, Value::Enum(value))
     }
 
     /// Inspect only the checked nominal variant. No payload is decoded or exposed
     /// as a Rust borrow; generated converters select their matching tuple shape.
-    pub fn variant_name(&self, expected: &TypeArgument, value: &Value) -> NativeResult<String> {
+    pub fn variant_name(
+        &self,
+        expected: &TypeArgument,
+        value: &ScriptValue,
+    ) -> NativeResult<String> {
         let layout = self.variant_layout(expected, value)?;
         layout
             .module()
@@ -63,9 +70,10 @@ impl ConversionContext<'_> {
     pub fn decode_variant<A: FromKagariArguments>(
         &mut self,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
         member: &str,
     ) -> NativeResult<A> {
+        let raw = value.call_argument(self.runtime(), expected, self.owner())?;
         self.poll()?;
         let actual = self.variant_layout(expected, value)?;
         let required = self
@@ -76,17 +84,18 @@ impl ConversionContext<'_> {
                 "enum conversion variant mismatch",
             ));
         }
-        let Value::Enum(id) = value else {
+        let Value::Enum(id) = raw else {
             unreachable!("checked enum value")
         };
         self.check_elements(actual.variant().payload.len())?;
         let snapshot = self
             .runtime()
             .gc()
-            .enum_snapshot(*id)
+            .enum_snapshot(id)
             .ok_or_else(|| RuntimeError::module_validation("enum conversion snapshot"))?;
         let fields = self.variant_fields(&actual)?;
-        A::from_arguments(self, &fields, &snapshot.fields)
+        let snapshot = ArgumentView::from_values(self.runtime().gc(), snapshot.fields)?;
+        A::from_arguments(self, &fields, &snapshot)
             .map_err(|error| error.at_conversion(format_args!("variant {member}")))
     }
 
@@ -94,8 +103,10 @@ impl ConversionContext<'_> {
     pub fn variant_layout(
         &self,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<EnumVariantRef> {
+        let raw = value.call_argument(self.runtime(), expected, self.owner())?;
+        let value = &raw;
         self.poll()?;
         expected.validate(self.runtime())?;
         self.check_value(expected, value)?;

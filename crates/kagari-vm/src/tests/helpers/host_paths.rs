@@ -22,7 +22,7 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, types::Type,
+        declarations::FunctionDecl, host::HostCallback, types::Type,
     },
 };
 use kagari_types::{declaration::path::HostIndexSegmentDeclaration, ty::Ty};
@@ -31,9 +31,12 @@ use std::sync::{Arc, Mutex};
 #[test]
 fn executes_runtime_host_helper_call() {
     let mut runtime = standard_runtime(RuntimeConfig::default());
-    logging_module(|_, _| Ok(Value::Unit))
-        .install(&mut runtime)
-        .unwrap();
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| Ok(Value::Unit))
+    })
+    .install(&mut runtime)
+    .unwrap();
     let mut builder = ModuleBuilder::new("fixtures::scalar", &Default::default()).unwrap();
     let add = builder
         .define_function(
@@ -71,7 +74,7 @@ fn executes_runtime_host_helper_call() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -82,16 +85,19 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
-            logging_module(|_, _| Ok(Value::Unit))
-                .install(&mut runtime)
-                .unwrap();
+            logging_module(unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(|_, _| Ok(Value::Unit))
+            })
+            .install(&mut runtime)
+            .unwrap();
             let write_hp = hp.clone();
             runtime
-                .register_host_path_adapter(
-                    HostPathDescriptorId::new(0),
+                .register_host_path_adapter(HostPathDescriptorId::new(0), unsafe {
+                    // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
                     HostPathAdapter::new()
-                        .with_read(|_, _| Ok(Value::I32(10)))
-                        .with_prepare_write(move |_, _, record| {
+                        .with_read_transport(|_, _| Ok(Value::I32(10)))
+                        .with_prepare_write_transport(move |_, _, record| {
                             let Value::I32(value) = record.new_value else {
                                 return Err(HostError::new("expected i32"));
                             };
@@ -100,8 +106,8 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                                 *hp.lock().unwrap() = value;
                                 panic!("host commit violated its contract");
                             }))
-                        }),
-                )
+                        })
+                })
                 .unwrap();
             let scalar = runtime
                 .load_program(
@@ -199,10 +205,14 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
         assert_eq!(scope.host_scope_count(), 2);
         let value = reenter(call, &root, function, &[]).unwrap();
         call.runtime().collect_garbage().unwrap();
-        let Value::Array(array) = value.value(call.runtime().gc()).unwrap() else {
+        let Value::Array(array) = unsafe { value.value_transport(call.runtime().gc()) }.unwrap()
+        else {
             panic!("array")
         };
-        assert_eq!(call.runtime().gc().array_get(array, 0), Some(Value::I32(7)));
+        assert_eq!(
+            unsafe { call.runtime().gc().array_get_transport(array, 0) },
+            Some(Value::I32(7))
+        );
     }
     for encoded in [false, true] {
         for jit in [false, true] {
@@ -224,20 +234,20 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             let preparing = stages.clone();
             let write_hp = hp.clone();
             runtime
-                .register_host_path_adapter(
-                    descriptor,
+                .register_host_path_adapter(descriptor, unsafe {
+                    // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
                     HostPathAdapter::new()
-                        .with_validate(move |call, _, _, _| {
+                        .with_validate_transport(move |call, _, _, _| {
                             assert_reentry(call, compute);
                             validation.lock().unwrap().push("validate");
                             Ok(())
                         })
-                        .with_read(move |call, _| {
+                        .with_read_transport(move |call, _| {
                             assert_reentry(call, compute);
                             reading.lock().unwrap().push("read");
                             Ok(Value::I32(10))
                         })
-                        .with_prepare_write(move |call, _, record| {
+                        .with_prepare_write_transport(move |call, _, record| {
                             assert_reentry(call, compute);
                             preparing.lock().unwrap().push("prepare");
                             let Value::I32(next) = record.new_value else {
@@ -247,19 +257,22 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                             Ok(PreparedHostPathWrite::new(move || {
                                 *hp.lock().unwrap() = next
                             }))
-                        }),
-                )
+                        })
+                })
                 .unwrap();
-            logging_module(move |call, _| {
-                call.runtime()
-                    .set_host_path(
-                        &call.runtime().gc().alloc_host_root(root).unwrap(),
-                        descriptor,
-                        vec![],
-                        Value::I32(20),
-                    )
-                    .unwrap();
-                Ok(Value::Unit)
+            logging_module(unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |call, _| {
+                    call.runtime()
+                        .set_host_path_transport(
+                            &call.runtime().gc().alloc_host_root_transport(root).unwrap(),
+                            descriptor,
+                            vec![],
+                            Value::I32(20),
+                        )
+                        .unwrap();
+                    Ok(Value::Unit)
+                })
             })
             .install(&mut runtime)
             .unwrap();
@@ -285,7 +298,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             assert_eq!(
                 report
                     .return_value
-                    .value(vm.runtime().gc())
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(42)
             );
@@ -307,7 +320,10 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             vm.runtime().publish_staged_reload(replacement).unwrap();
             vm.runtime().collect_garbage().unwrap();
             assert_eq!(vm.runtime().gc().allocated_objects(), 0);
-            assert_eq!(vm.runtime().host_dirty_paths().len(), 1);
+            assert_eq!(
+                unsafe { vm.runtime().host_dirty_paths_transport() }.len(),
+                1
+            );
         }
     }
 }
@@ -376,12 +392,15 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
     assert_eq!(*hp.lock().unwrap(), 7);
-    assert_eq!(vm.runtime().host_dirty_paths().len(), 2);
+    assert_eq!(
+        unsafe { vm.runtime().host_dirty_paths_transport() }.len(),
+        2
+    );
 }
 
 #[test]
@@ -454,7 +473,7 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
         vm.execute_fixture(&loaded, FunctionRef::new(0))
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(10)
     );
@@ -487,10 +506,10 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 .unwrap();
             assert_eq!(target.index(), 1);
             runtime
-                .register_host_path_adapter(
-                    target,
-                    HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(73))),
-                )
+                .register_host_path_adapter(target, unsafe {
+                    // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+                    HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(73)))
+                })
                 .unwrap();
             let bytecode = path_module(
                 "main",
@@ -571,7 +590,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
             assert_eq!(
                 value
                     .return_value
-                    .value(vm.runtime().gc())
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(73)
             );
@@ -606,10 +625,10 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
         })
         .unwrap();
     runtime
-        .register_host_path_adapter(
-            target,
-            HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(0))),
-        )
+        .register_host_path_adapter(target, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(0)))
+        })
         .unwrap();
     let required = DefinitionMetadata::checked(
         runtime.host().definitions(),

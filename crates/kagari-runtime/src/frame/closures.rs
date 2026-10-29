@@ -18,7 +18,26 @@ use kagari_contract::representation::semantic_representation;
 use kagari_types::ty::Ty;
 
 impl ExecutionStack<'_> {
-    pub fn push_closure(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn push_closure_transport(
+        &self,
+        runtime: &Runtime,
+        value: &Value,
+        args: &[Value],
+        return_dst: Option<Slot>,
+    ) -> Result<(), RuntimeError> {
+        self.push_closure(runtime, value, args, return_dst)
+    }
+
+    pub(crate) fn push_closure(
         &self,
         runtime: &Runtime,
         value: &Value,

@@ -65,15 +65,17 @@ impl Fixture {
         if arguments.is_empty() {
             return self
                 .runtime
-                .execute(&self.module, entry, arguments, &Default::default())
+                .execute(&self.module, entry, &[], &Default::default())
                 .map(|report| report.return_value);
         }
-        let owner = self.runtime.backend().start(
-            &self.runtime.runtime().select_program(&self.module).unwrap(),
-            entry,
-            arguments,
-            Default::default(),
-        )?;
+        let owner = unsafe {
+            self.runtime.backend().start_transport(
+                &self.runtime.runtime().select_program(&self.module).unwrap(),
+                entry,
+                arguments,
+                Default::default(),
+            )
+        }?;
         for _ in 0..1000 {
             match self.runtime.backend().drive(&owner, slice())? {
                 DriveResult::Complete(result) => return result.map_err(EmbeddingError::from),
@@ -84,15 +86,19 @@ impl Fixture {
         panic!("bounded ordinary call");
     }
 
+    // Backend fixture helper: callers retain root (or the task scope) through
+    // immediate task/future admission. No returned copy is a host-owned value.
     fn value(&self, root: &RootedValue) -> Value {
-        root.value(self.runtime.runtime().gc()).unwrap()
+        unsafe { root.value_transport(self.runtime.runtime().gc()) }.unwrap()
     }
 
     fn start_future(&self, future: &RootedValue) -> OwnedExecution {
-        self.runtime
-            .backend()
-            .start_future(&self.value(future), Default::default())
-            .unwrap()
+        unsafe {
+            self.runtime
+                .backend()
+                .start_future_transport(&self.value(future), Default::default())
+        }
+        .unwrap()
     }
 
     fn complete(&self, owner: &OwnedExecution) -> RootedValue {

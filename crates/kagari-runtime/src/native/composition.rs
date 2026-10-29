@@ -49,7 +49,7 @@ pub(crate) struct ColdComposition {
 }
 
 /// Synchronous access to checked types and Runtime-rooted branch outputs. Values
-/// read here remain rooted by the group. Newly allocated aggregates return roots.
+/// read here receive independent roots; replacing one cannot alter group state.
 pub struct PairContext<'a> {
     pub(crate) runtime: &'a Runtime,
     pub(crate) contract: &'a ColdComposition,
@@ -80,7 +80,15 @@ impl PairContext<'_> {
             .map(|_| ())
     }
 
-    pub fn output(&self, index: usize) -> NativeResult<Option<Value>> {
+    /// Retain a completed output independently of the group's private result slot.
+    /// Returns None until the branch completes; rejects an index outside the pair.
+    pub fn output(&self, index: usize) -> NativeResult<Option<RootedValue>> {
+        self.output_value(index)?
+            .map(|value| self.runtime.root_value(value).ok_or_else(invalid))
+            .transpose()
+    }
+
+    fn output_value(&self, index: usize) -> NativeResult<Option<Value>> {
         self.outputs
             .get(index)
             .ok_or_else(invalid)?
@@ -89,7 +97,7 @@ impl PairContext<'_> {
             .transpose()
     }
 
-    pub fn value(&self, root: &RootedValue) -> NativeResult<Value> {
+    fn value(&self, root: &RootedValue) -> NativeResult<Value> {
         root.value(self.runtime.gc()).ok_or_else(invalid)
     }
 
@@ -99,22 +107,32 @@ impl PairContext<'_> {
             self.input_type(index)?,
             variant,
         )?;
-        let Some(Value::Enum(id)) = self.output(index)? else {
+        let Some(Value::Enum(id)) = self.output_value(index)? else {
             return Err(invalid());
         };
         let view = self.runtime.gc().enum_view(id).ok_or_else(invalid)?;
         Ok(matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)))
     }
 
-    pub fn field(&self, index: usize, variant: &VariantRef, field: usize) -> NativeResult<Value> {
+    /// Retain a payload field after checking the exact declared variant and index.
+    /// The independent root survives group cleanup without exposing its result slot.
+    pub fn field(
+        &self,
+        index: usize,
+        variant: &VariantRef,
+        field: usize,
+    ) -> NativeResult<RootedValue> {
         if !self.is_variant(index, variant)? {
             return Err(invalid());
         }
-        let Some(Value::Enum(id)) = self.output(index)? else {
+        let Some(Value::Enum(id)) = self.output_value(index)? else {
             return Err(invalid());
         };
-        let view = self.runtime.gc().enum_view(id).ok_or_else(invalid)?;
-        view.fields.get(field).copied().ok_or_else(invalid)
+        let value = {
+            let view = self.runtime.gc().enum_view(id).ok_or_else(invalid)?;
+            view.fields.get(field).copied().ok_or_else(invalid)?
+        };
+        self.runtime.root_value(value).ok_or_else(invalid)
     }
 
     fn root_checked(&self, ty: &TypeArgument, value: Value) -> NativeResult<RootedValue> {
@@ -124,14 +142,20 @@ impl PairContext<'_> {
         self.runtime.root_value(value).ok_or_else(invalid)
     }
 
-    pub fn tuple(&self, ty: &TypeArgument, values: Vec<Value>) -> NativeResult<RootedValue> {
+    /// Construct a tuple from retained inputs, checking arity, ownership and types.
+    /// All input roots remain live until the tuple has its own root.
+    pub fn tuple(&self, ty: &TypeArgument, values: Vec<RootedValue>) -> NativeResult<RootedValue> {
         let Ty::Tuple(elements) = ty.ty() else {
             return Err(invalid());
         };
         if elements.len() != values.len() {
             return Err(invalid());
         }
-        for (index, value) in values.iter().enumerate() {
+        let raw = values
+            .iter()
+            .map(|root| self.value(root))
+            .collect::<NativeResult<Vec<_>>>()?;
+        for (index, value) in raw.iter().enumerate() {
             if !self
                 .parameter(ty, index)?
                 .matches(self.runtime, value, &self.contract.owner)
@@ -139,21 +163,27 @@ impl PairContext<'_> {
                 return Err(invalid());
             }
         }
-        self.root_checked(ty, self.runtime.gc().alloc_tuple(values)?)
+        self.root_checked(ty, self.runtime.gc().alloc_tuple(raw)?)
     }
 
+    /// Construct a checked declared variant from retained payloads.
+    /// Rejects foreign roots, wrong variants and incompatible payload shapes/types.
     pub fn allocate_enum(
         &self,
         ty: &TypeArgument,
         variant: &VariantRef,
-        fields: Vec<Value>,
+        fields: Vec<RootedValue>,
     ) -> NativeResult<RootedValue> {
         let layout = self
             .runtime
             .checked_enum_variant(&self.contract.owner, ty, variant)?;
+        let raw = fields
+            .iter()
+            .map(|root| self.value(root))
+            .collect::<NativeResult<Vec<_>>>()?;
         let value = self
             .runtime
-            .alloc_enum(EnumTag::Declared(layout), fields)
+            .alloc_enum(EnumTag::Declared(layout), raw)
             .map(Value::Enum)?;
         self.root_checked(ty, value)
     }
@@ -177,7 +207,7 @@ impl PairContext<'_> {
         let destination =
             self.runtime
                 .checked_enum_variant(&self.contract.owner, target, variant)?;
-        let original = self.output(index)?.ok_or_else(invalid)?;
+        let original = self.output_value(index)?.ok_or_else(invalid)?;
         let Value::Enum(id) = original else {
             return Err(invalid());
         };
@@ -208,9 +238,21 @@ impl PairContext<'_> {
 }
 
 impl CallContext<'_> {
+    /// Construct raw transport for a cold composition.
+    ///
+    /// # Safety
+    /// Retain or publish the returned Future before any callback or safepoint.
+    #[doc(hidden)]
+    pub unsafe fn compose_pair_transport(
+        &self,
+        policy: Arc<dyn PairPolicy>,
+    ) -> NativeResult<Value> {
+        self.compose_pair(policy)
+    }
+
     /// Construct a cold two-input composition using the linked native signature.
     /// No branch is claimed or started until the returned Future is driven.
-    pub fn compose_pair(&self, policy: Arc<dyn PairPolicy>) -> NativeResult<Value> {
+    pub(crate) fn compose_pair(&self, policy: Arc<dyn PairPolicy>) -> NativeResult<Value> {
         self.runtime
             .reject_static_initialization("cold composition construction")?;
         self.runtime.resources().poll_execution()?;

@@ -10,6 +10,7 @@ use crate::{
         schema::TypeRegistration,
         storage::NativePayload,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -29,7 +30,7 @@ impl<T: NativePayload> KagariType for Opaque<T> {
         &self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         cx.encode_value(expected, self.clone())
     }
 
@@ -49,8 +50,10 @@ impl<T: NativePayload> FromKagari for Opaque<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        let value = &raw;
         Self::from_checked(cx, expected, value)
     }
 }
@@ -60,11 +63,15 @@ impl<T: NativePayload> IntoKagari for Opaque<T> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         Self::check_type(cx, expected)?;
         let value = self.conversion(cx, expected)?;
         cx.check_value(expected, &value)?;
-        Ok(value)
+        Ok(ScriptValue::from_root(
+            self.root,
+            expected.clone(),
+            cx.owner().clone(),
+        ))
     }
 }
 

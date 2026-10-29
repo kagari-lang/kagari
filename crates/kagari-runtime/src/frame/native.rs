@@ -8,7 +8,10 @@ use crate::{
         transfer::ReturnValue,
     },
     module::linked_execution::LinkedNativeBody,
-    native::context::{ArgumentSlots, ArgumentView, CallContext, ScriptInvoker},
+    native::context::{
+        CallContext, ScriptInvoker,
+        arguments::{ArgumentSlots, ArgumentView},
+    },
 };
 use kagari_bytecode::module::CallableTarget;
 
@@ -89,7 +92,26 @@ impl ExecutionStack<'_> {
     }
 
     /// Consume a completed native frame at an explicit return transition.
-    pub fn finish_native_return(&self, runtime: &Runtime) -> Result<ReturnAction, RuntimeError> {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn finish_native_return_transport(
+        &self,
+        runtime: &Runtime,
+    ) -> Result<ReturnAction, RuntimeError> {
+        self.finish_native_return(runtime)
+    }
+
+    pub(crate) fn finish_native_return(
+        &self,
+        runtime: &Runtime,
+    ) -> Result<ReturnAction, RuntimeError> {
         self.validate_runtime(runtime)?;
         let value = {
             let frame = self.current()?;

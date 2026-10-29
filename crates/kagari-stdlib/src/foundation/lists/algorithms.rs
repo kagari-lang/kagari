@@ -87,9 +87,13 @@ fn run(
         )?)
     };
     let target: ScriptVec<ScriptValue> = if concrete {
-        let source: ScriptVec<ScriptValue> = cx
-            .conversion()
-            .decode_value(&call.argument_type_argument(0)?, &call.argument(0)?)?;
+        // SAFETY: CallContext owns the complete argument snapshot.
+        let source: ScriptVec<ScriptValue> = unsafe {
+            cx.conversion().decode_transport(
+                &call.argument_type_argument(0)?,
+                &call.argument_transport(0)?,
+            )
+        }?;
         if copy {
             let item = cx
                 .conversion()
@@ -109,8 +113,13 @@ fn run(
         edit(&mut cx, &target, algorithm, &comparison)?;
     }
     if copy {
-        cx.conversion()
-            .encode_value(&call.result_type_argument()?, target)
+        // SAFETY: Conversion roots protect the result until this terminal Native
+        // return publishes it; no collecting operation intervenes.
+        unsafe {
+            cx.conversion()
+                .encode_value(&call.result_type_argument()?, target)?
+                .value_transport(cx.runtime())
+        }
     } else {
         Ok(Value::Unit)
     }

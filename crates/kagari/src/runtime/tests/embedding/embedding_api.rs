@@ -10,9 +10,8 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, module::NativeModule},
+    native::{builder::ModuleBuilder, host::HostCallback, module::NativeModule},
     value::Value,
-    value_semantics::script_equal,
 };
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::logging;
@@ -30,10 +29,12 @@ fn compile_artifact(
 }
 
 fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
-    + Send
-    + Sync
-    + 'static,
+    entry: HostCallback<
+        impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
+    >,
 ) -> NativeModule {
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
@@ -78,11 +79,10 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("entry should execute");
     assert_eq!(
-        report
-            .return_value
-            .value(runtime.runtime().gc())
+        runtime
+            .inspect(&report.return_value, |view| view.as_i32())
             .expect("retained execution result"),
-        Value::I32(1)
+        1
     );
 
     let previous = runtime.runtime().select_program(&loaded).unwrap();
@@ -103,11 +103,10 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("reloaded entry should execute");
     assert_eq!(
-        report
-            .return_value
-            .value(runtime.runtime().gc())
+        runtime
+            .inspect(&report.return_value, |view| view.as_i32())
             .expect("retained execution result"),
-        Value::I32(2)
+        2
     );
 }
 
@@ -180,7 +179,7 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -204,7 +203,7 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -253,7 +252,7 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(1)
     );
@@ -279,8 +278,9 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
         )
         .expect("module should load");
 
+    let argument = unsafe { runtime.runtime().gc().root_value_transport(Value::I32(1)) }.unwrap();
     let error = runtime
-        .execute(&loaded, ProgramEntry::Main, &[Value::I32(1)], &context)
+        .execute(&loaded, ProgramEntry::Main, &[argument], &context)
         .expect_err("argument passing is not implemented yet");
 
     assert_eq!(error.code(), "KG_RUNTIME_UNSUPPORTED_EXECUTION");
@@ -304,9 +304,12 @@ fn installed_host_and_reflection_helpers_are_available() {
         )
         .expect("reflection source should compile with reflection profile");
     let mut runtime = engine.runtime(ExecutionContext::default());
-    logging_module(|_, _| Ok(Value::Unit))
-        .install(runtime.runtime_mut())
-        .unwrap();
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| Ok(Value::Unit))
+    })
+    .install(runtime.runtime_mut())
+    .unwrap();
     let print_module = runtime
         .load_program(
             &PreparedProgram::from_artifact(
@@ -334,7 +337,7 @@ fn installed_host_and_reflection_helpers_are_available() {
         )
         .expect("type_of module should load");
 
-    assert_eq!(
+    assert!(
         runtime
             .execute(
                 &print_module,
@@ -344,26 +347,21 @@ fn installed_host_and_reflection_helpers_are_available() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::Unit
+            .inspect(runtime.runtime(), |view| Ok(view.is_unit()))
+            .expect("retained execution result")
     );
-    assert!(
-        script_equal(
-            runtime.runtime().gc(),
-            &(runtime
-                .execute(
-                    &type_of_module,
-                    ProgramEntry::Main,
-                    &[],
-                    &ExecutionContext::default()
-                )
-                .unwrap()
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result")),
-            &(runtime.runtime().gc().alloc_string("i32".into()).unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        runtime
+            .execute(
+                &type_of_module,
+                ProgramEntry::Main,
+                &[],
+                &ExecutionContext::default(),
+            )
+            .unwrap()
+            .return_value
+            .inspect(runtime.runtime(), |view| Ok(view.as_str()?.to_owned()))
+            .unwrap(),
+        "i32"
     );
 }

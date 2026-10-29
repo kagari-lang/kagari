@@ -82,14 +82,20 @@ pub(crate) fn adapter_binding(operation: Operation) -> NativeBinding {
     } else {
         2
     };
-    NativeBinding::new(vec![Codec::Value; arity], Codec::Value, move |cx| {
-        construct(cx, operation)
-    })
+    unsafe {
+        NativeBinding::new_transport(vec![Codec::Value; arity], Codec::Value, move |cx| {
+            construct(cx, operation)
+        })
+    }
 }
 
 pub(crate) fn next_binding(symbols: EnumSymbols) -> NativeBinding {
-    (move |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| next(&symbols, cx, receiver))
-        .binding()
+    // SAFETY: The cursor algorithm retains extracted children before callbacks
+    // and returns the completed carrier directly to checked result publication.
+    unsafe {
+        (move |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| next(&symbols, cx, receiver))
+            .binding_transport()
+    }
 }
 
 fn invalid() -> RuntimeError {
@@ -97,29 +103,46 @@ fn invalid() -> RuntimeError {
 }
 
 fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Value> {
-    let receiver = cx.argument(0)?;
+    // SAFETY: The call frame retains both input sources and the callback through adapter publication.
+    let receiver = unsafe { cx.argument_transport(0) }?;
     let callback = if matches!(
         operation,
         Operation::Map | Operation::Filter | Operation::FilterMap
     ) {
-        Some(cx.callable(1)?.store())
+        // SAFETY: The call/receiver roots retain source and callback edges; item/result working
+        // roots cover reentry.
+        Some(unsafe { cx.callable(1)?.store_transport() })
     } else {
         None
     };
     let remaining = if matches!(operation, Operation::Take | Operation::Skip) {
-        u64::decode(cx.argument(1)?)?
+        // SAFETY: The call frame retains both input sources and the callback through adapter publication.
+        u64::decode(unsafe { cx.argument_transport(1) }?)?
     } else {
         0
     };
-    let source = cx.call_values(cx.selected_at(0)?, &[receiver])?;
-    let _source = cx.heap().root_value(source).ok_or_else(invalid)?;
+    // SAFETY: The call/receiver roots retain source and callback edges; item/result working roots
+    // cover reentry.
+    let source = unsafe { cx.call_values_transport(cx.selected_at(0)?, &[receiver]) }?;
+    let _source = unsafe {
+        // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
+        cx.heap().root_value_transport(source)
+    }
+    .ok_or_else(invalid)?;
     let second = if matches!(operation, Operation::Zip | Operation::Chain) {
-        Some(cx.call_values(cx.selected_at(2)?, &[cx.argument(1)?])?)
+        // SAFETY: The call frame retains both input sources and the callback through adapter publication.
+        Some(unsafe { cx.call_values_transport(cx.selected_at(2)?, &[cx.argument_transport(1)?]) }?)
     } else {
         None
     };
     let _second = second
-        .map(|value| cx.heap().root_value(value).ok_or_else(invalid))
+        .map(|value| {
+            unsafe {
+                // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
+                cx.heap().root_value_transport(value)
+            }
+            .ok_or_else(invalid)
+        })
         .transpose()?;
     // Preserve completed source callbacks before result admission. Their temporary
     // roots stay outside the builder through payload scanning and allocation.
@@ -131,9 +154,14 @@ fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Val
         remaining: Cell::new(remaining),
         switched: Cell::new(false),
     };
-    cx.allocate_result_payload(if second.is_some() { &[1, 3] } else { &[1] }, |_, _| {
-        Ok(payload)
-    })
+    // SAFETY: The call/receiver roots retain source and callback edges; item/result working roots
+    // cover reentry.
+    unsafe {
+        cx.allocate_result_payload_transport(
+            if second.is_some() { &[1, 3] } else { &[1] },
+            |_, _| Ok(payload),
+        )
+    }
 }
 
 fn next(
@@ -169,9 +197,15 @@ fn next(
     };
     loop {
         cx.poll()?;
-        let result = cx.call_stored_values(0, slot, &[current])?;
-        let Some(item) =
-            enums::read_option(symbols, cx, &result.value(cx.heap()).ok_or_else(invalid)?)?
+        // SAFETY: The call/receiver roots retain source and callback edges; item/result working
+        // roots cover reentry.
+        let result = unsafe { cx.call_stored_values_transport(0, slot, &[current]) }?;
+        // SAFETY: result protects the Option until item is independently rooted below.
+        let Some(item) = enums::read_option(
+            symbols,
+            cx,
+            &unsafe { result.value_transport(cx.heap()) }.ok_or_else(invalid)?,
+        )?
         else {
             if matches!(operation, Operation::Chain) && slot == 0 {
                 unsafe {
@@ -186,14 +220,26 @@ fn next(
             }
             return option(symbols, cx, None);
         };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
+        let _item = unsafe {
+            // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
+            cx.heap().root_value_transport(item)
+        }
+        .ok_or_else(invalid)?;
         match operation {
             Operation::Map | Operation::FilterMap => {
-                let result = callback
-                    .as_ref()
-                    .ok_or_else(invalid)?
-                    .call_values(cx, &[item])?;
-                let _result = cx.heap().root_value(result).ok_or_else(invalid)?;
+                // SAFETY: The call/receiver roots retain source and callback edges; item/result
+                // working roots cover reentry.
+                let result = unsafe {
+                    callback
+                        .as_ref()
+                        .ok_or_else(invalid)?
+                        .call_values_transport(cx, &[item])
+                }?;
+                let _result = unsafe {
+                    // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
+                    cx.heap().root_value_transport(result)
+                }
+                .ok_or_else(invalid)?;
                 if matches!(operation, Operation::Map) {
                     return option(symbols, cx, Some(result));
                 }
@@ -202,12 +248,14 @@ fn next(
                 }
             }
             Operation::Filter => {
-                if bool::decode(
+                // SAFETY: The call/receiver roots retain source and callback edges; item/result
+                // working roots cover reentry.
+                if bool::decode(unsafe {
                     callback
                         .as_ref()
                         .ok_or_else(invalid)?
-                        .call_values(cx, &[item])?,
-                )? {
+                        .call_values_transport(cx, &[item])
+                }?)? {
                     return option(symbols, cx, Some(item));
                 }
             }
@@ -237,20 +285,43 @@ fn next(
                         Ok(())
                     })
                 }?;
-                let pair = cx.heap().alloc_tuple(vec![remaining.encode(), item])?;
-                let _pair = cx.heap().root_value(pair).ok_or_else(invalid)?;
+                let pair = unsafe {
+                    cx.heap()
+                        .alloc_tuple_transport(vec![remaining.encode(), item])
+                }?;
+                let _pair = unsafe {
+                    // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
+                    cx.heap().root_value_transport(pair)
+                }
+                .ok_or_else(invalid)?;
                 return option(symbols, cx, Some(pair));
             }
             Operation::Zip => {
-                let result = cx.call_stored_values(0, 1, &[second.ok_or_else(invalid)?])?;
-                let Some(right) =
-                    enums::read_option(symbols, cx, &result.value(cx.heap()).ok_or_else(invalid)?)?
+                // SAFETY: The call/receiver roots retain source and callback edges; item/result
+                // working roots cover reentry.
+                let result = unsafe {
+                    cx.call_stored_values_transport(0, 1, &[second.ok_or_else(invalid)?])
+                }?;
+                // SAFETY: result remains live through right publication in the pair.
+                let Some(right) = enums::read_option(
+                    symbols,
+                    cx,
+                    &unsafe { result.value_transport(cx.heap()) }.ok_or_else(invalid)?,
+                )?
                 else {
                     return option(symbols, cx, None);
                 };
-                let _right = cx.heap().root_value(right).ok_or_else(invalid)?;
-                let pair = cx.heap().alloc_tuple(vec![item, right])?;
-                let _pair = cx.heap().root_value(pair).ok_or_else(invalid)?;
+                let _right = unsafe {
+                    // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
+                    cx.heap().root_value_transport(right)
+                }
+                .ok_or_else(invalid)?;
+                let pair = unsafe { cx.heap().alloc_tuple_transport(vec![item, right]) }?;
+                let _pair = unsafe {
+                    // SAFETY: Source/result roots protect extracted children; fresh callback or tuple results are rooted before the next callback.
+                    cx.heap().root_value_transport(pair)
+                }
+                .ok_or_else(invalid)?;
                 return option(symbols, cx, Some(pair));
             }
             Operation::Skip | Operation::Chain => return option(symbols, cx, Some(item)),

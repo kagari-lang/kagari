@@ -7,7 +7,7 @@ use crate::{
         assembly::{ModuleAssembly, ModuleDefinition, ModuleSetBuilder},
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::{CallContext, ScriptCall},
+        context::{CallContext, ScriptCall, ScriptInvoker},
         declarations::MethodDecl,
         module::NativeModule,
         types::{Type, same_definition},
@@ -177,7 +177,10 @@ fn distinct_scalar_impls_reuse_one_algorithm_without_merging_checked_or_applied_
             )
             .unwrap();
         stack
-            .start_native_entry(&runtime, no_script_reentry)
+            .start_native_entry(&runtime, unsafe {
+                // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                ScriptInvoker::new(no_script_reentry)
+            })
             .unwrap();
         let ReturnAction::Complete(result) = stack.finish_native_return(&runtime).unwrap() else {
             panic!("scalar return")

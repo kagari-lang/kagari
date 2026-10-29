@@ -10,7 +10,7 @@ use kagari_bytecode::{
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value_semantics::script_equal;
+use kagari_runtime::value_semantics::script_equal_transport;
 
 #[test]
 fn foreign_loaded_module_is_rejected_before_execution() {
@@ -32,7 +32,7 @@ fn foreign_loaded_module_is_rejected_before_execution() {
         vm.execute(&local, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
@@ -51,7 +51,7 @@ fn executes_simple_arithmetic_function() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(3)
     );
@@ -228,7 +228,7 @@ fn executes_if_control_flow() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(1)
     );
@@ -252,7 +252,7 @@ fn main() -> i32 { callee() }
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
@@ -273,7 +273,7 @@ fn deterministic_frames_keep_caller_and_callee_storage_isolated() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(12)
     );
@@ -368,7 +368,7 @@ fn executes_array_index_access() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -396,7 +396,7 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -413,17 +413,19 @@ fn executes_tuple_literal_return() {
         .expect("vm should execute");
 
     assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(report
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime()
-                .gc()
-                .alloc_tuple(vec![Value::Bool(true), Value::Bool(false)])
-                .unwrap())
-        )
+        unsafe {
+            script_equal_transport(
+                vm.runtime().gc(),
+                &(report
+                    .return_value
+                    .value_transport(vm.runtime().gc())
+                    .expect("retained execution result")),
+                &(vm.runtime()
+                    .gc()
+                    .alloc_tuple_transport(vec![Value::Bool(true), Value::Bool(false)])
+                    .unwrap()),
+            )
+        }
         .unwrap()
     );
 }
@@ -446,15 +448,13 @@ fn main() -> Point {
         .execute(&loaded, ProgramEntry::Main)
         .expect("vm should execute");
 
-    let Value::Struct(handle) = report
-        .return_value
-        .value(vm.runtime().gc())
+    let Value::Struct(handle) = unsafe { report.return_value.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("expected struct return value");
     };
     assert_eq!(
-        vm.runtime().gc().struct_snapshot(handle),
+        unsafe { vm.runtime().gc().struct_snapshot_transport(handle) },
         Some((
             "Point".to_owned(),
             vec![
@@ -493,28 +493,39 @@ fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
     let vm = Vm::new(runtime);
     assert!(vm.execute_fixture(&loaded, FunctionRef::new(0)).is_err());
     assert!(
-        vm.runtime()
-            .write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
-            .is_err()
+        unsafe {
+            vm.runtime()
+                .write_module_slot_transport(&loaded, ModuleSlot::new(0), Value::I32(9))
+        }
+        .is_err()
     );
     assert!(
-        vm.runtime()
-            .read_module_slot(&loaded, ModuleSlot::new(0))
-            .is_err()
+        unsafe {
+            vm.runtime()
+                .read_module_slot_transport(&loaded, ModuleSlot::new(0))
+        }
+        .is_err()
     );
     let result = vm.execute_fixture(&loaded, FunctionRef::new(1)).unwrap();
     assert_eq!(
-        result.return_value.value(vm.runtime().gc()),
+        result
+            .return_value
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(7))
     );
     drop(result);
-    vm.runtime()
-        .write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
-        .unwrap();
-    assert_eq!(
+    unsafe {
         vm.runtime()
-            .read_module_slot(&loaded, ModuleSlot::new(0))
-            .unwrap(),
+            .write_module_slot_transport(&loaded, ModuleSlot::new(0), Value::I32(9))
+    }
+    .unwrap();
+    assert_eq!(
+        unsafe {
+            vm.runtime()
+                .read_module_slot_transport(&loaded, ModuleSlot::new(0))
+        }
+        .unwrap(),
         Value::I32(9)
     );
     assert!(!vm.runtime().is_quarantined());
@@ -591,7 +602,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     assert_eq!(
         old_report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -599,7 +610,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     assert_eq!(
         latest_report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );

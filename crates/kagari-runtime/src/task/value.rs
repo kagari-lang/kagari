@@ -8,9 +8,9 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         types::Type,
+        value_handle::ScriptValue,
     },
     task::control::TaskScopeOwner,
-    value::Value,
 };
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 
@@ -48,14 +48,18 @@ impl IntoKagari for TaskScope {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         Self::check_type(cx, expected)?;
         let value = self
             .0
             .value(cx.runtime().gc())
             .ok_or_else(|| RuntimeError::module_validation("foreign TaskScope"))?;
         cx.check_value(expected, &value)?;
-        Ok(value)
+        Ok(ScriptValue::from_root(
+            self.0,
+            expected.clone(),
+            cx.owner().clone(),
+        ))
     }
 }
 
@@ -65,8 +69,10 @@ impl FromKagari for TaskScope {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        let value = &raw;
         Self::check_type(cx, expected)?;
         cx.check_value(expected, value)?;
         cx.runtime()

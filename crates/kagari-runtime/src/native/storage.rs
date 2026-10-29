@@ -112,12 +112,19 @@ impl<'call> StorageContext<'call> {
             .ok_or_else(|| RuntimeError::module_validation("native storage type scope"))
     }
 
-    pub fn allocate_array(
+    /// Construct raw array transport for a traced native factory payload.
+    ///
+    /// # Safety
+    /// Keep every managed input protected until array publication. Protect the
+    /// returned array before any callback or collection, and keep it live through
+    /// destination payload scanning/publication. A copied Value is not a root.
+    #[doc(hidden)]
+    pub unsafe fn allocate_array_transport(
         &self,
         element: TypeArgument,
         elements: Vec<Value>,
     ) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
+        self.heap().ensure_no_storage_borrow()?;
         element.validate(self.runtime)?;
         self.runtime.validate_heap_payloads(&elements)?;
         let contract = Arc::new(StorageType::prepare_scoped(element, self.owner)?);
@@ -332,7 +339,7 @@ impl NativeStorage {
         selected: Arc<[StoredSelection]>,
     ) -> NativeResult<RootedValue> {
         let runtime = context.runtime;
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(context.owner)?;
         let scope = context.scope.ok_or_else(|| {

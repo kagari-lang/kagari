@@ -117,7 +117,7 @@ fn assert_prepared_returns_i32(
         assert_eq!(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(expected),
             "{route:?}"

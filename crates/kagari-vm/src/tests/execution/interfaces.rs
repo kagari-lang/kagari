@@ -38,9 +38,9 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let table = &loaded.bytecode.interface_tables[0];
     let method = table.methods[0].method;
-    let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
-    let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
-    assert_eq!(resolved.receiver(), &Value::I32(7));
+    let boxed = unsafe { runtime.make_interface_transport(&loaded, 0, Value::I32(7)) }.unwrap();
+    let resolved = unsafe { runtime.resolve_interface_method_transport(&boxed, &method) }.unwrap();
+    assert_eq!(unsafe { resolved.receiver_transport() }, &Value::I32(7));
     assert_eq!(
         resolved.implementation(&runtime).unwrap().key(),
         loaded.key()
@@ -52,16 +52,15 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
     assert!(resolved.parameter_types(&foreign).is_err());
     assert!(resolved.return_type(&foreign).is_err());
     runtime.collect_garbage().unwrap();
-    assert!(runtime.gc().validate_value(&boxed));
+    assert!(unsafe { runtime.gc().validate_value_transport(&boxed) });
     assert!(
-        runtime
-            .resolve_interface_method(&Value::I32(7), &method)
-            .is_err()
+        unsafe { runtime.resolve_interface_method_transport(&Value::I32(7), &method) }.is_err()
     );
     assert!(
-        runtime
-            .validate_interface_method_result(&resolved, &Value::Bool(true))
-            .is_err()
+        unsafe {
+            runtime.validate_interface_method_result_transport(&resolved, &Value::Bool(true))
+        }
+        .is_err()
     );
 
     let vm = Vm::new(runtime);
@@ -94,13 +93,13 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
     let Ty::Trait(interface) = &table.trait_type else {
         panic!("expected trait interface")
     };
-    let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
-    let first = runtime
-        .resolve_interface_method_slot(&boxed, interface, 0, &[])
-        .unwrap();
-    let second = runtime
-        .resolve_interface_method_slot(&boxed, interface, 1, &[])
-        .unwrap();
+    let boxed = unsafe { runtime.make_interface_transport(&loaded, 0, Value::I32(7)) }.unwrap();
+    let first =
+        unsafe { runtime.resolve_interface_method_slot_transport(&boxed, interface, 0, &[]) }
+            .unwrap();
+    let second =
+        unsafe { runtime.resolve_interface_method_slot_transport(&boxed, interface, 1, &[]) }
+            .unwrap();
     let method = |name| {
         loaded.bytecode.interface_tables[0]
             .methods
@@ -121,16 +120,14 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
     };
     assert_eq!(
         first.target(&runtime).unwrap(),
-        runtime
-            .resolve_interface_method(&boxed, &method("first"))
+        unsafe { runtime.resolve_interface_method_transport(&boxed, &method("first")) }
             .unwrap()
             .target(&runtime)
             .unwrap()
     );
     assert_eq!(
         second.target(&runtime).unwrap(),
-        runtime
-            .resolve_interface_method(&boxed, &method("second"))
+        unsafe { runtime.resolve_interface_method_transport(&boxed, &method("second")) }
             .unwrap()
             .target(&runtime)
             .unwrap()
@@ -140,8 +137,7 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
         second.target(&runtime).unwrap()
     );
     assert!(
-        runtime
-            .resolve_interface_method_slot(&boxed, interface, 2, &[])
+        unsafe { runtime.resolve_interface_method_slot_transport(&boxed, interface, 2, &[]) }
             .is_err()
     );
     let mut wrong = interface.clone();
@@ -153,9 +149,7 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
     path.path.last_mut().unwrap().name = "Other".into();
     wrong.declaration = loaded.definitions().lookup(&path).unwrap();
     assert!(
-        runtime
-            .resolve_interface_method_slot(&boxed, &wrong, 0, &[])
-            .is_err()
+        unsafe { runtime.resolve_interface_method_slot_transport(&boxed, &wrong, 0, &[]) }.is_err()
     );
 }
 
@@ -179,7 +173,7 @@ fn source_call_boxes_a_concrete_argument_for_an_interface_parameter() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -197,7 +191,7 @@ fn source_call_boxes_an_interface_with_methods() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -215,7 +209,7 @@ fn source_interface_method_call_dispatches_through_the_linked_slot() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(8)
     );
@@ -290,7 +284,7 @@ fn static_bound_calls_preserve_explicit_self_typed_arguments_and_checked_signatu
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -311,7 +305,7 @@ fn source_return_and_local_bindings_keep_the_boxed_interface_value() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -327,15 +321,15 @@ fn interface_method_selects_current_implementation_after_reload() {
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
-    let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let old_root = runtime.root_value(old_value).unwrap();
+    let old_value = unsafe { runtime.make_interface_transport(&old, 0, Value::I32(7)) }.unwrap();
+    let old_root = unsafe { runtime.gc().root_value_transport(old_value) }.unwrap();
     let candidate = runtime
         .stage_reload_program(&_old_program, Some("interface-reload".into()), second)
         .unwrap();
     let new = candidate.module().clone();
     runtime.publish_staged_reload(candidate).unwrap();
     let _new_program = _old_program.clone();
-    let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
+    let new_value = unsafe { runtime.make_interface_transport(&new, 0, Value::I32(7)) }.unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
         vm.invoke_interface_method(&old_value, &method, &[])
@@ -349,7 +343,7 @@ fn interface_method_selects_current_implementation_after_reload() {
     );
     drop(old_root);
     vm.runtime().collect_garbage().unwrap();
-    assert!(!vm.runtime().gc().validate_value(&old_value));
+    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&old_value) });
 }
 
 #[test]
@@ -364,15 +358,15 @@ fn interface_frames_and_descendants_select_current_code() {
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method;
-    let boxed = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let receiver_root = runtime.root_value(boxed).unwrap();
+    let boxed = unsafe { runtime.make_interface_transport(&old, 0, Value::I32(7)) }.unwrap();
+    let receiver_root = unsafe { runtime.gc().root_value_transport(boxed) }.unwrap();
     let candidate = runtime
         .stage_reload_program(&_old_program, Some("interface-frames".into()), new_code)
         .unwrap();
     let new = candidate.module().clone();
     runtime.publish_staged_reload(candidate).unwrap();
     let _new_program = _old_program.clone();
-    let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
+    let resolved = unsafe { runtime.resolve_interface_method_transport(&boxed, &method) }.unwrap();
     let entry = new
         .bytecode
         .functions
@@ -388,28 +382,27 @@ fn interface_frames_and_descendants_select_current_code() {
         .unwrap()
         .id;
     let stack = runtime.enter_execution_stack(&new).unwrap();
-    stack.push(&runtime, new.slot(), entry, &[], None).unwrap();
-    let wrong = runtime.resolve_interface_method(&boxed, &method).unwrap();
+    unsafe { stack.push_transport(&runtime, new.slot(), entry, &[], None) }.unwrap();
+    let wrong = unsafe { runtime.resolve_interface_method_transport(&boxed, &method) }.unwrap();
     assert!(
-        stack
-            .push_interface_method(&runtime, wrong, &[Value::Bool(true)], None)
-            .is_err()
+        unsafe {
+            stack.push_interface_method_transport(&runtime, wrong, &[Value::Bool(true)], None)
+        }
+        .is_err()
     );
     assert_eq!(stack.current().unwrap().loaded().key(), new.key());
-    stack
-        .push_interface_method(&runtime, resolved, &[Value::I32(7)], None)
+    unsafe { stack.push_interface_method_transport(&runtime, resolved, &[Value::I32(7)], None) }
         .unwrap();
     // The callee must retain selection metadata after its host lease and the
     // receiver's external root are gone, even while a newer program is current.
     drop(receiver_root);
     runtime.collect_garbage().unwrap();
     assert_eq!(stack.current().unwrap().loaded().key(), new.key());
-    stack.push(&runtime, new.slot(), helper, &[], None).unwrap();
+    unsafe { stack.push_transport(&runtime, new.slot(), helper, &[], None) }.unwrap();
     assert_eq!(stack.current().unwrap().loaded().key(), new.key());
     stack.pop().unwrap();
     assert_eq!(
-        stack
-            .finish_return(&runtime, ReturnValue::general(Value::I32(8)))
+        unsafe { stack.finish_return_transport(&runtime, ReturnValue::general(Value::I32(8))) }
             .unwrap(),
         ReturnAction::Continue(ExecutionAction::Script)
     );
@@ -431,8 +424,8 @@ fn source_interface_dispatch_selects_current_method_and_descendant_after_reload(
         .unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
-    let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let old_root = runtime.root_value(old_value).unwrap();
+    let old_value = unsafe { runtime.make_interface_transport(&old, 0, Value::I32(7)) }.unwrap();
+    let old_root = unsafe { runtime.gc().root_value_transport(old_value) }.unwrap();
     let candidate = runtime
         .stage_reload_program(
             &_old_program,
@@ -443,7 +436,7 @@ fn source_interface_dispatch_selects_current_method_and_descendant_after_reload(
     let new = candidate.module().clone();
     runtime.publish_staged_reload(candidate).unwrap();
     let _new_program = _old_program.clone();
-    let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
+    let new_value = unsafe { runtime.make_interface_transport(&new, 0, Value::I32(7)) }.unwrap();
     let read = new
         .bytecode
         .functions
@@ -485,8 +478,8 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
         .unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
-    let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let interface_root = runtime.root_value(interface).unwrap();
+    let interface = unsafe { runtime.make_interface_transport(&old, 0, Value::I32(7)) }.unwrap();
+    let interface_root = unsafe { runtime.gc().root_value_transport(interface) }.unwrap();
     let make = old
         .bytecode
         .functions
@@ -498,7 +491,7 @@ fn generic_interface_and_retained_closure_keep_their_environment_after_reload() 
         let mut execution = Executor::new(&runtime, &old, make, &[]).unwrap();
         execution.run().unwrap()
     };
-    let closure_root = runtime.root_value(closure).unwrap();
+    let closure_root = unsafe { runtime.gc().root_value_transport(closure) }.unwrap();
     assert_eq!(source.matches("42").count(), 1);
     let candidate = runtime
         .stage_reload_program(
@@ -551,7 +544,7 @@ fn trapped_interface_frame_releases_its_roots_and_call_depth() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
-    let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
+    let boxed = unsafe { runtime.make_interface_transport(&loaded, 0, Value::I32(7)) }.unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.invoke_interface_method(&boxed, &method, &[]).is_err());
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
@@ -559,7 +552,7 @@ fn trapped_interface_frame_releases_its_roots_and_call_depth() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -573,25 +566,19 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let method = loaded.bytecode.interface_tables[0].methods[0].method;
-    let boxed = runtime.make_interface(&loaded, 0, Value::I32(7)).unwrap();
+    let boxed = unsafe { runtime.make_interface_transport(&loaded, 0, Value::I32(7)) }.unwrap();
     let vm = Vm::new(runtime);
-    let right = vm
-        .execute(&loaded, "make_a")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
+    let right_root = vm.execute(&loaded, "make_a").unwrap().return_value;
+    // SAFETY: The result root protects this checked interface operation.
+    let right = unsafe { right_root.value_transport(vm.runtime().gc()) }.unwrap();
     assert_eq!(
         vm.invoke_interface_method(&boxed, &method, &[right])
             .unwrap(),
         Value::I32(5)
     );
-    let wrong = vm
-        .execute(&loaded, "make_b")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
+    let wrong_root = vm.execute(&loaded, "make_b").unwrap().return_value;
+    // SAFETY: The result root protects this checked interface operation.
+    let wrong = unsafe { wrong_root.value_transport(vm.runtime().gc()) }.unwrap();
     assert!(matches!(wrong, Value::Struct(_)));
     let error = vm
         .invoke_interface_method(&boxed, &method, &[wrong])
@@ -648,14 +635,14 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
-    let value = vm
+    let value_root = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
+        .return_value;
+    // SAFETY: The result root protects this checked interface operation.
+    let value = unsafe { value_root.value_transport(vm.runtime().gc()) }.unwrap();
     assert!(matches!(value, Value::Interface(_)));
-    assert!(vm.runtime().gc().validate_value(&value));
+    assert!(unsafe { vm.runtime().gc().validate_value_transport(&value) });
 }
 
 #[test]
@@ -733,14 +720,14 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let dependency_key = loaded.member(ModuleRef::new(0)).unwrap().key();
     let vm = Vm::new(runtime);
-    let value = vm
+    let value_root = vm
         .execute_fixture(&loaded, FunctionRef::new(0))
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
+        .return_value;
+    // SAFETY: The result root protects this checked interface operation.
+    let value = unsafe { value_root.value_transport(vm.runtime().gc()) }.unwrap();
     assert!(matches!(value, Value::Interface(_)));
-    let _root = vm.runtime().root_value(value).unwrap();
+    let _root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(dependency_key).is_some());
 }
@@ -773,7 +760,7 @@ fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code()
     let _first_program = first;
     let first = runtime.select_program(&_first_program).unwrap();
     let receiver = execute(&runtime, &first, "source", &[]);
-    let receiver_root = runtime.root_value(receiver).unwrap();
+    let receiver_root = unsafe { runtime.gc().root_value_transport(receiver) }.unwrap();
     assert_eq!(source.matches("42").count(), 1);
     let candidate = runtime
         .stage_reload_program(
@@ -786,7 +773,7 @@ fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code()
     runtime.publish_staged_reload(candidate).unwrap();
     let _second_program = _first_program.clone();
     let closure = execute(&runtime, &second, "make", &[receiver]);
-    let closure_root = runtime.root_value(closure).unwrap();
+    let closure_root = unsafe { runtime.gc().root_value_transport(closure) }.unwrap();
     drop(receiver_root);
     let candidate = runtime
         .stage_reload_program(
@@ -877,8 +864,8 @@ fn check_type_provenance_installations(source: &str, item_constructions: usize) 
         .unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
-    let interface = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let interface_root = runtime.root_value(interface).unwrap();
+    let interface = unsafe { runtime.make_interface_transport(&old, 0, Value::I32(7)) }.unwrap();
+    let interface_root = unsafe { runtime.gc().root_value_transport(interface) }.unwrap();
     let helper = "fn helper() -> i32 {";
     assert_eq!(source.matches(helper).count(), 1);
     let body_start = source.find(helper).unwrap() + helper.len();
@@ -944,11 +931,10 @@ fn check_type_provenance_installations(source: &str, item_constructions: usize) 
             loaded.struct_layout(StructId::new(index)).unwrap()
         };
         let old_item = Value::Struct(
-            runtime
-                .alloc_struct(item_layout(&old), vec![Value::I32(1)])
+            unsafe { runtime.alloc_struct_transport(item_layout(&old), vec![Value::I32(1)]) }
                 .unwrap(),
         );
-        let old_root = runtime.root_value(old_item).unwrap();
+        let old_root = unsafe { runtime.gc().root_value_transport(old_item) }.unwrap();
         let current_layout = item_layout(&second);
         let item_type = Ty::Struct(NominalTy {
             declaration: current_layout.layout().declaration,
@@ -956,11 +942,9 @@ fn check_type_provenance_installations(source: &str, item_constructions: usize) 
             associated_types: Default::default(),
         });
         let current_item = Value::Struct(
-            runtime
-                .alloc_struct(current_layout, vec![Value::I32(1)])
-                .unwrap(),
+            unsafe { runtime.alloc_struct_transport(current_layout, vec![Value::I32(1)]) }.unwrap(),
         );
-        let current_root = runtime.root_value(current_item).unwrap();
+        let current_root = unsafe { runtime.gc().root_value_transport(current_item) }.unwrap();
         let trait_type = old
             .bytecode
             .public_items
@@ -976,35 +960,53 @@ fn check_type_provenance_installations(source: &str, item_constructions: usize) 
         let arguments = runtime
             .resolve_type_arguments(&second, &[item_type])
             .unwrap();
-        let method = runtime
-            .resolve_interface_method_slot(&interface, trait_type, 0, &arguments)
-            .unwrap();
-        runtime
-            .validate_interface_method_arguments(&method, &[Value::I32(7), current_item])
-            .unwrap();
-        runtime
-            .validate_interface_method_arguments(&method, &[Value::I32(7), old_item])
-            .unwrap();
-        let foreign_item = Value::Struct(
+        let method = unsafe {
+            runtime.resolve_interface_method_slot_transport(&interface, trait_type, 0, &arguments)
+        }
+        .unwrap();
+        unsafe {
+            runtime.validate_interface_method_arguments_transport(
+                &method,
+                &[Value::I32(7), current_item],
+            )
+        }
+        .unwrap();
+        unsafe {
             runtime
-                .alloc_struct(
+                .validate_interface_method_arguments_transport(&method, &[Value::I32(7), old_item])
+        }
+        .unwrap();
+        let foreign_item = Value::Struct(
+            unsafe {
+                runtime.alloc_struct_transport(
                     item_layout(&foreign),
                     vec![Value::I32(1), Value::Bool(true)],
                 )
-                .unwrap(),
+            }
+            .unwrap(),
         );
         assert!(
-            runtime
-                .validate_interface_method_arguments(&method, &[Value::I32(7), foreign_item])
-                .is_err()
+            unsafe {
+                runtime.validate_interface_method_arguments_transport(
+                    &method,
+                    &[Value::I32(7), foreign_item],
+                )
+            }
+            .is_err()
         );
         let foreign_arguments = runtime
             .resolve_type_arguments(&foreign, slice::from_ref(arguments[0].ty()))
             .unwrap();
         assert!(
-            runtime
-                .resolve_interface_method_slot(&interface, trait_type, 0, &foreign_arguments)
-                .is_err()
+            unsafe {
+                runtime.resolve_interface_method_slot_transport(
+                    &interface,
+                    trait_type,
+                    0,
+                    &foreign_arguments,
+                )
+            }
+            .is_err()
         );
         drop((old_root, current_root));
     }
@@ -1019,7 +1021,7 @@ fn check_type_provenance_installations(source: &str, item_constructions: usize) 
         .unwrap()
         .run()
         .unwrap();
-    let root = runtime.root_value(closure).unwrap();
+    let root = unsafe { runtime.gc().root_value_transport(closure) }.unwrap();
     let third_source = second_source.replace("43", "44");
     let candidate = runtime
         .stage_reload_program(&_old_program, None, compile_test_bytecode(&third_source))
@@ -1120,8 +1122,8 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
-    let receiver = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
-    let receiver_root = runtime.root_value(receiver).unwrap();
+    let receiver = unsafe { runtime.make_interface_transport(&old, 0, Value::I32(7)) }.unwrap();
+    let receiver_root = unsafe { runtime.gc().root_value_transport(receiver) }.unwrap();
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 1 }", "value: 1, extra: true }");
@@ -1134,8 +1136,10 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .load_program("closure-scope-current", compile_test_bytecode(&next_source))
         .unwrap();
     let current = runtime.select_program(&current_program).unwrap();
-    let current_receiver = runtime.make_interface(&current, 0, Value::I32(7)).unwrap();
-    let current_receiver_root = runtime.root_value(current_receiver).unwrap();
+    let current_receiver =
+        unsafe { runtime.make_interface_transport(&current, 0, Value::I32(7)) }.unwrap();
+    let current_receiver_root =
+        unsafe { runtime.gc().root_value_transport(current_receiver) }.unwrap();
     let make = current
         .bytecode
         .functions
@@ -1147,7 +1151,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         .unwrap()
         .run()
         .unwrap();
-    let closure_root = runtime.root_value(closure).unwrap();
+    let closure_root = unsafe { runtime.gc().root_value_transport(closure) }.unwrap();
     let item = current
         .bytecode
         .structures
@@ -1185,19 +1189,19 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         let arguments = runtime
             .resolve_type_arguments(owner, slice::from_ref(&ty))
             .unwrap();
-        let method = runtime
-            .resolve_interface_method_slot(&receiver, interface, 0, &arguments)
-            .unwrap();
+        let method = unsafe {
+            runtime.resolve_interface_method_slot_transport(&receiver, interface, 0, &arguments)
+        }
+        .unwrap();
         assert_eq!(
-            runtime
-                .validate_interface_method_result(&method, &closure)
+            unsafe { runtime.validate_interface_method_result_transport(&method, &closure) }
                 .is_ok(),
             valid
         );
     }
     drop((receiver_root, current_receiver_root, closure_root));
     runtime.collect_garbage().unwrap();
-    assert!(!runtime.gc().validate_value(&closure));
+    assert!(!unsafe { runtime.gc().validate_value_transport(&closure) });
 }
 
 #[test]

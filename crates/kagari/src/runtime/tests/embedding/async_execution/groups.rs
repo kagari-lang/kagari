@@ -177,10 +177,8 @@ fn groups_right_err_cleans_sibling_before_publication_and_keeps_origin() {
                 1,
                 "cleanup precedes parent result conversion"
             );
-            let value = root.value(runtime.gc()).unwrap();
-            let trace = runtime
-                .gc()
-                .result_error_trace(&value)
+            let value = unsafe { root.value_transport(runtime.gc()) }.unwrap();
+            let trace = unsafe { runtime.gc().result_error_trace_transport(&value) }
                 .expect("original Err origin");
             assert!(
                 trace
@@ -195,7 +193,7 @@ fn groups_right_err_cleans_sibling_before_publication_and_keeps_origin() {
     host.until(&mut f.runtime, || ticket.is_finished());
     let root = result(&mut ticket).unwrap();
     f.runtime.runtime().collect_garbage().unwrap();
-    assert!(root.value(f.runtime.runtime().gc()).is_some());
+    assert!(root.inspect(f.runtime.runtime(), |_| Ok(())).is_ok());
     assert_eq!(f.starts.load(Ordering::SeqCst), 1);
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
     let late = f.sent.lock().unwrap().pop().unwrap();

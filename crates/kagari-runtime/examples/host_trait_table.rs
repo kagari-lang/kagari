@@ -10,6 +10,7 @@ use kagari_runtime::{
     frame::driver::ReturnAction,
     native::{
         builder::ModuleBuilder,
+        context::ScriptInvoker,
         conversion::context::ConversionContext,
         declarations::MethodDecl,
         module::NativeModule,
@@ -133,7 +134,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         &[],
     )?;
     let encoded = ConversionContext::new(&runtime, &loaded)?.encode(owned.clone())?;
-    let value = encoded.value(runtime.gc()).expect("retained Counter");
+    // SAFETY: This example drives the backend stack explicitly. encoded retains
+    // the receiver through frame publication and completion below.
+    let value = unsafe { encoded.value_transport(runtime.gc()) }.expect("retained Counter");
     let (owner, slot) = loaded
         .members()
         .find_map(|member| {
@@ -153,18 +156,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .expect("checked Readable::get application");
     let stack = runtime.enter_execution_stack(&owner)?;
-    stack.push_callable(
-        &runtime,
-        owner.clone(),
-        CallableTarget::Native(NativeImportId::new(slot)),
-        &[value],
-        None,
-    )?;
-    stack.start_native_entry(&runtime, |_, _, _, _| {
-        unreachable!("Rust read never calls script")
+    unsafe {
+        stack.push_callable_transport(
+            &runtime,
+            owner.clone(),
+            CallableTarget::Native(NativeImportId::new(slot)),
+            &[value],
+            None,
+        )
+    }?;
+    stack.start_native_entry(&runtime, unsafe {
+        // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+        ScriptInvoker::new(|_, _, _, _| unreachable!("Rust read never calls script"))
     })?;
     assert_eq!(
-        stack.finish_native_return(&runtime)?,
+        unsafe { stack.finish_native_return_transport(&runtime) }?,
         ReturnAction::Complete(Value::I32(42))
     );
     drop(stack);

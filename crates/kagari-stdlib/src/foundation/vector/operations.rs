@@ -28,17 +28,22 @@ use kagari_types::declaration::NativeDeclaration;
 type Vector = ScriptVec<ScriptValue>;
 
 pub(crate) fn clear(_: &DefinitionMetadata<NativeDeclaration>) -> NativeBinding {
-    NativeBinding::new([Codec::Value], Codec::Value, |cx| {
-        borrowed::clear(cx)?;
-        Ok(Value::Unit)
-    })
+    unsafe {
+        NativeBinding::new_transport([Codec::Value], Codec::Value, |cx| {
+            borrowed::clear(cx)?;
+            Ok(Value::Unit)
+        })
+    }
 }
 
 pub(crate) fn clear_fluent(_: &DefinitionMetadata<NativeDeclaration>) -> NativeBinding {
-    NativeBinding::new([Codec::Value], Codec::Value, |cx| {
-        borrowed::clear(cx)?;
-        cx.argument(0)
-    })
+    unsafe {
+        NativeBinding::new_transport([Codec::Value], Codec::Value, |cx| {
+            borrowed::clear(cx)?;
+            // SAFETY: The call frame retains the receiver through return publication.
+            cx.argument_transport(0)
+        })
+    }
 }
 
 pub(crate) fn retain(declaration: &DefinitionMetadata<NativeDeclaration>) -> NativeBinding {
@@ -121,7 +126,8 @@ pub(crate) fn insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 pub(crate) fn insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     insert(cx)?;
-    cx.argument(0)
+    // SAFETY: The call frame retains the receiver through return publication.
+    unsafe { cx.argument_transport(0) }
 }
 
 pub(crate) fn push(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -131,7 +137,8 @@ pub(crate) fn push(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 pub(crate) fn push_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     push(cx)?;
-    cx.argument(0)
+    // SAFETY: The call frame retains the receiver through return publication.
+    unsafe { cx.argument_transport(0) }
 }
 
 pub(crate) fn set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -142,27 +149,40 @@ pub(crate) fn set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 pub(crate) fn set_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     set(cx)?;
-    cx.argument(0)
+    // SAFETY: The call frame retains the receiver through return publication.
+    unsafe { cx.argument_transport(0) }
 }
 
 pub(crate) fn new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.allocate_result_payload(&[], |cx, result| {
-        VecStorage::empty_element(cx.type_parameter(result, 0)?, cx.owner())
-    })
+    // SAFETY: The call retains source elements through scanner publication; the new payload is
+    // returned directly.
+    unsafe {
+        cx.allocate_result_payload_transport(&[], |cx, result| {
+            VecStorage::empty_element(cx.type_parameter(result, 0)?, cx.owner())
+        })
+    }
 }
 
 fn result(cx: &CallContext<'_>, value: Value) -> NativeResult<Vector> {
     let argument = cx.result_type_argument()?;
-    cx.native_context()?
-        .conversion()
-        .decode_value(&argument, &value)
+    // SAFETY: The newly allocated result has no intervening callback or safepoint.
+    // Vector uses only built-in mapping checks before admission retains the value.
+    unsafe {
+        cx.native_context()?
+            .conversion()
+            .decode_transport(&argument, &value)
+    }
 }
 
 pub(crate) fn from_array(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.allocate_result_payload(&[], |cx, result| {
-        let source = array_source(cx)?;
-        VecStorage::from_array(cx, source, result)
-    })
+    // SAFETY: The call retains source elements through scanner publication; the new payload is
+    // returned directly.
+    unsafe {
+        cx.allocate_result_payload_transport(&[], |cx, result| {
+            let source = array_source(cx)?;
+            VecStorage::from_array(cx, source, result)
+        })
+    }
 }
 
 pub(crate) fn from_iter(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -171,7 +191,8 @@ pub(crate) fn from_iter(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> Nati
     let element = cx.result_type_parameter(0)?;
     for_each(symbols, cx, 0, |cx, value| {
         let mut native = cx.native_context()?;
-        let item = native.conversion().decode_value(&element, &value)?;
+        // SAFETY: for_each retains the extracted item until this visitor returns.
+        let item = unsafe { native.conversion().decode_transport(&element, &value) }?;
         target.push(&mut native, item)
     })?;
     Ok(value)
@@ -199,10 +220,11 @@ fn remove_at(
         cx.with_payload::<VecStorage, _>(0, |v| Ok(index.and_then(|index| v.get(index))))?
     };
     let result = option(symbols, cx, item)?;
-    let _result = cx
-        .heap()
-        .root_value(result)
-        .ok_or_else(|| RuntimeError::module_validation("Vec removal result retention"))?;
+    let _result = unsafe {
+        // SAFETY: The freshly constructed Option retains the selected element; root it before removing the source edge.
+        cx.heap().root_value_transport(result)
+    }
+    .ok_or_else(|| RuntimeError::module_validation("Vec removal result retention"))?;
     if let Some(index) = index {
         borrowed::remove(cx, index)?;
     }

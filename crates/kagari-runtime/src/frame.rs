@@ -166,7 +166,27 @@ impl<'runtime> ExecutionStack<'runtime> {
         }))
     }
 
-    pub fn push(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn push_transport(
+        &self,
+        runtime: &Runtime,
+        module: ModuleRef,
+        function: FunctionRef,
+        args: &[Value],
+        return_dst: Option<Slot>,
+    ) -> Result<(), RuntimeError> {
+        self.push(runtime, module, function, args, return_dst)
+    }
+
+    pub(crate) fn push(
         &self,
         runtime: &Runtime,
         module: ModuleRef,
@@ -198,7 +218,26 @@ impl<'runtime> ExecutionStack<'runtime> {
     }
 
     /// Enters the current method selected by the rooted interface's checked evidence.
-    pub fn push_interface_method(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn push_interface_method_transport(
+        &self,
+        runtime: &Runtime,
+        method: RootedInterfaceMethod,
+        args: &[Value],
+        return_dst: Option<Slot>,
+    ) -> Result<(), RuntimeError> {
+        self.push_interface_method(runtime, method, args, return_dst)
+    }
+
+    pub(crate) fn push_interface_method(
         &self,
         runtime: &Runtime,
         method: RootedInterfaceMethod,
@@ -234,7 +273,27 @@ impl<'runtime> ExecutionStack<'runtime> {
 
     /// Enter an already selected exact callable. Retained computations and prepared
     /// host entries must not resolve current code again at this admission boundary.
-    pub fn push_callable(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn push_callable_transport(
+        &self,
+        runtime: &Runtime,
+        loaded: ExecutableModule,
+        target: CallableTarget,
+        args: &[Value],
+        return_dst: Option<Slot>,
+    ) -> Result<(), RuntimeError> {
+        self.push_callable(runtime, loaded, target, args, return_dst)
+    }
+
+    pub(crate) fn push_callable(
         &self,
         runtime: &Runtime,
         loaded: ExecutableModule,
@@ -628,7 +687,28 @@ impl ExecutionFrame {
     }
 
     /// Read a logical slot only while its reused physical location belongs to it.
-    pub fn read_slot(&self, runtime: &Runtime, register: Slot) -> Result<Value, RuntimeError> {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn read_slot_transport(
+        &self,
+        runtime: &Runtime,
+        register: Slot,
+    ) -> Result<Value, RuntimeError> {
+        self.read_slot(runtime, register)
+    }
+
+    pub(crate) fn read_slot(
+        &self,
+        runtime: &Runtime,
+        register: Slot,
+    ) -> Result<Value, RuntimeError> {
         self.validate_runtime(runtime)?;
         if register.index() >= self.slot_count {
             return Err(runtime.resources().quarantine("invalid frame register"));
@@ -640,7 +720,25 @@ impl ExecutionFrame {
     }
 
     /// Write a logical slot without overwriting another slot's active lifetime.
-    pub fn write_slot(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn write_slot_transport(
+        &mut self,
+        runtime: &Runtime,
+        register: Slot,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        self.write_slot(runtime, register, value)
+    }
+
+    pub(crate) fn write_slot(
         &mut self,
         runtime: &Runtime,
         register: Slot,

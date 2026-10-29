@@ -116,7 +116,14 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
             for (loaded, hp) in [(&old, 40), (&current, 41), (&old, 42)] {
                 for (entry, expected) in [("direct", hp), ("native", hp + 100), ("heal", hp + 1)] {
                     assert_eq!(
-                        Runtime::execute_scoped(scope, loaded, entry, &[view.value()], &context)?,
+                        Runtime::execute_scoped(
+                            scope,
+                            loaded,
+                            entry,
+                            &[view.argument()],
+                            &context
+                        )?
+                        .inspect(|view| view.as_i32().map(Value::I32))?,
                         Value::I32(expected)
                     );
                 }
@@ -129,11 +136,12 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
         .with_host_scope(|scope| {
             let view = scope.borrow(&descriptor, &stats)?;
             assert_eq!(
-                Runtime::execute_scoped(scope, &current, "native", &[view.value()], &context)?,
+                Runtime::execute_scoped(scope, &current, "native", &[view.argument()], &context)?
+                    .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(143)
             );
             assert!(
-                Runtime::execute_scoped(scope, &current, "heal", &[view.value()], &context)
+                Runtime::execute_scoped(scope, &current, "heal", &[view.argument()], &context)
                     .is_err()
             );
             Ok(())
@@ -229,13 +237,13 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
                 ..context.clone()
             };
             assert!(
-                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &unsupported)
+                Runtime::execute_scoped(scope, &loaded, "tick", &[player.argument()], &unsupported)
                     .is_err()
             );
             let cancelled = context.clone();
             cancelled.cancellation.cancel();
             assert!(
-                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &cancelled)
+                Runtime::execute_scoped(scope, &loaded, "tick", &[player.argument()], &cancelled)
                     .is_err()
             );
             // CancellationToken clones share cancellation. A fresh context establishes
@@ -245,15 +253,18 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
                 ..context.clone()
             };
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?,
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.argument()], &context)?
+                    .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(40)
             );
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "tick", &[player.value()], &context)?,
+                Runtime::execute_scoped(scope, &loaded, "tick", &[player.argument()], &context)?
+                    .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(70)
             );
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.value()], &context)?,
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[player.argument()], &context)?
+                    .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(70)
             );
             Ok(())

@@ -47,16 +47,15 @@ impl Fixture {
     fn park(&self, roots: &mut Vec<Option<OwnedExecution>>, population: usize) {
         assert!(roots.is_empty());
         for index in 0..population {
-            let execution = self
-                .runtime
-                .backend()
-                .start(
+            let execution = unsafe {
+                self.runtime.backend().start_transport(
                     &self.module,
                     "hold",
                     &[Value::I32(index as i32 + 1)],
                     self.context.interpreter_options().unwrap(),
                 )
-                .unwrap();
+            }
+            .unwrap();
             assert!(matches!(
                 self.runtime
                     .backend()
@@ -98,7 +97,10 @@ impl Fixture {
                 ));
                 checksum += 1;
             } else {
-                let value = result.unwrap().value(self.runtime.runtime().gc()).unwrap();
+                let value = result
+                    .unwrap()
+                    .inspect(self.runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                    .unwrap();
                 assert_eq!(value, Value::I32((index as i32 + 1) * 8));
                 checksum += i64::from((index as i32 + 1) * 8);
             }

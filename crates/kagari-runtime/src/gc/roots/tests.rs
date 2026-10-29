@@ -234,7 +234,7 @@ fn native_root_admission_requires_a_loan_and_preserves_validation_and_borrow_che
             assert_eq!(scalar.value(heap), Some(Value::I32(42)));
             assert!(heap.retain_value(Value::I32(42)).is_none());
             let retained = heap.retain_native_value(value)?;
-            assert!(heap.ensure_no_native_borrow().is_err());
+            assert!(heap.ensure_no_storage_borrow().is_err());
             assert_eq!(retained.value(heap), Some(value));
             Ok(retained)
         })

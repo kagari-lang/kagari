@@ -16,7 +16,7 @@ pub mod enums;
 pub mod function_handle;
 pub mod functions;
 pub mod future;
-mod host;
+pub mod host;
 pub mod installation;
 pub mod interfaces;
 pub mod methods;

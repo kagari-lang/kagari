@@ -4,7 +4,7 @@ use crate::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     host::HostCallContext,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     value::Value,
     value_semantics::{identity_equal, script_equal},
 };
@@ -172,19 +172,25 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
         .alloc_array(&runtime_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
     let root = runtime.root_value(Value::Array(array)).unwrap();
-    assert!(root.set(foreign.gc(), Value::Unit).is_none());
+    let foreign_unit = foreign.root_value(Value::Unit).unwrap();
+    assert!(root.replace(foreign.gc(), &foreign_unit).is_none());
     let other = foreign
         .alloc_array(&foreign_owner, Ty::Builtin(BuiltinType::I32), vec![])
         .unwrap();
-    assert!(root.set(runtime.gc(), Value::Array(other)).is_none());
+    let foreign_root = foreign.root_value(Value::Array(other)).unwrap();
+    assert!(root.replace(runtime.gc(), &foreign_root).is_none());
     let slots = runtime
         .gc()
         .root_execution_values(vec![root.value(runtime.gc()).unwrap()])
         .unwrap();
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
-    assert!(slots.set(foreign.gc(), 0, Value::Unit).is_none());
-    slots.set(runtime.gc(), 0, Value::Unit).unwrap();
+    assert!(slots.replace(foreign.gc(), 0, &foreign_unit).is_none());
+    assert!(slots.replace(runtime.gc(), 0, &foreign_root).is_none());
+    let unit = runtime.root_value(Value::Unit).unwrap();
+    assert!(slots.replace(runtime.gc(), 1, &unit).is_none());
+    slots.replace(runtime.gc(), 0, &unit).unwrap();
+    drop(unit);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
     drop(slots);
     assert_eq!(runtime.gc().active_roots(), 0);
@@ -216,10 +222,13 @@ fn shared_host_callbacks_can_retain_checked_root_leases() {
         )
         .unwrap();
     builder
-        .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::Bool(
-                retained.value(cx.runtime().gc()).unwrap() == Value::Array(object),
-            ))
+        .bind(function, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                Ok(Value::Bool(
+                    retained.value(cx.runtime().gc()).unwrap() == Value::Array(object),
+                ))
+            })
         })
         .unwrap();
     let module = builder.finish().unwrap();

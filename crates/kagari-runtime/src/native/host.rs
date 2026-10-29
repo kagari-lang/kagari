@@ -18,7 +18,39 @@ use kagari_types::declaration::{
 };
 use std::fmt::Write;
 
-impl<F> NativeAdapter<Host, Value> for F
+/// An external-ID provider callback with explicit managed-transport obligations.
+/// Ordinary owned Rust callbacks use NativeContext and typed conversions.
+pub struct HostCallback<F> {
+    callback: F,
+}
+
+impl<F> HostCallback<F>
+where
+    F: for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
+{
+    /// Admit a provider for the existing checked host-call policy adapter.
+    ///
+    /// # Safety
+    /// Arguments are protected by the active host frame. Keep copied managed
+    /// values protected through collection/reentry and source mutation. Escaping
+    /// values require independent traced ownership; host capabilities additionally
+    /// require their original scope. Return live transport directly to runtime
+    /// publication, without a collecting gap after releasing its last owner.
+    /// Captured managed values must remain independently retained for every use.
+    ///
+    /// ```compile_fail,E0133
+    /// use kagari_runtime::{native::host::HostCallback, value::Value};
+    /// let callback = HostCallback::new(|_, _| Ok(Value::Unit));
+    /// ```
+    pub unsafe fn new(callback: F) -> Self {
+        Self { callback }
+    }
+}
+
+impl<F> NativeAdapter<Host, Value> for HostCallback<F>
 where
     F: for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
         + Send
@@ -53,7 +85,7 @@ where
                     let context = HostCallContext::new(cx.runtime, &values)?;
                     check_arguments(cx, &values, &policy)?;
                     acquire_arguments(&context, &values, &policy)?;
-                    let result = self(&context, &values)
+                    let result = (self.callback)(&context, &values)
                         .map_err(|error| {
                             let failure = RuntimeError::host_call_failure(error.message());
                             match error.trace() {

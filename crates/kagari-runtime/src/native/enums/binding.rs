@@ -41,7 +41,7 @@ impl Runtime {
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<EnumType> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         let snapshot = self.capture_module(owner)?;
         let owner = &snapshot.root;
         for argument in arguments {
@@ -145,7 +145,7 @@ impl Runtime {
         &self,
         member: &EnumMember,
     ) -> NativeResult<EnumVariant<A>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(member.enum_type.owner())?;
         let mut payload = Vec::new();

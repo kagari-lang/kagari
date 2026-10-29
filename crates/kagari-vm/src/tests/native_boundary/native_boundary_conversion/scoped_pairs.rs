@@ -16,6 +16,7 @@ use kagari_runtime::{
         storage::NativeStorage,
         typed::{NativeContext, loans::LoanContext},
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -58,7 +59,7 @@ impl FromKagari for ConversionEffect {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         let value = i32::from_kagari(cx, expected, value)?;
         CONVERSIONS.fetch_add(1, Ordering::SeqCst);
@@ -113,7 +114,7 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
             &[],
         )
         .unwrap();
-    let raw = ConversionContext::new(vm.runtime(), &owner)
+    let owned = ConversionContext::new(vm.runtime(), &owner)
         .unwrap()
         .encode_value(treasury_type.type_argument(), opaque.clone())
         .unwrap();
@@ -128,9 +129,10 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
                     scope,
                     &_owner_program,
                     "owned",
-                    &[raw, inventory.value()],
+                    &[scope.retain_typed(&owned)?, inventory.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(70)
             );
             assert_eq!(
@@ -138,9 +140,10 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
                     scope,
                     &_owner_program,
                     "external",
-                    &[treasury.value(), inventory.value()],
+                    &[treasury.argument(), inventory.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(70)
             );
             Ok(())
@@ -292,9 +295,10 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                     scope,
                     &_owner_program,
                     "tick",
-                    &[whole.value()],
+                    &[whole.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(70)
             );
             assert_eq!(
@@ -302,9 +306,10 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                     scope,
                     &_owner_program,
                     "inspect",
-                    &[whole.value()],
+                    &[whole.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(70)
             );
             assert!(
@@ -312,7 +317,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                     scope,
                     &_owner_program,
                     "duplicate",
-                    &[stats.value()],
+                    &[stats.argument()],
                     Default::default()
                 )
                 .is_err()
@@ -324,9 +329,10 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                     scope,
                     &_owner_program,
                     "replace",
-                    &[whole.value()],
+                    &[whole.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(6)
             );
             stats.read(scope, |stats| {
@@ -338,25 +344,23 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                     scope,
                     &_owner_program,
                     "once",
-                    &[whole.value(), second.value()],
+                    &[whole.argument(), second.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(111)
             );
             let renamed = Vm::execute_scoped(
                 scope,
                 &_owner_program,
                 "rename",
-                &[whole.value()],
+                &[whole.argument()],
                 Default::default(),
             )?;
-            scope.execute(&[renamed], |runtime, values| {
-                let Value::Str(id) = values[0] else {
-                    panic!("string")
-                };
-                assert_eq!(&*runtime.gc().string(id).unwrap(), "changed");
-                Ok(Value::Unit)
-            })?;
+            assert_eq!(
+                renamed.inspect(|view| Ok(view.as_str()?.to_owned()))?,
+                "changed"
+            );
             Ok(())
         })
         .unwrap();

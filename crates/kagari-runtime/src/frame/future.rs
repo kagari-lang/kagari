@@ -21,7 +21,26 @@ use kagari_types::ty::Ty;
 use std::{cell::Ref, slice};
 
 impl ExecutionStack<'_> {
-    pub fn make_future(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn make_future_transport(
+        &self,
+        runtime: &Runtime,
+        function: FunctionRef,
+        values: Vec<Value>,
+        future: &Ty,
+    ) -> NativeResult<Value> {
+        self.make_future(runtime, function, values, future)
+    }
+
+    pub(crate) fn make_future(
         &self,
         runtime: &Runtime,
         function: FunctionRef,

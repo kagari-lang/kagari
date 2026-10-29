@@ -35,10 +35,10 @@ const SCALARS: [BuiltinType; 11] = [
 fn constant<T: NativeScalar>(value: T) -> (Type, NativeBinding) {
     let ty = Type::scalar(T::abi_type());
     let value = value.encode();
-    (
-        ty.clone(),
-        NativeBinding::new(vec![], Codec::Exact(ty), move |_| Ok(value)),
-    )
+    // SAFETY: Sealed NativeScalar encoding can capture only inline scalar data.
+    (ty.clone(), unsafe {
+        NativeBinding::new_transport(vec![], Codec::Exact(ty), move |_| Ok(value))
+    })
 }
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {

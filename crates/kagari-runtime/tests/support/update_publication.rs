@@ -25,8 +25,7 @@ pub fn publish_without_execution(
     assert_eq!(runtime.gc().active_roots(), 0);
     for member in published.members() {
         assert!(
-            runtime
-                .module_instance_snapshot(&member)
+            unsafe { runtime.module_instance_snapshot_transport(&member) }
                 .unwrap()
                 .module_slots
                 .iter()

@@ -1,7 +1,10 @@
 //! Prepared compound descriptors retain normal roots until publication.
 use crate::{
     collections::vector::VecValues,
-    serde::{serializer::encode, unsupported},
+    serde::{
+        serializer::{encode, retain_result},
+        unsupported,
+    },
 };
 use kagari_runtime::{
     error::RuntimeError,
@@ -9,9 +12,7 @@ use kagari_runtime::{
     module::EnumVariantRef,
     native::{
         binding::NativeResult,
-        conversion::{
-            FromKagari, IntoKagari, context::ConversionContext, structures::StructEncoder,
-        },
+        conversion::{IntoKagari, context::ConversionContext, structures::StructEncoder},
         value_handle::ScriptValue,
     },
     value::{EnumTag, Value},
@@ -60,7 +61,7 @@ pub(crate) struct Pack<'scope, 'runtime> {
     cx: &'scope mut ConversionContext<'runtime>,
     expected: TypeArgument,
     kind: PackKind,
-    values: Vec<Value>,
+    values: Vec<ScriptValue>,
     length: Option<usize>,
 }
 
@@ -149,7 +150,7 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
         Ok(())
     }
 
-    pub(crate) fn finish(self) -> NativeResult<Value> {
+    pub(crate) fn finish(self) -> NativeResult<ScriptValue> {
         if self
             .length
             .is_some_and(|length| length != self.values.len())
@@ -157,21 +158,28 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
             return Err(unsupported("compound has missing elements"));
         }
         match self.kind {
-            PackKind::Sequence(_) => {
-                let item = self.cx.parameter(&self.expected, 0)?;
+            PackKind::Sequence(_) => VecValues(self.values).into_kagari(self.cx, &self.expected),
+            kind => {
                 let values = self
                     .values
                     .iter()
-                    .map(|value| ScriptValue::from_kagari(self.cx, &item, value))
+                    // SAFETY: self.values retains every child through allocation
+                    // and retention of the completed aggregate below.
+                    .map(|value| unsafe { value.value_transport(self.cx.runtime()) })
                     .collect::<NativeResult<Vec<_>>>()?;
-                VecValues(values).into_kagari(self.cx, &self.expected)
+                let value = match kind {
+                    PackKind::Tuple(_) => {
+                        unsafe { self.cx.runtime().gc().alloc_tuple_transport(values) }?
+                    }
+                    PackKind::Variant(layout, _) => Value::Enum(unsafe {
+                        self.cx
+                            .runtime()
+                            .alloc_enum_transport(EnumTag::Declared(layout), values)
+                    }?),
+                    PackKind::Sequence(_) => unreachable!("handled sequence"),
+                };
+                retain_result(self.cx, &self.expected, value)
             }
-            PackKind::Tuple(_) => self.cx.runtime().gc().alloc_tuple(self.values),
-            PackKind::Variant(layout, _) => self
-                .cx
-                .runtime()
-                .alloc_enum(EnumTag::Declared(layout), self.values)
-                .map(Value::Enum),
         }
     }
 }
@@ -179,14 +187,14 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
 macro_rules! pack_trait {
     ($trait:ident, $method:ident) => {
         impl $trait for Pack<'_, '_> {
-            type Ok = Value;
+            type Ok = ScriptValue;
             type Error = RuntimeError;
 
             fn $method<T: Serialize + ?Sized>(&mut self, value: &T) -> NativeResult<()> {
                 self.push(value)
             }
 
-            fn end(self) -> NativeResult<Value> {
+            fn end(self) -> NativeResult<ScriptValue> {
                 self.finish()
             }
         }
@@ -212,7 +220,7 @@ impl<'scope, 'runtime> Record<'scope, 'runtime> {
 }
 
 impl SerializeStruct for Record<'_, '_> {
-    type Ok = Value;
+    type Ok = ScriptValue;
     type Error = RuntimeError;
 
     fn serialize_field<T: Serialize + ?Sized>(
@@ -229,7 +237,7 @@ impl SerializeStruct for Record<'_, '_> {
         Ok(())
     }
 
-    fn end(self) -> NativeResult<Value> {
+    fn end(self) -> NativeResult<ScriptValue> {
         if self.remaining != 0 {
             return Err(unsupported("struct has missing fields"));
         }

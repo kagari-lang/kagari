@@ -226,18 +226,20 @@ pub(super) fn defaults(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 DefaultDefinition::new(declaration.implementation_with_send(move |view| {
                     let symbols =
                         EnumSymbols::new(view.catalog(), &[enums::OPTION, enums::ORDERING])?;
-                    Ok(NativeBinding::new(
-                        vec![
-                            Codec::Value;
-                            if matches!(method.callback, Callback::None) {
-                                1
-                            } else {
-                                2
-                            }
-                        ],
-                        Codec::Value,
-                        move |cx| (method.entry)(&symbols, cx),
-                    ))
+                    Ok(unsafe {
+                        NativeBinding::new_transport(
+                            vec![
+                                Codec::Value;
+                                if matches!(method.callback, Callback::None) {
+                                    1
+                                } else {
+                                    2
+                                }
+                            ],
+                            Codec::Value,
+                            move |cx| (method.entry)(&symbols, cx),
+                        )
+                    })
                 }))
                 .arguments(arguments)
                 .bounds(bounds)

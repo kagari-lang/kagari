@@ -565,7 +565,7 @@ emit_artifact(checked_module, artifact_options) -> CompileResult<DefinitionMetad
 compile_to_artifact(source, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 prepare_artifact(artifact, compatibility, cancellation) -> PreparedProgram
 load_program(prepared_program, load_options) -> LoadResult<Program>
-execute(program, entry, args, execution_context) -> RunResult<Value>
+execute(program, entry, args: &[RootedValue], execution_context) -> RunResult<ExecutionReport>
 reload_program(program, prepared_candidate, reload_options) -> ReloadResult<()>
 update(program, update_batch) -> ReloadResult<()>
 ```
@@ -576,6 +576,11 @@ The current Rust facade uses `KagariEngine` for compile and artifact emission an
 `Runtime` for load, execute, reload and optional backend execution. Native
 declarations and bindings are installed through `KagariEngineBuilder` before engine
 construction; live object roots and scoped host access belong to the runtime.
+ExecutionReport.return_value is a RootedValue. The untyped execute/execute_prepared
+entry currently accepts only an empty argument list; nonempty lists retain their
+UnsupportedExecution error. Use execute_typed or bound typed calls for arguments.
+Their owning/scoped conversion boundary remains separate from unsafe backend
+transport entrypoints.
 `Runtime::reload_program` stages and validates the candidate before publishing,
 following [module-activation.md](module-activation.md). Validation errors retain their
 reload codes.
@@ -639,8 +644,10 @@ Dropping the final scope releases the session; dropping an outer handle early do
 not reset a still-active nested scope. ExecutionSession::counters reports root-call
 lifecycle peaks and elapsed time; Runtime counters track live occupancy and
 runtime peaks. Synchronous script
-reentry is available through HostCallContext and kagari_vm::reenter, using
-an exact `ExecutableModule` and checked `FunctionRef` for the admitted entry. Its returned
+reentry is available through HostCallContext and unsafe
+`kagari_vm::reentry::reenter_transport`, using a checked executable/function route
+and protected raw arguments. Ordinary routes select current publication before
+admission; the admitted body then remains pinned. Its returned
 RootedValue remains alive across collection; ordinary raw Value copies do not.
 See [host-interop.md](host-interop.md) for scope and error rules. The `host_reentry`
 example demonstrates this boundary: `cargo run -p kagari --example host_reentry`.
@@ -653,9 +660,23 @@ cancellation: `cargo run -p kagari --example scoped_execution`.
 
 Execution reports contain an owning RootedValue result. Moving `report.return_value`
 into host state or cloning it preserves retention across subsequent execution and
-collection. Inspect it through `value(runtime.runtime().gc())`, which validates the
-owning heap and root generation; a raw Value copied from that inspection does not
-extend lifetime. RootedValue clones share retention and release it on last drop.
+collection. Use `runtime.inspect(&report.return_value, |view| view.as_i32())` for
+scoped scalar inspection, or `view.as_str()?.to_owned()` inside the closure to
+copy string contents. Lower-level users can call `RootedValue::inspect` or
+`ScriptValue::inspect` with the core Runtime. Exact scalar accessors do not perform
+numeric conversions. A `ValueView` or borrowed string cannot escape the closure.
+The shared storage-loan guard excludes collection, conflicting mutation, nested
+inspection and script reentry, including through captured aliases. Errors and Rust
+unwinds release the guard. Closed/cancelled execution still permits retained-data
+inspection; collector/commit callbacks and quarantined state do not.
+
+Ordinary `execute_typed` and owned conversion remain the normal entry for known
+result types. Do not wrap callback-bearing conversions in an inspection loan.
+RootedValue clones share retention and release it on last drop. During the active
+direct-reference migration, raw `value(...)` transport remains available to existing
+callers; copying it does not retain an object. Its removal with raw conversion,
+scoped-entry and debugger consumers is tracked in the active GC plan and is a
+prerequisite for pointer-bearing public-boundary replacement.
 Shared callbacks require Send + Sync; a captured owning root retains its
 script object until the registration releases it.
 The rooted_values runtime example demonstrates retention and collection pause reporting.
@@ -716,6 +737,35 @@ cycles; identity-preserving adapters retain the original object instead. Input
 and output capabilities are independent, and no borrowed input reference escapes.
 NativeResult is the runtime-failure channel; a nested business Result remains data.
 Conversion does not implicitly install nominal providers or ignore type origins.
+`IntoKagari::into_kagari` and `ConversionContext::encode_value` return a `ScriptValue`
+that owns retention independently of the conversion context. Checked struct/enum builders and the Serde serializer
+return the same owning result. Custom outbound converters compose these converters
+or builders; returning a copied `Value` no longer implements the trait. Scalars
+reuse ScriptValue's root-free representation and existing object handles can
+transfer their root lease. `FromKagari::from_kagari` receives `&ScriptValue`;
+custom input converters can clone the handle, inspect it briefly, or compose typed
+converters and checked struct/enum decoders. The input stays protected when a
+converter collects or reenters script. `ConversionContext::retain(expected, root)`
+attaches a checked declared type to an untyped `RootedValue`, sharing its existing
+lease. Foreign roots and mismatched declarations reject. `decode_value(expected,
+&retained)` checks the Rust mapping and retained access view, then protects an
+independent input snapshot across user conversion. Raw `Value` transport is rejected
+by this safe entrypoint. The hidden unsafe backend `decode_transport` entrypoint
+shares the same decoder and requires its caller to keep the input live through
+admission, including custom type checks. It is not a stale-value recovery API.
+Schema field callbacks, recursive decode scopes and enum-layout inspection also
+consume retained values. `retain_slot(expected, &roots, index)` takes independent
+retention from a checked root-pack slot, preserving the snapshot after the pack is
+replaced or dropped. During phase 1 of the direct-reference migration, other raw
+context/root and Native transport accessors
+still require closure before direct pointers.
+`FromKagariArguments` receives an `ArgumentView` from `native::context::arguments`.
+A frozen view owns the complete root pack, including scoped loan capabilities;
+cloning or slicing it shares that immutable snapshot. Custom owned adapters use
+`view.retain(cx, expected, index)` to obtain ScriptValue inputs. Scoped host loans
+cannot become owning ScriptValues, and their original scope/access checks still
+precede Rust reference creation. Raw argument extraction requires the explicit
+unsafe provider/backend contract.
 Rust `VecValues<T>` and `ScriptVec<T>` refer to the installed nominal Vec declaration and
 reject builtin arrays, including empty ones. Portable `Ty::Array` carries only its
 element schema; nominal collection types carry their explicit declaration identity
@@ -1303,12 +1353,31 @@ For retained objects and interfaces, binding uses `&self`; access/invocation use
 | --- | --- |
 | `object_type(&module, name)` | Resolve a public nongeneric `ObjectType`; retained Objects also supply applied generic descriptors |
 | `field::<T>(&ObjectType, name)` | `get(&object, &field)` / `set(&object, &field, value)` |
+| No separate binding required | `get_field::<T>(&object, name)` reads a public field by name |
 | `method::<A, R>(&impl InherentType, name)` | `call_method(&object, &method, arguments)` |
 | `associated_function::<A, R>(&impl InherentType, name)` | `call(&function, arguments)` |
 | `async_method::<A, R>(&impl InherentType, name)` | `call_async_method` / `submit_async_method` with object, method and arguments |
 | `async_associated_function::<A, R>(&impl InherentType, name)` | `call_async` / `submit_async` with function and arguments |
 | `interface_method::<A, R>(&interface, name)` | `call_interface_method(&interface, &method, arguments)` |
 | `async_interface_method::<A, R>(&interface, name)` | `call_async_interface_method` / `submit_async_interface_method` with interface, method and arguments |
+
+Named reads return owned Rust data or retained handles without an inspection
+closure. For example:
+
+```text
+let hp: i32 = runtime.get_field(&player, "hp")?;
+let name: String = runtime.get_field(&player, "name")?;
+let position: Object = runtime.get_field(&player, "position")?;
+```
+
+`get_field` composes the existing field binding and contextual read. It uses the
+object's exact applied type/generation, preserves public-member and conversion
+checks, and requires `T: FromKagari + 'static`. Its `_with_context` variant takes
+the explicit context last. Each call resolves the name and binds its result type;
+there is no additional string lookup cache. For repeated reads, retain a typed
+`Field<T>` from `field` and use `get`. Neither API exposes an unrooted heap value.
+Use `inspect` when a scoped scalar/string view, including a borrowed string without
+copying its bytes, is needed; ordinary owning field reads do not require it.
 
 Callable/member binding uses the same A/R bounds as function binding; field binding
 requires `T: KagariType + 'static`. Field get requires `FromKagari`, set requires
@@ -1333,7 +1402,7 @@ overrun a slice.
 
 For backend tooling, `Runtime::backend()` exposes `kagari_vm::vm::Vm`;
 `ExecutionContext::interpreter_options()` validates interpreter policy and preserves
-inputs. Low-level `Vm::{start, start_future, drive, drive_task}` and core runtime
+inputs. Low-level `Vm::{start_transport, start_future_transport, drive, drive_task}` and core runtime
 manual scopes, reports and retirement primitives remain at their backend owners.
 They are not SDK aliases or the normal async facade. A low-level OwnedExecution drop
 requests retirement rather than promising Call's synchronous cleanup contract.

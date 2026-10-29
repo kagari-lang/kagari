@@ -6,7 +6,8 @@ use kagari_common::identity::{
 use kagari_runtime::{
     host::{HostCallContext, HostObjectId},
     native::{
-        builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::TypeRef,
+        builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback,
+        module::NativeModule, types::TypeRef,
     },
     value::Value,
 };
@@ -183,10 +184,13 @@ impl NominalSchema {
             )
             .unwrap();
         self.builder
-            .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                trace.lock().unwrap().push(label);
-                let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-                Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+            .bind(make, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                    trace.lock().unwrap().push(label);
+                    let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
+                    Ok(cx.runtime().gc().alloc_host_root_transport(root).unwrap())
+                })
             })
             .unwrap();
     }

@@ -64,7 +64,10 @@ pub async fn asynchronous() -> i32 {
     ] {
         let result = runtime.execute(&loaded, entry, &[], &context).unwrap();
         assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
+            result
+                .return_value
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap(),
             Value::I32(42),
             "{entry}"
         );

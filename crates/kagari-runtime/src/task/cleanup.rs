@@ -12,7 +12,20 @@ use std::{mem, sync::atomic::Ordering};
 
 impl Runtime {
     /// Cancelling a terminal Task is a no-op, including after report retirement.
-    pub fn cancel_task(&self, value: &Value) -> NativeResult<()> {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn cancel_task_transport(&self, value: &Value) -> NativeResult<()> {
+        self.cancel_task(value)
+    }
+
+    pub(crate) fn cancel_task(&self, value: &Value) -> NativeResult<()> {
         self.resources().poll_execution()?;
         if self.execution_options().phase != ExecutionPhase::Ordinary {
             return Err(RuntimeError::execution_phase_violation("task cancellation"));
@@ -37,7 +50,7 @@ impl Runtime {
     /// cleanup capability, not authority to run ready work from another scope.
     pub fn drain_cancelled_tasks(&self) -> NativeResult<usize> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         let fault = self
             .resources()
             .ensure_execution_allowed()

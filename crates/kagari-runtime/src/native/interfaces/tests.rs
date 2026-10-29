@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
     module::VerifiedProgram,
-    native::{builder::ModuleBuilder, typed::NativeContext},
+    native::{builder::ModuleBuilder, context::ScriptInvoker, typed::NativeContext},
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId};
@@ -183,16 +183,22 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
             .compatible(right_argument.view(&right))
     );
     let value = interface_value(&runtime, &left, counter);
-    let handle: Interface = ConversionContext::new(&runtime, &left)
-        .unwrap()
-        .decode_value(&left_argument, &value)
-        .unwrap();
+    // SAFETY: The fixture interface stays live; the built-in dynamic Interface mapping cannot
+    // collect before admission.
+    let handle: Interface = unsafe {
+        ConversionContext::new(&runtime, &left)
+            .unwrap()
+            .decode_transport(&left_argument, &value)
+    }
+    .unwrap();
     assert!(!runtime.matches_type_in(&value, &ty, &right, None));
     assert!(
-        ConversionContext::new(&runtime, &right)
-            .unwrap()
-            .decode_value::<Interface>(&right_argument, &value)
-            .is_err()
+        unsafe {
+            ConversionContext::new(&runtime, &right)
+                .unwrap()
+                .decode_transport::<Interface>(&right_argument, &value)
+        }
+        .is_err()
     );
     assert!(
         ConversionContext::new(&runtime, &right)
@@ -203,8 +209,11 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
     let accept = runtime
         .bind_function::<(Interface,), i32>(&right_program.root(), "accept")
         .unwrap();
-    let mut context = NativeContext::with_invoker(&runtime, &right, |_, _, _, _| {
-        panic!("cross-installation interface reached script execution")
+    let mut context = NativeContext::with_invoker(&runtime, &right, unsafe {
+        // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+        ScriptInvoker::new(|_, _, _, _| {
+            panic!("cross-installation interface reached script execution")
+        })
     })
     .unwrap();
     let error = accept.call(&mut context, (handle.clone(),)).unwrap_err();
@@ -227,6 +236,8 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
         ConversionContext::new(&runtime, &current)
             .unwrap()
             .encode_value(&fresh, handle)
+            .unwrap()
+            .value(&runtime)
             .unwrap(),
         value
     );
@@ -265,15 +276,21 @@ fn shared_native_interfaces_keep_nested_script_trait_provenance() {
     );
     assert!(TypeView::new(&scalar, &left, None).compatible(TypeView::new(&scalar, &right, None)));
     let value = interface_value(&runtime, &left, shared);
-    let handle: Interface = ConversionContext::new(&runtime, &left)
-        .unwrap()
-        .decode_value(&left_argument, &value)
-        .unwrap();
+    // SAFETY: The fixture interface stays live; the built-in dynamic Interface mapping cannot
+    // collect before admission.
+    let handle: Interface = unsafe {
+        ConversionContext::new(&runtime, &left)
+            .unwrap()
+            .decode_transport(&left_argument, &value)
+    }
+    .unwrap();
     assert!(runtime.matches_type_in(&value, &ty, &right, None));
     assert_eq!(
         ConversionContext::new(&runtime, &right)
             .unwrap()
             .encode_value(&right_argument, handle)
+            .unwrap()
+            .value(&runtime)
             .unwrap(),
         value
     );

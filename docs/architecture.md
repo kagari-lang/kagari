@@ -3166,7 +3166,7 @@ Runtime destruction uses this path for standalone owners as well as Tasks. These
 boundaries preserve reservations and roots without retrying failed host cleanup;
 see the [completion contract](spec/host-interop.md#completion-transport-foundation).
 
-The low-level VM `start_future` entry explicitly queues one Future layer. Ordinary calls
+The low-level VM `start_future_transport` entry explicitly queues one Future layer. Ordinary calls
 return cold values, including Future-valued outputs without flattening. Nested
 script awaits push owned resume frames; native waits also work directly as a root
 without an artificial script caller. Real deferred for-body waits retain the same

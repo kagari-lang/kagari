@@ -45,7 +45,7 @@ impl From<RuntimeError> for BuiltinError {
     }
 }
 
-pub fn invoke_standard(
+pub(crate) fn invoke_standard(
     runtime: &Runtime,
     owner: &ExecutableModule,
     intrinsic: RuntimePrimitive,

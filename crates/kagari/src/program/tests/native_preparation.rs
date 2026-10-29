@@ -6,7 +6,6 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     module::entry::ProgramEntry,
     session::{ExecutionEvent, ExecutionObserver},
-    value::Value,
 };
 use std::sync::{
     Arc,
@@ -299,8 +298,11 @@ fn execution_policy_preserves_cancellation_observers_and_native_failures() {
         )
         .unwrap();
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
-        Some(Value::Unit)
+        report
+            .return_value
+            .inspect(runtime.runtime(), |view| Ok(view.is_unit()))
+            .ok(),
+        Some(true)
     );
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);

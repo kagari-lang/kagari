@@ -1,9 +1,8 @@
 //! Scoped external lending uses the common runtime owner and explicit SDK policy.
 use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::Runtime};
 use kagari_runtime::{
-    host_scope::scoped::HostScope,
+    host_scope::{scoped::HostScope, value::ScopedValue},
     module::{Program, entry::ProgramEntry},
-    value::Value,
 };
 use kagari_vm::vm::Vm;
 
@@ -34,15 +33,15 @@ impl Runtime {
 
     /// Execute a closed scoped entry on the interpreter using explicit cancellation,
     /// deterministic inputs and observation policy. JIT policies reject before entry.
-    /// The returned raw Value stays rooted until scope exit; retain or decode heap
-    /// results within that scope before returning them to the host.
-    pub fn execute_scoped<'entry>(
-        scope: &HostScope<'_, '_>,
+    /// The result stays protected by the scope. Use retain() on an ordinary
+    /// script result to keep it after scope exit; external capabilities remain scoped.
+    pub fn execute_scoped<'entry, 'scope>(
+        scope: &HostScope<'scope, '_>,
         program: &Program,
         entry: impl Into<ProgramEntry<'entry>>,
-        arguments: &[Value],
+        arguments: &[ScopedValue<'scope>],
         context: &ExecutionContext,
-    ) -> RunResult<Value> {
+    ) -> RunResult<ScopedValue<'scope>> {
         let entry = entry.into();
         context.validate_for_execute(entry.label())?;
         Vm::execute_scoped(scope, program, entry, arguments, context.runtime_options())

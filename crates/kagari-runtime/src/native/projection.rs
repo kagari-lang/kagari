@@ -8,6 +8,7 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{FromKagari, context::ConversionContext},
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -26,7 +27,7 @@ pub struct GeneratedField {
     pub(crate) target_type: fn(&DeclarationCatalog) -> NativeResult<Type>,
     pub(crate) project: unsafe fn(*mut ()) -> *mut (),
     pub(crate) snapshot:
-        unsafe fn(*mut (), &mut ConversionContext<'_>, &TypeArgument) -> NativeResult<Value>,
+        unsafe fn(*mut (), &mut ConversionContext<'_>, &TypeArgument) -> NativeResult<ScriptValue>,
     pub(crate) decode:
         fn(&mut ConversionContext<'_>, &TypeArgument, &Value) -> NativeResult<Box<dyn Any>>,
     pub(crate) replace: unsafe fn(*mut (), Box<dyn Any>) -> Box<dyn Any>,
@@ -75,7 +76,7 @@ unsafe fn snapshot<F: FromKagari>(
     pointer: *mut (),
     cx: &mut ConversionContext<'_>,
     expected: &TypeArgument,
-) -> NativeResult<Value> {
+) -> NativeResult<ScriptValue> {
     // SAFETY: The caller holds a checked shared path loan with exact F identity.
     unsafe { (&*pointer.cast::<F>()).snapshot_field(cx, expected) }
 }
@@ -85,7 +86,9 @@ fn decode<F: FromKagari + 'static>(
     expected: &TypeArgument,
     value: &Value,
 ) -> NativeResult<Box<dyn Any>> {
-    cx.decode_value::<F>(expected, value)
+    // SAFETY: The field writer supplies a live value retained by its execution frame.
+    // Conversion finishes before the host loan or replacement starts.
+    unsafe { cx.decode_transport::<F>(expected, value) }
         .map(|value| Box::new(value) as Box<dyn Any>)
 }
 

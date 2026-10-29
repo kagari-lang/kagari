@@ -2,9 +2,8 @@ use super::{Counter, SOURCE, module};
 use crate::tests::native_boundary::native_boundary_functions::fixture;
 use kagari_runtime::{
     native::{
-        conversion::{FromKagari, IntoKagari, context::ConversionContext},
+        conversion::{IntoKagari, context::ConversionContext},
         payload::Opaque,
-        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -36,11 +35,11 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
     let mut conversion = ConversionContext::new(runtime, &owner).unwrap();
-    let old = alias
+    let parked = alias
         .clone()
         .into_kagari(&mut conversion, ty.type_argument())
         .unwrap();
-    let parked = ScriptValue::from_kagari(&mut conversion, ty.type_argument(), &old).unwrap();
+    let old = unsafe { parked.value_transport(runtime) }.unwrap();
     let Value::GcHandle(old_id) = old else {
         panic!("opaque")
     };
@@ -58,8 +57,8 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
     assert_eq!(original.value, 42);
     assert_eq!(drops.load(Ordering::Relaxed), 0);
     assert_eq!(runtime.gc().stats().current_heap_units, before - 1);
-    assert!(!runtime.gc().validate_value(&old));
-    assert!(runtime.root_value(old).is_none());
+    assert!(!unsafe { runtime.gc().validate_value_transport(&old) });
+    assert!(unsafe { runtime.gc().root_value_transport(old) }.is_none());
     assert!(unsafe { alias.read(&cx, None, |_, _access| Ok(())) }.is_err());
     assert!(object.take(&cx).is_err());
     assert!(script.get(&mut cx, 0).is_err());
@@ -79,10 +78,14 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
             &[],
         )
         .unwrap();
-    let fresh_value = fresh
-        .clone()
-        .into_kagari(&mut conversion, ty.type_argument())
-        .unwrap();
+    let fresh_value = unsafe {
+        fresh
+            .clone()
+            .into_kagari(&mut conversion, ty.type_argument())
+            .unwrap()
+            .value_transport(runtime)
+    }
+    .unwrap();
     let Value::GcHandle(fresh_id) = fresh_value else {
         panic!("fresh opaque")
     };

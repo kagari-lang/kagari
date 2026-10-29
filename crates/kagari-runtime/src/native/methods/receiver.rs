@@ -9,8 +9,8 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{IntoKagari, KagariType, context::ConversionContext},
         types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
 };
 use kagari_types::ty::Ty;
 
@@ -84,7 +84,7 @@ impl IntoKagari for RetainedReceiver {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.applied.validate(cx.runtime())?;
         if !self
             .applied
@@ -99,6 +99,10 @@ impl IntoKagari for RetainedReceiver {
             .value(cx.runtime().gc())
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired method receiver"))?;
         cx.check_value(expected, &value)?;
-        Ok(value)
+        Ok(ScriptValue::from_root(
+            self.root,
+            expected.clone(),
+            cx.owner().clone(),
+        ))
     }
 }

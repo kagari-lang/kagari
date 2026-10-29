@@ -218,10 +218,13 @@ mod tests {
             .resolve_type_arguments(owner, slice::from_ref(&ty))
             .unwrap()
             .remove(0);
-        ConversionContext::new(runtime, owner)
-            .unwrap()
-            .decode_value(&argument, &value)
-            .unwrap()
+        /* SAFETY: The freshly allocated interface has no intervening collection or user mapping callback before admission. */
+        unsafe {
+            ConversionContext::new(runtime, owner)
+                .unwrap()
+                .decode_transport(&argument, &value)
+        }
+        .unwrap()
     }
 
     fn dequeue(runtime: &Runtime, ticket: &ScheduledResult<i32>, expected: PublicationToken) {

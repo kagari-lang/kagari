@@ -6,6 +6,7 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, arguments::FromKagariArguments},
         functions::NativeFunction,
+        scalar::NativeScalar,
         typed::NativeContext,
     },
 };
@@ -51,9 +52,11 @@ pub trait NativeAdapter<Mode, R> {
 impl<F, A, R> NativeAdapter<Flat<A>, R> for F
 where
     F: NativeFunction<A, R>,
+    R: NativeScalar,
 {
     fn prepare(self, _: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
-        Ok(self.binding())
+        // SAFETY: Sealed scalar outputs cannot publish an unrooted managed result.
+        Ok(unsafe { self.binding_transport() })
     }
 }
 

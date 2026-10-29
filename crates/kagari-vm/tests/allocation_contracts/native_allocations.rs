@@ -14,7 +14,7 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        context::{CallContext, ScriptCall},
+        context::{CallContext, ScriptCall, ScriptInvoker},
         conversion::context::ConversionContext,
         declarations::FunctionDecl,
         module::NativeModule,
@@ -70,9 +70,8 @@ fn module() -> NativeModule {
         )
         .unwrap();
     module
-        .bind(
-            sum,
-            NativeBinding::new([Codec::Value], Codec::Exact(Type::i32()), |cx| {
+        .bind(sum, unsafe {
+            NativeBinding::new_transport([Codec::Value], Codec::Exact(Type::i32()), |cx| {
                 assert_eq!(
                     cx.argument_type_parameter(0, 0)?.ty(),
                     &Ty::Builtin(BuiltinType::I32)
@@ -80,8 +79,8 @@ fn module() -> NativeModule {
                 with_argument_slice::<i32, _>(cx, 0, |values| {
                     Ok(Value::I32(values.iter().copied().sum()))
                 })
-            }),
-        )
+            })
+        })
         .unwrap();
     module.finish().unwrap()
 }
@@ -183,15 +182,16 @@ fn sample(
     expected: i32,
 ) -> (Counts, Duration) {
     let stack = runtime.enter_execution_stack(loaded).unwrap();
-    stack
-        .push(runtime, loaded.slot(), site.function, arguments, None)
+    unsafe { stack.push_transport(runtime, loaded.slot(), site.function, arguments, None) }
         .unwrap();
     for (register, value) in site.arguments.iter().zip(arguments) {
-        stack
-            .current_mut()
-            .unwrap()
-            .write_slot(runtime, *register, *value)
-            .unwrap();
+        unsafe {
+            stack
+                .current_mut()
+                .unwrap()
+                .write_slot_transport(runtime, *register, *value)
+        }
+        .unwrap();
     }
     let invoke = || {
         stack
@@ -200,19 +200,27 @@ fn sample(
             .jump_to(runtime, site.pc)
             .unwrap();
         assert!(matches!(
-            stack
-                .execute_region(runtime, &mut Some(1), unexpected_callback)
-                .unwrap(),
+            unsafe {
+                stack.execute_region_transport(
+                    runtime,
+                    &mut Some(1), // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                    ScriptInvoker::new(unexpected_callback),
+                )
+            }
+            .unwrap(),
             RegionExit::Call(ExecutionAction::NativeEntry)
         ));
         assert_eq!(
             stack
-                .start_native_entry(runtime, unexpected_callback)
+                .start_native_entry(runtime, unsafe {
+                    // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                    ScriptInvoker::new(unexpected_callback)
+                })
                 .unwrap(),
             ExecutionAction::NativeReturn
         );
         assert_eq!(
-            stack.finish_native_return(runtime).unwrap(),
+            unsafe { stack.finish_native_return_transport(runtime) }.unwrap(),
             ReturnAction::Continue(ExecutionAction::Script)
         );
     };
@@ -235,11 +243,13 @@ fn sample(
     assert_eq!(runtime.gc().active_roots(), roots);
     assert_eq!(runtime.gc().stats().current_heap_units, occupancy);
     assert_eq!(
-        stack
-            .current()
-            .unwrap()
-            .read_slot(runtime, site.destination.unwrap())
-            .unwrap(),
+        unsafe {
+            stack
+                .current()
+                .unwrap()
+                .read_slot_transport(runtime, site.destination.unwrap())
+        }
+        .unwrap(),
         Value::I32(expected)
     );
     sample
@@ -269,13 +279,14 @@ fn warmed_scalar_and_contiguous_i32_boundaries_add_no_allocations() {
             .unwrap()
             .encode(VecValues(vec![1i32; length]))
             .unwrap();
-        let value = root.value(runtime.gc()).unwrap();
-        drop(root);
+        // SAFETY: root protects the input throughout all sample frame publications.
+        let value = unsafe { root.value_transport(runtime.gc()) }.unwrap();
         let (counts, elapsed) = sample(&runtime, &loaded, &bulk, &[value], 1_000, length as i32);
         println!(
             "bulk_i32,elements={length},calls=1000,{counts:?},elapsed_ns={}",
             elapsed.as_nanos()
         );
+        drop(root);
         assert_eq!(runtime.gc().active_roots(), 0);
         assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
     }
@@ -310,49 +321,64 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         })
         .unwrap();
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
-    stack
-        .push(
+    unsafe {
+        stack.push_transport(
             &runtime,
             loaded.slot(),
             caller.id,
             &[Value::I32(20), Value::I32(11)],
             None,
         )
-        .unwrap();
+    }
+    .unwrap();
     assert!(matches!(
-        stack
-            .execute_region(&runtime, &mut None, unexpected_callback)
-            .unwrap(),
+        unsafe {
+            stack.execute_region_transport(
+                &runtime,
+                &mut None, // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                ScriptInvoker::new(unexpected_callback),
+            )
+        }
+        .unwrap(),
         RegionExit::Call(ExecutionAction::Script)
     ));
     for (index, expected) in [11, 20, 11].into_iter().enumerate() {
         assert_eq!(
-            stack
-                .current()
-                .unwrap()
-                .read_slot(&runtime, Slot::new(index))
-                .unwrap(),
+            unsafe {
+                stack
+                    .current()
+                    .unwrap()
+                    .read_slot_transport(&runtime, Slot::new(index))
+            }
+            .unwrap(),
             Value::I32(expected)
         );
     }
-    let RegionExit::Return(value) = stack
-        .execute_region(&runtime, &mut None, unexpected_callback)
-        .unwrap()
-    else {
+    let RegionExit::Return(value) = unsafe {
+        stack.execute_region_transport(
+            &runtime,
+            &mut None, // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+            ScriptInvoker::new(unexpected_callback),
+        )
+    }
+    .unwrap() else {
         panic!("concrete scalar callee must remain in its prepared region");
     };
-    stack.finish_return(&runtime, value).unwrap();
+    unsafe { stack.finish_return_transport(&runtime, value) }.unwrap();
     let external = [Value::I32(11), Value::I32(20), Value::I32(11)];
-    stack
-        .push(&runtime, module, callee, &external, None)
-        .unwrap();
+    unsafe { stack.push_transport(&runtime, module, callee, &external, None) }.unwrap();
     stack.pop().unwrap();
     let enter = || {
         stack.current_mut().unwrap().jump_to(&runtime, pc).unwrap();
         assert!(matches!(
-            stack
-                .execute_region(black_box(&runtime), &mut None, unexpected_callback)
-                .unwrap(),
+            unsafe {
+                stack.execute_region_transport(
+                    black_box(&runtime),
+                    &mut None, // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                    ScriptInvoker::new(unexpected_callback),
+                )
+            }
+            .unwrap(),
             RegionExit::Call(ExecutionAction::Script)
         ));
     };
@@ -362,36 +388,42 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             stack.pop().unwrap();
         }
     });
-    let (returned, _) = measured(|| {
-        for _ in 0..1000 {
-            for (register, value) in arguments.iter().zip(&external) {
-                stack
-                    .current_mut()
+    let (returned, _) = unsafe {
+        measured(|| {
+            for _ in 0..1000 {
+                for (register, value) in arguments.iter().zip(&external) {
+                    stack
+                        .current_mut()
+                        .unwrap()
+                        .write_slot_transport(&runtime, *register, *value)
+                        .unwrap();
+                }
+                enter();
+                let RegionExit::Return(value) = stack
+                    .execute_region_transport(
+                        &runtime,
+                        &mut None, // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                        ScriptInvoker::new(unexpected_callback),
+                    )
                     .unwrap()
-                    .write_slot(&runtime, *register, *value)
-                    .unwrap();
+                else {
+                    panic!("scalar return");
+                };
+                assert_eq!(
+                    stack.finish_return_transport(&runtime, value).unwrap(),
+                    ReturnAction::Continue(ExecutionAction::Script)
+                );
+                assert_eq!(
+                    stack
+                        .current()
+                        .unwrap()
+                        .read_slot_transport(&runtime, destination.unwrap())
+                        .unwrap(),
+                    Value::I32(42)
+                );
             }
-            enter();
-            let RegionExit::Return(value) = stack
-                .execute_region(&runtime, &mut None, unexpected_callback)
-                .unwrap()
-            else {
-                panic!("scalar return");
-            };
-            assert_eq!(
-                stack.finish_return(&runtime, value).unwrap(),
-                ReturnAction::Continue(ExecutionAction::Script)
-            );
-            assert_eq!(
-                stack
-                    .current()
-                    .unwrap()
-                    .read_slot(&runtime, destination.unwrap())
-                    .unwrap(),
-                Value::I32(42)
-            );
-        }
-    });
+        })
+    };
     assert_eq!(
         returned,
         Counts::default(),
@@ -399,8 +431,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
     );
     let (slice, _) = measured(|| {
         for _ in 0..1000 {
-            stack
-                .push(&runtime, module, callee, black_box(&external), None)
+            unsafe { stack.push_transport(&runtime, module, callee, black_box(&external), None) }
                 .unwrap();
             stack.pop().unwrap();
         }

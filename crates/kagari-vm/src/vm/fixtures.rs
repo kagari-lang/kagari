@@ -68,8 +68,10 @@ impl FixtureExecution for Vm {
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, VmError> {
         let (owner, function) = self.select_function(owner, function)?;
-        self.runtime
-            .start_owned_execution(&owner, function, arguments, options)
-            .map_err(VmError::from)
+        unsafe {
+            self.runtime
+                .start_owned_execution_transport(&owner, function, arguments, options)
+        }
+        .map_err(VmError::from)
     }
 }

@@ -5,7 +5,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, module::NativeModule},
+    native::{builder::ModuleBuilder, host::HostCallback, module::NativeModule},
     value::Value,
 };
 use kagari_bytecode::{
@@ -80,10 +80,12 @@ fn declaration(context: &DefinitionContext, package: &str) -> DefinitionMetadata
 
 fn bound(
     declarations: DefinitionMetadata<ModuleDecl>,
-    callback: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
-    + Send
-    + Sync
-    + 'static,
+    callback: HostCallback<
+        impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
+    >,
 ) -> Result<NativeModule, RuntimeError> {
     let mut builder =
         ModuleBuilder::from_declaration(declarations, &Default::default(), BTreeMap::new())?;
@@ -118,8 +120,9 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let mut runtime = Runtime::default();
     assert!(runtime.load_program("host", bytecode.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
-    bound(required.clone(), |_, _| {
-        panic!("linking must not invoke Rust")
+    bound(required.clone(), unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| panic!("linking must not invoke Rust"))
     })
     .unwrap()
     .install(&mut runtime)
@@ -164,7 +167,11 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
 fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let context = DefinitionContext::new().unwrap();
     let declaration = declaration(&context, "game");
-    let module = bound(declaration.clone(), |_, args| Ok(args[0])).unwrap();
+    let module = bound(declaration.clone(), unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, args| Ok(args[0]))
+    })
+    .unwrap();
     let mut first = Runtime::default();
     let mut second = Runtime::default();
     module.install(&mut first).unwrap();
@@ -202,9 +209,12 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
     let declaration = declaration(&context, "game");
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
-    let module = bound(declaration.clone(), move |_, _| {
-        called.fetch_add(1, Ordering::SeqCst);
-        Ok(Value::Bool(true))
+    let module = bound(declaration.clone(), unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(move |_, _| {
+            called.fetch_add(1, Ordering::SeqCst);
+            Ok(Value::Bool(true))
+        })
     })
     .unwrap();
     let mut runtime = Runtime::default();
@@ -254,9 +264,12 @@ fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let mut runtime = Runtime::default();
-    bound(declaration, move |_, _| {
-        called.fetch_add(1, Ordering::SeqCst);
-        Ok(Value::I32(7))
+    bound(declaration, unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(move |_, _| {
+            called.fetch_add(1, Ordering::SeqCst);
+            Ok(Value::I32(7))
+        })
     })
     .unwrap()
     .install(&mut runtime)
@@ -281,8 +294,9 @@ fn linking_checks_identity_signature_borrow_and_effects() {
     let context = DefinitionContext::new().unwrap();
     let original = declaration(&context, "game");
     let mut runtime = Runtime::default();
-    bound(original.clone(), |_, _| {
-        panic!("linking must not invoke Rust")
+    bound(original.clone(), unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| panic!("linking must not invoke Rust"))
     })
     .unwrap()
     .install(&mut runtime)
@@ -317,10 +331,13 @@ fn linking_checks_identity_signature_borrow_and_effects() {
     let mut text = declaration(&context, "text").into_records();
     text.functions[0].params[0].ty = Ty::Builtin(BuiltinType::String);
     let text = scoped(&context.snapshot(), text);
-    bound(text.clone(), |_, _| panic!("linking must not invoke Rust"))
-        .unwrap()
-        .install(&mut runtime)
-        .unwrap();
+    bound(text.clone(), unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| panic!("linking must not invoke Rust"))
+    })
+    .unwrap()
+    .install(&mut runtime)
+    .unwrap();
     let (definitions, mut borrowed) = text.into_parts();
     borrowed.functions[0].host_policy.as_mut().unwrap().passing[0] = HostPassingStyle::SharedBorrow;
     assert!(
@@ -392,7 +409,13 @@ fn invalid_registration_leaves_registry_unchanged() {
     let original = declaration(&context, "game");
     let mut bad = original.records().clone();
     bad.functions[0].host_policy.as_mut().unwrap().passing[0] = HostPassingStyle::UniqueBorrow;
-    assert!(bound(scoped(original.definitions(), bad), |_, _| unreachable!()).is_err());
+    assert!(
+        bound(scoped(original.definitions(), bad), unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_, _| unreachable!())
+        })
+        .is_err()
+    );
     let mut runtime = Runtime::default();
     assert!(
         runtime
@@ -400,11 +423,18 @@ fn invalid_registration_leaves_registry_unchanged() {
             .is_err()
     );
     assert_eq!(runtime.modules().loaded_count(), 0);
-    bound(original.clone(), |_, _| Ok(Value::I32(7)))
-        .unwrap()
-        .install(&mut runtime)
-        .unwrap();
-    let duplicate = bound(original.clone(), |_, _| Ok(Value::I32(9))).unwrap();
+    bound(original.clone(), unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| Ok(Value::I32(7)))
+    })
+    .unwrap()
+    .install(&mut runtime)
+    .unwrap();
+    let duplicate = bound(original.clone(), unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| Ok(Value::I32(9)))
+    })
+    .unwrap();
     assert!(duplicate.install(&mut runtime).is_err());
     let loaded_program = runtime
         .load_program("original", free_function_program(&original))
@@ -440,10 +470,13 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
         source.records().modules[0].native_declarations
     );
     let mut runtime = Runtime::default();
-    bound(pure, |_, _| panic!("effect mismatch must not call Rust"))
-        .unwrap()
-        .install(&mut runtime)
-        .unwrap();
+    bound(pure, unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| panic!("effect mismatch must not call Rust"))
+    })
+    .unwrap()
+    .install(&mut runtime)
+    .unwrap();
     assert!(
         runtime
             .load_program(

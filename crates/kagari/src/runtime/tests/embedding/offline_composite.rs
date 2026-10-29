@@ -10,7 +10,7 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
-        typed::NativeContext, types::Type,
+        host::HostCallback, typed::NativeContext, types::Type,
     },
     value::Value,
 };
@@ -24,7 +24,7 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_vm::reentry::reenter;
+use kagari_vm::reentry::reenter_transport;
 use std::sync::{Arc, Mutex};
 
 fn array() -> Type {
@@ -84,31 +84,34 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     let trace = Arc::new(Mutex::new(Vec::new()));
     let calls = trace.clone();
     builder
-        .bind(make, move |context: &HostCallContext<'_>, _: &[Value]| {
-            calls.lock().unwrap().push("make");
-            let owner = context.runtime().execution_root().unwrap();
-            let payload = owner
-                .bytecode
-                .functions
-                .iter()
-                .find(|function| function.name == "payload")
-                .ok_or_else(|| HostError::new("missing pinned payload entry"))?
-                .id;
-            let payload = reenter(context, &owner, payload, &[])
-                .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
-            Ok(payload.value(context.runtime().gc()).unwrap())
+        .bind(make, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context: &HostCallContext<'_>, _: &[Value]| {
+                calls.lock().unwrap().push("make");
+                let owner = context.runtime().execution_root().unwrap();
+                let payload = owner
+                    .bytecode
+                    .functions
+                    .iter()
+                    .find(|function| function.name == "payload")
+                    .ok_or_else(|| HostError::new("missing pinned payload entry"))?
+                    .id;
+                let payload = reenter_transport(context, &owner, payload, &[])
+                    .map_err(|error| HostError::new(format!("payload construction: {error:?}")))?;
+                Ok(payload.value_transport(context.runtime().gc()).unwrap())
+            })
         })
         .unwrap();
     let calls = trace.clone();
     builder
-        .bind(
-            echo,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+        .bind(echo, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context: &HostCallContext<'_>, args: &[Value]| {
                 calls.lock().unwrap().push("echo");
                 context.runtime().collect_garbage().unwrap();
                 Ok(args[0])
-            },
-        )
+            })
+        })
         .unwrap();
     let engine =
         KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
@@ -159,10 +162,14 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         .unwrap();
         let retained = report.return_value;
         runtime.runtime().collect_garbage().unwrap();
-        let Value::Tuple(values) = retained.value(runtime.runtime().gc()).unwrap() else {
+        let Value::Tuple(values) =
+            unsafe { retained.value_transport(runtime.runtime().gc()) }.unwrap()
+        else {
             panic!("composite return")
         };
-        let values = runtime.runtime().gc().tuple(values).unwrap().to_vec();
+        let values = unsafe { runtime.runtime().gc().tuple_transport(values) }
+            .unwrap()
+            .to_vec();
         let [
             Value::Array(array),
             map @ Value::GcHandle(_),
@@ -174,18 +181,35 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
             panic!("composite shapes")
         };
         let heap = runtime.runtime().gc();
-        assert_eq!(heap.array_snapshot(*array).unwrap(), [Value::I32(7)]);
+        assert_eq!(
+            unsafe { heap.array_snapshot_transport(*array) }.unwrap(),
+            [Value::I32(7)]
+        );
         let owner = runtime.runtime().select_program(&loaded).unwrap();
         let mut conversion = ConversionContext::new(runtime.runtime(), &owner).unwrap();
         let map_type = conversion.type_for::<ScriptMap<String, bool>>().unwrap();
         let set_type = conversion.type_for::<ScriptSet<String>>().unwrap();
-        let map: ScriptMap<String, bool> = conversion.decode_value(&map_type, map).unwrap();
-        let set: ScriptSet<String> = conversion.decode_value(&set_type, set).unwrap();
+        // SAFETY: The execution report retains the composite return graph throughout both decodes.
+        let map: ScriptMap<String, bool> =
+            unsafe { conversion.decode_transport(&map_type, map) }.unwrap();
+        // SAFETY: The execution report retains the composite return graph throughout both decodes.
+        let set: ScriptSet<String> =
+            unsafe { conversion.decode_transport(&set_type, set) }.unwrap();
         let mut native = NativeContext::new(runtime.runtime(), &owner).unwrap();
         assert_eq!(map.to_vec(&mut native).unwrap(), [("yes".to_owned(), true)]);
         assert_eq!(set.to_vec(&mut native).unwrap(), ["name".to_owned()]);
-        assert_eq!(heap.enum_snapshot(*option).unwrap().fields, [Value::I32(8)]);
-        assert_eq!(heap.enum_snapshot(*result).unwrap().fields, [Value::I32(9)]);
+        assert_eq!(
+            unsafe { heap.enum_snapshot_transport(*option) }
+                .unwrap()
+                .fields,
+            [Value::I32(8)]
+        );
+        assert_eq!(
+            unsafe { heap.enum_snapshot_transport(*result) }
+                .unwrap()
+                .fields,
+            [Value::I32(9)]
+        );
         assert_eq!(*trace.lock().unwrap(), ["make", "echo"]);
     }
 }
@@ -205,8 +229,11 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
         )
         .unwrap();
     builder
-        .bind(take, |_: &HostCallContext<'_>, _: &[Value]| {
-            panic!("invalid source cannot invoke a host callback")
+        .bind(take, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| {
+                panic!("invalid source cannot invoke a host callback")
+            })
         })
         .unwrap();
     let engine =
@@ -239,9 +266,9 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
     let count = Arc::new(Mutex::new(0));
     let calls = count.clone();
     builder
-        .bind(
-            take,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+        .bind(take, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context: &HostCallContext<'_>, args: &[Value]| {
                 let Value::Array(array) = args[0] else {
                     panic!("array argument")
                 };
@@ -249,14 +276,14 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
                     context
                         .runtime()
                         .gc()
-                        .array_snapshot(array)
+                        .array_snapshot_transport(array)
                         .unwrap()
                         .is_empty()
                 );
                 *calls.lock().unwrap() += 1;
                 Ok(Value::I32(42))
-            },
-        )
+            })
+        })
         .unwrap();
     let engine =
         KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
@@ -314,7 +341,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             assert_eq!(
                 report
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(42)
             );

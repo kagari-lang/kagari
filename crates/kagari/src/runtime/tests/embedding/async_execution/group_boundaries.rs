@@ -24,6 +24,7 @@ use kagari_runtime::{
         completion::{Completion, CompletionStatus},
         declarations::FunctionDecl,
         future::NativeStart,
+        host::HostCallback,
         types::Type,
     },
     scheduler::tasks::TaskEvent,
@@ -88,11 +89,13 @@ pub fn factory() -> fn()->Future<i32> { || nested() }
         let mut ticket = if let Some(scope) = &scope {
             let factory = f.invoke("factory", &[]);
             drop(
-                f.runtime
-                    .runtime()
-                    .spawn_task(&f.value(scope.capability()), &f.value(&factory))
-                    .unwrap()
-                    .unwrap(),
+                unsafe {
+                    f.runtime
+                        .runtime()
+                        .spawn_task_transport(&f.value(scope.capability()), &f.value(&factory))
+                }
+                .unwrap()
+                .unwrap(),
             );
             None
         } else {
@@ -288,11 +291,12 @@ pub async fn waiting() -> i32 { val (a,b)=join(request(10),request(20)).await; a
     );
     let context = ExecutionContext::default();
     let future = f.invoke("waiting", &[]);
-    let execution = f
-        .runtime
-        .backend()
-        .start_future(&f.value(&future), context.interpreter_options().unwrap())
-        .unwrap();
+    let execution = unsafe {
+        f.runtime
+            .backend()
+            .start_future_transport(&f.value(&future), context.interpreter_options().unwrap())
+    }
+    .unwrap();
     let mut ticket = f
         .runtime
         .runtime()
@@ -335,13 +339,16 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
                 .unwrap();
             let random = random.clone();
             module
-                .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                    assert_eq!(cx.execution_time_millis().unwrap(), 123);
-                    random
-                        .lock()
-                        .unwrap()
-                        .push(cx.next_execution_random_u64().unwrap());
-                    Ok(Value::I32(1))
+                .bind(function, unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                        assert_eq!(cx.execution_time_millis().unwrap(), 123);
+                        random
+                            .lock()
+                            .unwrap()
+                            .push(cx.next_execution_random_u64().unwrap());
+                        Ok(Value::I32(1))
+                    })
                 })
                 .unwrap();
             engine.install(module.finish().unwrap()).unwrap();
@@ -358,11 +365,12 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     for entry in ["grouped", "serial"] {
         let future = f.invoke(entry, &[]);
-        let execution = f
-            .runtime
-            .backend()
-            .start_future(&f.value(&future), context.interpreter_options().unwrap())
-            .unwrap();
+        let execution = unsafe {
+            f.runtime
+                .backend()
+                .start_future_transport(&f.value(&future), context.interpreter_options().unwrap())
+        }
+        .unwrap();
         let mut ticket = f
             .runtime
             .runtime()

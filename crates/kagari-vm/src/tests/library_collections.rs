@@ -91,7 +91,7 @@ fn run(text: &str) -> Value {
     vm.execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .inspect(vm.runtime(), |view| view.as_bool().map(Value::Bool))
         .expect("retained execution result")
 }
 
@@ -223,27 +223,43 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         .as_ref()
         .unwrap()
         .clone();
-    let vector: ScriptVec<Object> = ConversionContext::new(vm.runtime(), &loaded)
-        .unwrap()
-        .decode_value(&retained_type, &retained.value(vm.runtime().gc()).unwrap())
-        .unwrap();
-    let values: VecValues<Object> = ConversionContext::new(vm.runtime(), &loaded)
-        .unwrap()
-        .decode_value(&retained_type, &retained.value(vm.runtime().gc()).unwrap())
-        .unwrap();
+    // SAFETY: The retained probe root stays alive and is not replaced during conversion.
+    let vector: ScriptVec<Object> = unsafe {
+        ConversionContext::new(vm.runtime(), &loaded)
+            .unwrap()
+            .decode_transport(
+                &retained_type,
+                &retained.value_transport(vm.runtime().gc()).unwrap(),
+            )
+    }
+    .unwrap();
+    // SAFETY: The retained probe root stays alive and is not replaced during conversion.
+    let values: VecValues<Object> = unsafe {
+        ConversionContext::new(vm.runtime(), &loaded)
+            .unwrap()
+            .decode_transport(
+                &retained_type,
+                &retained.value_transport(vm.runtime().gc()).unwrap(),
+            )
+    }
+    .unwrap();
     let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
     let mut keys = Vec::new();
     let mut visits = 0;
     for value in &values {
         let argument = value.object_type().type_argument().clone();
-        let value = value
-            .clone()
-            .into_kagari(&mut conversion, &argument)
-            .unwrap();
+        let value = unsafe {
+            value
+                .clone()
+                .into_kagari(&mut conversion, &argument)
+                .unwrap()
+                .value_transport(vm.runtime())
+        }
+        .unwrap();
         let Value::Struct(id) = value else {
             panic!("item");
         };
-        let (_, fields) = vm.runtime().gc().struct_snapshot(id).unwrap();
+        let (_, fields) = unsafe { vm.runtime().gc().struct_snapshot_transport(id) }.unwrap();
         for field in fields {
             if field.name == "key" {
                 keys.push(field.value);

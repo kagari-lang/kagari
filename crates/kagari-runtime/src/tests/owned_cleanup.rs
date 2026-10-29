@@ -17,6 +17,7 @@ use crate::{
         module::NativeModule,
         storage::NativeStorage,
         types::Type,
+        value_handle::ScriptValue,
     },
     session::owned::OwnedExecution,
     test_support::native::{
@@ -73,9 +74,9 @@ impl IntoKagari for Reply {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.probe.converted.fetch_add(1, Ordering::SeqCst);
-        cx.encode_value(expected, 7_i32)
+        7_i32.into_kagari(cx, expected)
     }
 }
 

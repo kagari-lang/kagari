@@ -125,13 +125,12 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
-    let iterator = vm
-        .execute(&loaded, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let iterator = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(iterator).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(iterator) }.unwrap();
+    drop(source_root);
     let definitions = vm.runtime().host().definitions();
     let next = ModuleDecl::method_id(
         Protocol::Iterator.definition(&definitions).unwrap(),
@@ -145,13 +144,13 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let Value::Enum(id) = result else {
         panic!("Option");
     };
-    let result = vm.runtime().gc().enum_snapshot(id).unwrap();
+    let result = unsafe { vm.runtime().gc().enum_snapshot_transport(id) }.unwrap();
     assert_eq!(result.tag.variant_name(), "Some");
     let Value::Tuple(pair) = result.fields[0] else {
         panic!("pair");
     };
     assert_eq!(
-        &*vm.runtime().gc().tuple(pair).unwrap(),
+        &*unsafe { vm.runtime().gc().tuple_transport(pair) }.unwrap(),
         &[Value::I32(200), Value::I32(21)]
     );
     assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
@@ -181,13 +180,12 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
-    let iterator = vm
-        .execute(&loaded, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let iterator = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(iterator).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(iterator) }.unwrap();
+    drop(source_root);
     let definitions = vm.runtime().host().definitions();
     let next = ModuleDecl::method_id(
         Protocol::Iterator.definition(&definitions).unwrap(),
@@ -201,7 +199,9 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
         panic!("Option");
     };
     assert_eq!(
-        vm.runtime().gc().enum_snapshot(id).unwrap().fields,
+        unsafe { vm.runtime().gc().enum_snapshot_transport(id) }
+            .unwrap()
+            .fields,
         vec![Value::I32(42)]
     );
     drop(root);
@@ -271,13 +271,12 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
     let vm = Vm::new(runtime);
-    let iterator = vm
-        .execute(&old, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&old, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let iterator = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(iterator).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(iterator) }.unwrap();
+    drop(source_root);
     let bias = "fn bias() -> i32 {\n    0\n}";
     assert_eq!(source.matches("[1]").count(), 1);
     assert_eq!(source.matches(bias).count(), 1);
@@ -304,29 +303,34 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
     let Value::Enum(id) = vm.invoke_interface_method(&iterator, &next, &[]).unwrap() else {
         panic!("Option");
     };
-    let Value::Tuple(pair) = vm.runtime().gc().enum_snapshot(id).unwrap().fields[0] else {
+    let Value::Tuple(pair) = unsafe { vm.runtime().gc().enum_snapshot_transport(id) }
+        .unwrap()
+        .fields[0]
+    else {
         panic!("pair");
     };
     assert_eq!(
-        &*vm.runtime().gc().tuple(pair).unwrap(),
+        &*unsafe { vm.runtime().gc().tuple_transport(pair) }.unwrap(),
         &[Value::I32(111), Value::I32(131)]
     );
-    let fresh = vm
-        .execute(&replacement, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let fresh_root = vm.execute(&replacement, "make").unwrap().return_value;
+    // SAFETY: fresh_root protects this value through its uses and traced publication.
+    let fresh = unsafe { fresh_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
     let Value::Enum(id) = vm.invoke_interface_method(&fresh, &next, &[]).unwrap() else {
         panic!("Option");
     };
-    let Value::Tuple(pair) = vm.runtime().gc().enum_snapshot(id).unwrap().fields[0] else {
+    let Value::Tuple(pair) = unsafe { vm.runtime().gc().enum_snapshot_transport(id) }
+        .unwrap()
+        .fields[0]
+    else {
         panic!("pair");
     };
     assert_eq!(
-        &*vm.runtime().gc().tuple(pair).unwrap(),
+        &*unsafe { vm.runtime().gc().tuple_transport(pair) }.unwrap(),
         &[Value::I32(210), Value::I32(230)]
     );
+    drop(fresh_root);
     drop(root);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.live_objects, 0);

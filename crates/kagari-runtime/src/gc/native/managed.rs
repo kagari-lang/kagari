@@ -1,7 +1,7 @@
 //! Checked writes to declared native fields. The collector only sees their trace.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, native::NativeBorrow},
+    gc::{GcHeap, HeapObjectId, leases::StorageBorrow},
     native::{
         binding::NativeResult,
         payload::{
@@ -21,7 +21,7 @@ impl GcHeap {
         id: HeapObjectId,
         commit: impl FnOnce(&mut Managed<T>) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         let mut objects = self.objects_mut()?;
@@ -41,8 +41,7 @@ impl GcHeap {
         };
         object.revision = revision;
         let payload = object.payload_mut::<Managed<T>>()?;
-        self.native_borrows.set(self.native_borrows.get() + 1);
-        let _borrow = NativeBorrow(&self.native_borrows);
+        let _borrow = StorageBorrow::enter(&self.storage_borrows);
         commit(payload)
     }
 
@@ -61,7 +60,7 @@ impl GcHeap {
         slot: usize,
         value: Value,
     ) -> NativeResult<()> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         let field = schema.fields.get(slot).ok_or_else(invalid)?;
         if !value.is_default_heap_payload(self) || !field.contract.accepts_value(self, &value) {
@@ -86,7 +85,7 @@ impl GcHeap {
         id: HeapObjectId,
         replacement: Managed<T>,
     ) -> NativeResult<()> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         if replacement.values.len() != replacement.schema.fields.len() {
             return Err(invalid());

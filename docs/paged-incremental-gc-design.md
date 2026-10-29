@@ -54,8 +54,10 @@ platform CI remains unrun.
 
 ## Direct-reference trial and API proposal (2026-10-28)
 
-Status: concrete trial proposal requested after the remote scalar optimization
-merge. No direct-reference implementation or new performance acceptance is claimed.
+Status: the user accepted the trial direction and started implementation on
+2026-10-28. Scoped host inspection is implemented in the first boundary checkpoint
+recorded below; raw-transport migration remains open. No direct-reference storage
+implementation or new performance acceptance is claimed.
 This section owns the proposed change to reference representation and the finite
 trial below; the remainder describes the implemented handle-based migration until
 replaced by a corresponding checkpoint. PG05/NC05 and PG06/NC06 remain open. Do not
@@ -241,8 +243,10 @@ its limits, not a parallel implementation queue.
 
 ### Proposed host API shape
 
-The following sketches specify intended behavior, not implemented signatures.
-Keep ordinary typed execution and owning adapters recognizable:
+The overall boundary migration remains proposed. `RootedValue::inspect`,
+`ScriptValue::inspect`, `ValueView` scalar/string access and SDK `Runtime::inspect`
+are implemented by the first checkpoint below; other replacement signatures are
+still sketches. Keep ordinary typed execution and owning adapters recognizable:
 
 ```text
 let fields: VecValues<String> = runtime.execute_typed(
@@ -257,7 +261,17 @@ let number = retained.inspect(runtime.runtime(), |view| view.as_i64())?;
 drop(retained);                      // Releases this retention share.
 ```
 
-`RootedValue::inspect` is proposed as a checked, short, non-reentrant access:
+Ordinary owning field reads do not require an inspection closure. The user accepted
+`runtime.get_field::<T>(&object, name)` for convenient access and existing
+`runtime.field::<T>(object.object_type(), name)` plus `runtime.get(&object, &field)`
+for repeated access. Both use existing declared-member binding/conversion owners;
+named access repeats name/type binding, while a retained Field reuses that evidence.
+No new hidden string cache or unchecked reflection path is selected. Scalars copy,
+String conversion owns its bytes, and Object conversion retains the child object.
+Inspection remains the bounded borrowing entrypoint, not a mandatory wrapper for
+all host reads.
+
+`RootedValue::inspect` provides checked, short, non-reentrant access:
 
 ```text
 inspect<R>(
@@ -362,52 +376,200 @@ between an unrooted temporary extraction and its destination publication.
 
 ### Finite trial sequence and acceptance
 
-These are substeps of the existing GC plan, not a separate progress queue:
+These four phases refine the existing trial steps within PG05/PG06 and the
+corresponding NC work. They are the remaining execution plan, not a second queue
+or a restart of completed PG00-PG04. Implement them in order on
+`codex/gc-direct-references`. Scope and build status are separate; a committed
+checkpoint is not automatically a completed phase.
 
-1. **Boundary closure and baseline.** Freeze the combined post-merge source,
-   including PG05 work, with reproducible provenance before measuring. Inventory
-   all raw `Value` consumers, source-free/native backends and conversion hooks.
-   Finalize root/view/backend access contracts and replace unsafe public escape
-   routes coherently. Establish selected field-read, construction, native-access,
-   collection and memory baselines. Existing historical gates remain unchanged.
-2. **Integrated vertical trial.** Implement stable headers, direct transport and
-   rooted/scoped entry/exit for a representative struct graph and prepared field
-   operations on an isolated trial branch. Include reference writes, allocation,
-   root scanning, full collection and reuse; a raw-pointer microbenchmark alone
-   cannot qualify it. Temporary mixed representation is confined to explicitly
-   unaccepted migration checkpoints and must be removed in step 3. Check field
-   throughput, header cost, GC correctness and boundary usability before expansion.
-3. **Complete reference migration.** Switch all managed variants, frames, parked
-   execution, roots, joint module edges and Native providers/stdlib together.
-   Preserve PG05 incremental driving/barriers and NC's independent provider proof.
-   Retire the heap-object slot-resolution transport, bridge conversions and old
-   safe raw-value entrypoints. Keep physical slot metadata for allocation/sweep
-   and generation IDs in domains that still require them. No dual semantic engine.
-4. **Joint validation and decision.** Run selected correctness/performance/memory
-   gates on the frozen final image, then complete PG05/PG06/NC acceptance in their
-   assigned local/CI scope. Compare against both the combined-source baseline and
-   the applicable existing historical gates; do not substitute a new baseline to
-   erase regressions. If the integrated path fails, diagnose once against the
-   stated invariants and measurements, record the result here, and stop expansion
-   until a concrete revised model addresses it. Do not repeat timings until green.
+| Trial phase | Current status | Exit artifact |
+| --- | --- | --- |
+| 1. Close host/backend value boundaries | Locally complete | One safe retained/scoped public boundary, with all raw consumers classified and migrated |
+| 2. Prove an integrated struct path | Not started | Working direct-reference struct graph with correctness and bounded performance evidence |
+| 3. Migrate the complete runtime graph | Not started | All managed values use the selected representation; temporary bridges removed |
+| 4. Joint acceptance and cleanup | Not started | Required local gates and designated CI pass, final contracts documented |
 
-Local correctness selection covers foreign heap rejection, root clone/drop and
-runtime teardown, address reuse, view escape compile-fail cases, Rust aliasing
-under Miri for selected kernels, collection/reentry exclusion during a loan,
-collecting callbacks after release, managed field barriers, cancellation/unwind,
-retained reload layouts and one source-free execution path. Reuse existing
-contract tests; add only newly uncovered boundaries. Check all collectors' work
-records and detached disposal for stale direct references. Diagnostic validation
-must not enter ordinary timing artifacts.
+Already completed: source snapshot `725a4fb5`, single-process baseline observations
+with separate memory diagnostics, scoped inspection `68adf9db`, and owning named
+field reads `cb160baf`. The later boundary closure below completes phase 1 locally;
+none of these checkpoints establishes a speedup. The
+[inspection checkpoint](#direct-reference-scoped-inspection-checkpoint-2026-10-28)
+owns provenance and baseline limitations; historical PG00/PG05 gates stay binding.
 
-Report toolchain/machine/profile/features/parallelism/cache state and source/image
-identity. Separate compile time, execution throughput, normal-step pauses, full
-GC, construction and allocator/metadata memory. Include the existing failing
-field-read and mixed Native workloads; a field-only win is insufficient. Freeze
-selected rows and run counts before measuring. Full-workspace tests and exhaustive
-backend/feature/platform coverage remain CI-only; implementation checkpoints run
-the repository's lightweight checks and workspace all-target Clippy. This proposal
-is documentation-only and does not justify rerunning implementation checks.
+#### Phase 1: close value boundaries before changing storage
+
+**Goal:** host code cannot safely copy an unrooted managed value beyond the
+protection that makes it valid. Keep checked-ID storage during this phase.
+
+**Ordered checkpoints and owners:**
+
+1. **Owning conversion and roots.** Audit `gc/roots.rs`, `native/value_handle.rs`,
+   `native/conversion/` and their public consumers. Replace `FromKagari` inputs
+   and `IntoKagari` outputs with runtime-controlled protected values/scopes;
+   establish the destination root or traced owner before releasing the source.
+   Update typed adapters, derives/generated consumers and host examples with the
+   contract change. Preserve recursion limits, declared types, error order and
+   identity-preserving conversion. Remove safe raw extraction/replacement from
+   RootedValue, ScriptValue and public RootSet access; do not merely wrap a Copy
+   Value with an escaping getter. Reuse existing handles instead of adding another
+   root system. Conversions may collect or call script after ending short loans.
+2. **Execution, tools and backend access.** Migrate SDK/VM scoped arguments and
+   results, synchronous reentry, debugger bindings/watch results and supported
+   backend entry/exit paths to the same owning/scoped contract. Inventory executable
+   contracts, Native providers, serialization and source-free consumers too.
+   Classify each remaining raw use as a traced internal owner, a bounded loan or
+   an explicitly unsafe provider/backend obligation. Rust cross-crate visibility
+   must not create a safe stale-value dereference API. Keep artifacts address-free.
+3. **Close the boundary audit and measurement contract.** Remove obsolete safe
+   entrypoints and update all affected callers, including examples and tests.
+   Record the finite remaining internal transport sites for phases 2/3. Freeze
+   selected phase-2 workload rows, before/after pairing, run counts and applicable
+   limits before timing. Reuse the preserved baseline image; if matched repetitions
+   are missing, record and run only that required baseline supplement. Do not count
+   the existing single-process observations as a paired acceptance baseline.
+
+**Public API outcome:** ordinary typed execution and `get_field` return owned Rust
+data or retained Object/collection handles without caller-written inspection
+closures. Retained Field bindings remain the repeated-access route. `inspect`
+remains available for scoped reads, especially borrowing string bytes. Close the
+untyped-result-to-owning-handle path through the conversion owner so callers do
+not need raw Value extraction. This is not authorization for new reflection,
+automatic object dumps, hidden field caches or a second conversion implementation.
+
+**Exit evidence:** focused root/typed-conversion/host-field contracts, scoped and
+debugger escape rejection, one source-free entry path, foreign-runtime rejection,
+clone/drop/teardown, cancellation, unwind and collecting synchronous reentry.
+Existing compile-fail coverage must prove that views cannot escape. No safe public
+raw managed transport remains that would become unsound when IDs become pointers.
+The source-to-destination rooting audit and affected consumers must be buildable
+and reviewed before phase 2 begins.
+
+#### Phase 2: prove direct references with an integrated struct graph
+
+**Goal:** test the selected architecture on real execution before expanding it to
+every value family. A pointer-only load benchmark cannot satisfy this phase.
+
+**Ordered checkpoints and owners:**
+
+1. **Storage and lifetime kernel.** Implement opaque GcRef/internal transport for
+   the struct trial, using existing nonmoving page/large-allocation owners and the
+   candidate header described above. Specify alignment, initialized-field tracking,
+   allocation/descriptor bounds and exhaustion, page retirement, address reuse and
+   detached disposal. Retain exact layout/scan/drop metadata through the last use.
+   Preserve packed scalar fields and precise reference-field enumeration.
+2. **Executable struct path.** Wire allocation, frame/root publication, prepared
+   typed scalar/reference reads and writes, tracing, collection and reclamation
+   into a representative script graph. Use concrete field offsets after admission;
+   do not hide another slot-directory lookup in the load helper. Preserve barrier
+   publication and numeric/trap order. Include scalar-only, mixed and reference-rich
+   layouts, aliases, cycles, retained reload and a source-free execution case.
+   Reuse the existing GC driver; the trial is not a second collector.
+3. **Architecture decision checkpoint.** Run selected kernel Miri and contract
+   tests, then the frozen integrated measurements: field reads/writes, construction,
+   full collection, incremental work where exercised, and complete allocation/page/
+   metadata costs. Include aligned Native interaction at the bridge boundary.
+   Record which paths actually use direct references and which remain ID-based;
+   do not attribute whole-runtime results to unconverted paths.
+
+**Exit evidence:** all selected correctness checks pass, no root gap or stale
+collector/disposal reference survives reuse, and the measured struct path meets
+its frozen gates. The 8-byte logical header is still a candidate until alignment,
+size classes, shared metadata and sparse occupancy are counted. Select the model
+based on total costs, not nominal header size. Temporary ID/direct conversions are
+internal migration bridges with explicit owners and phase-3 removal points; none
+may expose a new safe raw host escape or become a permanent selectable mode.
+
+**Stop condition:** if safety or performance gates fail, record the failed rows,
+root cause/uncertainty and one concrete revised model before another experiment.
+Do not begin phase 3, weaken limits or repeatedly time unchanged code until green.
+If a revised model changes the selected architecture materially, make that scope
+change explicit before implementation.
+
+#### Phase 3: migrate every managed owner and remove bridges
+
+**Goal:** one representation and one set of lifetime/publication rules across the
+whole supported runtime. Reuse phase 2's accepted kernel rather than inventing
+per-family lookup caches or alternate pointer schemes.
+
+**Ordered integration checkpoints:**
+
+1. **Remaining values and execution owners.** Migrate strings, tuple/enum/interface
+   representations and their existing storage owners, closures/captures, frames,
+   parked execution, Future/Task state, roots, statics and joint module/type edges.
+   Keep required discriminants and generic/interface evidence; no enum-layout
+   redesign is implied. Update interpreter and supported native/codegen helpers
+   with their admission contracts. Source-free validation must still reject invalid
+   type/layout/ABI facts; supported native proof must execute native bodies.
+2. **Native providers and collections.** Migrate unsafe payload edge storage to
+   opaque StoredValue and the selected retain/import/edit protocol. Convert stdlib
+   collections, iterators, sorting scratch and the existing independent provider
+   through that same public mechanism. Root extracted callback arguments/results,
+   release loans before calls and preserve partial-scan/write barriers, mutation
+   conflicts, once-only callbacks and allocation-free recovery. Heap-owned edges
+   are traced references, not permanent external roots per element.
+3. **Incremental lifecycle and removal.** Audit every marker cursor, queue, sweep
+   record, metadata edge and detached disposal owner for pointer lifetime. Preserve
+   legal safepoints, newborn exclusion, pressure escalation, bounded work and
+   cancellation; cover synchronous, reentrant and parked execution. Remove all
+   ID/direct bridges and superseded per-access heap-object identity resolution.
+   Keep physical page/slot bookkeeping needed for allocation/sweep and generation
+   identities still required for roots, modules, reload and host borrowing.
+
+These are ordered integration checkpoints, not independent production engines.
+Change representations and directly affected producers/consumers together. If an
+indivisible contract switch spans checkpoints, record the precise carried build
+errors and next repair owner; do not add stubs, fake values or compatibility aliases.
+
+**Exit evidence:** focused coverage of collecting callbacks, partial scans with
+mutation, cycles, trap/cancellation/unwind cleanup, suspension/reentry, retained
+reload and source-free/native boundaries. Miri covers newly affected unsafe kernels.
+The external provider and stdlib follow the same trace/edit rules. Every phase-2
+bridge and every recorded raw public escape is removed; all carried build errors
+are resolved. PG05/NC05 integration still requires phase-4 acceptance.
+
+#### Phase 4: joint acceptance, performance decision and documentation
+
+**Goal:** establish whether the complete replacement satisfies GC, embedding,
+collection and performance contracts; distinguish local evidence from pending CI.
+
+1. Freeze final source and executable hashes. Run the selected local ownership,
+   callback, reload, source-free and actual supported-native regressions, plus
+   required structure, formatting, workspace all-target Clippy and diff checks.
+   Reuse unaffected passing evidence. Full-workspace tests and exhaustive backend,
+   feature and platform matrices belong to CI, never a local sweep in pieces.
+2. Run the frozen paired ordinary workloads and separate diagnostic memory images.
+   Compare with both the combined-source snapshot and applicable historical gates;
+   no rebaseline erases earlier regressions. Include field access, mixed Native,
+   iterator, root retirement, cyclic construction, collection and sort families.
+   Report throughput, normal-step tails, full-cycle cost, retained/peak requested
+   bytes, page slack and metadata; distinguish requested allocation from RSS.
+   Unobserved automatic work is unobserved, not a passing pause result.
+3. Classify each gate as pass, fail or unmeasured with its image and workload.
+   Missed gates require architectural diagnosis and a bounded corrective checkpoint,
+   not additional speculative local tuning. Close required failures and complete
+   the assigned CI scope before marking joint PG05/PG06/NC acceptance complete.
+4. Move lasting contracts to architecture/specification owners, retain open work
+   only under its actual roadmap owner, and retire completed plan material according
+   to documentation policy. Report source changes, actual validation and limitations.
+
+**Exit evidence:** no required implementation, validation, bridge-removal or
+performance gate remains outstanding. Local success alone is not final acceptance.
+
+#### Checkpoint and verification discipline
+
+Each implementation checkpoint names its concrete scope, changed owners, relevant
+test selection, actual results, carried failures and next checkpoint in the ledger
+below. Keep changes reviewable and prefer buildable checkpoints. No recursive new
+checklists, parallel optimization projects, concurrent/generational GC, pointer
+compression, general backend expansion or automatic compatibility workflows are
+added by this plan. Test existing semantic owners; add cases only for new boundaries.
+
+Freeze measurement rows and run counts before execution. Record source/image
+identity, toolchain, machine, profile/features, parallelism and cache state; separate
+compilation from execution and diagnostic artifacts from ordinary timing. No speed
+claim follows from API shape or fewer lookups alone. If Miri or a required CI target
+is unavailable, record the missing evidence and leave its acceptance item open.
+Documentation-only updates require content/link/diff checks, not Rust builds.
 
 ## Goals and scope
 
@@ -2485,6 +2647,1139 @@ Full-workspace tests and the complete feature/backend/platform matrix remain CI-
 Documentation-only work needs content/link/diff checks, not Rust builds.
 
 ## Progress and error ledger
+
+### Phase 1 closure and phase-2 measurement freeze (2026-10-28)
+
+**Phase 1 is locally complete.** The preceding buildable checkpoints close owning
+conversion, roots, host scopes, debugger retention, backend entry/exit and native
+provider admission while preserving checked-ID storage. Public functions and
+traits were reviewed together with their nested carriers and constructor owners.
+Raw scalar encoders/decoders and inert transport containers do not dereference
+managed storage. PendingNative is crate-private; NativeOutput is sealed and its
+raw arm only returns the input. StorageAccess and HostCallContext are created only
+inside admitted provider scopes. Public rooted/scoped values have no safe raw
+managed getter. Artifact serialization retains semantic identities, never process
+addresses. No direct-reference safety or performance result is claimed yet.
+
+Finite remaining transport inventory and migration ownership:
+
+| Current transport owner | Lifetime/publication contract | Follow-up |
+| --- | --- | --- |
+| `frame/values`, `frame/cursor`, `frame/fields`, VM executor/reentry | Admitted frames retain operands; publish result before observer, callback or safepoint | Phase 2 struct operands/fields; phase 3 remaining families |
+| `gc/fields`, `gc/directory`, `module/layout_storage`, prepared field links | Nonmoving bytes with retained exact descriptor; initialized publication; collector owns retirement | Phase 2 header, direct struct refs and prepared offsets |
+| `gc/roots`, `gc/graph`, `gc/publication`, module/static and execution owners | Root/edge snapshots and barriers precede source release; queued work cannot outlive reclamation | Phase 2 struct bridges; phase 3 complete transport and queue removal |
+| Native storage/scanners, stdlib providers, callback scratch and serialization | Unsafe provider admission; protected source snapshots across callbacks; bounded loans exclude collection | Phase 2 aligned Native bridge checks; phase 3 StoredValue and all Native edges |
+| Interfaces, closures, tuples/enums, strings, arrays, Future/Task, scoped host carriers | Current checked identity plus traced/retained owner; exact program and host scope remain independent | Phase 3; phase 2 exercises these ID-based bridges without attributing them to direct storage |
+| NativeTake and stale-identity probes | Taking invalidates aliases immediately; current checked IDs reject later use | Before phase 3 direct Native migration, preserve a traceable tombstone until aliases die; never dereference reclaimed test transport |
+
+The existing focused evidence across these checkpoints covers collecting/reentrant
+conversion, clone/drop/teardown, root alias replacement, scoped and debugger escape
+rejection, foreign runtimes, traps/cancellation/unwind, retained reload and source-free
+execution. The last implementation checkpoint passed structure, formatting,
+workspace all-target Clippy and diff checks. No exhaustive local suite was run;
+CI retains its full workspace/backend/feature/platform scope. The phase-2 kernel
+must establish pointer provenance and lifetime independently of this API audit.
+
+**Frozen phase-2 measurements, before any candidate timing:** reuse the unchanged
+`runtime_storage` workload and the preserved ordinary/diagnostic images from
+`725a4fb5a4900c79160d8e7b551e0dd8b4d27048`, with hashes recorded in the inspection
+checkpoint. Existing single-process results are descriptive only. At the integrated
+candidate checkpoint, build matching release images with the same toolchain,
+features, default parallelism and normal OS cache; preserve candidate source and
+binary hashes. Run no builds or other probes concurrently with measurements.
+
+- Ordinary no-argument mode: all 29 rows. Eleven execution rows cover scalar,
+  read_fields, write_fields, fields, float_fields, traverse, traverse_pairs,
+  numeric_buffer and the three revision controls. Six 512-object families (points,
+  nodes, interfaces, wide_interfaces, generic_interfaces, numbers) each retain
+  construct/live_gc/release_gc. The first five field/scalar loops use 50,000
+  iterations, traversals use 512 elements and revision controls use 2,000.
+- Ordinary `--families`: all 39 emitted phase rows for sparse_types_32x4,
+  mixed_native_128x6, scalar_65536, references_8192,
+  sparse_cycles_4096_keep64, retained_reload_4x256 and script_keys_256. Keep the
+  existing complete phase sets, including verification, churn and old-generation
+  release. Native payloads keep all six existing size/alignment classes, including
+  alignment 64 and the large-allocation cases.
+- Ordinary `--automatic-families`, both default and `--pressure`: retain the
+  existing sample counts and every emitted scenario/phase/step observation.
+  Validate complete output with the existing automatic summarizer; report cases
+  with no automatic cycle as unobserved. Do not substitute forced collections for
+  missing automatic latency evidence.
+- Diagnostic no-argument and `--families` modes: all existing phases, three measured
+  lifecycles per process and zero-net teardown assertions. Count complete requested
+  backing, setup/whole-lifecycle/post-setup peaks, header/descriptor/page slack and
+  bridge metadata. Diagnostic timings are not performance evidence.
+
+For each mode, run exactly seven baseline/candidate process pairs: B,C for pairs
+1/3/5/7 and C,B for 2/4/6. This is the required matched baseline supplement, not a
+new baseline implementation. Ordinary samples retain three warmups and eleven
+measurements where defined by the mode. Use median paired process-median ratios;
+retain individual ratios and extrema. Diagnostic normalization uses each process's
+maximum of its three lifecycles. Reuse the existing PG00 gates without weakening:
+1.05 for Vec/Map/revision/root controls, 1.10 for other construction/access/reload;
+full cycles use max(1.20 B, B + 10 us); backing/peak additive and absolute setup
+limits and the normal-step bound remain exactly as specified in the frozen table.
+Preserve earlier applicable PG00/PG05 comparisons; a pass against the combined
+snapshot does not erase an older failed gate. Source compile/prepare timings remain
+separate from execution, with no inferred improvement from unconverted controls.
+
+Phase 2 may now begin with the header/lifetime kernel and integrated struct path.
+No timing, Miri, direct-pointer implementation or phase-2 acceptance is included
+in this handoff. A failed safety/performance gate stops expansion and requires the
+architecture decision described in phase 2 before another candidate experiment.
+
+
+### Phase 1 flat callback admission checkpoint (2026-10-28)
+
+Closed the NativeFunction/Flat trait bypass identified in the preceding audit.
+NativeFunction exposes unsafe binding_transport; the safe flat adapter accepts
+only sealed NativeScalar outputs. Raw-result flat callbacks require
+NativeCallback::new admission, reusing the original argument conversion and
+NativeBinding validation. Typed NativeContext callbacks remain unchanged. The
+stdlib cursor and independent application provider now declare their existing
+capture/result protection at registration; no second conversion or root owner
+was added. NativeOutput's raw Value encoding is an inert identity operation,
+not a heap read or a safe callback registration route.
+
+Selected local validation passed (four behavioral cases and one compile-fail):
+
+```sh
+cargo test -p kagari-vm --lib stored_callbacks_trace_captures_through_an_ordinary_native_payload
+cargo test -p kagari-vm --lib ordinary_generic_value_binding_keeps_closed_types_and_shared_values
+cargo test -p kagari-vm --lib machine_scalar_conveniences_check_host_range_before_callback_entry
+cargo test -p kagari --lib an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks
+cargo test -p kagari-runtime --doc native::functions::NativeCallback
+```
+
+The selection covers collecting/reentrant callbacks, shared generic values, the
+unchanged scalar route, an independently owned provider, and rejection of safe
+raw-result adaptation. Structure (1834 files, zero violations/exceptions), format,
+workspace all-target Clippy and diff checks passed. Raw-output adapter errors and
+redundant nested unsafe blocks during migration were resolved. Manual review
+covers macro-generated adapters, wrapper privacy, explicit imports and retained
+source-to-result publication; no re-exports or compatibility adapter were added.
+No CI, Miri or timing evidence is claimed. Proceed to the final boundary inventory
+and frozen phase-2 measurement contract before changing storage.
+
+
+### Phase 1 VM entry and SDK argument checkpoint (2026-10-28)
+
+VM start/start_future, interface invocation and raw synchronous reentry now expose
+unsafe transport entrypoints; their original implementations are crate-private.
+The remaining Runtime enum-member assembly helper has the same admission contract.
+SDK execute/execute_prepared take RootedValue argument slices while preserving the
+existing rejection of nonempty arguments; execute_typed and bound typed calls
+remain the supported argument-passing route. Zero-argument calls and rooted reports
+retain their existing form. Updated backend consumers, examples and reference docs;
+reentry documentation now describes its actual current-route selection followed
+by pinned admission, rather than incorrectly claiming old named code is selected.
+
+Four selected behavioral tests passed:
+
+```sh
+cargo test -p kagari --lib execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments
+cargo test -p kagari --test async_execution sdk_scheduler_source_free_wake_contract
+cargo test -p kagari --lib rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup
+cargo test -p kagari --lib enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts
+```
+
+These cover the unchanged unsupported-argument error, source-free wake/drive,
+collecting reentry/reload/cleanup, and exact enum payload ownership. Structure
+(1834 files, zero violations/exceptions), formatting, workspace all-target Clippy
+and diff checks passed; intermediate private-entry, argument-slice and redundant
+unsafe diagnostics were resolved. No CI matrix or timing claim.
+
+The all-crate public-function audit leaves scalar-only operations (including the
+currently scalar-only native decoder/invocation), inert ReturnValue/dynamic-path
+carriers, private implementation/test types, and HostCallContext/StorageAccess
+operations reached only through admitted provider scopes. Raw snapshot producers
+and managed heap operations are explicit transport. The trait audit found one
+remaining admission bypass: NativeFunction.binding and the blanket Flat adapter
+still accept raw Value results through NativeOutput. Close that provider-output
+route while retaining safe scalar/typed callbacks before final boundary sign-off
+and the phase-2 measurement freeze.
+
+
+### Phase 1 semantic helpers and provider registration checkpoint (2026-10-28)
+
+NativeBinding.new_transport now explicitly admits raw callback implementations;
+its internal constructor is crate-private. Typed adapters/declared bindings keep
+the protected conversion contract. Public codecs and return validation remain
+unchanged and do not substitute for lifetime evidence. Reviewed provider captures:
+sealed numeric scalars are inline, symbolic declaration handles carry no raw heap
+edges, and collection algorithms retain call inputs/working outputs across their
+callbacks. Existing unsafe NativePayload and storage-loan obligations still apply.
+
+Free heap-semantic functions (equality/hash/formatting/reflection, integer methods
+that allocate a tuple, and Bound payload decoding) now require transport admission.
+Tag-only/scalar-only helpers remain safe. Nested diagnostic/path carriers are also
+closed at Runtime's module-instance snapshot, dirty-path snapshot and path-view
+construction entries. Lower HostRegistry path construction and dirty-record access,
+builtin dispatch and host-borrow escape validation are crate-private; the redundant
+HostCallGuard forwarding validator was removed. No validation, publication or error
+ordering was replaced. The native registration guide uses the actual unsafe raw
+provider API and retains ordinary typed registration guidance.
+
+Five selected behavioral tests and one Send/Sync compile-fail doctest passed:
+
+```sh
+cargo test -p kagari-stdlib --lib foreign_path_views_cannot_be_chained_through_matching_local_slots
+cargo test -p kagari-vm --lib ordinary_provider_owns_contiguous_scalars_and_identity_keys
+cargo test -p kagari-vm --lib intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs
+cargo test -p kagari-vm --lib hash_map_replaces_duplicates_and_accounts_units
+cargo test -p kagari --lib allocating_numeric_results_survive_collection_and_traps_release_execution_roots
+cargo test -p kagari-runtime --doc 'native::binding::NativeBinding'
+```
+
+The compile-fail case still fails on a non-Send callback capture, with raw
+registration correctly admitted inside unsafe; it does not pass merely because
+an obsolete constructor became private. Intermediate private function/constructor,
+unsafe-call and redundant-unsafe diagnostics were resolved. Structure (1834 files,
+zero violations/exceptions), formatting, workspace all-target Clippy and diff checks
+passed. No timing or complete CI matrix evidence. Remaining literal raw signatures
+are VM entry/reentry, one Runtime enum assembly helper, scalar-only operations,
+private implementation types, inert carriers, and operations available only inside
+admitted provider loans. Close/classify those and finish the transitive export audit
+before the phase-2 measurement freeze.
+
+
+### Phase 1 Runtime and frame transport checkpoint (2026-10-28)
+
+Runtime semantic heap operations and ExecutionFrame/ExecutionStack raw transitions
+now admit cross-crate transport explicitly. This includes aggregate/interface/
+closure construction, prepared field/frame reads and writes, capture cells, host
+paths, static cells/constants, reflection, error-origin transfer, selected calls,
+return packets, awaits, owned execution and task operations. RootedInterfaceMethod
+receiver extraction has the same obligation. Original implementations are private
+to the runtime crate; there is no second semantic implementation. The redundant
+Runtime.trace_roots forwarding entry was removed; diagnostics use GcHeap's owner.
+
+Reviewed the VM transfer chain: frame windows protect operand reads; destination
+publication precedes source retirement; parked native results stay in the frame;
+terminal results reach the existing root/conversion owner before further callbacks.
+Successful report_operation does not run observers, while error observation keeps
+the existing trap/cleanup path. Native reentry admits its selected target and
+arguments before running. Static, host-path and interface checks retain their
+original execution-policy, bounds/type, once-only effects and reload order.
+No storage or collector algorithm changed, and no transport wrapper establishes
+lifetime merely by validating a checked ID.
+
+Seven selected behavioral tests passed:
+
+```sh
+cargo test -p kagari-vm --lib interface_frames_and_descendants_select_current_code
+cargo test -p kagari-vm --lib async_owned_drive_contract
+cargo test -p kagari-vm --lib managed_return_gc_observer_failure_and_cancellation_settle_initializer_frames
+cargo test -p kagari --lib rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup
+cargo test -p kagari --lib offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes
+cargo test -p kagari --lib source_multi_index_virtual_and_trailing_field_use_one_host_path
+```
+
+The owned-drive filter selects two cases. Coverage includes current versus retained
+code, parking/cancellation, collecting returns and observer failures, host reentry,
+source-free composite execution and dynamic path evaluation. Intermediate private
+method, redundant unsafe and unused forwarding/mutability diagnostics were resolved.
+Structure (1834 files, no violations/exceptions), formatting, workspace all-target
+Clippy and diff checks passed. No CI matrix or performance claim.
+
+Remaining phase-1 inventory includes VM raw host admission, NativeBinding provider
+registration, free heap-semantic functions, and raw values nested in diagnostic/path
+carriers (ModuleInstance/StaticState and DynamicPathArguments). These are the same
+boundary audit, not new language features. Complete the transitive public-carrier
+review as well as literal Value signatures before declaring that audit closed.
+
+
+### Phase 1 retained debugger results checkpoint (2026-10-28)
+
+DebugBinding.value, DebugPause.evaluate_watch and adapter watch responses now
+carry DebugValue, which owns the existing execution-root snapshot. Its immutable
+private root pack is the sole value storage; the duplicate publicly copyable Value
+field is gone. Clones share retention after session replacement. inspect delegates
+to the common storage-loan owner through RootSet.inspect; retain independently
+publishes an ordinary RootedValue for host conversion. Scoped host capabilities
+remain inspectable by category but cannot become owning script roots or extend
+borrowed Rust state. This is a debugger snapshot facade, not another root registry.
+
+RootSet inspection checks owner, generation and slot before the shared loan.
+Root aliases cannot replace slots during inspection. Watch selection retains its
+existing execution-availability gate, missing-frame/binding errors and validation;
+recording still snapshots the active frame before it can retire. The debugger
+specification owns the current public contract. Public raw Runtime/frame semantic
+operations remain in the following boundary checkpoint.
+
+Six selected behavioral tests and one compile-fail doctest passed:
+
+```sh
+cargo test -p kagari-runtime --lib string_inspection_keeps_storage_and_root_aliases_stable
+cargo test -p kagari-vm --lib cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_replaced
+cargo test -p kagari-vm --lib debug_protocol_adapter_smoke_test_attaches_breaks_and_evaluates_watch
+cargo test -p kagari-vm --lib nested_breakpoints_and_traps_include_the_suspended_host_caller
+cargo test -p kagari-vm --lib interpreter_debug_conformance
+cargo test -p kagari-runtime --doc 'gc::inspection::RootSet::inspect'
+```
+
+The conformance filter selects two tests. Existing inspection/lifetime cases now
+also check root-pack foreign/bounds rejection, alias exclusion and independent
+watch/root retention after session replacement. Reentry/traps, stack values,
+stepping and run-to-cursor coverage remain intact. Intermediate consumer type and
+parenthesis diagnostics were resolved. Structure (1834 files, no violations or
+exceptions), formatting, workspace all-target Clippy and diff checks passed.
+No carried build errors, performance evidence or complete CI matrix acceptance.
+
+
+### Phase 1 raw heap access checkpoint (2026-10-28)
+
+GcHeap's cross-crate raw allocation, borrowed reads, snapshots, metadata checks
+and field/array mutations now require explicit unsafe transport admission. The
+original implementations are crate-private and retain their owner/generation,
+kind, bounds, type, storage-loan, publication and resource-accounting checks.
+Internal-only trace_value, ephemeral storage and struct_name have no public
+transport bridge. Value's aggregate-aware storage/borrow predicates are also
+crate-private; the VM's default-payload check has one explicit transport entry.
+Tag-only value classification remains safe. No object representation changed.
+
+The existing array fill/copy APIs remain available as unsafe provider operations:
+their atomic failure, overlapping-copy and accounting contracts are meaningful
+existing behavior, even without a current external production caller. They are
+not removed merely to silence intermediate dead-code diagnostics. No new root
+registry or duplicate semantic implementation was introduced.
+
+Reviewed transfers: VM source slots protect aggregate construction and immediate
+slot publication; standard providers retain call arguments; array equality roots
+both copied elements before callbacks; cursor tuples retain extracted children;
+Serde retains whole child packs before visitors and keeps serialized children
+until aggregate retention. CLI/Web string loans end after copying/printing, before
+reentry or collection. Native payload loans retain their existing exclusion rules.
+Migrated examples, providers, tests and the storage harness without changing the
+measured workloads. Checked-ID stale-rejection probes remain a mandatory inert
+identity/retained-wrapper migration item before direct references.
+
+Eight selected tests passed:
+
+```sh
+cargo test -p kagari-runtime --lib array_bulk_tests
+cargo test -p kagari-runtime --lib black_cell_and_array_bulk_publications_preserve_inserted_targets
+cargo test -p kagari-runtime --test native_schema --features serde serde_snapshot_survives_alias_mutation_gc_and_visitor_unwind
+cargo test -p kagari-vm --lib executes_tuple_literal_return
+cargo test -p kagari-vm --lib executes_array_index_access
+```
+
+The first filter selects four array contracts; remaining filters select one each.
+This covers failure atomicity, bounds/types, overlapping copy, accounting, writes
+during incremental marking, visitor mutation/GC/unwind and VM aggregate execution.
+Intermediate visibility, let-else syntax and redundant unsafe diagnostics were
+resolved. Structure, formatting, workspace all-target Clippy and diff checks passed.
+No performance run or CI matrix claim. Phase 1 remains open for Runtime semantic
+operations, frame/execution/debug access and low-level provider registration;
+TypeArgument matching and StorageType checked-target admission are already
+nonpublic. Finish that finite boundary inventory before freezing phase-2 timings.
+
+
+### Phase 1 raw root admission checkpoint (2026-10-28)
+
+GcHeap owns the explicit unsafe root_value_transport and
+root_execution_values_transport entries. Original registration implementations are
+crate-private; Runtime's raw root convenience is also crate-private, without a
+second public forwarding entry. Owning root admission still rejects nonstorable
+values; execution packs retain scoped capabilities without extending their host
+lifetimes. Existing publication, exclusion, owner/generation and root-release
+mechanisms remain unchanged. Ordinary host execution/conversion/scoped retention
+continues to return safe owning handles.
+
+Migrated VM terminal completion, owned slices, interface argument packs, debugger
+snapshots, Serde, standard providers, fixtures and the storage harness. Reviewed
+source-to-root transfers: terminal values publish before further callbacks; Serde
+protects the whole child snapshot before visitors; iterator working roots precede
+later callbacks; array equality retains extracted elements before comparison; Vec
+removal roots the constructed Option before deleting the original edge. The harness
+still performs the same workload and root operations; no performance run or speed
+claim accompanies this API migration.
+
+The current checked-ID implementation retains deliberately invalid-ID rejection
+probes, including native take invalidation. This is not permission to dereference
+expired direct refs: the phase-2/3 inert-identity/retained-wrapper handoff remains
+mandatory. Public raw VM/frame/heap/value-query admission is still being audited
+and does not gain pointer safety merely because its root call is now explicit.
+
+Seven selected tests and one root-admission compile-fail doctest passed:
+
+```sh
+cargo test -p kagari-runtime --lib rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles
+cargo test -p kagari-runtime --lib roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop
+cargo test -p kagari-runtime --test native_schema --features serde serde_snapshot_survives_alias_mutation_gc_and_visitor_unwind
+cargo test -p kagari-vm --lib debug_session_resolves_breakpoints_and_inspects_live_locals
+cargo test -p kagari-vm --lib async_owned_drive_contract
+cargo test -p kagari --lib native_iterators_validate_revisions_and_survive_gc_and_failure
+cargo test -p kagari-runtime --doc root_execution_values_transport
+```
+
+The owned-drive filter selects two distinct cases. Coverage preserves clone/drop,
+foreign replacement, reused slots, visitor mutation/GC/unwind, debug locals, parked
+execution and collecting iteration. Intermediate privacy/removed-facade/nested-unsafe
+diagnostics were resolved. Structure (1833 files, zero violations/exceptions),
+formatting, workspace all-target Clippy and diff checks passed. No carried errors
+or CI matrix evidence. Phase 1 continues with raw heap access, value/type/path
+queries, frame/debugger access and untyped VM/reentry admission, then freezes the
+phase-2 measurement contract before the integrated struct trial.
+
+### Phase 1 external-ID provider admission checkpoint (2026-10-28)
+
+External-ID callbacks now enter the existing NativeAdapter through HostCallback,
+whose unsafe constructor owns raw-input, captured-edge and terminal-result lifetime
+obligations. HostPathAdapter read/preparation/validation registration likewise uses
+explicit unsafe transport entrypoints. The checked policy/signature, borrow, effect,
+trace, cancellation, prepared-write and dirty-ledger implementations are unchanged.
+Runtime::host_scope_transport is the explicit raw scope entry; its implementation
+and HostResourceScope raw retention are crate-private. HostCallContext is available
+only inside admitted provider callbacks, so its temporary-retention helper stays
+under that outer provider contract, like StorageAccess inside a provider loan.
+
+Migrated native declarations, CLI/Web output, examples and fixture helpers. Ordinary
+owned NativeContext callbacks and branded host borrowing keep their safe paths.
+CLI printing keeps input bytes under the frame; Web output copies bytes into Rust
+storage before returning Unit. Generic fixture helpers now accept admitted
+HostCallback rather than silently admitting any supplied raw closure. Existing
+reentry keeps owning results through collection or performs immediate terminal
+transfer. No additional execution implementation or root registry was introduced.
+
+Removed unnecessary detached transports in affected fixtures: path preparation now
+reads the operation's rooted old-value record, a retained-closure callback captures
+RootedValue, and temporary cleanup asserts exact reclamation rather than saving an
+expired raw value. The original operation ordering, GC, reload and cleanup assertions
+remain. Other checked-ID rejection probes remain under the recorded phase-2/3
+inert-identity/rooted-wrapper handoff, not permission to pass expired direct refs.
+
+Twelve selected tests passed (the path temporary case has three schedules), plus
+two compile-fail doctests rejecting safe raw provider installation:
+
+```sh
+cargo test -p kagari-runtime --lib callback_temporaries_survive_nested_collection_and_drop_on_error
+cargo test -p kagari-runtime --lib heap_path_temporaries_survive_collection_during_write_preparation
+cargo test -p kagari-runtime --lib read_validation_and_preparation_failures_leave_the_target_and_ledger_unchanged
+cargo test -p kagari-runtime --lib cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update
+cargo test -p kagari-vm --lib host_policy_uses_native_entry_with_rooted_inputs_and_execution_session
+cargo test -p kagari-vm --lib host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive
+cargo test -p kagari-vm --lib host_reentry_cannot_swallow_root_termination_and_releases_borrows
+cargo test -p kagari-vm --lib native_callbacks_invoke_the_retained_closure_generation_after_replacement
+cargo test -p kagari --lib rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup
+cargo test -p kagari --lib offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes
+cargo test -p kagari-runtime --doc HostCallback
+cargo test -p kagari-runtime --doc HostPathAdapter
+```
+
+Intermediate adapter/private-entry/type-inference and nested-unsafe diagnostics were
+resolved. Structure (1833 files, zero violations/exceptions), formatting, workspace
+all-target Clippy and diff checks passed. No carried errors, new timing or CI matrix
+evidence. Remaining phase-1 transport owners are public heap/root admission and
+access, raw value/type/path queries, frame/debugger access and untyped VM/reentry;
+pointer storage remains gated on their audit and the frozen measurement contract.
+
+### Phase 1 backend service admission checkpoint (2026-10-28)
+
+ScriptInvoker is now an opaque, immutable service with an unsafe constructor,
+instead of a publicly constructible raw function-pointer alias. This closes safe
+callback installation through both NativeContext::with_invoker and execution-stack
+entries in one owner. The contract requires authenticated selected-target entry,
+source-to-frame publication, protection across collection/reentry and immediate
+live terminal-result transfer. VM integration admits its interpreter service once;
+selected, closure and interface paths reuse it without a new execution mechanism
+or root registry. Migrated fixture drivers and examples with explicit proofs.
+
+StorageContext::allocate_array_transport is explicitly unsafe provider transport;
+its factory consumer uses scalar inputs and publishes the returned edge through its
+ordinary payload scanner before collection. StorageAccess was reviewed separately:
+its constructors and heap-loan entrypoints are crate-private, and public access is
+already inside unsafe CallContext/Opaque/BorrowedPayload/NativeContext provider
+loans. Those outer contracts govern raw edge retention and publication. No redundant
+second loan API or extra unsafe wrapper was added to each inner helper.
+
+Six selected tests passed, covering stored/current selection and frame roots,
+compiler-selected default calls, factory child tracing/drop, collecting closure
+callbacks, pinned-native/current-callback reload and interface result adaptation:
+
+```sh
+cargo test -p kagari-runtime --lib stored_selections_select_current_with_frame_roots_and_checked_calls
+cargo test -p kagari-runtime --lib authored_and_sealed_tokens_execute_the_actual_selected_default_call
+cargo test -p kagari-vm --lib registered_nominal_payload_traces_children_and_drops_with_the_heap
+cargo test -p kagari-vm --lib stored_callbacks_trace_captures_through_an_ordinary_native_payload
+cargo test -p kagari-vm --lib admitted_native_retains_its_frame_while_selected_callbacks_use_current_code
+cargo test -p kagari-vm --lib typed_concrete_result_uses_the_compiler_selected_interface_adapter
+cargo test -p kagari-runtime --doc ScriptInvoker
+```
+
+The final command passed one compile-fail case proving that raw callback admission
+requires unsafe. Intermediate constructor/import migration diagnostics were repaired;
+no behavioral failures occurred. Structure (1833 files, zero violations/exceptions),
+formatting, workspace all-target Clippy and diff checks passed. No carried errors,
+CI matrix or new performance evidence. External-ID callbacks/paths and remaining
+public heap, frame/debugger and untyped transport still belong to phase 1; this
+checkpoint does not claim that every backend boundary has been closed.
+
+### Phase 1 branded scoped execution checkpoint (2026-10-28)
+
+HostScope inputs and results now use invariant ScopedValue rather than safe copied
+Value transport. Ref/RefMut expose argument(); scalar inputs need no root slot.
+Retained root, typed ScriptValue and execution-slot imports validate their source
+and publish independent snapshots into the existing HostResourceScope roots.
+Replacing an original root alias cannot invalidate an admitted scoped value. The
+VM and SDK execute_scoped entries preserve parameter, policy, session and loan
+checks. The raw callback entry is explicitly unsafe backend transport; ordinary
+host access reuses the reserved runtime and shared inspection loan.
+
+ScopedValue::retain creates an independent owning root for ordinary script results.
+HostRoot/HostPathView remain valid scoped inputs/results but cannot become owning
+roots; borrowed/ephemeral execution results remain rejected. This distinction
+preserves existing external-ID semantics instead of forcing every scoped result
+through RootedValue. No additional root registry or GC mechanism was introduced.
+The scope brand prevents wrapper escape; revocation fixtures retain checked wrapper
+roots for rejection probes or retain only inert host-frame identities, never
+unprotected heap copies or external Rust addresses.
+
+Twelve selected tests and eight host_scope compile-fail doctests passed. Coverage
+includes original Rust storage, shared/mutable conflicts, disjoint packs, completed
+writes on error/unwind, revocation, inline fields, source-free external adapters,
+foreign registries, cancellation and compatible reload. Extended existing fixtures
+verify source-root replacement isolation, a String result surviving scope exit and
+collection, invalid slots and rejection of owning external capabilities.
+
+```sh
+cargo test -p kagari-runtime --lib external_root_actual_pointer_loans_release_and_revoke_on_all_exits
+cargo test -p kagari-runtime --lib atomic_generated_path_packs_release_conflicts_errors_and_unwinds
+cargo test -p kagari-runtime --lib executable_inline_field_codecs_keep_paths_current_and_results_rooted
+cargo test -p kagari-runtime --doc host_scope
+cargo test -p kagari-vm --lib native_boundary_conversion::scoped_
+cargo test -p kagari-vm --lib external_scopes_use_registered_payload_methods_and_revoke_old_views
+cargo test -p kagari-vm --lib shared_root_registration_runs_native_methods_and_explicit_traits_source_free
+cargo test -p kagari --lib runtime::tests::embedding::scoped_calls
+```
+
+The mixed owned/external fixture initially failed with `Rust type is not registered`:
+its manually authored native declaration has an explicit target but no inferred
+Opaque Rust mapping. It now uses encode_value with that existing target and
+scope.retain_typed; the failing one_registered_pair_method_serves_opaque_and_external_receivers
+case passed on rerun. Intermediate imports/API compilation errors were resolved.
+Structure (1833 files, zero violations/exceptions), formatting, workspace all-target
+Clippy and diff checks passed. Updated the scoped-host example and interoperability
+contract. No carried errors, CI matrix or new performance evidence. Phase 1 still
+owns the remaining provider/backend, external-ID callback, debugger and public heap
+transport audit; direct references remain gated on its completion.
+
+### Phase 1 native allocation and call transport checkpoint (2026-10-28)
+
+CallContext raw result allocation/encoding, enum construction/origin forwarding,
+selected/stored calls, iterator results, task admission/cancellation and cold-pair
+construction now expose explicitly unsafe provider transport entrypoints. The
+internal implementations remain the single owner of existing type, generation,
+capability, exclusion, publication and result checks. CallableHandle/StoredCallable
+raw calls require the same source-to-destination protection. Scalar callback
+conveniences and typed NativeContext/Function APIs retain their safe contracts.
+
+StoredCallable creation is also unsafe provider transport: it creates a traced
+edge, not an owning host callback. The creator must protect that edge through scans,
+calls and publication into an ordinary traced payload. Merely making invocation
+unsafe would leave safe payload scanning/publication able to consume an expired
+unrooted descriptor. Reviewed its five consumers: active native argument frames
+protect ephemeral fold/terminal descriptors and protect payload descriptors until
+scanner publication; retained adapter/Handler payloads protect later invocations.
+No global root per stored edge or new scanner path was added.
+
+Migrated provider calls with explicit lifetime proofs. Mutable extracted elements
+keep their working roots; iterator result decoding introduces no safepoint before
+item rooting; encoded/allocated terminal results are published before further
+callbacks. Removed the unused CallContext array constructor (its only consumer was
+an allocation-exclusion assertion); the factory's distinct StorageContext route
+remains for the subsequent provider audit. That assertion now uses the actual
+native-result allocation path and keeps the same exclusion requirement.
+
+Nine selected tests passed (the persistent-provider test has two source/artifact
+cases). They cover allocation under a loan, tracing callbacks while a payload
+builder collects/reenters, bounded result evidence, shared capability rejection,
+pinned native/current callback reload, iterator GC/revisions, persistent provider
+captures and source-free propagation:
+
+```sh
+cargo test -p kagari-vm --lib registered_nominal_payload_traces_children_and_drops_with_the_heap
+cargo test -p kagari-vm --lib stored_callbacks_trace_captures_through_an_ordinary_native_payload
+cargo test -p kagari-vm --lib bounded_native_result_adapter_consumes_concrete_import_witness
+cargo test -p kagari-vm --lib shared_formal_arguments_cannot_forward_mutable_capabilities
+cargo test -p kagari-vm --lib admitted_native_retains_its_frame_while_selected_callbacks_use_current_code
+cargo test -p kagari --lib native_iterators_validate_revisions_and_survive_gc_and_failure
+cargo test -p kagari --lib persistent_static_native_payload_retains_its_callback_and_shared_state
+cargo test -p kagari --lib native_carriers_link_into_a_fresh_artifact_only_runtime
+```
+
+The allocation-exclusion fixture initially expected obsolete `native storage
+access` wording. GcHeap::ensure_no_storage_borrow already reports `module validation
+failed: script reentry during heap storage access`; its exact message is now asserted
+and the failing test passed on rerun. Intermediate privacy/nested-unsafe diagnostics
+were also resolved. Structure (1832 files, zero violations/exceptions), formatting,
+workspace all-target Clippy and diff checks passed. No carried errors, CI matrix
+or timing evidence. Phase 1 continues with remaining storage/provider, scoped host,
+backend/debugger and public heap boundaries; pointer storage remains gated.
+
+### Phase 1 retained composition policy results checkpoint (2026-10-28)
+
+PairContext::output and field now return independently rooted values. Tuple and
+enum construction accept retained inputs, validate their runtime before reading
+transport, and preserve input roots through destination publication. Raw extraction
+is private. The group keeps its result slots private: cloning RootedValue would
+share a mutable slot, so output reads create independent roots instead. The standard
+join/try_join policies use this same public path; nominal member/payload checks,
+optional error-origin forwarding and scheduler completion order remain unchanged.
+
+The existing source-free policy contract now uses a managed string payload and
+checks independent output replacement, pending/out-of-bounds reads, wrong members,
+foreign-runtime input rejection, payload survival after group/forwarded-result
+release and collection after the final payload root drops. Its original nominal,
+malformed-payload and optional-origin assertions remain. Both selected tests passed:
+
+```sh
+cargo test -p kagari-runtime --lib composition_preserves_original_optional_origin_and_checks_payload_identity
+cargo test -p kagari --lib groups_cold_dual_io_order_and_result_policy
+```
+
+Structure (1832 files, zero violations/exceptions), formatting, workspace all-target
+Clippy and diff checks passed. The extended fixture initially failed to compile
+because it used the wrong string carrier/inspection signatures; these were repaired
+and the failing test and Clippy rerun successfully. No carried errors. CI matrix
+and performance measurements remain unrun. Native raw allocation/call admission
+and scoped/backend/debugger/public-heap boundaries remain in phase 1.
+
+### Phase 1 native argument transport checkpoint (2026-10-28)
+
+CallContext argument reads, checked argument reads, enum payload extraction and
+ValueHandle raw copies now require explicit unsafe transport access. Ordinary
+host conversion continues to use ArgumentView::retain, owning roots or scalar
+copies. PreparedClosure snapshots stay runtime-private; the VM's transport read
+is protected by the admitted call's selected closure root until frame publication.
+No unused public snapshot bridge was retained. These changes preserve declared
+access, argument bounds, owner/generation checks and original host-scope authority.
+
+Reviewed the affected providers from source argument to destination: fluent
+returns publish while the native frame is live, input callbacks run under that
+frame's complete argument pack, and newly computed children retain their existing
+independent roots. Enum payloads are immutable; borrowed host capabilities remain
+inside their original scope. The cross-crate provider fixture publishes extracted
+edges through its ordinary payload scanner. This checkpoint adds no root table,
+callback-wide collection exclusion, changed evaluation order or unchecked type path.
+
+Eleven selected tests passed, reusing capture scanning, scoped capability rejection,
+collecting callbacks across reload, numeric result/trap cleanup, iterator revisions
+and GC, five serialized enum payload fixtures, and a source-free propagation carrier:
+
+```sh
+cargo test -p kagari-vm --lib stored_callbacks_trace_captures_through_an_ordinary_native_payload
+cargo test -p kagari-vm --lib shared_formal_arguments_cannot_forward_mutable_capabilities
+cargo test -p kagari-vm --lib admitted_native_retains_its_frame_while_selected_callbacks_use_current_code
+cargo test -p kagari --lib allocating_numeric_results_survive_collection_and_traps_release_execution_roots
+cargo test -p kagari --lib native_iterators_validate_revisions_and_survive_gc_and_failure
+cargo test -p kagari --lib native_registered_enums_execute_from_serialized_artifacts_with_traced_payloads
+cargo test -p kagari --lib native_carriers_link_into_a_fresh_artifact_only_runtime
+```
+
+Structure (1832 files, zero violations/exceptions), formatting, workspace all-target
+Clippy and diff checks passed. Intermediate privacy diagnostics and nested-unsafe
+warnings were resolved in this checkpoint; no carried build errors. CI/backend
+matrix and performance measurements remain unrun. Native result/admission APIs,
+composition policies, scoped/backend/debugger and public-heap access still belong
+to phase 1; closing these getters alone does not close the boundary audit.
+
+### Phase 1 retained inline field snapshots checkpoint (2026-10-28)
+
+KagariType::snapshot_field and the generated inline projection reader now return
+ScriptValue. Scalars retain their slot-free representation; String copies and
+Opaque handles own retention independently of the Rust field loan and conversion
+context. The host field reader checks the returned declared/access view and value,
+then publishes an independent execution root pack before releasing the snapshot.
+Structured fields still return scoped locations; no Rust reference escapes and
+field writes retain their existing decode-before-exclusive-loan order.
+
+The raw ConversionContext validator is runtime-private. Its two cross-crate users
+use the explicit unsafe check_transport contract: HostScope::execute protects the
+complete scoped argument pack before VM validation, and the standard vector's
+array source protects copied children through result scanner admission. This is
+one validation implementation with explicit transport lifetime obligations, not a
+second semantic checker. Public retained conversion remains the ordinary path.
+
+Six selected tests passed: conversion-output lifetime (extended with the field
+snapshot route), executable inline field codecs/rooting (1), source-free registered
+struct loans (2), and mixed owned/external argument pairs (2):
+
+```sh
+cargo test -p kagari-runtime --lib converter_results_own_retention_after_the_conversion_context_ends
+cargo test -p kagari-runtime --lib executable_inline_field_codecs_keep_paths_current_and_results_rooted
+cargo test -p kagari-vm --lib scoped_struct
+cargo test -p kagari-vm --lib scoped_pairs
+```
+
+Structure (1832 files, zero violations/exceptions), formatting, workspace all-target
+Clippy and diff checks passed. No carried errors, full-workspace tests, CI matrix
+or performance measurements. Native call/value/callable views and scoped/backend/
+debugger/public-heap access are next under phase 1; pointer storage remains gated.
+
+### Phase 1 retained root access checkpoint (2026-10-28)
+
+RootedValue and ScriptValue raw extraction and RootSet raw reads are now runtime
+private. The explicit unsafe backend transport getters reuse the same owner,
+generation, type and exclusion checks. RootedValue/RootSet replacement accepts
+another live RootedValue from the same runtime; aliases still share the target
+lease and attached metadata. Raw RootedValue publication remains available only
+as an unsafe terminal backend handoff (used by the existing fold accumulator).
+RootSet raw mutation stays private; no unused external setter was retained.
+ScriptValue decoding now uses retained decoder admission, including Rust mapping
+checks before extraction and independent protection before custom callbacks.
+
+Updated workspace consumers together with this unpublished API change. Ordinary
+scalar/string assertions use inspection, custom converters retain ScriptValue,
+and enum conversion uses the existing retained variant decoder. Provider payloads,
+Serde child snapshots, typed VM argument publication and owned web wire conversion
+state their source-to-destination retention obligations. Fixed 32 immediate
+execution-result-to-data-root handoffs and additional callback/tuple fixtures so
+source roots survive publication or observation. Independent data roots still do
+not acquire the source report's whole-program metadata; retained reload coverage
+checks that distinction. The manual allocation fixture now retains its input
+through every sample frame publication, outside measured allocation intervals.
+
+Checked-ID identity/expiry rejection probes remain explicit test/backend transport,
+never live-value admission after expiry. Their non-dereferencing diagnostic use is
+limited to the current checked-ID representation. The remaining public heap audit
+must replace/close those probes before pointer-backed storage can expose them;
+this checkpoint does not make the whole raw runtime surface pointer-safe.
+
+Selected local validation passed: **59 distinct tests** plus the host_reentry
+example. The initial 49 cover root owner/bounds/replacement (1), retained handles
+and mapping/alias replacement (9), scoped inspection (5), stdlib conversion (10),
+DTO/Serde schemas including collection/unwind (16), data-only metadata retention
+(1), typed host retained conversion (1), root scanning (2), and program cycles
+(4). Follow-ups add retained zip/reload (1), complete host argument/borrow contracts
+(4), shared native return layout generations (1), removal occupancy (1), cyclic
+mark/sweep with shared-root replacement (1), owned web results (1), and the existing
+warmed scalar/bulk zero-allocation boundary (1). Repeated affected cases are not
+counted twice. Representative commands beyond earlier conversion selections:
+
+```sh
+cargo test -p kagari-runtime --lib roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop
+cargo test -p kagari-runtime --lib native::value_handle::tests
+cargo test -p kagari-runtime --lib gc::inspection::tests
+cargo test -p kagari-runtime --features serde --test native_schema
+cargo test -p kagari-vm --lib rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state
+cargo test -p kagari-vm --lib typed_host_entries_convert_composites_and_retain_returned_handles
+cargo test -p kagari-vm --lib root_scanning_
+cargo test -p kagari-vm --lib program_cycles
+cargo test -p kagari-vm --lib native_boundary_host::
+cargo test -p kagari-web --lib main_output_and_rooted_results_cross_the_owned_boundary
+cargo test -p kagari-vm --test allocation_contracts warmed_scalar_and_contiguous_i32_boundaries_add_no_allocations
+cargo run -p kagari --example host_reentry
+```
+
+The example initially failed its obsolete peak-depth assertion (expected 2,
+observed 3). A temporary frame probe confirmed `main -> Native notify -> make`;
+the unified Native frame already existed and root inspection runs after execution.
+Updated the exact expectation to 3, preserving the zero-depth/scope cleanup and
+retained-array reclamation assertions; the example then passed. Compiler privacy
+errors, unused imports and Clippy assertion fixes from consumer migration are
+resolved. Structure (1832 files, zero violations/exceptions), formatting, workspace
+all-target Clippy and diff checks passed. No full-workspace tests, Miri, exhaustive
+CI or timing gates were run; the existing zero-allocation assertion is not a speedup
+claim or PG05 acceptance.
+
+Next in the ordered boundary audit: close KagariType field-snapshot output and the
+remaining conversion raw validator, then Native/host callback and scoped/backend/
+debugger/public-heap transport. Root closure alone does not finish phase 1. Keep
+checked IDs, the existing collector and the four-phase order until those owners
+and the frozen measurement contract are complete.
+
+### Phase 1 protected argument packs checkpoint (2026-10-28)
+
+`FromKagariArguments` now receives the existing ArgumentView instead of `&[Value]`.
+The view has one private immutable snapshot owner backed by the existing RootSet;
+clones and checked slices share that lease. Native invocation, cold producer
+submission and enum payload decoding create the complete snapshot before child
+conversion. Ordinary receiver/loan adapters take checked ranges from it instead
+of rebuilding partial packs. Public root-pack snapshot construction rejects
+foreign/expired roots, including empty packs. Retained extraction checks the
+runtime, index and declared type and rejects scoped host references.
+
+ArgumentView's raw getter/closure are now runtime-private; the explicit unsafe
+provider getter documents publication and host-scope obligations. Moved this
+responsibility from context.rs to context/arguments.rs and updated consumers at
+the actual owner, without forwarding reexports. Scalar frame packs remain sealed
+and frame locations remain checked. This extends the existing rooted-view model;
+it introduces no parallel root table or conversion engine. In particular, mixed
+borrowed/owned argument packs do not become long-lived ScriptValue arrays.
+
+Selected validation passed (17 tests): stdlib conversion 10, snapshot range/owner/
+replacement/lifetime 1, mixed scoped pairs 2, shared-capability forwarding and
+owning-escape rejection 1, cold asynchronous completion/capture retention 1,
+collecting owned conversion/source-free execution 1, and separate method receiver/
+tuple arguments 1. Commands reuse the native-conversion and collecting-argument
+selections with:
+
+```sh
+cargo test -p kagari-runtime --lib snapshots_preserve_ranges_ownership_and_independent_lifetime
+cargo test -p kagari-vm --lib scoped_pairs
+cargo test -p kagari-vm --lib shared_formal_arguments_cannot_forward_mutable_capabilities
+cargo test -p kagari-vm --lib tests::native_wait::async_native_completion_contract -- --exact
+cargo test -p kagari-vm --lib typed_instance_method_receives_its_receiver_separately_from_tuple_arguments
+```
+
+The new snapshot test checks nested offsets, empty/inverted/out-of-bounds ranges,
+no extra root registrations for slices, source replacement, independent retained
+extraction and final reclamation. The existing host-capability fixture additionally
+proves a scoped reference cannot be retained as ScriptValue. Initial compilation
+found one moved import; Clippy rejected a literal reversed test range, which now
+constructs the same invalid bounds from the observed length. All carried errors
+are resolved. Structure (1832 files, zero violations/exceptions), formatting,
+workspace all-target Clippy and diff checks passed. Exhaustive CI and timings are
+not claimed. Next are root/ScriptValue raw extraction/replacement and the remaining
+Native/scoped/debugger/backend/public-heap audit; phase 1 still gates pointer work.
+
+### Phase 1 retained schema callbacks checkpoint (2026-10-28)
+
+StructDecoder field callbacks, recursive schema decode scopes and enum-layout
+inspection now receive retained ScriptValues instead of raw Value copies. Serde
+field/sequence/variant adapters use the same safe entrypoints. The context's
+`retain_slot(expected, roots, index)` validates owner, slot and declared type,
+then retains the selected value independently of later source-pack replacement.
+It reuses existing scalar/managed retention; no new root container is introduced.
+Schema decoding retains its existing depth/node/cycle accounting and safepoints.
+
+Local validation passed: all seven Serde schema/snapshot/formatting contracts,
+including collecting alias mutation and visitor unwind, and one slot-retention
+boundary covering nonzero slot selection, type/bounds/foreign rejection, pack
+replacement, independent lifetime and reclamation. The selected commands were:
+
+```sh
+cargo test -p kagari-runtime --features serde --test native_schema native_schema_serde
+cargo test -p kagari-runtime --lib retained_slots_survive_pack_replacement_and_validate_owner_type_and_bounds
+```
+
+The compiler found one remaining Serde newtype-variant raw caller; it was migrated
+before these checks. Structure (1831 files, zero violations/exceptions), formatting,
+workspace all-target Clippy and diff checks passed. No full-workspace tests, Miri,
+CI matrix or performance measurements were run. Additional protection costs remain
+part of phase-2 measurement; this checkpoint does not establish a speedup.
+
+Next is the argument-pack boundary. Inspection confirmed that FromKagariArguments
+also carries scoped external loan receivers, so replacing the entire pack with
+long-lived ScriptValues would reject valid host borrows. Reuse the existing
+ArgumentView and root-pack owner with bounded retained extraction instead; preserve
+complete-pack protection, slicing, all-type checks before child conversion, and
+loan validation before creating Rust references. Root/raw Native/backend closure
+and the remaining diagnostics audit still gate phase 2.
+
+### Phase 1 retained decoder admission checkpoint (2026-10-28)
+
+`ConversionContext::decode_value` now accepts `&ScriptValue` and checks its retained
+declaration/access view. Untyped root decoding runs custom mapping checks before
+extracting transport, then takes independent protection. VM typed returns and
+library collection conversions use retained admission. The single hidden unsafe
+`decode_transport` entrypoint reuses the existing decoder; its caller must retain
+a live source through admission, including user mapping checks. Audited call sites
+identify complete argument snapshots, frame-owned field writes, retained iteration
+items, immutable tuple packs, or callback-free built-in allocation handoffs. No
+second conversion engine or unchecked type path was introduced.
+
+The review found a concrete alias hazard: a public direct tuple converter can
+receive a ScriptValue sharing a mutable RootedValue. Its first child converter can
+replace that root and collect before later children read their raw copies. Tuple
+conversion now roots the complete child snapshot before running adapters, and
+Option/Result protect their selected child before custom mapping. Object/interface/
+function mapping checks precede raw extraction. The new direct-conversion test
+replaces the parent root, collects, reads the later String, and checks reclamation;
+existing mutable-root alias semantics remain intact. Tuple snapshots move their
+existing field buffer into one root pack rather than clone the buffer. These are
+additional protection costs, not measured speedups; phase-2 measurements must
+include the final boundary implementation.
+
+The former safe expired-cursor raw decode is no longer a supported operation. Its
+fixture still proves checked-ID reclamation with heap diagnostics; the new compile-
+fail contract proves raw transport cannot enter safe decoding. Foreign-runtime,
+revision and cancellation checks remain in that fixture. Checked-ID diagnostics
+are still part of the remaining boundary audit before pointer storage changes.
+
+Local validation passed: ScriptValue contracts 8, native conversion 10, conversion
+context compile-fail contracts 3, VM DTO identity 1, collecting owned conversion/
+source-free execution 1, primitive sort/shared identity 1, SDK iterator lifetime/
+revision/cancellation 1, and Serde nominal cycle rejection 1 (26 distinct tests).
+Commands reuse prior checkpoint selections, with these narrower additions:
+
+```sh
+cargo test -p kagari-runtime --doc native::conversion::context::ConversionContext
+cargo test -p kagari --lib native_iterators_validate_revisions_and_survive_gc_and_failure
+cargo test -p kagari-runtime --features serde --test native_schema serde_owned_graph_rejects_cycles_through_nominal_sequences
+```
+
+The new tuple case was rerun after eliminating its redundant buffer clone. Structure
+(1831 files, zero violations/exceptions), formatting, workspace all-target Clippy and
+diff checks passed. No full-workspace tests, exhaustive backend CI, Miri or timings
+were run. The preceding input checkpoint also passed the two scoped-pair host-loan
+contracts during this audit. Phase 1 remains open: schema callbacks, argument packs,
+root replacement/extraction, Native/scoped/debugger and remaining backend/public
+heap surfaces must close before phase 2.
+
+### Phase 1 protected converter inputs checkpoint (2026-10-28)
+
+`FromKagari` now takes `&ScriptValue`. Conversion admission creates protection
+before safepoints or arbitrary adapters, and the trait's built-in decoders check
+the retained declaration/access view before using internal transport. Derives,
+Object/interface/payload/function adapters, library collections and Serde consume
+the same retained input. Struct and enum decoding entrypoints take retained
+values. This does not hold a heap loan across user code: collecting conversions
+and synchronous reentry remain legal. Identity-preserving ScriptValue decoding
+shares the protected input lease; scalar inputs retain their root-free form.
+
+`ConversionContext::retain(expected, root)` closes the untyped result-to-typed
+handle route without extracting a raw value. It checks the runtime and declaration,
+shares the existing root lease and preserves mutable-root alias semantics. A new
+boundary test covers type/owner rejection, no additional registration, retention
+after the source handle/context drop and final reclamation. Existing alias tests
+remain unchanged. Public raw context/root, argument-pack, schema callback and
+Native/backend transport are still finite phase-1 migration work; storage remains
+checked-ID based. No direct pointer, header or performance acceptance is claimed.
+
+Selected local validation passed: ScriptValue retention 7, native conversion 10,
+Serde schema/snapshot/formatting 7, VM DTO identity 1, VM collecting owned argument/
+source-free result 1, and the FromKagari borrowed-input compile-fail contract 1.
+Commands reuse the outbound checkpoint's first four selections plus:
+
+```sh
+cargo test -p kagari-vm --lib owned_native_arguments_and_business_results_survive_gc_and_source_free_loading
+cargo test -p kagari-runtime --doc native::conversion::FromKagari
+```
+
+Intermediate compiler errors were old raw trait callers and stale imports; all
+were migrated and resolved. Cycle/alias tests use retained inputs during decode
+and release them at the original cleanup boundary without weakening assertions.
+Reviewed imports, derives and macro bodies; structure (1831 files, zero violations/
+exceptions), formatting, workspace all-target Clippy and diff checks passed.
+Exhaustive tests/backend combinations remain CI-only. Continue phase 1 with raw
+context/root/schema and Native/backend boundary closure.
+
+### Phase 1 conversion-context output checkpoint (2026-10-28)
+
+`ConversionContext::encode_value` now returns an owning ScriptValue, preserving
+type checks, limits, safepoints and error admission through one shared preparation
+path. Existing runtime-only transport helpers keep scratch protection until their
+documented publication boundary; no new public raw accessor was introduced.
+Library vector/hash helpers and Serde consume retained outputs directly, removing
+the encode-then-decode/retain bridge recorded in the previous checkpoint. Cursor
+and unsafe provider edge publication keep the source handle alive until the traced
+destination owns the edge. Raw Native entry, decoder and root APIs remain phase-1
+work; no direct pointers or new layout are introduced.
+
+Focused validation passed: ScriptValue lifetime 6 (extended to cover context output
+after context teardown), native conversion 10, Serde schema/snapshot/formatting 7,
+the independent provider's constructor/retained extraction contract 1, and the
+stdlib sort/shared-identity VM contract 1. Reused the first three commands from the
+outbound checkpoint plus:
+
+```sh
+cargo test -p kagari --test native_storage_provider public_constructor_host_creation_and_retained_extraction
+cargo test -p kagari-vm --lib primitive_sort_and_supplied_comparator_preserve_shared_identity
+```
+
+The external-provider test initially retained its newly owning source value beyond
+the intended release point, so the expected destructor count stayed zero. It now
+drops that handle after its last read and before collection; the original teardown
+assertion remains unchanged and passes. No production cleanup assertion was weakened.
+Intermediate raw consumer/type errors were resolved. Structure (1831 files, zero
+violations/exceptions), formatting, workspace all-target Clippy and diff checks
+passed. No timing, Miri or exhaustive CI is claimed. Continue with protected decoder
+inputs and root/scoped/backend boundary closure; phase 1 is still incomplete.
+
+### Phase 1 outbound converter retention checkpoint (2026-10-28)
+
+The user requested sequential implementation with discussion only for blocking
+issues. Started phase 1's conversion/root checkpoint: `IntoKagari` now returns
+existing `ScriptValue` retention rather than a copied Value. Struct/enum builders,
+derive output, primitive/handle/collection adapters and Serde output migrate with
+the trait. Managed return values stay live after their conversion context ends;
+scalar ScriptValues keep their no-root-entry representation. Existing object,
+interface, payload, task and receiver handles transfer roots, and conversion
+frames share the resulting root lease instead of registering a second temporary
+root. Admission/type checks and callback error ordering remain enforced.
+
+The public raw input/context/root exits are not yet closed. `FromKagari`,
+`encode_value`, `snapshot_field`, argument/decoder hooks and raw root access remain
+explicit phase-1 migration bridges. Serde currently re-retains some context outputs
+when crossing that bridge; remove this redundant retention when migrating the
+context output contract in the next checkpoint. No pointer transport, header change
+or performance acceptance is included. Existing internal/tests' explicit raw
+extraction continues only under checked-ID storage until the remaining phase-1
+owners migrate. No new public raw getter or alternative root subsystem was added.
+
+Selected local checks passed: runtime ScriptValue retention 6 (including one new
+converter-return lifetime contract), stdlib native conversion 10, Serde schema/
+snapshot/formatting 7, VM nominal DTO conversion 1, VM invalid-output effects and
+trap cleanup 1, SDK async output publication 1, and typed handle/reload retention 1.
+These exercise the changed return contract and direct consumers rather than a
+workspace sweep. Commands:
+
+```sh
+cargo test -p kagari-runtime --lib native::value_handle::tests
+cargo test -p kagari-stdlib --lib native_conversion
+cargo test -p kagari-runtime --features serde --test native_schema native_schema_serde
+cargo test -p kagari-vm --lib nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity
+cargo test -p kagari-vm --lib failed_output_preserves_callback_effects_and_traps_release_conversion_roots
+cargo test -p kagari --lib async_output_publication_contract
+cargo test -p kagari --lib existing_typed_handles_select_current_implementations_and_keep_closure_bodies
+```
+
+Intermediate compilation failures identified old converter/result signatures,
+raw test consumers and imports; these were migrated without disabling validation
+or weakening assertions. The intentionally invalid converter still returns an
+incompatible Boolean through a valid retained handle, so outer result validation
+continues to reject it. All selected tests passed. Structure (1831 files, zero
+violations/exceptions), formatting, workspace all-target Clippy with denied warnings
+and diff checks passed. No full-workspace tests, exhaustive CI, timing or new Miri
+run is claimed. Phase 1 remains open; next is the context/decoder input contract.
+
+### Remaining trial phases specified (2026-10-28)
+
+At the user's request, expanded the existing four trial steps into the
+[remaining phased plan](#finite-trial-sequence-and-acceptance), with owner-specific
+checkpoints, exit evidence and stop conditions. Current implementation remains
+at `cb160baf`: baseline, scoped inspection and named owning reads are implemented;
+raw-transport closure is incomplete and direct-reference storage has not started.
+The next implementation checkpoint is phase 1's owning conversion/root contract,
+followed by scoped execution/debugger/backend closure. No phase or historical
+performance gate is marked complete by this planning update. Content, local links
+and diff checks passed; no builds, tests or new measurements were needed or run.
+
+### Direct-reference host field-read ergonomics checkpoint (2026-10-28)
+
+The user accepted direct owning reads by name, with explicit prepared fields for
+repeated access. Added SDK `get_field<T>` and `get_field_with_context<T>` as
+composition of existing `field<T>` and `get_with_context`, using the object's exact
+applied type/generation. No new lookup cache, reflection authority, conversion
+implementation or storage model is introduced. Missing/private members, mismatched
+result types, foreign ownership and execution policy remain checked by their
+existing owners. User conversions run outside inspection loans. The host-object
+example demonstrates a named read alongside retained field binding.
+
+Extended the existing SDK context/retention contract test rather than introducing
+a parallel smoke suite. It covers scalar and owned-string reads, child Object
+retention after parent release/collection, rejection of missing/private/wrong-type
+and foreign accesses, cancellation, and final zero-live-object cleanup. The first
+fixture used a script string literal, whose module-owned constant remained live
+and violated the existing zero-object assertion. Passing the name as a host-owned
+String removes that unrelated constant root; the original cleanup assertion stays
+unchanged. The focused command passed after this fixture correction:
+
+```sh
+cargo test -p kagari --lib bound_calls_use_the_sdk_execution_context_and_return_retained_values
+```
+
+Structure (1831 Rust files, zero violations/exceptions), formatting, workspace
+all-target Clippy with warnings denied and diff checks passed. Manual review found
+no new unsafe code, re-exports, ownership split or second access implementation.
+No performance measurement or direct-reference phase completion is claimed;
+the raw-transport migration remains open. Full-workspace and exhaustive backend
+testing remain CI-only and were not run for this local API composition.
+
+### Direct-reference scoped inspection checkpoint (2026-10-28)
+
+**Status: first buildable checkpoint of trial step 1; step 1 is not complete.**
+Branch `codex/gc-direct-references` preserves the previously uncommitted integrated
+PG05 source in `725a4fb5a4900c79160d8e7b551e0dd8b4d27048` (tree
+`8a880103dfa1f15063b95a171092a71db52ecf23`). That snapshot includes the earlier
+remote scalar merge; it does not assert PG05 acceptance. All baseline binaries
+below were built from that clean snapshot, before the inspection implementation.
+
+Implemented ownership boundary:
+
+- `RootedValue::inspect`, `ScriptValue::inspect` and SDK `Runtime::inspect` lend a
+  lifetime-bound `ValueView`. Exact scalar access copies the existing representation;
+  string access borrows bytes inside the closure. Neither the view nor its string
+  borrow can escape. No raw-value getter or dereference escape is added to the view.
+- The existing Native loan counter/RAII guard becomes the shared `StorageBorrow`
+  owner. Inspection uses the same exclusion as Native payload access, preventing
+  collection, competing storage access, source-root replacement and script reentry.
+  Callback errors and unwinds release the guard. String inspection reuses the
+  existing physical string reader after admission, rather than duplicating storage
+  lookup semantics.
+- Retained-data inspection stays available after execution closes or a session
+  cancels. Collector/commit exclusion and quarantine still reject user callbacks.
+  Owning conversions and Native callbacks remain outside inspection loans so they
+  can allocate, collect and reenter under their existing contracts.
+- SDK host-interface, AOT and scoped-execution examples now inspect returned values;
+  existing embedding/reload and ScriptValue tests exercise the new entrypoints.
+
+**Temporary bridge and removal checkpoint:** existing `Value`, `RootedValue::value`,
+`RootSet` transport, `ScriptValue::value`, conversion traits, scoped execution and
+debugger raw-value consumers remain on checked IDs. They are not safe substitutes
+for retained/scoped direct references. The next part of step 1 must migrate those
+owners and remove their obsolete safe raw exits before step 2 introduces pointer
+transport. This is one migration sequence, not a permanent parallel public model.
+No object header, field-load representation, collector policy or ABI identifier
+changes in this checkpoint; the 8-byte logical header remains a trial candidate.
+
+Baseline provenance and limits:
+
+| Item | Recorded value |
+| --- | --- |
+| Toolchain | rustc 1.99.1 (`58cf8f9c3`, LLVM 23.1.1); Cargo 1.99.1 (`5f94df478`) |
+| Machine | Apple M1 Max, arm64, 32 GiB; macOS 26.6.2 (25G83) |
+| Build | Workspace release profile, locked dependencies, default parallelism; ordinary package defaults without diagnostics |
+| Execution | Serial processes, normal OS cache without flushing; compilation separate from execution; existing three warmups and eleven samples where defined by each mode |
+| Cargo.lock SHA256 | `220aa5888cf294b291a8216f8400948bb16b8c29873f952ebda6ecd7761d4ad2` |
+| Ordinary binary SHA256 | `a0a4b085751d8c04c9a3c98f923c6f20e94e4a1cf9a20a9b64d2e95e25e9168c` |
+| Diagnostic binary SHA256 | `a5901bfac3ac8933a4ad06f2a89b8eb533700add0054749398e9f7f0e906ca84` |
+
+Reproduce at the snapshot with
+`cargo build --release --locked -p kagari-lua-benchmark --example runtime_storage`.
+Keep that ordinary executable separate; run once with each argument selection:
+no arguments, `--families`, `--automatic-families`, and
+`--automatic-families --pressure`. All four processes exited successfully with
+their existing semantic assertions. The selected family summary validates 39
+timing rows; the automatic summary validates both default and pressure processes.
+These are single-process baseline observations, not paired before/after gates or
+evidence of a speedup.
+
+Build diagnostics from a separate clean checkout of the same snapshot with the
+same command plus `--features diagnostics`, using that checkout's default target.
+Run no arguments and `--families` separately from ordinary timing. Both completed;
+the family summary validates 39 memory rows and seven peak families, each with
+three repetitions, and all 21 Runtime teardowns have zero net requested bytes.
+This is allocator-request accounting, not RSS or a new 55-gate comparison. Local
+raw logs/binaries live under ignored `target/gc-direct-reference-baseline`; the
+source, method, provenance and conclusions here do not depend on retaining them.
+
+The first family summarization rejected complete output because its phase set
+omitted the already emitted `verified` phase. Corrected `summarize.py` to require
+that phase, leaving sample, duplicate, repetition and teardown checks intact.
+The unchanged baseline logs then validated; a temporary copy missing one `verified`
+row was correctly rejected. No measurement row or acceptance threshold was removed.
+
+Focused local validation passed:
+
+```sh
+cargo test -p kagari-runtime --lib gc::inspection::tests
+cargo test -p kagari-runtime --doc gc::inspection
+cargo test -p kagari-runtime --lib native::value_handle::tests
+cargo test -p kagari-runtime --lib gc::native::protocol_tests
+cargo test -p kagari-runtime --lib gc::roots::tests
+cargo test -p kagari --lib compiles_loads_executes_and_reloads_through_embedding_api
+cargo test -p kagari-runtime --lib scoped_payload_read_restores_loan_after_error_and_panic_and_excludes_reentry
+```
+
+Respectively: 5 inspection tests, 2 compile-fail lifetime examples, 5 retained-value
+tests, 10 Native protocol tests, 24 root tests, 1 SDK embedding/reload test and
+1 typed-payload error/unwind/reentry test.
+This selection covers the new loan boundary plus its directly affected retention,
+Native and SDK owners. Initial integration errors from moving the loan guard were
+resolved; a new test's incorrect assumption that String has `ScriptOwned` category
+was corrected to the existing `Primitive` contract without changing that contract.
+No selected test remains skipped or failing.
+
+Structure (1831 Rust files, zero violations/exceptions), formatting, workspace
+all-target Clippy with warnings denied and diff checks passed. Manual review covers
+the shared loan's admission/drop order, unchanged Native pointer lifetimes, explicit
+imports and absence of new re-exports or unsafe code. No Miri run or direct-pointer
+kernel validation is claimed at this boundary-only checkpoint. Full-workspace and
+complete feature/backend/platform testing remain CI-only and unrun. PG05/NC05,
+PG06/NC06 and the remaining trial steps stay open.
 
 ### Direct-reference boundary audit started (2026-10-28)
 

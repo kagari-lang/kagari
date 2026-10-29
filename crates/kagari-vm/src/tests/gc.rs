@@ -53,23 +53,25 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             } else {
                 vm.execute(&loaded, ProgramEntry::Main).unwrap()
             };
-            let Value::Array(array) = report
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")
+            let Value::Array(array) =
+                unsafe { report.return_value.value_transport(vm.runtime().gc()) }
+                    .expect("retained execution result")
             else {
                 panic!("array result")
             };
             assert!(vm.runtime().gc().stats().collections > 0);
             assert_eq!(
-                vm.runtime().gc().array_snapshot(array),
+                unsafe { vm.runtime().gc().array_snapshot_transport(array) },
                 Some(vec![Value::I32(42)])
             );
             assert_eq!(vm.runtime().gc().active_roots(), 1);
             let retained = report.return_value;
             vm.runtime().collect_garbage().unwrap();
             assert_eq!(vm.runtime().gc().allocated_objects(), 1);
-            assert_eq!(vm.runtime().gc().array_get(array, 0), Some(Value::I32(42)));
+            assert_eq!(
+                unsafe { vm.runtime().gc().array_get_transport(array, 0) },
+                Some(Value::I32(42))
+            );
             drop(retained);
             assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 1);
         }
@@ -90,7 +92,7 @@ fn closures_keep_captured_objects_and_cells_alive_across_collection() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(43)
     );
@@ -110,22 +112,21 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
     let _loaded_program = loaded;
     let loaded = owner_runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(owner_runtime);
-    let value = vm
-        .execute(&loaded, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let value_root = vm.execute(&loaded, "make").unwrap().return_value;
+    // SAFETY: value_root protects this value through its uses and traced publication.
+    let value = unsafe { value_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
     let Value::Closure(_) = value else {
         panic!("closure result")
     };
-    assert!(foreign_runtime.resolve_closure(&value).is_err());
-    let rooted = vm.runtime().root_value(value).unwrap();
+    assert!(unsafe { foreign_runtime.resolve_closure_transport(&value) }.is_err());
+    let rooted = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(value_root);
     vm.runtime().collect_garbage().unwrap();
-    assert!(vm.runtime().resolve_closure(&value).is_ok());
+    assert!(unsafe { vm.runtime().resolve_closure_transport(&value) }.is_ok());
     drop(rooted);
     vm.runtime().collect_garbage().unwrap();
-    assert!(vm.runtime().resolve_closure(&value).is_err());
+    assert!(unsafe { vm.runtime().resolve_closure_transport(&value) }.is_err());
 }
 
 #[test]
@@ -161,21 +162,21 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
-    let closure = vm
-        .execute(&loaded, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&loaded, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let closure = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let rooted = vm.runtime().root_value(closure).unwrap();
+    let rooted = unsafe { vm.runtime().gc().root_value_transport(closure) }.unwrap();
+    drop(source_root);
     vm.reload_program(&_loaded_program, None, new).unwrap();
     let replacement = vm.runtime().select_program(&_loaded_program).unwrap();
     drop(loaded);
     vm.runtime().collect_garbage().unwrap();
-    let snapshot = vm
-        .runtime()
-        .resolve_closure(&rooted.value(vm.runtime().gc()).unwrap())
-        .unwrap();
+    let snapshot = unsafe {
+        vm.runtime()
+            .resolve_closure_transport(&rooted.value_transport(vm.runtime().gc()).unwrap())
+    }
+    .unwrap();
     vm.runtime()
         .validate_executable_module(&snapshot.implementation)
         .unwrap();
@@ -190,9 +191,10 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let loaded = runtime.load_program("gc.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let dead = runtime
-        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-        .unwrap();
+    let dead = unsafe {
+        runtime.alloc_array_transport(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+    }
+    .unwrap();
     let native =
         PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
     let vm = Vm::new(runtime);
@@ -203,12 +205,12 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
     assert!(vm.runtime().gc().stats().collections > 0);
-    assert!(vm.runtime().gc().array_len(dead).is_none());
+    assert!(unsafe { vm.runtime().gc().array_len_transport(dead) }.is_none());
 }
 
 #[test]
@@ -261,12 +263,26 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
         .clone();
     vm.attach_debug_session(DebugSession::new(vm.runtime()).unwrap())
         .unwrap();
-    let Value::Array(array) = binding.value else {
+    let watch = binding.value.clone();
+    let saved = watch.retain(vm.runtime()).unwrap();
+    assert!(
+        binding
+            .value
+            .inspect(&Runtime::default(), |_| Ok(()))
+            .is_err()
+    );
+    drop(binding);
+    let Value::Array(array) = unsafe { saved.value_transport(vm.runtime().gc()) }.unwrap() else {
         panic!("inspected array")
     };
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
-    assert_eq!(vm.runtime().gc().array_get(array, 0), Some(Value::I32(7)));
-    drop(binding);
+    assert_eq!(
+        unsafe { vm.runtime().gc().array_get_transport(array, 0) },
+        Some(Value::I32(7))
+    );
+    drop(saved);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
+    drop(watch);
     assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 1);
 }
 
@@ -282,7 +298,10 @@ fn growing_execution_windows_keep_outer_values_alive_and_release_them_on_return(
     let vm = Vm::new(runtime);
     let report = vm.execute(&loaded, ProgramEntry::Main).unwrap();
     assert_eq!(
-        report.return_value.value(vm.runtime().gc()),
+        report
+            .return_value
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(74))
     );
     assert!(vm.runtime().gc().stats().collections > 0);

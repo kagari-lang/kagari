@@ -45,7 +45,25 @@ impl ExecutionFrame {
         StorageType::prepare_scoped(argument, self.loaded()).map(Arc::new)
     }
 
-    pub fn alloc_array(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_array_transport(
+        &self,
+        runtime: &Runtime,
+        element: &Ty,
+        elements: Vec<Value>,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.alloc_array(runtime, element, elements)
+    }
+
+    pub(crate) fn alloc_array(
         &self,
         runtime: &Runtime,
         element: &Ty,
@@ -57,7 +75,26 @@ impl ExecutionFrame {
             .alloc_array_with_contract(self.element_contract(runtime, element)?, elements)
     }
 
-    pub fn alloc_array_repeat(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_array_repeat_transport(
+        &self,
+        runtime: &Runtime,
+        element: &Ty,
+        value: Value,
+        count: u64,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.alloc_array_repeat(runtime, element, value, count)
+    }
+
+    pub(crate) fn alloc_array_repeat(
         &self,
         runtime: &Runtime,
         element: &Ty,

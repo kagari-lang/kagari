@@ -19,11 +19,11 @@ use kagari_runtime::{
         types::Type,
         value_handle::ScriptValue,
     },
-    range::index_bound,
+    range::index_bound_transport,
     reflection,
     resource::HeapCharge,
     value::{Value, ValueCategory},
-    value_semantics::identity_equal,
+    value_semantics::identity_equal_transport,
 };
 use kagari_stdlib::{
     collections::{
@@ -62,7 +62,7 @@ unsafe impl NativePayload for Buffer {
 }
 
 fn decode<T: FromKagari>(vm: &Vm, owner: &ExecutableModule, value: Value) -> T {
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
     ConversionContext::new(vm.runtime(), owner)
         .unwrap()
         .decode(&root)
@@ -72,14 +72,15 @@ fn decode<T: FromKagari>(vm: &Vm, owner: &ExecutableModule, value: Value) -> T {
 fn decode_as<S: KagariType, T: FromKagari>(vm: &Vm, owner: &ExecutableModule, value: Value) -> T {
     let mut cx = ConversionContext::new(vm.runtime(), owner).unwrap();
     let ty = cx.type_for::<S>().unwrap();
-    cx.decode_value(&ty, &value).unwrap()
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    let retained = cx.retain(&ty, root).unwrap();
+    cx.decode_value(&ty, &retained).unwrap()
 }
 
 fn key(cx: &mut NativeContext<'_>, text: &str) -> ScriptValue {
     let expected = cx.conversion().type_for::<String>().unwrap();
     let root = cx.conversion().encode(text.to_owned()).unwrap();
-    let value = root.value(cx.runtime().gc()).unwrap();
-    cx.conversion().decode_value(&expected, &value).unwrap()
+    cx.conversion().retain(&expected, root).unwrap()
 }
 
 fn revision<S: KagariType, P: NativePayload>(
@@ -130,27 +131,34 @@ fn ordinary_provider_owns_contiguous_scalars_and_identity_keys() {
                     methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
                 methods.bind(
                     new,
-                    NativeBinding::new(vec![], buffer.codec(), |context| context.allocate_result()),
+                    // SAFETY: The native argument frame and local working roots protect inputs;
+                    // results are decoded, rooted or returned before another callback.
+                    unsafe {
+                        NativeBinding::new_transport(vec![], buffer.codec(), |context| {
+                            context.allocate_result_transport()
+                        })
+                    },
                 )
             })?;
             group.trait_impl(
                 declarations.protocol(Protocol::PartialEq).apply([])?,
                 |methods| {
-                    methods.bind(
-                        "eq",
-                        NativeBinding::new(
+                    methods.bind("eq", unsafe {
+                        NativeBinding::new_transport(
                             vec![buffer.codec(), buffer.codec()],
                             Codec::Exact(Type::bool()),
                             |context| {
-                                identity_equal(
+                                identity_equal_transport(
                                     context.heap(),
-                                    &context.argument(0)?,
-                                    &context.argument(1)?,
+                                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                                    &context.argument_transport(0)?,
+                                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                                    &context.argument_transport(1)?,
                                 )
                                 .map(Value::Bool)
                             },
-                        ),
-                    )
+                        )
+                    })
                 },
             )?;
             group.trait_impl(declarations.eq().apply([])?, |_| Ok(()))?;
@@ -158,9 +166,13 @@ fn ordinary_provider_owns_contiguous_scalars_and_identity_keys() {
                 methods.bind(
                     "hash",
                     // Collisions are intentional; equality still distinguishes buffer identities.
-                    NativeBinding::new(vec![buffer.codec()], Codec::Exact(Type::i64()), |_| {
-                        Ok(Value::I64(0))
-                    }),
+                    unsafe {
+                        NativeBinding::new_transport(
+                            vec![buffer.codec()],
+                            Codec::Exact(Type::i64()),
+                            |_| Ok(Value::I64(0)),
+                        )
+                    },
                 )
             })
         })
@@ -240,7 +252,7 @@ fn ordinary_provider_owns_contiguous_scalars_and_identity_keys() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -263,13 +275,15 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let valid = vm.execute(&loaded, "valid").unwrap();
     assert_eq!(
-        index_bound(
-            vm.runtime().gc(),
-            &valid
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")
-        )
+        unsafe {
+            index_bound_transport(
+                vm.runtime().gc(),
+                &valid
+                    .return_value
+                    .value_transport(vm.runtime().gc())
+                    .expect("retained execution result"),
+            )
+        }
         .unwrap(),
         Bound::Unbounded
     );
@@ -279,10 +293,15 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
     ] {
         let report = vm.execute(&loaded, name).unwrap();
         assert_eq!(
-            index_bound(
-                vm.runtime().gc(),
-                &report.return_value.value(vm.runtime().gc()).unwrap()
-            )
+            unsafe {
+                index_bound_transport(
+                    vm.runtime().gc(),
+                    &report
+                        .return_value
+                        .value_transport(vm.runtime().gc())
+                        .unwrap(),
+                )
+            }
             .unwrap(),
             expected
         );
@@ -290,13 +309,15 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
     for name in ["wrong_argument", "wrong_owner"] {
         let invalid = vm.execute(&loaded, name).unwrap();
         assert_eq!(
-            index_bound(
-                vm.runtime().gc(),
-                &invalid
-                    .return_value
-                    .value(vm.runtime().gc())
-                    .expect("retained execution result")
-            )
+            unsafe {
+                index_bound_transport(
+                    vm.runtime().gc(),
+                    &invalid
+                        .return_value
+                        .value_transport(vm.runtime().gc())
+                        .expect("retained execution result"),
+                )
+            }
             .unwrap_err()
             .kind(),
             RuntimeErrorKind::ScriptTrap
@@ -318,16 +339,19 @@ fn assigns_stable_object_identity_and_kind() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
+    let result_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: result_root protects the complete tuple throughout these observations.
+    let Value::Tuple(values) = unsafe { result_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [
         Value::GcHandle(first),
         Value::GcHandle(second),
@@ -343,14 +367,14 @@ fn assigns_stable_object_identity_and_kind() {
         (Value::GcHandle(second), "gc_handle"),
         (Value::GcHandle(third), "gc_handle"),
     ] {
-        let Value::Str(id) = reflection::type_of(heap, &value).unwrap() else {
+        let Value::Str(id) = unsafe { reflection::type_of_transport(heap, &value) }.unwrap() else {
             panic!("type name")
         };
-        assert_eq!(&*heap.string(id).unwrap(), expected);
+        assert_eq!(&*unsafe { heap.string_transport(id) }.unwrap(), expected);
     }
     for value in [Value::GcHandle(second), Value::GcHandle(third)] {
         assert_eq!(value.category(), ValueCategory::ScriptOwned);
-        assert!(value.is_default_heap_payload(heap));
+        assert!(unsafe { value.is_default_heap_payload_transport(heap) });
     }
     assert_ne!(first, second);
     assert_ne!(second, third);
@@ -359,10 +383,22 @@ fn assigns_stable_object_identity_and_kind() {
     assert_eq!(second.index(), 1);
     assert_eq!(third.index(), 2);
     assert_eq!(fourth.index(), 3);
-    assert_eq!(heap.object_kind(first), Some(GcObjectKind::Native));
-    assert_eq!(heap.object_kind(second), Some(GcObjectKind::Native));
-    assert_eq!(heap.object_kind(third), Some(GcObjectKind::Native));
-    assert_eq!(heap.object_kind(fourth), Some(GcObjectKind::Struct));
+    assert_eq!(
+        unsafe { heap.object_kind_transport(first) },
+        Some(GcObjectKind::Native)
+    );
+    assert_eq!(
+        unsafe { heap.object_kind_transport(second) },
+        Some(GcObjectKind::Native)
+    );
+    assert_eq!(
+        unsafe { heap.object_kind_transport(third) },
+        Some(GcObjectKind::Native)
+    );
+    assert_eq!(
+        unsafe { heap.object_kind_transport(fourth) },
+        Some(GcObjectKind::Struct)
+    );
 }
 
 #[test]
@@ -374,13 +410,15 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
+    let source_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     let Value::GcHandle(map) = value else {
         panic!("container")
     };
@@ -439,13 +477,15 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
+    let source_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     let Value::GcHandle(set) = value else {
         panic!("container")
     };
@@ -503,16 +543,19 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
+    let result_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: result_root protects the complete tuple throughout these observations.
+    let Value::Tuple(values) = unsafe { result_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [
         Value::Struct(record),
         Value::GcHandle(set),
@@ -525,35 +568,47 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     };
     let (record, set, leaf, map_key, set_key) = (*record, *set, *leaf, *map_key, *set_key);
     let heap = vm.runtime().gc();
-    let schema = heap.struct_layout(record).unwrap();
-    let Value::GcHandle(map) = heap.struct_get_slot(record, &schema, 0).unwrap() else {
+    let schema = unsafe { heap.struct_layout_transport(record) }.unwrap();
+    let Value::GcHandle(map) =
+        unsafe { heap.struct_get_slot_transport(record, &schema, 0) }.unwrap()
+    else {
         panic!("map")
     };
-    let root = heap
-        .root_value(
-            heap.alloc_tuple(vec![
+    let root = unsafe {
+        heap.root_value_transport(
+            heap.alloc_tuple_transport(vec![
                 Value::Struct(record),
                 Value::GcHandle(set),
                 Value::Unit,
             ])
             .unwrap(),
         )
-        .unwrap();
+    }
+    .unwrap();
 
-    let Value::Tuple(tuple) = root.value(heap).unwrap() else {
+    drop(result_root);
+    let Value::Tuple(tuple) = unsafe { root.value_transport(heap) }.unwrap() else {
         panic!("root tuple")
     };
     assert_eq!(
-        heap.trace_roots().unwrap(),
+        unsafe { heap.trace_roots_transport() }.unwrap(),
         vec![tuple, record, map, leaf, map_key, set, set_key]
     );
 
-    root.set(heap, Value::GcHandle(leaf)).unwrap();
-    assert_eq!(heap.trace_roots().unwrap(), vec![leaf]);
+    let replacement = unsafe { heap.root_value_transport(Value::GcHandle(leaf)) }.unwrap();
+    root.replace(heap, &replacement).unwrap();
+    drop(replacement);
+    assert_eq!(unsafe { heap.trace_roots_transport() }.unwrap(), vec![leaf]);
 
-    assert_eq!(root.value(heap).unwrap(), Value::GcHandle(leaf));
+    assert_eq!(
+        unsafe { root.value_transport(heap) }.unwrap(),
+        Value::GcHandle(leaf)
+    );
     drop(root);
-    assert_eq!(heap.trace_roots().unwrap(), Vec::<HeapObjectId>::new());
+    assert_eq!(
+        unsafe { heap.trace_roots_transport() }.unwrap(),
+        Vec::<HeapObjectId>::new()
+    );
 }
 
 #[test]
@@ -567,24 +622,29 @@ fn root_scanning_handles_cycles_without_duplicate_identity() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
+    let result_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: result_root protects the complete tuple throughout these observations.
+    let Value::Tuple(values) = unsafe { result_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("array")
     };
     let heap = vm.runtime().gc();
-    let values = heap.tuple(values).unwrap().to_vec();
+    let values = unsafe { heap.tuple_transport(values) }.unwrap().to_vec();
     let [Value::GcHandle(array), Value::Struct(record)] = values.as_slice() else {
         panic!("cycle")
     };
     let (array, record) = (*array, *record);
-    let _root = heap.root_value(Value::GcHandle(array)).unwrap();
+    let _root = unsafe { heap.root_value_transport(Value::GcHandle(array)) }.unwrap();
+    drop(result_root);
 
-    assert_eq!(heap.trace_roots().unwrap(), vec![array, record]);
+    assert_eq!(
+        unsafe { heap.trace_roots_transport() }.unwrap(),
+        vec![array, record]
+    );
 }
 
 #[test]
@@ -598,16 +658,19 @@ fn removal_results_distinguish_absence_from_stale_handle_errors() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
+    let result_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: result_root protects the complete tuple throughout these observations.
+    let Value::Tuple(values) = unsafe { result_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [
         Value::GcHandle(array),
         Value::GcHandle(map),
@@ -630,14 +693,13 @@ fn removal_results_distinguish_absence_from_stale_handle_errors() {
     let wrong_map = conversion.type_for::<ScriptMap<f64, i32>>().unwrap();
     let wrong_set = conversion.type_for::<ScriptSet<f64>>().unwrap();
     assert!(
-        conversion
-            .decode_value::<ScriptMap<f64, i32>>(&wrong_map, &values[1])
+        // SAFETY: The execution result retains this live container; only its type is wrong.
+        unsafe { conversion.decode_transport::<ScriptMap<f64, i32>>(&wrong_map, &values[1]) }
             .is_err()
     );
     assert!(
-        conversion
-            .decode_value::<ScriptSet<f64>>(&wrong_set, &values[2])
-            .is_err()
+        // SAFETY: The execution result retains this live container; only its type is wrong.
+        unsafe { conversion.decode_transport::<ScriptSet<f64>>(&wrong_set, &values[2]) }.is_err()
     );
     let before = heap.stats().current_heap_units;
     vector.clear(&mut cx).unwrap();
@@ -696,16 +758,19 @@ fn native_array_helpers_mutate_and_return_options() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
+    let result_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: result_root protects the complete tuple throughout these observations.
+    let Value::Tuple(values) = unsafe { result_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [
         Value::GcHandle(array),
         Value::Enum(removed),
@@ -721,10 +786,10 @@ fn native_array_helpers_mutate_and_return_options() {
         vector_values(&vm, &loaded, Value::GcHandle(*array)),
         vec![1, 3]
     );
-    let removed = heap.enum_snapshot(*removed).unwrap();
+    let removed = unsafe { heap.enum_snapshot_transport(*removed) }.unwrap();
     assert_eq!(removed.tag.variant_name(), "Some");
     assert_eq!(removed.fields, vec![Value::I32(2)]);
-    let missing = heap.enum_snapshot(*missing).unwrap();
+    let missing = unsafe { heap.enum_snapshot_transport(*missing) }.unwrap();
     assert_eq!(missing.tag.variant_name(), "None");
     assert!(missing.fields.is_empty());
 }
@@ -746,16 +811,19 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
+    let result_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: result_root protects the complete tuple throughout these observations.
+    let Value::Tuple(values) = unsafe { result_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [
         Value::GcHandle(map),
         Value::Enum(removed),
@@ -767,11 +835,14 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
     };
     let heap = vm.runtime().gc();
     assert!(*contains);
-    let removed = heap.enum_snapshot(*removed).unwrap();
+    let removed = unsafe { heap.enum_snapshot_transport(*removed) }.unwrap();
     assert_eq!(removed.tag.variant_name(), "Some");
     assert_eq!(removed.fields, vec![Value::I32(100)]);
     assert_eq!(
-        heap.enum_snapshot(*missing).unwrap().tag.variant_name(),
+        unsafe { heap.enum_snapshot_transport(*missing) }
+            .unwrap()
+            .tag
+            .variant_name(),
         "None"
     );
     let mut cx = vm.context(&loaded).unwrap();
@@ -785,9 +856,11 @@ fn native_map_helpers_return_options_and_keep_declared_types() {
     let wrong = conversion.type_for::<ScriptMap<String, i64>>().unwrap();
     let before = heap.stats();
     assert!(
-        conversion
-            .decode_value::<ScriptMap<String, i64>>(&wrong, &Value::GcHandle(*map))
-            .is_err()
+        // SAFETY: The execution result retains this live map; only its value type is wrong.
+        unsafe {
+            conversion.decode_transport::<ScriptMap<String, i64>>(&wrong, &Value::GcHandle(*map))
+        }
+        .is_err()
     );
     assert_eq!(heap.stats(), before);
 }
@@ -807,16 +880,19 @@ fn collection_revisions_distinguish_replacements_from_structural_writes() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let Value::Tuple(values) = vm
+    let result_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: result_root protects the complete tuple throughout these observations.
+    let Value::Tuple(values) = unsafe { result_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [
         Value::GcHandle(array),
         Value::GcHandle(map),
@@ -876,17 +952,21 @@ fn native_map_and_set_allocations_update_resource_counters() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
+    let source_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     let Value::Tuple(values) = value else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [Value::GcHandle(map), Value::GcHandle(set)] = values.as_slice() else {
         panic!("handles")
     };

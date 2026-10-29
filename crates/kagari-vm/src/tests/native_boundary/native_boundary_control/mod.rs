@@ -17,11 +17,13 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     gc::GcHeapConfig,
+    gc::roots::RootedValue,
     host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, callable::CallableHandle,
-        context::CallContext, declarations::FunctionDecl, module::NativeModule, types::Type,
+        context::CallContext, declarations::FunctionDecl, host::HostCallback, module::NativeModule,
+        types::Type,
     },
     resource::RuntimeLimits,
     value::Value,
@@ -36,10 +38,12 @@ use std::sync::{
 };
 
 fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
-    + Send
-    + Sync
-    + 'static,
+    entry: HostCallback<
+        impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
+    >,
 ) -> NativeModule {
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
@@ -159,9 +163,12 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             });
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
-            logging_module(move |_, _| {
-                *sink.lock().unwrap() += 1;
-                Ok(Value::Unit)
+            logging_module(unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_, _| {
+                    *sink.lock().unwrap() += 1;
+                    Ok(Value::Unit)
+                })
             })
             .install(&mut runtime)
             .unwrap();
@@ -181,7 +188,7 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
                     result
                         .unwrap()
                         .return_value
-                        .value(vm.runtime().gc())
+                        .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                         .expect("retained execution result"),
                     Value::I32(7)
                 );
@@ -203,10 +210,13 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
-        logging_module(move |_, _| {
-            *sink.lock().unwrap() += 1;
-            cancel.cancel();
-            Ok(Value::Unit)
+        logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_, _| {
+                *sink.lock().unwrap() += 1;
+                cancel.cancel();
+                Ok(Value::Unit)
+            })
         })
         .install(&mut runtime)
         .unwrap();
@@ -232,7 +242,7 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
             vm.execute(&loaded, "ready")
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(7)
         );
@@ -267,9 +277,12 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         let mut runtime = runtime(Default::default());
         let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
-        logging_module(move |_, _| {
-            *sink.lock().unwrap() += 1;
-            Ok(Value::Unit)
+        logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_, _| {
+                *sink.lock().unwrap() += 1;
+                Ok(Value::Unit)
+            })
         })
         .install(&mut runtime)
         .unwrap();
@@ -315,12 +328,14 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
             assert_eq!(pause.frames[1].function_name, "choose");
             assert_eq!(pause.frames[0].function_name, "main");
             assert_eq!(pause.frames[0].instruction_offset, caller_offset);
-            assert!(
-                pause.frames[2]
-                    .bindings
-                    .iter()
-                    .any(|binding| binding.name == "n" && binding.value == Value::I32(i32::MAX))
-            );
+            assert!(pause.frames[2].bindings.iter().any(|binding| {
+                binding.name == "n"
+                    && binding
+                        .value
+                        .inspect(vm.runtime(), |view| view.as_i32())
+                        .unwrap()
+                        == i32::MAX
+            }));
         }
         assert_eq!(*effects.lock().unwrap(), 1);
         // Debug snapshots intentionally retain values until the session is replaced.
@@ -357,34 +372,42 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
         let effects = Arc::new(Mutex::new(Vec::new()));
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
-        logging_module(move |context, args| {
-            let [Value::Str(id)] = args else {
-                panic!("log string")
-            };
-            let text = context.runtime().gc().string(*id).unwrap().to_owned();
-            sink.lock().unwrap().push(text.clone());
-            let root = context.runtime().execution_root().unwrap();
-            if text == "outer" {
-                assert_eq!(
-                    reenter(context, &root, inner, &[])
-                        .unwrap()
-                        .value(context.runtime().gc())
-                        .unwrap(),
-                    Value::I32(7)
-                );
-                assert!(reenter(context, &root, fail, &[]).is_err());
-                assert_eq!(
-                    context.runtime().resources().counters().current_call_depth,
-                    4
-                );
-            } else {
-                assert_eq!(
-                    context.runtime().resources().counters().current_call_depth,
-                    8
-                );
-            }
-            context.runtime().collect_garbage().unwrap();
-            Ok(Value::Unit)
+        logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context, args| {
+                let [Value::Str(id)] = args else {
+                    panic!("log string")
+                };
+                let text = context
+                    .runtime()
+                    .gc()
+                    .string_transport(*id)
+                    .unwrap()
+                    .to_owned();
+                sink.lock().unwrap().push(text.clone());
+                let root = context.runtime().execution_root().unwrap();
+                if text == "outer" {
+                    assert_eq!(
+                        reenter(context, &root, inner, &[])
+                            .unwrap()
+                            .inspect(context.runtime(), |view| view.as_i32().map(Value::I32))
+                            .unwrap(),
+                        Value::I32(7)
+                    );
+                    assert!(reenter(context, &root, fail, &[]).is_err());
+                    assert_eq!(
+                        context.runtime().resources().counters().current_call_depth,
+                        4
+                    );
+                } else {
+                    assert_eq!(
+                        context.runtime().resources().counters().current_call_depth,
+                        8
+                    );
+                }
+                context.runtime().collect_garbage().unwrap();
+                Ok(Value::Unit)
+            })
         })
         .install(&mut runtime)
         .unwrap();
@@ -398,7 +421,7 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
             vm.execute(&loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -427,20 +450,26 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         .unwrap()
         .id;
     for encoded in [false, true] {
-        let retained = Arc::new(Mutex::new(None::<Value>));
+        let retained = Arc::new(Mutex::new(None::<RootedValue>));
         let callback = retained.clone();
         let observed = Arc::new(Mutex::new(Vec::new()));
         let sink = observed.clone();
         let mut runtime = runtime(Default::default());
-        logging_module(move |context, _| {
-            let value = *callback.lock().unwrap().as_ref().unwrap();
-            let root = context.runtime().execution_root().unwrap();
-            let result = reenter(context, &root, consume, &[value]).unwrap();
-            sink.lock()
-                .unwrap()
-                .push(result.value(context.runtime().gc()).unwrap());
-            context.runtime().collect_garbage().unwrap();
-            Ok(Value::Unit)
+        logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context, _| {
+                let retained = callback.lock().unwrap().as_ref().unwrap().clone();
+                let value = retained.value_transport(context.runtime().gc()).unwrap();
+                let root = context.runtime().execution_root().unwrap();
+                let result = reenter(context, &root, consume, &[value]).unwrap();
+                sink.lock().unwrap().push(
+                    result
+                        .inspect(context.runtime(), |view| view.as_i32().map(Value::I32))
+                        .unwrap(),
+                );
+                context.runtime().collect_garbage().unwrap();
+                Ok(Value::Unit)
+            })
         })
         .install(&mut runtime)
         .unwrap();
@@ -451,14 +480,13 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let old = runtime.select_program(&_old_program).unwrap();
         let old_key = old.key();
         let vm = Vm::new(runtime);
-        let closure = vm
-            .execute(&old, "make")
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
+        let source_root = vm.execute(&old, "make").unwrap().return_value;
+        // SAFETY: The source remains retained until the independent data root is published.
+        let closure = unsafe { source_root.value_transport(vm.runtime().gc()) }
             .expect("retained execution result");
-        let rooted = vm.runtime().root_value(closure).unwrap();
-        *retained.lock().unwrap() = Some(closure);
+        let rooted = unsafe { vm.runtime().gc().root_value_transport(closure) }.unwrap();
+        drop(source_root);
+        *retained.lock().unwrap() = Some(rooted.clone());
         vm.reload_program(
             &_old_program,
             Some("native-control".into()),
@@ -470,11 +498,13 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         drop(old);
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
-            vm.runtime()
-                .resolve_closure(&rooted.value(vm.runtime().gc()).unwrap())
-                .unwrap()
-                .implementation
-                .key(),
+            unsafe {
+                vm.runtime()
+                    .resolve_closure_transport(&rooted.value_transport(vm.runtime().gc()).unwrap())
+            }
+            .unwrap()
+            .implementation
+            .key(),
             old_key
         );
         assert_ne!(new.key(), old_key);
@@ -482,7 +512,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
             vm.execute(&new, ProgramEntry::Main)
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(0)
         );
@@ -507,9 +537,12 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             let mut runtime = runtime(Default::default());
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
-            logging_module(move |_, _| {
-                *sink.lock().unwrap() += 1;
-                Ok(Value::Unit)
+            logging_module(unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_, _| {
+                    *sink.lock().unwrap() += 1;
+                    Ok(Value::Unit)
+                })
             })
             .install(&mut runtime)
             .unwrap();
@@ -534,7 +567,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                     assert_eq!(
                         report
                             .return_value
-                            .value(vm.runtime().gc())
+                            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                             .expect("retained execution result"),
                         Value::I32(42)
                     );
@@ -556,7 +589,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                 vm.execute(&loaded, "ready")
                     .unwrap()
                     .return_value
-                    .value(vm.runtime().gc())
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(7)
             );

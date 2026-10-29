@@ -10,15 +10,9 @@ use kagari_runtime::{
     gc::GcHeapConfig,
     module::Program,
     native::{
-        conversion::{FromKagari, context::ConversionContext},
-        function_handle::Function,
-        module::NativeModule,
-        payload::Opaque,
-        storage::access::EditPlan,
-        storage_type::StorageType,
-        typed::NativeContext,
-        types::TypeRef,
-        value_handle::ScriptValue,
+        conversion::context::ConversionContext, function_handle::Function, module::NativeModule,
+        payload::Opaque, storage::access::EditPlan, storage_type::StorageType,
+        typed::NativeContext, types::TypeRef, value_handle::ScriptValue,
         views::NativeOperationKind,
     },
     session::ExecutionOptions,
@@ -126,8 +120,9 @@ fn fixture() -> (Vm, Program, TypeRef, Arc<Observations>) {
 fn retained_text(cx: &NativeContext<'_>, text: &str) -> ScriptValue {
     let mut conversion = ConversionContext::new(cx.runtime(), cx.owner()).unwrap();
     let argument = conversion.type_for::<String>().unwrap();
-    let value = cx.runtime().gc().alloc_string(text.into()).unwrap();
-    ScriptValue::from_kagari(&mut conversion, &argument, &value).unwrap()
+    let value = unsafe { cx.runtime().gc().alloc_string_transport(text.into()) }.unwrap();
+    let root = unsafe { cx.runtime().gc().root_value_transport(value) }.unwrap();
+    conversion.retain(&argument, root).unwrap()
 }
 
 #[track_caller]
@@ -158,7 +153,7 @@ fn collection_pressure(runtime: &Runtime) -> Value {
         + 2048;
     let mut last = Value::Unit;
     for _ in 0..count {
-        last = runtime.gc().alloc_string(TEXT.into()).unwrap();
+        last = unsafe { runtime.gc().alloc_string_transport(TEXT.into()) }.unwrap();
     }
     last
 }
@@ -213,21 +208,28 @@ fn public_constructor_host_creation_and_retained_extraction() {
     // SAFETY: The existing map root protects source across this explicit
     // collection and every immediate read. Only scalars leave these test loans.
     unsafe {
-        cx.read_payload::<OrderedMap, _>(source, &contract, |_, _| {
-            assert!(runtime.collect_garbage().is_err());
-            assert!(vm.execute_typed::<_, i32>(&owner, "number", ()).is_err());
-            assert!(provider::next(&mut nested, (cursor.clone(),)).is_err());
-            assert!(provider::clear(&mut nested, (map.clone(),)).is_err());
-            Ok(())
-        })
+        cx.read_payload::<OrderedMap, _>(
+            source.value_transport(runtime).unwrap(),
+            &contract,
+            |_, _| {
+                assert!(runtime.collect_garbage().is_err());
+                assert!(vm.execute_typed::<_, i32>(&owner, "number", ()).is_err());
+                assert!(provider::next(&mut nested, (cursor.clone(),)).is_err());
+                assert!(provider::clear(&mut nested, (map.clone(),)).is_err());
+                Ok(())
+            },
+        )
         .unwrap();
         assert!(
-            cx.read_payload::<Cursor, ()>(source, &contract, |_, _| {
-                panic!("wrong payload mapping must reject before entering the reader")
-            })
+            cx.read_payload::<Cursor, ()>(
+                source.value_transport(runtime).unwrap(),
+                &contract,
+                |_, _| { panic!("wrong payload mapping must reject before entering the reader") }
+            )
             .is_err()
         );
     }
+    drop(source);
     runtime.collect_garbage().unwrap();
     let (key, first) = provider::next(&mut cx, (cursor.clone(),)).unwrap().unwrap();
     assert_eq!(key, 7, "rejected reads must not advance the cursor");
@@ -558,7 +560,7 @@ fn indexed_scanner_continuation_and_existing_iteration_adapters() {
     });
     assert_eq!(runtime.gc().stats().collections, completed);
     assert!(
-        runtime.root_value(condemned).is_none(),
+        unsafe { runtime.gc().root_value_transport(condemned) }.is_none(),
         "sweep cannot resurrect a condemned identity"
     );
     let newborn = retained_text(&cx, "sweep-newborn");

@@ -40,7 +40,7 @@ impl NativeContext<'_> {
         &self,
         required: &SelectedCall,
     ) -> NativeResult<SelectedMethod<A, R>> {
-        self.runtime().gc().ensure_no_native_borrow()?;
+        self.runtime().gc().ensure_no_storage_borrow()?;
         let function = self.function.ok_or_else(|| {
             RuntimeError::module_validation("context has no native callable requirements")
         })?;

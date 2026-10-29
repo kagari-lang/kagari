@@ -12,8 +12,8 @@ use kagari_runtime::{
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         schema::TypeRegistration,
         types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serializer::Serializer;
@@ -152,7 +152,7 @@ impl<T: KagariSchema + Serialize> IntoKagari for Serde<T> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         self.0.serialize(Serializer::new(cx, expected))
     }
 }
@@ -161,9 +161,10 @@ impl<T: KagariSchema + DeserializeOwned> FromKagari for Serde<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
-        T::deserialize(Deserializer::new(cx, expected, *value)).map(Self)
+        let value = value.clone().into_kagari(cx, expected)?;
+        T::deserialize(Deserializer::new(cx, expected, value)).map(Self)
     }
 }
 

@@ -21,10 +21,10 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl,
+        declarations::FunctionDecl, host::HostCallback,
     },
     value::Value,
-    value_semantics::script_equal,
+    value_semantics::script_equal_transport,
 };
 
 use std::sync::{Arc, Mutex};
@@ -61,15 +61,18 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             unrelated.finish().unwrap().install(&mut runtime).unwrap();
             let calls = Arc::new(Mutex::new(Vec::new()));
             let called = calls.clone();
-            common::logging_module(move |cx, args| {
-                let [Value::Str(id)] = args else {
-                    panic!("log string")
-                };
-                called
-                    .lock()
-                    .unwrap()
-                    .push(cx.runtime().gc().string(*id).unwrap().to_owned());
-                Ok(Value::Unit)
+            common::logging_module(unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |cx, args| {
+                    let [Value::Str(id)] = args else {
+                        panic!("log string")
+                    };
+                    called
+                        .lock()
+                        .unwrap()
+                        .push(cx.runtime().gc().string_transport(*id).unwrap().to_owned());
+                    Ok(Value::Unit)
+                })
             })
             .install(&mut runtime)
             .unwrap();
@@ -87,7 +90,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             assert_eq!(
                 report
                     .return_value
-                    .value(vm.runtime().gc())
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(7)
             );
@@ -125,7 +128,7 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
@@ -162,17 +165,19 @@ fn main() -> (u64, u64, i32) {
         .expect("unsupported JIT compilation should fall back");
 
     assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(report
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime()
-                .gc()
-                .alloc_tuple(vec![Value::U64(3), Value::U64(2), Value::I32(7)])
-                .unwrap())
-        )
+        unsafe {
+            script_equal_transport(
+                vm.runtime().gc(),
+                &(report
+                    .return_value
+                    .value_transport(vm.runtime().gc())
+                    .expect("retained execution result")),
+                &(vm.runtime()
+                    .gc()
+                    .alloc_tuple_transport(vec![Value::U64(3), Value::U64(2), Value::I32(7)])
+                    .unwrap()),
+            )
+        }
         .unwrap()
     );
     let jit = report.jit.expect("JIT attempt should be reported");
@@ -192,7 +197,7 @@ fn remainder_uses_interpreter_fallback_with_identical_result() {
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
         .expect("retained execution result");
     let (runtime, loaded) =
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_remainder", module);
@@ -206,14 +211,14 @@ fn remainder_uses_interpreter_fallback_with_identical_result() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         interpreted
     );
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -243,7 +248,7 @@ fn main() -> i32 {
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
         .expect("retained execution result");
     let (runtime, loaded) =
         common::load_bytecode_program_with_runtime(jit_runtime(), "jit_closure", module);
@@ -257,14 +262,14 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         interpreted
     );
@@ -292,12 +297,11 @@ fn ordinary_interpreter_execution_has_no_jit_report() {
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("interpreter execution should succeed");
 
-    assert_eq!(
+    assert!(
         report
             .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Unit
+            .inspect(vm.runtime(), |view| Ok(view.is_unit()))
+            .expect("retained execution result")
     );
     assert!(report.jit.is_none());
 }
@@ -354,7 +358,10 @@ fn native_products_must_match_current_selection_before_entry_or_fallback() {
         .unwrap();
     assert_eq!(report.epoch, current.epoch.0);
     assert_eq!(
-        report.return_value.value(vm.runtime().gc()),
+        report
+            .return_value
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(9))
     );
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
@@ -363,7 +370,10 @@ fn native_products_must_match_current_selection_before_entry_or_fallback() {
         .unwrap();
     assert_eq!(report.epoch, current.epoch.0);
     assert_eq!(
-        report.return_value.value(vm.runtime().gc()),
+        report
+            .return_value
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(9))
     );
     assert_eq!(
@@ -408,7 +418,7 @@ fn jit_native_execution_reports_installed_artifact() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
@@ -452,7 +462,7 @@ fn jit_policy_disablement_falls_back_before_native_entry() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
@@ -487,7 +497,7 @@ fn jit_debug_session_falls_back_without_safe_debug_metadata() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
@@ -526,7 +536,7 @@ fn jit_debug_session_requires_callbacks_even_when_metadata_is_complete() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );

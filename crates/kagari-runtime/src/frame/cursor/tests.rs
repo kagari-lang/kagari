@@ -10,8 +10,12 @@ use crate::{
     },
     module::ExecutableModule,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
-        context::CallContext, declarations::FunctionDecl, types::Type,
+        binding::NativeResult,
+        builder::ModuleBuilder,
+        catalog::DeclarationCatalog,
+        context::{CallContext, ScriptInvoker},
+        declarations::FunctionDecl,
+        types::Type,
     },
     value::Value,
 };
@@ -183,7 +187,10 @@ fn native_publication_exposes_first_definitions_only_after_success() {
         assert_eq!(calls.load(Ordering::Relaxed), 2);
         if !fail_second {
             let RegionExit::Return(value) = stack
-                .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!())
+                .execute_region(&runtime, &mut None, unsafe {
+                    // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                    ScriptInvoker::new(|_, _, _, _| unreachable!())
+                })
                 .unwrap()
             else {
                 panic!("native caller returns");
@@ -222,7 +229,10 @@ fn native_without_destination_finishes_once_before_the_successor() {
         ));
     }
     let RegionExit::Return(value) = stack
-        .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!())
+        .execute_region(&runtime, &mut None, unsafe {
+            // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+            ScriptInvoker::new(|_, _, _, _| unreachable!())
+        })
         .unwrap()
     else {
         panic!("discarding caller returns");
@@ -239,10 +249,16 @@ fn complete_native_call(
     runtime: &Runtime,
 ) -> Result<RegionExit, RegionError> {
     assert!(matches!(
-        stack.execute_region(runtime, &mut None, |_, _, _, _| unreachable!())?,
+        stack.execute_region(runtime, &mut None, unsafe {
+            // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+            ScriptInvoker::new(|_, _, _, _| unreachable!())
+        })?,
         RegionExit::Call(ExecutionAction::NativeEntry)
     ));
-    if let Err(error) = stack.start_native_entry(runtime, |_, _, _, _| unreachable!()) {
+    if let Err(error) = stack.start_native_entry(runtime, unsafe {
+        // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+        ScriptInvoker::new(|_, _, _, _| unreachable!())
+    }) {
         stack.pop()?;
         return Err(error.into());
     }
@@ -301,9 +317,12 @@ fn collection_during_an_operand_borrow_quarantines_without_further_execution() {
     drop(frame);
     assert!(
         stack
-            .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!(
-                "quarantined execution cannot invoke script"
-            ))
+            .execute_region(&runtime, &mut None, unsafe {
+                // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                ScriptInvoker::new(|_, _, _, _| {
+                    unreachable!("quarantined execution cannot invoke script")
+                })
+            })
             .is_err()
     );
     drop(stack);

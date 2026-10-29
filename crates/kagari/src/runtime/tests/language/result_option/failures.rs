@@ -64,7 +64,7 @@ pub fn after() -> i32 { 42 }
             .execute(&loaded, "after", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -133,7 +133,7 @@ pub fn after()->i32 { 42 }
             .execute(&loaded, "after", &[], &ExecutionContext::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

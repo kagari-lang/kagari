@@ -257,6 +257,15 @@ origin ID and maps it to the final PC; see [error locations](error-reporting.md#
 
 ## Variable Inspection
 
+`DebugBinding::value`, watch evaluation and adapter watch responses carry a
+`DebugValue` snapshot. Cloning it shares retention independently of the pause or
+session. `inspect(runtime, |view| ...)` copies scalars or borrows string bytes under
+the common non-reentrant storage loan. `retain(runtime)` creates an independent
+`RootedValue` for ordinary typed host conversion; it rejects scoped host resources.
+Snapshots do not extend borrowed Rust state lifetimes. Foreign runtime access
+rejects before reading storage. No public debug result exposes raw managed values.
+
+
 Variables are resolved through debug metadata:
 
 - local names
@@ -276,8 +285,8 @@ separate from debug names and copied representation layouts.
 Runtime preparation translates logical slots into scalar/managed bank locations.
 It includes retained binding availability in conservative liveness, so inspection
 needs no permanent local mirror; nonoverlapping scalar lifetimes may reuse storage.
-Managed slots currently remain distinct. Public `ExecutionFrame::read_slot` and
-`write_slot` reject access outside a reused logical lifetime, and `jump_to` cannot
+Managed slots currently remain distinct. Backend `ExecutionFrame::read_slot_transport` and
+`write_slot_transport` require protected values and reject access outside a reused logical lifetime, and `jump_to` cannot
 manufacture a later binding from an earlier alias's initialized bytes. A completed
 definition is readable at its defining PC once the owning operation publishes
 success, before successor-PC preparation. Failed operations do not publish it.

@@ -83,14 +83,50 @@ impl Runtime {
     }
 
     /// Inspect without forcing initialization. Editing the copy cannot change state.
-    pub fn module_instance_snapshot(&self, module: &ExecutableModule) -> Option<ModuleInstance> {
+    /// Access protected backend values through the existing semantic operation.
+    ///
+    /// # Safety
+    /// Keep source objects and all managed arguments traced through this operation.
+    /// Copied managed results and nested snapshot edges need independent protection
+    /// before callbacks, collection, source mutation or clearing diagnostic records.
+    /// Returned storage loans must end before reentry. Validation cannot revive an
+    /// expired direct reference; scoped host resources keep their original lifetime.
+    #[doc(hidden)]
+    pub unsafe fn module_instance_snapshot_transport(
+        &self,
+        module: &ExecutableModule,
+    ) -> Option<ModuleInstance> {
+        self.module_instance_snapshot(module)
+    }
+
+    pub(crate) fn module_instance_snapshot(
+        &self,
+        module: &ExecutableModule,
+    ) -> Option<ModuleInstance> {
         self.validate_module_state_access(module).ok()?;
         self.modules.instance_snapshot(module.key())
     }
 
     /// Read an already initialized cell; never executes its recipe.
     /// Drivers must root the result across safepoints.
-    pub fn read_module_slot(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn read_module_slot_transport(
+        &self,
+        module: &ExecutableModule,
+        slot: ModuleSlot,
+    ) -> Result<Value, RuntimeError> {
+        self.read_module_slot(module, slot)
+    }
+
+    pub(crate) fn read_module_slot(
         &self,
         module: &ExecutableModule,
         slot: ModuleSlot,
@@ -132,7 +168,25 @@ impl Runtime {
 
     /// Replace a ready mutable cell after complete semantic and owner admission.
     /// This is not an initialization API, including for mutable declarations.
-    pub fn write_module_slot(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn write_module_slot_transport(
+        &self,
+        module: &ExecutableModule,
+        slot: ModuleSlot,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        self.write_module_slot(module, slot, value)
+    }
+
+    pub(crate) fn write_module_slot(
         &self,
         module: &ExecutableModule,
         slot: ModuleSlot,

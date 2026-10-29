@@ -264,7 +264,7 @@ fn main() {
                 assert_eq!(
                     report
                         .return_value
-                        .value(runtime.runtime().gc())
+                        .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                         .expect("retained execution result"),
                     Value::I32(42)
                 );
@@ -272,7 +272,7 @@ fn main() {
                 black_box(
                     report
                         .return_value
-                        .value(runtime.runtime().gc())
+                        .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                         .expect("retained execution result"),
                 );
             },

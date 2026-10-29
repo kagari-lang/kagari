@@ -85,7 +85,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             assert_eq!(
                 report
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(42)
             );
@@ -157,7 +157,7 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(expected)
     );
@@ -231,10 +231,11 @@ fn decoded_scalar_native_body_completes_automatic_gc_through_abi_safepoints() {
     drop(program);
 
     let heap = runtime.runtime().gc();
-    let retained = heap.root_execution_values(vec![Value::Unit; 4096]).unwrap();
+    let retained =
+        unsafe { heap.root_execution_values_transport(vec![Value::Unit; 4096]) }.unwrap();
     const GARBAGE: usize = 4096;
     for _ in 0..GARBAGE {
-        heap.alloc_string("garbage".into()).unwrap();
+        unsafe { heap.alloc_string_transport("garbage".into()) }.unwrap();
     }
     let before = heap.stats();
     // No explicit collect_garbage or host gc_safepoint occurs in this interval.
@@ -243,7 +244,13 @@ fn decoded_scalar_native_body_completes_automatic_gc_through_abi_safepoints() {
     let report = runtime
         .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         .unwrap();
-    assert_eq!(report.return_value.value(heap), Some(Value::I32(2080)));
+    assert_eq!(
+        report
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
+        Some(Value::I32(2080))
+    );
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::Native);
     assert!(jit.artifact.is_some());
@@ -257,7 +264,10 @@ fn decoded_scalar_native_body_completes_automatic_gc_through_abi_safepoints() {
         after.collections - before.collections,
         after.reclaimed_objects - before.reclaimed_objects,
     );
-    assert_eq!(retained.get(heap, 4095), Some(Value::Unit));
+    assert_eq!(
+        unsafe { retained.get_transport(heap, 4095) },
+        Some(Value::Unit)
+    );
     drop(report.return_value);
     drop(retained);
     assert_eq!(heap.active_roots(), 0);
@@ -369,7 +379,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -420,10 +430,14 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             .runtime()
             .begin_execution(module, context.runtime_options())
             .unwrap();
-        let dead = runtime
-            .runtime()
-            .alloc_array(module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
-            .unwrap();
+        let dead = unsafe {
+            runtime.runtime().alloc_array_transport(
+                module,
+                Ty::Builtin(BuiltinType::I32),
+                vec![Value::I32(9)],
+            )
+        }
+        .unwrap();
         let collections = runtime.runtime().gc().stats().collections;
         let report = runtime
             .backend()
@@ -432,14 +446,14 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(value)
         );
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
         drop(report.return_value);
         assert!(runtime.runtime().gc().stats().collections > collections);
-        assert!(runtime.runtime().gc().array_len(dead).is_none());
+        assert!(unsafe { runtime.runtime().gc().array_len_transport(dead) }.is_none());
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(
             runtime.runtime().resources().counters().current_call_depth,

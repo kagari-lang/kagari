@@ -52,8 +52,7 @@ fn scoped_task_contract() {
         )
         .unwrap();
     let spawn = |scope: &TaskScopeOwner, factory| {
-        runtime
-            .spawn_task(&f.value(scope.capability()), &factory)
+        unsafe { runtime.spawn_task_transport(&f.value(scope.capability()), &factory) }
             .unwrap()
             .unwrap()
     };
@@ -74,7 +73,7 @@ fn scoped_task_contract() {
     let items = f.invoke("items", &[]);
     let factory = f.invoke("work", &[f.value(&items)]);
     let task = spawn(&scope, f.value(&factory));
-    let id = runtime.task_id(&f.value(&task)).unwrap();
+    let id = unsafe { runtime.task_id_transport(&f.value(&task)) }.unwrap();
     drop(factory);
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     assert_eq!(runtime.ready_tasks(&scope).unwrap(), vec![id]);
@@ -86,15 +85,18 @@ fn scoped_task_contract() {
     let _ = f.invoke("replace", &[f.value(&items)]);
     let simple = f.invoke("simple", &[]);
     let other = spawn(&scope, f.value(&simple));
-    let other_id = runtime.task_id(&f.value(&other)).unwrap();
+    let other_id = unsafe { runtime.task_id_transport(&f.value(&other)) }.unwrap();
     // An exposed host root is mutable; task ownership must keep its own root.
-    other.set(runtime.gc(), Value::Unit).unwrap();
+    let unit = unsafe { runtime.gc().root_value_transport(Value::Unit) }.unwrap();
+    other.replace(runtime.gc(), &unit).unwrap();
+    drop(unit);
     assert_eq!(until_boundary(&scope, other_id), TaskDriveResult::Complete);
     assert!(
         matches!(
-            runtime
-                .spawn_task(&f.value(scope.capability()), &f.value(&simple))
-                .unwrap(),
+            unsafe {
+                runtime.spawn_task_transport(&f.value(scope.capability()), &f.value(&simple))
+            }
+            .unwrap(),
             Err(SpawnError::CapacityExceeded)
         ),
         "unclaimed terminal reports reserve capacity"
@@ -130,7 +132,7 @@ fn scoped_task_contract() {
         f.value(&f.invoke("count", &[f.value(&result)])),
         Value::U64(2)
     );
-    runtime.cancel_task(&f.value(&task)).unwrap();
+    unsafe { runtime.cancel_task_transport(&f.value(&task)) }.unwrap();
     assert!(runtime.take_task_report(&scope, id).unwrap().is_none());
     let cached = f.value(&result);
     drop(result);
@@ -143,12 +145,12 @@ fn scoped_task_contract() {
     drop(task);
     runtime.collect_garbage().unwrap();
     assert!(
-        runtime.root_value(cached).is_none(),
+        unsafe { runtime.gc().root_value_transport(cached) }.is_none(),
         "retired task registry does not retain the result"
     );
 
     let trapped = spawn(&scope, f.value(&f.invoke("trapped", &[])));
-    let trapped_id = runtime.task_id(&f.value(&trapped)).unwrap();
+    let trapped_id = unsafe { runtime.task_id_transport(&f.value(&trapped)) }.unwrap();
     assert_eq!(
         until_boundary(&scope, trapped_id),
         TaskDriveResult::Complete
@@ -165,7 +167,7 @@ fn scoped_task_contract() {
 
     let factory = f.invoke("work", &[f.value(&items)]);
     let cancelled = spawn(&scope, f.value(&factory));
-    let cancelled_id = runtime.task_id(&f.value(&cancelled)).unwrap();
+    let cancelled_id = unsafe { runtime.task_id_transport(&f.value(&cancelled)) }.unwrap();
     assert_eq!(
         until_boundary(&scope, cancelled_id),
         TaskDriveResult::Waiting
@@ -173,8 +175,7 @@ fn scoped_task_contract() {
     fail.store(true, Ordering::SeqCst);
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(90));
     assert!(matches!(
-        runtime
-            .spawn_task(&f.value(scope.capability()), &f.value(&simple))
+        unsafe { runtime.spawn_task_transport(&f.value(scope.capability()), &f.value(&simple)) }
             .unwrap(),
         Err(SpawnError::DispatchUnavailable)
     ));
@@ -193,9 +194,9 @@ fn scoped_task_contract() {
     let _ = f.invoke("push", &[f.value(&items)]);
     scope.replace_dispatcher(Arc::new(|_| Ok(()))).unwrap();
     let queued = spawn(&scope, f.value(&simple));
-    let queued_id = runtime.task_id(&f.value(&queued)).unwrap();
+    let queued_id = unsafe { runtime.task_id_transport(&f.value(&queued)) }.unwrap();
     let running = spawn(&scope, f.value(&factory));
-    let running_id = runtime.task_id(&f.value(&running)).unwrap();
+    let running_id = unsafe { runtime.task_id_transport(&f.value(&running)) }.unwrap();
     assert_eq!(until_boundary(&scope, running_id), TaskDriveResult::Waiting);
     drop(running);
     let cancels_before = f.cancels.load(Ordering::SeqCst);
@@ -216,8 +217,7 @@ fn scoped_task_contract() {
         .unwrap_err();
     assert_eq!(failure.cancellation, Some(CancellationCause::ScopeClose));
     assert!(matches!(
-        runtime
-            .spawn_task(&f.value(scope.capability()), &f.value(&simple))
+        unsafe { runtime.spawn_task_transport(&f.value(scope.capability()), &f.value(&simple)) }
             .unwrap(),
         Err(SpawnError::ScopeClosed)
     ));
@@ -253,8 +253,7 @@ fn scoped_task_contract() {
         .unwrap()
         .unwrap();
     assert!(matches!(
-        runtime
-            .spawn_task(&f.value(rejected.capability()), &f.value(&simple))
+        unsafe { runtime.spawn_task_transport(&f.value(rejected.capability()), &f.value(&simple)) }
             .unwrap(),
         Err(SpawnError::DispatchUnavailable)
     ));
@@ -268,12 +267,11 @@ fn scoped_task_contract() {
     drop(rejected);
     assert_eq!(runtime.drain_cancelled_tasks().unwrap(), 1);
     assert!(matches!(
-        runtime
-            .spawn_task(&f.value(&retained_capability), &f.value(&simple))
+        unsafe { runtime.spawn_task_transport(&f.value(&retained_capability), &f.value(&simple)) }
             .unwrap(),
         Err(SpawnError::ScopeClosed)
     ));
-    runtime.cancel_task(&f.value(&dropped)).unwrap();
+    unsafe { runtime.cancel_task_transport(&f.value(&dropped)) }.unwrap();
     let replacement = f
         .runtime
         .runtime()
@@ -284,7 +282,7 @@ fn scoped_task_contract() {
         )
         .unwrap();
     let admitted = spawn(&replacement, f.value(&simple));
-    let admitted_id = runtime.task_id(&f.value(&admitted)).unwrap();
+    let admitted_id = unsafe { runtime.task_id_transport(&f.value(&admitted)) }.unwrap();
     assert_ne!(admitted_id, queued_id);
     assert_eq!(
         f.runtime
@@ -293,7 +291,7 @@ fn scoped_task_contract() {
             .unwrap(),
         TaskDriveResult::Stale
     );
-    runtime.cancel_task(&f.value(&admitted)).unwrap();
+    unsafe { runtime.cancel_task_transport(&f.value(&admitted)) }.unwrap();
     assert_eq!(
         until_boundary(&replacement, admitted_id),
         TaskDriveResult::Complete
@@ -306,13 +304,13 @@ fn scoped_task_contract() {
         .unwrap_err();
     assert_eq!(failure.cancellation, Some(CancellationCause::Explicit));
     let unfinished = spawn(&replacement, f.value(&factory));
-    let unfinished_id = runtime.task_id(&f.value(&unfinished)).unwrap();
+    let unfinished_id = unsafe { runtime.task_id_transport(&f.value(&unfinished)) }.unwrap();
     assert_eq!(
         until_boundary(&replacement, unfinished_id),
         TaskDriveResult::Waiting
     );
     let queued = spawn(&replacement, f.value(&simple));
-    let queued_id = runtime.task_id(&f.value(&queued)).unwrap();
+    let queued_id = unsafe { runtime.task_id_transport(&f.value(&queued)) }.unwrap();
     assert_eq!(
         until_boundary(&replacement, queued_id),
         TaskDriveResult::Complete
@@ -360,20 +358,23 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
         .unwrap();
     let factory = f.invoke("work", &[]);
     assert!(matches!(
-        f.runtime
-            .runtime()
-            .spawn_task(&f.value(scope.capability()), &f.value(&factory))
-            .unwrap(),
+        unsafe {
+            f.runtime
+                .runtime()
+                .spawn_task_transport(&f.value(scope.capability()), &f.value(&factory))
+        }
+        .unwrap(),
         Err(SpawnError::DispatchUnavailable)
     ));
     scope.replace_dispatcher(Arc::new(|_| Ok(()))).unwrap();
-    let task = f
-        .runtime
-        .runtime()
-        .spawn_task(&f.value(scope.capability()), &f.value(&factory))
-        .unwrap()
-        .unwrap();
-    let id = f.runtime.runtime().task_id(&f.value(&task)).unwrap();
+    let task = unsafe {
+        f.runtime
+            .runtime()
+            .spawn_task_transport(&f.value(scope.capability()), &f.value(&factory))
+    }
+    .unwrap()
+    .unwrap();
+    let id = unsafe { f.runtime.runtime().task_id_transport(&f.value(&task)) }.unwrap();
     assert_eq!(
         f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Waiting
@@ -414,13 +415,14 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
         .unwrap()
         .unwrap();
     assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(8));
-    let task = f
-        .runtime
-        .runtime()
-        .spawn_task(&f.value(scope.capability()), &f.value(&factory))
-        .unwrap()
-        .unwrap();
-    let id = f.runtime.runtime().task_id(&f.value(&task)).unwrap();
+    let task = unsafe {
+        f.runtime
+            .runtime()
+            .spawn_task_transport(&f.value(scope.capability()), &f.value(&factory))
+    }
+    .unwrap()
+    .unwrap();
+    let id = unsafe { f.runtime.runtime().task_id_transport(&f.value(&task)) }.unwrap();
     assert_eq!(
         f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Waiting

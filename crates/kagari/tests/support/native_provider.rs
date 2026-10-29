@@ -15,6 +15,7 @@ use {
             context::CallContext,
             declarations::{FunctionDecl, MethodDecl},
             function_handle::Function,
+            functions::NativeCallback,
             module::NativeModule,
             storage::{NativePayload, NativeStorage},
             typed::NativeContext,
@@ -118,18 +119,20 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
         let item = group.parameter("T")?.ty();
         group.inherent_impl(|methods| {
             let apply = methods.define_method(MethodDecl::instance("apply").returns(item))?;
-            methods.bind(
-                apply,
-                |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| -> NativeResult<Value> {
-                    let (value, callback) = unsafe {
-                        receiver.with_payload::<Handler, _>(None, |handler| {
-                            Ok((handler.value, handler.callback.clone()))
-                        })
-                    }?;
-                    cx.collect_garbage()?;
-                    callback.call_values(cx, &[value])
-                },
-            )
+            methods.bind(apply, unsafe {
+                NativeCallback::new(
+                    |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| -> NativeResult<Value> {
+                        let (value, callback) = receiver
+                            .with_payload::<Handler, _>(None, |handler| {
+                                Ok((handler.value, handler.callback.clone()))
+                            })?;
+                        cx.collect_garbage()?;
+                        // SAFETY: The immutable Handler or active argument pack traces these edges
+                        // through the call and result publication.
+                        callback.call_values_transport(cx, &[value])
+                    },
+                )
+            })
         })
     })?;
     let hold = module.define_function(FunctionDecl::new("hold"))?;
@@ -140,18 +143,24 @@ fn register_handler(module: &mut ModuleBuilder, drops: Arc<AtomicUsize>) -> Nati
         function.returns(handler.apply([item])?)?;
         Ok(())
     })?;
-    module.bind(
-        hold,
-        move |cx: &mut CallContext<'_>,
-              value: ValueHandle<'_>,
-              callback: CallableHandle<'_>|
-              -> NativeResult<Value> {
-            let payload = Handler {
-                value: value.value(),
-                callback: callback.store(),
-                drops: drops.clone(),
-            };
-            cx.allocate_result_payload(&[], |_, _| Ok(payload))
-        },
-    )
+    module.bind(hold, unsafe {
+        NativeCallback::new(
+            move |cx: &mut CallContext<'_>,
+                  value: ValueHandle<'_>,
+                  callback: CallableHandle<'_>|
+                  -> NativeResult<Value> {
+                let payload = Handler {
+                    // SAFETY: The call retains this input until the payload scanner publishes its edge.
+                    value: value.value_transport(),
+                    // SAFETY: The immutable Handler or active argument pack traces these edges through
+                    // the call and result publication.
+                    callback: callback.store_transport(),
+                    drops: drops.clone(),
+                };
+                // SAFETY: The immutable Handler or active argument pack traces these edges through the
+                // call and result publication.
+                cx.allocate_result_payload_transport(&[], |_, _| Ok(payload))
+            },
+        )
+    })
 }

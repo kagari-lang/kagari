@@ -45,18 +45,22 @@ fn main() {
         let mut leaves = Vec::with_capacity(LEAVES);
         for _ in 0..LEAVES {
             leaves.push(Value::Array(
-                runtime
-                    .alloc_array(&owner, element.clone(), vec![Value::I32(1)])
-                    .unwrap(),
+                unsafe {
+                    runtime.alloc_array_transport(&owner, element.clone(), vec![Value::I32(1)])
+                }
+                .unwrap(),
             ));
         }
         let value = Value::Array(
-            runtime
-                .alloc_array(&owner, Ty::Array(Box::new(element)), leaves)
+            unsafe { runtime.alloc_array_transport(&owner, Ty::Array(Box::new(element)), leaves) }
                 .unwrap(),
         );
         // A cloned naked Value is not a root. Host state retains this handle.
-        let retained = runtime.root_value(value).unwrap();
+        let retained = unsafe {
+            // SAFETY: Construction has no callbacks or safepoints; the complete graph is rooted before explicit collection.
+            runtime.gc().root_value_transport(value)
+        }
+        .unwrap();
         let live = runtime.collect_garbage().unwrap();
         assert_eq!(live.live_objects, OBJECTS);
         drop(retained);

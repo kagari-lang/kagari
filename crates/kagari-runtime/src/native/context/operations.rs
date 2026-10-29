@@ -27,7 +27,12 @@ impl LinkedCallable {
 impl<'call> CallContext<'call> {
     /// Read an existing argument root with its prepared closed type. This does
     /// not create an owning Rust handle or convert the value through host storage.
-    pub fn checked_argument(&self, index: usize) -> NativeResult<Value> {
+    ///
+    /// # Safety
+    /// Keep the argument's referent protected until its last use or publication.
+    /// Type validation does not extend this call's roots or original host scope.
+    #[doc(hidden)]
+    pub unsafe fn checked_argument_transport(&self, index: usize) -> NativeResult<Value> {
         let value = self.argument(index)?;
         let signature = self.function.type_signature()?;
         if !signature

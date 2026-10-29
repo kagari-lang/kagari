@@ -37,7 +37,10 @@ use kagari_runtime::{
         HostPathDescriptorId, HostSchemaEpoch, PreparedHostPathWrite,
     },
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
+    native::{
+        builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback,
+        module::NativeModule,
+    },
     value::Value,
 };
 
@@ -114,15 +117,21 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
                 .unwrap(),
             )
             .unwrap();
-        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(10)));
+        let mut adapter = unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(10)))
+        };
         if access == PathAccess::ReadWrite {
-            adapter = adapter.with_prepare_write(|_, _, record| {
-                if matches!(record.new_value, Value::I32(_)) {
-                    Ok(PreparedHostPathWrite::new(|| {}))
-                } else {
-                    Err(HostError::new("hp expects i32"))
-                }
-            });
+            adapter = unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+                adapter.with_prepare_write_transport(|_, _, record| {
+                    if matches!(record.new_value, Value::I32(_)) {
+                        Ok(PreparedHostPathWrite::new(|| {}))
+                    } else {
+                        Err(HostError::new("hp expects i32"))
+                    }
+                })
+            };
         }
         builder.bind_path(&path, adapter).unwrap();
     }
@@ -140,9 +149,12 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
         )
         .unwrap();
     builder
-        .bind(make, |cx: &HostCallContext<'_>, _: &[Value]| {
-            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
-            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+        .bind(make, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|cx: &HostCallContext<'_>, _: &[Value]| {
+                let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+                Ok(cx.runtime().gc().alloc_host_root_transport(root).unwrap())
+            })
         })
         .unwrap();
     builder.finish().unwrap()
@@ -479,14 +491,13 @@ fn installed_host_path_mutation_uses_declared_access() {
         )
         .expect("module should load");
 
-    assert_eq!(
+    assert!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::Unit
+            .inspect(runtime.runtime(), |view| Ok(view.is_unit()))
+            .expect("retained execution result")
     );
 }
 
@@ -543,7 +554,7 @@ fn installed_host_path_reads_need_no_permission_flags() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(10)
     );

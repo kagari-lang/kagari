@@ -114,9 +114,13 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
     builder
         .bind(
             new,
-            NativeBinding::new(Vec::<Codec>::new(), counter.codec(), |cx| {
-                cx.allocate_result()
-            }),
+            // SAFETY: The native argument frame and local working roots protect inputs; results are
+            // decoded, rooted or returned before another callback.
+            unsafe {
+                NativeBinding::new_transport(Vec::<Codec>::new(), counter.codec(), |cx| {
+                    cx.allocate_result_transport()
+                })
+            },
         )
         .unwrap();
     let bump = builder
@@ -127,20 +131,15 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
         )
         .unwrap();
     builder
-        .bind(
-            bump,
-            NativeBinding::new(
-                vec![counter.codec()],
-                Codec::Exact(Type::i32()),
-                |cx| unsafe {
-                    cx.with_payload::<Counter, _>(0, |counter| {
-                        let next = counter.count.get() + 1;
-                        counter.count.set(next);
-                        Ok(Value::I32(next))
-                    })
-                },
-            ),
-        )
+        .bind(bump, unsafe {
+            NativeBinding::new_transport(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
+                cx.with_payload::<Counter, _>(0, |counter| {
+                    let next = counter.count.get() + 1;
+                    counter.count.set(next);
+                    Ok(Value::I32(next))
+                })
+            })
+        })
         .unwrap();
     let remember = builder
         .define_function(FunctionDecl::new("remember").parameter(
@@ -220,7 +219,7 @@ fn native_operation_guards_release_on_unwind() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(84)
     );
@@ -257,7 +256,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -283,7 +282,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
             vm.execute(&replacement, "run")
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(43)
         );
@@ -310,7 +309,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
             vm.execute(&replacement, "run")
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(44)
         );
@@ -318,7 +317,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
             vm.execute(&replacement, ProgramEntry::Main)
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(101)
         );

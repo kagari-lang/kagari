@@ -16,6 +16,7 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -101,9 +102,11 @@ impl<S: KagariType> FromKagari for Interface<S> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         cx.check_type::<Self>(expected)?;
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        let value = &raw;
         cx.check_value(expected, value)?;
         if !matches!(value, Value::Interface(_)) {
             return Err(RuntimeError::module_validation(
@@ -135,7 +138,7 @@ impl<S: KagariType> IntoKagari for Interface<S> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         cx.check_type::<Self>(expected)?;
         if !self
             .argument
@@ -150,6 +153,10 @@ impl<S: KagariType> IntoKagari for Interface<S> {
             RuntimeError::module_validation("foreign or expired interface handle")
         })?;
         cx.check_value(expected, &value)?;
-        Ok(value)
+        Ok(ScriptValue::from_root(
+            self.root,
+            expected.clone(),
+            cx.owner().clone(),
+        ))
     }
 }

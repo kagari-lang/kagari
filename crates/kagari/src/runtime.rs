@@ -21,8 +21,9 @@ use crate::{
 
 use kagari_runtime::{
     Runtime as CoreRuntime,
+    gc::{inspection::ValueView, roots::RootedValue},
     module::{Program, entry::ProgramEntry},
-    value::Value,
+    native::binding::NativeResult,
 };
 use kagari_vm::{
     error::VmError,
@@ -58,6 +59,20 @@ impl Runtime {
 
     pub fn runtime(&self) -> &CoreRuntime {
         self.vm.runtime()
+    }
+
+    /// Inspect a retained result without exposing internal object transport.
+    /// The callback may copy scalars or string contents. Script allocation,
+    /// collection, mutation and reentry are excluded until it returns, including
+    /// on unwind. Inspection remains available after an execution is cancelled.
+    pub fn inspect<R>(
+        &self,
+        value: &RootedValue,
+        read: impl for<'view> FnOnce(ValueView<'view>) -> NativeResult<R>,
+    ) -> RunResult<R> {
+        value
+            .inspect(self.runtime(), read)
+            .map_err(EmbeddingError::from)
     }
 
     pub fn runtime_mut(&mut self) -> &mut CoreRuntime {
@@ -123,7 +138,7 @@ impl Runtime {
         &self,
         program: &Program,
         entry: impl Into<ProgramEntry<'a>>,
-        args: &[Value],
+        args: &[RootedValue],
         context: &ExecutionContext,
     ) -> RunResult<ExecutionReport> {
         let entry = entry.into();
@@ -151,7 +166,7 @@ impl Runtime {
         &self,
         program: &Program,
         entry: impl Into<ProgramEntry<'a>>,
-        args: &[Value],
+        args: &[RootedValue],
         context: &ExecutionContext,
         prepared: &PreparedNativeEntry,
     ) -> RunResult<ExecutionReport> {

@@ -58,7 +58,7 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(7)
     );
@@ -95,11 +95,12 @@ fn main() -> i32 {
             },
         )
         .expect("adapter should evaluate watch");
+    let DebugAdapterResponse::WatchValue { value } = watch else {
+        panic!("expected retained watch result");
+    };
     assert_eq!(
-        watch,
-        DebugAdapterResponse::WatchValue {
-            value: Value::I32(3)
-        }
+        value.inspect(vm.runtime(), |view| view.as_i32()).unwrap(),
+        3
     );
 }
 

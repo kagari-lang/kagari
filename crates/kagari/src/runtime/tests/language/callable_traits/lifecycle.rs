@@ -40,7 +40,7 @@ pub fn healthy()->i32{42}
             .execute(&loaded, "healthy", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

@@ -190,11 +190,9 @@ fn enumeration(
 }
 
 fn raw(arguments: usize, entry: Entry) -> PendingBinding {
-    PendingBinding::implementation_send(NativeBinding::new(
-        vec![Codec::Value; arguments],
-        Codec::Value,
-        entry,
-    ))
+    PendingBinding::implementation_send(unsafe {
+        NativeBinding::new_transport(vec![Codec::Value; arguments], Codec::Value, entry)
+    })
 }
 
 fn override_entry(

@@ -8,7 +8,7 @@ use crate::{
 };
 use kagari_bytecode::instruction::ConstantId;
 use kagari_contract::ids::FunctionRef;
-use kagari_runtime::{module::entry::ProgramEntry, value_semantics::script_equal};
+use kagari_runtime::{module::entry::ProgramEntry, value_semantics::script_equal_transport};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
@@ -42,16 +42,12 @@ fn executes_runtime_reflect_type_of_helper() {
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
-    assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(report
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime().gc().alloc_string("i32".to_owned()).unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        report
+            .return_value
+            .inspect(vm.runtime(), |view| Ok(view.as_str()?.to_owned()))
+            .unwrap(),
+        "i32"
     );
 }
 
@@ -82,17 +78,13 @@ fn runtime_reflection_helpers_use_declared_metadata() {
     let loaded = runtime.select_program(&_loaded_program).unwrap();
 
     let vm = Vm::new(runtime);
-    assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(vm.execute_fixture(&loaded, FunctionRef::new(0))
-                .unwrap()
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime().gc().alloc_string("i32".into()).unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        vm.execute_fixture(&loaded, FunctionRef::new(0))
+            .unwrap()
+            .return_value
+            .inspect(vm.runtime(), |view| Ok(view.as_str()?.to_owned()))
+            .unwrap(),
+        "i32"
     );
 }
 
@@ -139,7 +131,7 @@ fn declared_reflection_reads_are_available() {
         vm.execute_fixture(&loaded, FunctionRef::new(0))
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(1)
     );
@@ -255,7 +247,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(9)
     );
@@ -326,15 +318,13 @@ fn executes_runtime_reflect_set_index_helper() {
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
-    let Value::Array(handle) = report
-        .return_value
-        .value(vm.runtime().gc())
+    let Value::Array(handle) = unsafe { report.return_value.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("expected array return value");
     };
     assert_eq!(
-        vm.runtime().gc().array_snapshot(handle),
+        unsafe { vm.runtime().gc().array_snapshot_transport(handle) },
         Some(vec![Value::I32(2), Value::I32(2)])
     );
 }
@@ -352,16 +342,12 @@ fn executes_source_lowered_type_of_helper() {
         .execute(&loaded, ProgramEntry::Main)
         .expect("vm should execute");
 
-    assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(report
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime().gc().alloc_string("i32".to_owned()).unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        report
+            .return_value
+            .inspect(vm.runtime(), |view| Ok(view.as_str()?.to_owned()))
+            .unwrap(),
+        "i32"
     );
 }
 
@@ -391,7 +377,7 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(9)
     );
@@ -417,15 +403,13 @@ fn main() -> [i32] {
         .execute(&loaded, ProgramEntry::Main)
         .expect("vm should execute");
 
-    let Value::Array(handle) = report
-        .return_value
-        .value(vm.runtime().gc())
+    let Value::Array(handle) = unsafe { report.return_value.value_transport(vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("expected array return value");
     };
     assert_eq!(
-        vm.runtime().gc().array_snapshot(handle),
+        unsafe { vm.runtime().gc().array_snapshot_transport(handle) },
         Some(vec![Value::I32(9), Value::I32(2)])
     );
 }
@@ -456,7 +440,7 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(12)
     );
@@ -486,20 +470,28 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
         .expect("vm should execute");
 
     assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(report
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime()
-                .gc()
-                .alloc_tuple(vec![
-                    vm.runtime().gc().alloc_string("map".to_owned()).unwrap(),
-                    vm.runtime().gc().alloc_string("set".to_owned()).unwrap()
-                ])
-                .unwrap())
-        )
+        unsafe {
+            script_equal_transport(
+                vm.runtime().gc(),
+                &(report
+                    .return_value
+                    .value_transport(vm.runtime().gc())
+                    .expect("retained execution result")),
+                &(vm.runtime()
+                    .gc()
+                    .alloc_tuple_transport(vec![
+                        vm.runtime()
+                            .gc()
+                            .alloc_string_transport("map".to_owned())
+                            .unwrap(),
+                        vm.runtime()
+                            .gc()
+                            .alloc_string_transport("set".to_owned())
+                            .unwrap(),
+                    ])
+                    .unwrap()),
+            )
+        }
         .unwrap()
     );
 }

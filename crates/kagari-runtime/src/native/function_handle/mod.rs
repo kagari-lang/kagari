@@ -119,7 +119,7 @@ impl<A, R> Function<A, R> {
     /// Select once, before argument conversion, and retain that exact entry until
     /// execution and result conversion finish. Admission validates Runtime ownership.
     pub fn prepare_call(&self, runtime: &Runtime) -> NativeResult<Arc<PreparedFunction>> {
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         match self.binding.as_ref() {
             FunctionBinding::Entry(entry) => entry.prepare(runtime).map(Arc::new),
             FunctionBinding::Selected(binding) => binding.prepare(runtime).map(Arc::new),
@@ -179,7 +179,7 @@ impl PreparedFunction {
             Target::Entry(target) if target.primitive.is_some() => runtime
                 .invoke_standard_builtin(self.owner(), target.primitive.unwrap(), &values)
                 .map_err(|error| error.into_runtime_error())?,
-            _ => invoke(runtime, self.owner(), ScriptCall::Pinned(self), &values)?,
+            _ => invoke.invoke(runtime, self.owner(), ScriptCall::Pinned(self), &values)?,
         };
         // Retention is established before conversion can poll, collect or reenter.
         conversion.decode_prepared(&self.signature.result, &value)

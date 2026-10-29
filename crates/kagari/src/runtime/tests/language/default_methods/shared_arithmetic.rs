@@ -243,9 +243,8 @@ pub fn make() -> Test {{ State {{ trace: 0, target: 7 }} }}
         let vm = Vm::new(runtime);
         let baseline = vm.runtime().collect_garbage().unwrap().live_objects;
         let root = vm.execute(&loaded, "make").unwrap().return_value;
-        let state = root.value(vm.runtime().gc()).unwrap();
-        let error = vm
-            .invoke_interface_method(&state, &method("run"), &[])
+        let state = unsafe { root.value_transport(vm.runtime().gc()) }.unwrap();
+        let error = unsafe { vm.invoke_interface_method_transport(&state, &method("run"), &[]) }
             .unwrap_err();
         assert!(
             format!("{error:?}").contains(expected_error),
@@ -257,13 +256,12 @@ pub fn make() -> Test {{ State {{ trace: 0, target: 7 }} }}
         assert!(!vm.runtime().is_quarantined(), "{label}");
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(
-            vm.invoke_interface_method(&state, &method("trace"), &[])
-                .unwrap(),
+            unsafe { vm.invoke_interface_method_transport(&state, &method("trace"), &[]) }.unwrap(),
             Value::I32(expected_trace),
             "{label}: operands commit once in order, but the post-operation effect does not"
         );
         assert_eq!(
-            vm.invoke_interface_method(&state, &method("target"), &[])
+            unsafe { vm.invoke_interface_method_transport(&state, &method("target"), &[]) }
                 .unwrap(),
             Value::I32(7),
             "{label}: a trapping RHS must not commit its enclosing assignment"

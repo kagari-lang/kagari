@@ -7,6 +7,7 @@ use crate::{
         binding::NativeResult,
         conversion::{FromKagari, IntoKagari, context::ConversionContext},
         objects::{ObjectType, construction::ObjectBuilder},
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -54,8 +55,10 @@ impl<'runtime> ConversionContext<'runtime> {
     pub fn read_struct<'scope>(
         &'scope mut self,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<StructDecoder<'scope, 'runtime>> {
+        let raw = value.call_argument(self.runtime(), expected, self.owner())?;
+        let value = &raw;
         self.poll()?;
         expected.validate(self.runtime())?;
         self.check_value(expected, value)?;
@@ -110,14 +113,15 @@ impl StructEncoder<'_, '_> {
     pub fn field_with(
         &mut self,
         name: &str,
-        encode: impl FnOnce(&mut ConversionContext<'_>, &TypeArgument) -> NativeResult<Value>,
+        encode: impl FnOnce(&mut ConversionContext<'_>, &TypeArgument) -> NativeResult<ScriptValue>,
     ) -> NativeResult<()> {
         let field = self.object_type.field(name)?;
         let argument = field.argument(self.cx.runtime())?;
         self.builder.check_member(&field)?;
         let value = encode(self.cx, &argument)
             .map_err(|error| error.at_conversion(format_args!("field {name}")))?;
-        self.builder.set_value_in(self.cx, &field, value)
+        let raw = value.value(self.cx.runtime())?;
+        self.builder.set_value_in(self.cx, &field, raw)
     }
 
     /// Encode one named public field. Duplicate/missing fields reject; writing
@@ -130,9 +134,8 @@ impl StructEncoder<'_, '_> {
             .map_err(|error| error.at_conversion(format_args!("field {name}")))
     }
 
-    /// Publish only after every initializer succeeds. The raw result must stay
-    /// in the enclosing conversion scope until its normal result root is retained.
-    pub fn finish(self) -> NativeResult<Value> {
+    /// Publish a retained result only after every initializer succeeds.
+    pub fn finish(self) -> NativeResult<ScriptValue> {
         let object = self.builder.build_in(self.cx)?;
         object.into_kagari(self.cx, &self.expected)
     }
@@ -151,15 +154,12 @@ impl StructDecoder<'_, '_> {
     pub fn field_with<R>(
         &mut self,
         name: &str,
-        decode: impl FnOnce(&mut ConversionContext<'_>, &TypeArgument, &Value) -> NativeResult<R>,
+        decode: impl FnOnce(&mut ConversionContext<'_>, &TypeArgument, &ScriptValue) -> NativeResult<R>,
     ) -> NativeResult<R> {
         let field = self.object_type.field(name)?;
         let slot = field.check_owner(&self.object_type)?;
         let argument = field.argument(self.cx.runtime())?;
-        let value = self
-            .values
-            .get(self.cx.runtime().gc(), slot)
-            .ok_or_else(|| RuntimeError::module_validation("struct conversion snapshot field"))?;
+        let value = self.cx.retain_slot(&argument, &self.values, slot)?;
         decode(self.cx, &argument, &value)
             .map_err(|error| error.at_conversion(format_args!("field {name}")))
     }

@@ -103,9 +103,9 @@ impl VecStorage {
     ) -> NativeResult<Self> {
         let element = call.type_parameter(result, 0)?;
         let mut payload = Self::empty_element(element.clone(), call.owner())?;
-        let count = call
-            .heap()
-            .array_len(source)
+        // SAFETY: The active call retains the array throughout this copy. Polling
+        // does not run converters; children enter the new payload scanner.
+        let count = unsafe { call.heap().array_len_transport(source) }
             .ok_or_else(|| RuntimeError::module_validation("Vec array source"))?;
         payload
             .values
@@ -114,11 +114,11 @@ impl VecStorage {
         let mut cx = call.native_context()?;
         for index in 0..count {
             call.poll()?;
-            let value = call
-                .heap()
-                .array_get(source, index)
+            let value = unsafe { call.heap().array_get_transport(source, index) }
                 .ok_or_else(|| RuntimeError::module_validation("Vec array element"))?;
-            cx.conversion().check_value(&element, &value)?;
+            // SAFETY: The call-rooted source array protects every copied child
+            // through result scanner admission; no child converter runs here.
+            unsafe { cx.conversion().check_transport(&element, &value) }?;
             payload.values.push(value)?;
         }
         Ok(payload)

@@ -30,12 +30,20 @@ pub(super) fn lifecycle(engine: &KagariEngine) -> Record {
     let mut roots = Vec::with_capacity(ROOTS);
     record.measure("admit_roots", Scope::Automatic, &mut runtime, |runtime| {
         for _ in 0..ROOTS {
-            let value = runtime
-                .runtime()
-                .gc()
-                .alloc_string(RETAINED.into())
-                .unwrap();
-            roots.push(runtime.runtime().root_value(value).unwrap());
+            let value = unsafe {
+                runtime
+                    .runtime()
+                    .gc()
+                    .alloc_string_transport(RETAINED.into())
+            }
+            .unwrap();
+            roots.push(
+                unsafe {
+                    // SAFETY: Each newly allocated string is rooted before the next pressure action; this loop has no safepoint.
+                    runtime.runtime().gc().root_value_transport(value)
+                }
+                .unwrap(),
+            );
         }
     });
     let admitted = record.last_observation();
@@ -62,11 +70,13 @@ pub(super) fn lifecycle(engine: &KagariEngine) -> Record {
         &mut runtime,
         |runtime| {
             for _ in 0..BURST {
-                runtime
-                    .runtime()
-                    .gc()
-                    .alloc_string("unrooted burst".into())
-                    .unwrap();
+                unsafe {
+                    runtime
+                        .runtime()
+                        .gc()
+                        .alloc_string_transport("unrooted burst".into())
+                }
+                .unwrap();
             }
         },
     );
@@ -108,14 +118,20 @@ pub(super) fn lifecycle(engine: &KagariEngine) -> Record {
         before_burst.collections + 1
     );
 
-    record.measure("verify_roots", Scope::Automatic, &mut runtime, |runtime| {
-        for root in &roots {
-            let Value::Str(id) = root.value(runtime.runtime().gc()).unwrap() else {
-                panic!("retained host string changed representation");
-            };
-            assert_eq!(&*runtime.runtime().gc().string(id).unwrap(), RETAINED);
-        }
-    });
+    unsafe {
+        record.measure("verify_roots", Scope::Automatic, &mut runtime, |runtime| {
+            for root in &roots {
+                // SAFETY: roots retains every string throughout these callback-free reads.
+                let Value::Str(id) = root.value_transport(runtime.runtime().gc()).unwrap() else {
+                    panic!("retained host string changed representation");
+                };
+                assert_eq!(
+                    &*runtime.runtime().gc().string_transport(id).unwrap(),
+                    RETAINED
+                );
+            }
+        })
+    };
     record.measure(
         "release_burst_gc",
         Scope::Explicit,

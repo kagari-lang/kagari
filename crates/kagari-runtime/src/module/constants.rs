@@ -77,7 +77,24 @@ impl ConstantPool {
 impl Runtime {
     /// Materialize a portable constant once. The owning module version retains it;
     /// callers root an escaped value independently before releasing that version.
-    pub fn read_constant(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn read_constant_transport(
+        &self,
+        module: &ExecutableModule,
+        constant: ConstantId,
+    ) -> Result<Value, RuntimeError> {
+        self.read_constant(module, constant)
+    }
+
+    pub(crate) fn read_constant(
         &self,
         module: &ExecutableModule,
         constant: ConstantId,

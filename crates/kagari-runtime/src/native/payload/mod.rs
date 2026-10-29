@@ -177,7 +177,7 @@ impl<T: Send + 'static> Opaque<T> {
         cx: &NativeContext<'_>,
         read: impl for<'payload> FnOnce(&'payload T) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().gc().ensure_no_storage_borrow()?;
         cx.runtime().resources().ensure_execution_allowed()?;
         cx.poll()?;
         let value = self.value(cx.runtime().gc())?;
@@ -193,7 +193,7 @@ impl<T: Send + 'static> Opaque<T> {
         cx: &NativeContext<'_>,
         edit: impl for<'payload> FnOnce(&'payload mut T) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().gc().ensure_no_storage_borrow()?;
         cx.runtime().resources().ensure_execution_allowed()?;
         cx.poll()?;
         let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
@@ -299,7 +299,7 @@ impl<T: NativeTake> Opaque<T> {
     /// including script aliases and pinned receivers. Failed take changes nothing.
     /// Active loans/operations reject extraction; no Clone bound or copy is used.
     pub fn take(&self, cx: &NativeContext<'_>) -> NativeResult<T> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().gc().ensure_no_storage_borrow()?;
         cx.runtime().resources().ensure_execution_allowed()?;
         cx.poll()?;
         let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {

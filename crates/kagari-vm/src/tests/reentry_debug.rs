@@ -11,7 +11,7 @@ use crate::{
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::{RuntimeConfig, value::Value};
+use kagari_runtime::{RuntimeConfig, native::host::HostCallback, value::Value};
 use kagari_types::declaration::logging;
 
 #[test]
@@ -52,11 +52,14 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             let mut runtime = standard_runtime(RuntimeConfig {
                 ..Default::default()
             });
-            logging_module(move |context, _| {
-                let root = context.runtime().execution_root().unwrap();
-                assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
-                context.runtime().collect_garbage().unwrap();
-                Ok(Value::Unit)
+            logging_module(unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |context, _| {
+                    let root = context.runtime().execution_root().unwrap();
+                    assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
+                    context.runtime().collect_garbage().unwrap();
+                    Ok(Value::Unit)
+                })
             })
             .install(&mut runtime)
             .unwrap();
@@ -82,7 +85,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             assert_eq!(
                 report
                     .return_value
-                    .value(vm.runtime().gc())
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(42)
             );
@@ -101,12 +104,14 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                 assert_eq!(pause.frames[0].function_name, "main");
                 assert_eq!(pause.frames[0].instruction_offset, caller_offset);
                 assert_eq!(pause.frames[2].function_name, "nested");
-                assert!(
-                    pause.frames[2]
-                        .bindings
-                        .iter()
-                        .any(|binding| binding.name == "doubled" && binding.value == Value::I32(4))
-                );
+                assert!(pause.frames[2].bindings.iter().any(|binding| {
+                    binding.name == "doubled"
+                        && binding
+                            .value
+                            .inspect(vm.runtime(), |view| view.as_i32())
+                            .unwrap()
+                            == 4
+                }));
                 assert_eq!(pause.frames[2].epoch, loaded.epoch.0);
             }
             assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);

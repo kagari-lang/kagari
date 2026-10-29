@@ -9,7 +9,25 @@ use crate::{error::VmError, executor::Executor};
 
 /// Synchronously select the current implementation of a checked function.
 /// Host callbacks keep returned heap objects alive through this owned root.
-pub fn reenter(
+/// Admit protected transport at the backend execution boundary.
+///
+/// # Safety
+/// Keep all managed inputs live until the destination frame or result owner is
+/// published. Inputs that can be replaced through aliases require independent
+/// protection across callbacks. Root raw results before collection, reentry or
+/// source retirement; host capabilities must remain in their original host scope.
+/// Existing owner/type/generation checks cannot revive expired direct references.
+#[doc(hidden)]
+pub unsafe fn reenter_transport(
+    context: &HostCallContext<'_>,
+    loaded: &ExecutableModule,
+    function: FunctionRef,
+    args: &[Value],
+) -> Result<RootedValue, VmError> {
+    reenter(context, loaded, function, args)
+}
+
+pub(crate) fn reenter(
     context: &HostCallContext<'_>,
     loaded: &ExecutableModule,
     function: FunctionRef,
@@ -37,7 +55,8 @@ pub fn reenter(
         .ok_or(VmError::InvalidFunctionRef(function))?;
     if args.len() != target.metadata.params.len()
         || args.iter().zip(&target.metadata.params).any(|(value, ty)| {
-            !value.has_representation(*ty) || !runtime.gc().validate_value(value)
+            !value.has_representation(*ty)
+                || !unsafe { runtime.gc().validate_value_transport(value) }
         })
     {
         return Err(invalid(
@@ -51,8 +70,9 @@ pub fn reenter(
             "reentry result does not match the linked signature",
         ));
     }
-    runtime
-        .gc()
-        .root_value(value)
-        .ok_or_else(|| invalid("reentry result cannot be retained"))
+    unsafe {
+        // SAFETY: Executor transfers its terminal result here without an intervening callback or collection.
+        runtime.gc().root_value_transport(value)
+    }
+    .ok_or_else(|| invalid("reentry result cannot be retained"))
 }

@@ -7,6 +7,7 @@ use crate::{
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         scalar::NativeScalar,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -19,17 +20,19 @@ macro_rules! scalar {
                 Ok(Type::scalar(<Self as NativeScalar>::abi_type()))
             }
 
-            fn snapshot_field(&self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<Value> {
+            fn snapshot_field(&self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<ScriptValue> {
                 cx.encode_value(expected, *self)
             }
         }
         impl IntoKagari for $ty {
-            fn into_kagari(self, _: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
-                Ok(<Self as NativeScalar>::encode(self))
+            fn into_kagari(self, cx: &mut ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<ScriptValue> {
+                cx.retain_converted(expected, <Self as NativeScalar>::encode(self))
             }
         }
         impl FromKagari for $ty {
-            fn from_kagari(_: &mut ConversionContext<'_>, _: &TypeArgument, value: &Value) -> NativeResult<Self> {
+            fn from_kagari(cx: &mut ConversionContext<'_>, expected: &TypeArgument, value: &ScriptValue) -> NativeResult<Self> {
+                let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+                let value = &raw;
                 <Self as NativeScalar>::decode(value.clone())
             }
         }
@@ -63,7 +66,7 @@ impl KagariType for String {
         &self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         cx.charge_string(self.len())?;
         let mut copy = String::new();
         copy.try_reserve_exact(self.len()).map_err(|_| {
@@ -73,24 +76,30 @@ impl KagariType for String {
         })?;
         copy.push_str(self);
         let value = cx.runtime().gc().alloc_string(copy)?;
-        cx.check_value(expected, &value)?;
-        Ok(value)
+        cx.retain_converted(expected, value)
     }
 }
 
 impl IntoKagari for String {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+    ) -> NativeResult<ScriptValue> {
         cx.charge_string(self.len())?;
-        cx.runtime().gc().alloc_string(self)
+        let value = cx.runtime().gc().alloc_string(self)?;
+        cx.retain_converted(expected, value)
     }
 }
 
 impl FromKagari for String {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
-        _: &TypeArgument,
-        value: &Value,
+        expected: &TypeArgument,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        let value = &raw;
         let Value::Str(value) = value else {
             return Err(RuntimeError::module_validation(
                 "String conversion requires a string",

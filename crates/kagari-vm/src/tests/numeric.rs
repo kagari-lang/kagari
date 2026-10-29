@@ -137,7 +137,7 @@ impl ExecutionObserver for CommitObserver {
                         && frame.instruction_offset() < range.end
                 })
                 .unwrap();
-            frame.read_slot(runtime, binding.slot).unwrap()
+            unsafe { frame.read_slot_transport(runtime, binding.slot) }.unwrap()
         };
         self.0.lock().unwrap().push((read("s"), read("i")));
         Ok(())
@@ -227,7 +227,10 @@ fn check_with_options(source: &str, entries: &[String], traps: bool, options: &M
             } else {
                 let result = result.unwrap();
                 assert_eq!(
-                    result.return_value.value(vm.runtime().gc()).unwrap(),
+                    result
+                        .return_value
+                        .inspect(vm.runtime(), |view| view.as_bool().map(Value::Bool))
+                        .unwrap(),
                     Value::Bool(true),
                     "{entry} ({route})",
                 );
@@ -236,7 +239,10 @@ fn check_with_options(source: &str, entries: &[String], traps: bool, options: &M
                 .execute(&loaded, "numeric_ready")
                 .unwrap_or_else(|error| panic!("probe after {entry} ({route}): {error:?}"));
             assert_eq!(
-                ready.return_value.value(vm.runtime().gc()).unwrap(),
+                ready
+                    .return_value
+                    .inspect(vm.runtime(), |view| view.as_bool().map(Value::Bool))
+                    .unwrap(),
                 Value::Bool(true),
                 "probe after {entry} ({route})",
             );
@@ -425,7 +431,7 @@ fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
         };
         let vm = Vm::new(runtime);
         let kept = vm.execute(&loaded, "main").unwrap();
-        let value = kept.return_value.value(vm.runtime().gc()).unwrap();
+        let value = unsafe { kept.return_value.value_transport(vm.runtime().gc()) }.unwrap();
         let result = Executor::new(vm.runtime(), &loaded, function("update"), &[value])
             .unwrap()
             .run();

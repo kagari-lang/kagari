@@ -108,26 +108,30 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     enums::RESULT,
                     ("SpawnError", &["ScopeClosed", "CapacityExceeded", "DispatchUnavailable"]),
                 ])?;
-                Ok(NativeBinding::new(vec![Codec::Value; 2], Codec::Value,
-                    move |cx| spawn(&symbols, cx)))
+                Ok(unsafe { NativeBinding::new_transport(vec![Codec::Value; 2], Codec::Value,
+                    move |cx| spawn(&symbols, cx)) })
             }))
     })?;
     module.inherent_generic(&task, |_, methods| {
         methods.define(MethodDecl::instance("cancel").returns(Type::unit())
             .documentation("Request cooperative cancellation of this Task. Completed Tasks are unchanged. Cancelling a waiting Task detaches its wait without cancelling the dependency.\n\n# Examples\n\n```kgr\nfn stop<T>(task: Task<T>) { task.cancel(); }\n```")
-            .implementation_send(NativeBinding::new(vec![Codec::Value], Codec::Value, cancel)))?;
+            .implementation_send(unsafe { NativeBinding::new_transport(vec![Codec::Value], Codec::Value, cancel) }))?;
         Ok(())
     })
 }
 
 fn spawn(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let scope = cx.argument(0)?;
-    let factory = cx.argument(1)?;
+    // SAFETY: The call frame retains task inputs until task admission/cancellation finishes.
+    let scope = unsafe { cx.argument_transport(0) }?;
+    // SAFETY: The call frame retains task inputs until task admission/cancellation finishes.
+    let factory = unsafe { cx.argument_transport(1) }?;
     let result = cx.result_type_argument()?;
-    match cx.spawn_task(&scope, &factory)? {
+    // SAFETY: The call frame retains scope/factory/task inputs through admission; successful spawn
+    // returns an owning root.
+    match unsafe { cx.spawn_task_transport(&scope, &factory) }? {
         Ok(task) => {
-            let value = task
-                .value(cx.heap())
+            // SAFETY: task remains retained until Result::Ok publishes its edge.
+            let value = unsafe { task.value_transport(cx.heap()) }
                 .ok_or_else(|| RuntimeError::module_validation("spawned Task root"))?;
             enums::allocate(symbols, cx, &result, "Result", "Ok", vec![value])
         }
@@ -139,16 +143,18 @@ fn spawn(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value>
                 SpawnError::DispatchUnavailable => "DispatchUnavailable",
             };
             let value = enums::allocate(symbols, cx, &ty, "SpawnError", member, vec![])?;
-            let _error = cx
-                .heap()
-                .root_value(value)
-                .ok_or_else(|| RuntimeError::module_validation("SpawnError root"))?;
+            let _error = unsafe {
+                // SAFETY: Publish the newly allocated error value before constructing its result carrier.
+                cx.heap().root_value_transport(value)
+            }
+            .ok_or_else(|| RuntimeError::module_validation("SpawnError root"))?;
             enums::allocate(symbols, cx, &result, "Result", "Err", vec![value])
         }
     }
 }
 
 fn cancel(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.cancel_task(&cx.argument(0)?)?;
+    // SAFETY: The call frame retains task inputs until task admission/cancellation finishes.
+    unsafe { cx.cancel_task_transport(&cx.argument_transport(0)?) }?;
     Ok(Value::Unit)
 }

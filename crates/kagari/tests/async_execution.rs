@@ -15,6 +15,7 @@ use kagari_runtime::{
         completion::CompletionStatus,
         conversion::{FromKagari, KagariType, context::ConversionContext},
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -43,16 +44,15 @@ use fixture::{Fixture, slice};
 
 impl Fixture {
     fn cold(&self, input: i32) -> RootedValue {
-        let execution = self
-            .runtime
-            .backend()
-            .start(
+        let execution = unsafe {
+            self.runtime.backend().start_transport(
                 &self.runtime.runtime().select_program(&self.module).unwrap(),
                 "create",
                 &[Value::I32(input)],
                 Default::default(),
             )
-            .unwrap();
+        }
+        .unwrap();
         let DriveResult::Complete(result) =
             self.runtime.backend().drive(&execution, slice()).unwrap()
         else {
@@ -94,7 +94,7 @@ impl FromKagari for ActiveI32 {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         ty: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         assert!(cx.runtime().execution_root().is_some());
         Ok(Self(i32::from_kagari(cx, ty, value)?))
@@ -159,16 +159,15 @@ fn sdk_owned_native_wait_contract() {
     );
     let future = f.cold(21);
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
-    let execution = f
-        .runtime
-        .backend()
-        .start(
+    let execution = unsafe {
+        f.runtime.backend().start_transport(
             &f.runtime.runtime().select_program(&f.module).unwrap(),
             "wait",
-            &[future.value(f.runtime.runtime().gc()).unwrap()],
+            &[future.value_transport(f.runtime.runtime().gc()).unwrap()],
             Default::default(),
         )
-        .unwrap();
+    }
+    .unwrap();
     let notice = Arc::new(Notice::default());
     execution.set_waker(&Waker::from(notice.clone()));
     assert_eq!(
@@ -205,7 +204,10 @@ fn sdk_owned_native_wait_contract() {
         panic!("ready continuation");
     };
     assert_eq!(
-        result.unwrap().value(f.runtime.runtime().gc()),
+        result
+            .unwrap()
+            .inspect(f.runtime.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(42))
     );
     assert!(!execution.is_ready());
@@ -215,46 +217,50 @@ fn sdk_owned_native_wait_contract() {
     );
     for (input, output) in [(0, 7), (1, 8)] {
         let future = f.cold(input);
-        let execution = f
-            .runtime
-            .backend()
-            .start_future(
-                &future.value(f.runtime.runtime().gc()).unwrap(),
+        let execution = unsafe {
+            f.runtime.backend().start_future_transport(
+                &future.value_transport(f.runtime.runtime().gc()).unwrap(),
                 Default::default(),
             )
-            .unwrap();
+        }
+        .unwrap();
         let DriveResult::Complete(result) = f.runtime.backend().drive(&execution, slice()).unwrap()
         else {
             panic!("immediate publication");
         };
         assert_eq!(
-            result.unwrap().value(f.runtime.runtime().gc()),
+            result
+                .unwrap()
+                .inspect(f.runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .ok(),
             Some(Value::I32(output))
         );
     }
     let shared = ExecutionContext::default();
     let left_future = f.cold(15);
     let right_future = f.cold(16);
-    let left = f
-        .runtime
-        .backend()
-        .start(
+    let left = unsafe {
+        f.runtime.backend().start_transport(
             &f.runtime.runtime().select_program(&f.module).unwrap(),
             "wait",
-            &[left_future.value(f.runtime.runtime().gc()).unwrap()],
+            &[left_future
+                .value_transport(f.runtime.runtime().gc())
+                .unwrap()],
             shared.interpreter_options().unwrap(),
         )
-        .unwrap();
-    let right = f
-        .runtime
-        .backend()
-        .start(
+    }
+    .unwrap();
+    let right = unsafe {
+        f.runtime.backend().start_transport(
             &f.runtime.runtime().select_program(&f.module).unwrap(),
             "wait",
-            &[right_future.value(f.runtime.runtime().gc()).unwrap()],
+            &[right_future
+                .value_transport(f.runtime.runtime().gc())
+                .unwrap()],
             shared.interpreter_options().unwrap(),
         )
-        .unwrap();
+    }
+    .unwrap();
     for owner in [&left, &right] {
         assert!(matches!(
             f.runtime.backend().drive(owner, slice()).unwrap(),
@@ -285,20 +291,22 @@ fn sdk_owned_native_wait_contract() {
         panic!("uncancelled sibling execution");
     };
     assert_eq!(
-        result.unwrap().value(f.runtime.runtime().gc()),
+        result
+            .unwrap()
+            .inspect(f.runtime.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(43))
     );
     for abandon in [false, true] {
         let future = f.cold(10);
         let context = ExecutionContext::default();
-        let execution = f
-            .runtime
-            .backend()
-            .start_future(
-                &future.value(f.runtime.runtime().gc()).unwrap(),
+        let execution = unsafe {
+            f.runtime.backend().start_future_transport(
+                &future.value_transport(f.runtime.runtime().gc()).unwrap(),
                 context.interpreter_options().unwrap(),
             )
-            .unwrap();
+        }
+        .unwrap();
         assert!(matches!(
             f.runtime.backend().drive(&execution, slice()).unwrap(),
             DriveResult::Waiting
@@ -402,16 +410,15 @@ mod native {
                 .is_err()
         );
         assert_eq!(f.starts.load(Ordering::SeqCst), 0);
-        let execution = f
-            .runtime
-            .backend()
-            .start(
+        let execution = unsafe {
+            f.runtime.backend().start_transport(
                 &f.runtime.runtime().select_program(&f.module).unwrap(),
                 "run",
                 &[],
                 Default::default(),
             )
-            .unwrap();
+        }
+        .unwrap();
         assert!(matches!(
             f.runtime.backend().drive(&execution, slice()).unwrap(),
             DriveResult::Waiting
@@ -426,7 +433,10 @@ mod native {
             panic!("interpreter continuation");
         };
         assert_eq!(
-            result.unwrap().value(f.runtime.runtime().gc()),
+            result
+                .unwrap()
+                .inspect(f.runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .ok(),
             Some(Value::I32(42))
         );
         assert_eq!(backend.calls, 0);

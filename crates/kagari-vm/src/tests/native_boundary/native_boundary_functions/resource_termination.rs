@@ -264,7 +264,10 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
         assert_eq!(observed.follow_up.unwrap(), 7);
         let report = result.unwrap();
         assert_eq!(
-            report.return_value.value(vm.runtime().gc()),
+            report
+                .return_value
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                .ok(),
             Some(Value::I32(42))
         );
     }

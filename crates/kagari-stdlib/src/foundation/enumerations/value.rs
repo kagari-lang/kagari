@@ -117,11 +117,11 @@ pub(crate) fn pending(
 ) -> PendingBinding {
     PendingBinding::implementation_with_send(move |view| {
         let symbols = EnumSymbols::new(view.catalog(), names)?;
-        Ok(NativeBinding::new(
-            vec![Codec::Value; arguments],
-            Codec::Value,
-            move |cx| entry(&symbols, cx),
-        ))
+        Ok(unsafe {
+            NativeBinding::new_transport(vec![Codec::Value; arguments], Codec::Value, move |cx| {
+                entry(&symbols, cx)
+            })
+        })
     })
 }
 
@@ -130,11 +130,13 @@ pub(crate) fn pending(
 pub(crate) fn pending_option(arguments: usize, entry: Entry) -> PendingBinding {
     PendingBinding::implementation_with_send(move |view| {
         let symbols = EnumSymbols::new(view.catalog(), &[OPTION])?;
-        Ok(NativeBinding::new(
-            vec![Codec::Value; arguments],
-            symbols.option_codec()?,
-            move |cx| entry(&symbols, cx),
-        ))
+        Ok(unsafe {
+            NativeBinding::new_transport(
+                vec![Codec::Value; arguments],
+                symbols.option_codec()?,
+                move |cx| entry(&symbols, cx),
+            )
+        })
     })
 }
 
@@ -144,11 +146,14 @@ pub(crate) fn option(
     value: Option<Value>,
 ) -> NativeResult<Value> {
     let (some, none) = symbols.option_members()?;
-    cx.allocate_enum(
-        &cx.result_type_argument()?,
-        if value.is_some() { some } else { none },
-        value.into_iter().collect(),
-    )
+    // SAFETY: The caller/conversion owns the payloads through this terminal result publication.
+    unsafe {
+        cx.allocate_enum_transport(
+            &cx.result_type_argument()?,
+            if value.is_some() { some } else { none },
+            value.into_iter().collect(),
+        )
+    }
 }
 
 /// Publish a native Option result whose Rust mapping was checked before effects.
@@ -169,11 +174,18 @@ pub(crate) fn converted_option<T: IntoKagari>(
         })
         .transpose()?;
     let (some, none) = symbols.option_members()?;
-    cx.allocate_enum(
-        result_type,
-        if value.is_some() { some } else { none },
-        value.into_iter().collect(),
-    )
+    // SAFETY: The caller/conversion owns the payloads through this terminal result publication.
+    unsafe {
+        cx.allocate_enum_transport(
+            result_type,
+            if value.is_some() { some } else { none },
+            value
+                .iter()
+                // SAFETY: value retains the payload through allocate_enum publication.
+                .map(|value| value.value_transport(conversion.runtime()))
+                .collect::<NativeResult<_>>()?,
+        )
+    }
 }
 
 pub(crate) fn allocate(
@@ -189,7 +201,8 @@ pub(crate) fn allocate(
         .variants
         .get(member)
         .ok_or_else(|| RuntimeError::metadata_conflict("unprepared enum variant"))?;
-    cx.allocate_enum(ty, variant, fields)
+    // SAFETY: The caller/conversion owns the payloads through this terminal result publication.
+    unsafe { cx.allocate_enum_transport(ty, variant, fields) }
 }
 
 /// The reader must not allocate on the script heap or invoke callbacks.
@@ -203,9 +216,7 @@ pub(crate) fn read<R>(
     let Value::Enum(id) = value else {
         return Err(RuntimeError::module_validation("library enum value"));
     };
-    let view = cx
-        .heap()
-        .enum_view(*id)
+    let view = unsafe { cx.heap().enum_view_transport(*id) }
         .ok_or_else(|| RuntimeError::module_validation("library enum handle"))?;
     let EnumTag::Declared(layout) = &view.tag;
     let enumeration = &symbols.enumeration(name)?.declaration;

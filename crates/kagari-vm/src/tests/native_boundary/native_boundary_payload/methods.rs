@@ -496,10 +496,11 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                     scope,
                     &_owner_program,
                     "external",
-                    &[view.value()],
+                    &[view.argument()],
                     Default::default()
-                )?,
-                kagari_runtime::value::Value::I32(17)
+                )?
+                .inspect(|view| view.as_i32())?,
+                17
             );
             Ok(())
         })

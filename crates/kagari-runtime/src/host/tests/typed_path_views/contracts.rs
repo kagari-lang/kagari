@@ -131,9 +131,16 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
                 .unwrap(),
             )
             .unwrap();
-        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(7)));
+        let mut adapter = unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(7)))
+        };
         if path.records().access == PathAccess::ReadWrite {
-            adapter = adapter.with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})));
+            adapter = unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+                adapter
+                    .with_prepare_write_transport(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})))
+            };
         }
         builder.bind_path(&path, adapter).unwrap();
     }
@@ -286,16 +293,13 @@ fn heap_path_temporaries_survive_collection_during_write_preparation(
     );
     let allocation = allocation_owner(&mut runtime);
     let read_allocation = allocation.clone();
-    let previous = Arc::new(Mutex::new(None));
-    let read_previous = previous.clone();
-    let write_previous = previous.clone();
     let commits = Arc::new(Mutex::new(0));
     let write_commits = commits.clone();
     runtime
-        .register_host_path_adapter(
-            descriptor,
+        .register_host_path_adapter(descriptor, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |cx, _| {
+                .with_read_transport(move |cx, _| {
                     let runtime = cx.runtime();
                     let value = runtime
                         .alloc_array(
@@ -304,22 +308,19 @@ fn heap_path_temporaries_survive_collection_during_write_preparation(
                             vec![Value::I32(1)],
                         )
                         .unwrap();
-                    *read_previous.lock().unwrap() = Some(value);
                     Ok(Value::Array(value))
                 })
-                .with_prepare_write(move |cx, _, record| {
+                .with_prepare_write_transport(move |cx, _, record| {
                     let value = record.new_value;
                     let runtime = cx.runtime();
                     // The scoped host descriptor and both script arrays are roots.
                     if !interleaved_clear || *write_commits.lock().unwrap() == 0 {
                         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 3);
                     }
-                    assert_eq!(
-                        runtime
-                            .gc()
-                            .array_get(write_previous.lock().unwrap().unwrap(), 0),
-                        Some(Value::I32(1))
-                    );
+                    let Some(Value::Array(previous)) = record.old_value else {
+                        panic!("array previous path value")
+                    };
+                    assert_eq!(runtime.gc().array_get(previous, 0), Some(Value::I32(1)));
                     let Value::Array(next) = value else {
                         panic!("array path value")
                     };
@@ -332,8 +333,8 @@ fn heap_path_temporaries_survive_collection_during_write_preparation(
                     Ok(PreparedHostPathWrite::new(move || {
                         *commits.lock().unwrap() += 1
                     }))
-                }),
-        )
+                })
+        })
         .unwrap();
     let next = runtime
         .alloc_array(
@@ -679,13 +680,13 @@ fn installed_host_paths_are_available() {
         )
         .unwrap();
     builder
-        .bind_path(
-            &path,
-            HostPathAdapter::new().with_read(move |_, _| {
+        .bind_path(&path, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(move |_, _| {
                 *calls_for_read.lock().expect("read counter should lock") += 1;
                 Ok(Value::I32(7))
-            }),
-        )
+            })
+        })
         .unwrap();
     builder.finish().unwrap().install(&mut runtime).unwrap();
     let player_id = runtime.types().get_by_name("game::Player").unwrap().id;
@@ -735,15 +736,15 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
         .unwrap();
 
     runtime
-        .register_host_path_adapter(
-            descriptor_id,
-            HostPathAdapter::new().with_read(|_, context| {
+        .register_host_path_adapter(descriptor_id, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(|_, context| {
                 let Value::I32(index) = &context.dynamic_args.as_slice()[0].value else {
                     return Err(HostError::new("inventory index must be i32"));
                 };
                 Ok(Value::I32(*index * 10))
-            }),
-        )
+            })
+        })
         .unwrap();
 
     assert_eq!(

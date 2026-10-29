@@ -5,6 +5,7 @@ use crate::{
     frame::cursor::kernel::{RegionError, RegionExit},
     gc::graph::GraphIdentity,
     module::ExecutableModule,
+    native::context::ScriptInvoker,
     test_support::native::program::ProgramFixture,
 };
 use kagari_abi::representation::ValueType;
@@ -104,7 +105,10 @@ fn closed_write_regions_revalidate_after_cancellation_or_graph_fault() {
             .unwrap();
         assert!(matches!(
             stack
-                .execute_region(&runtime, &mut Some(1), |_, _, _, _| unreachable!())
+                .execute_region(&runtime, &mut Some(1), unsafe {
+                    // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                    ScriptInvoker::new(|_, _, _, _| unreachable!())
+                })
                 .unwrap(),
             RegionExit::Slice,
         ));
@@ -131,8 +135,9 @@ fn closed_write_regions_revalidate_after_cancellation_or_graph_fault() {
             )
         };
         let RegionError::Runtime(error) = stack
-            .execute_region(&runtime, &mut None, |_, _, _, _| {
-                unreachable!("no callback on failed publication")
+            .execute_region(&runtime, &mut None, unsafe {
+                // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                ScriptInvoker::new(|_, _, _, _| unreachable!("no callback on failed publication"))
             })
             .err()
             .unwrap()
@@ -171,7 +176,10 @@ fn cached_constant_and_copies_publish_after_initial_roots() {
     runtime.gc.graph.lock().begin_cycle().unwrap();
     runtime.gc.graph.lock().finish_roots().unwrap();
     let result = stack
-        .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!())
+        .execute_region(&runtime, &mut None, unsafe {
+            // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+            ScriptInvoker::new(|_, _, _, _| unreachable!())
+        })
         .unwrap();
     let RegionExit::Return(value) = result else {
         panic!("closed managed region returns")

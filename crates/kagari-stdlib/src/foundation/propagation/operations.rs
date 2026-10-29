@@ -18,7 +18,8 @@ fn branch(
     success: &str,
     failure: &str,
 ) -> NativeResult<Value> {
-    let original = cx.argument(0)?;
+    // SAFETY: The call frame retains the source and its immutable payload through result publication.
+    let original = unsafe { cx.argument_transport(0) }?;
     let branch = enums::read(symbols, cx, &original, name, |member, fields| {
         match (member, fields) {
             (member, [value]) if member == success => Ok(ControlFlow::Continue(*value)),
@@ -47,13 +48,23 @@ fn branch(
         failure,
         payload.into_iter().collect(),
     )?;
-    let _constructed = cx.heap().root_value(residual).ok_or_else(invalid)?;
+    let _constructed = unsafe {
+        // SAFETY: The input frame protects source payloads; allocated/forwarded results are rooted before further allocation or reentry.
+        cx.heap().root_value_transport(residual)
+    }
+    .ok_or_else(invalid)?;
     let residual = if name == "Result" {
-        cx.forward_enum_origin(&original, &residual)?
+        // SAFETY: The original argument and constructed-value roots protect inputs; the result is
+        // rooted or returned before reentry.
+        unsafe { cx.forward_enum_origin_transport(&original, &residual) }?
     } else {
         residual
     };
-    let _residual = cx.heap().root_value(residual).ok_or_else(invalid)?;
+    let _residual = unsafe {
+        // SAFETY: The input frame protects source payloads; allocated/forwarded results are rooted before further allocation or reentry.
+        cx.heap().root_value_transport(residual)
+    }
+    .ok_or_else(invalid)?;
     enums::allocate(symbols, cx, &result, "ControlFlow", "Break", vec![residual])
 }
 
@@ -69,7 +80,8 @@ fn from_output(
         &cx.result_type_argument()?,
         name,
         success,
-        vec![cx.argument(0)?],
+        // SAFETY: The call frame retains the source and its immutable payload through result publication.
+        vec![unsafe { cx.argument_transport(0) }?],
     )
 }
 
@@ -79,7 +91,8 @@ fn from_residual(
     name: &str,
     failure: &str,
 ) -> NativeResult<Value> {
-    let original = cx.argument(0)?;
+    // SAFETY: The call frame retains the source and its immutable payload through result publication.
+    let original = unsafe { cx.argument_transport(0) }?;
     let mut payload = enums::read(symbols, cx, &original, name, |member, fields| {
         match (member, fields) {
             (member, []) if member == failure && name == "Option" => Ok(None),
@@ -89,14 +102,24 @@ fn from_residual(
     })??;
     if name == "Result" {
         let selected = cx.selected_at(0)?;
-        payload = Some(cx.call_values(
-            selected,
-            slice::from_ref(payload.as_ref().ok_or_else(invalid)?),
-        )?);
+        // SAFETY: The original argument and constructed-value roots protect inputs; the result is
+        // rooted or returned before reentry.
+        payload = Some(unsafe {
+            cx.call_values_transport(
+                selected,
+                slice::from_ref(payload.as_ref().ok_or_else(invalid)?),
+            )
+        }?);
     }
     let _payload = payload
         .as_ref()
-        .map(|value| cx.heap().root_value(*value).ok_or_else(invalid))
+        .map(|value| {
+            unsafe {
+                // SAFETY: The input frame protects source payloads; allocated/forwarded results are rooted before further allocation or reentry.
+                cx.heap().root_value_transport(*value)
+            }
+            .ok_or_else(invalid)
+        })
         .transpose()?;
     let result = enums::allocate(
         symbols,
@@ -109,8 +132,14 @@ fn from_residual(
     if name != "Result" {
         return Ok(result);
     }
-    let _result = cx.heap().root_value(result).ok_or_else(invalid)?;
-    cx.forward_enum_origin(&original, &result)
+    let _result = unsafe {
+        // SAFETY: The input frame protects source payloads; allocated/forwarded results are rooted before further allocation or reentry.
+        cx.heap().root_value_transport(result)
+    }
+    .ok_or_else(invalid)?;
+    // SAFETY: The original argument and constructed-value roots protect inputs; the result is
+    // rooted or returned before reentry.
+    unsafe { cx.forward_enum_origin_transport(&original, &result) }
 }
 
 pub(crate) fn option_branch(

@@ -12,7 +12,7 @@ use kagari_common::identity::{
 use kagari_runtime::{
     host::{HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     value::Value,
 };
 use kagari_source::source_database::SourceLayer;
@@ -85,11 +85,16 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
                         effects: Default::default(),
                     },
                 )?;
-                methods.bind("read", |_: &HostCallContext<'_>, args: &[Value]| {
-                    let [Value::HostRoot(_), Value::I32(amount)] = args else {
-                        return Err(HostError::new("checked Counter receiver and i32 argument"));
-                    };
-                    Ok(Value::I32(*amount))
+                methods.bind("read", unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(|_: &HostCallContext<'_>, args: &[Value]| {
+                        let [Value::HostRoot(_), Value::I32(amount)] = args else {
+                            return Err(HostError::new(
+                                "checked Counter receiver and i32 argument",
+                            ));
+                        };
+                        Ok(Value::I32(*amount))
+                    })
                 })
             })
         })
@@ -108,12 +113,15 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
         )
         .unwrap();
     module
-        .bind(make, |cx: &HostCallContext<'_>, _: &[Value]| {
-            let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-            cx.runtime()
-                .gc()
-                .alloc_host_root(root)
-                .map_err(|error| HostError::new(error.to_string()))
+        .bind(make, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|cx: &HostCallContext<'_>, _: &[Value]| {
+                let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
+                cx.runtime()
+                    .gc()
+                    .alloc_host_root_transport(root)
+                    .map_err(|error| HostError::new(error.to_string()))
+            })
         })
         .unwrap();
     // One checked installation owns both declarations and callbacks. Compilation
@@ -158,7 +166,9 @@ fn main() {
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
-    let value = result.return_value.value(runtime.runtime().gc()).unwrap();
-    assert_eq!(value, Value::I32(42));
+    let value = runtime
+        .inspect(&result.return_value, |view| view.as_i32())
+        .unwrap();
+    assert_eq!(value, 42);
     println!("static + dynamic host interface result: {value:?}");
 }

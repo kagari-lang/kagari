@@ -21,7 +21,7 @@ use kagari_runtime::{
     metadata::{TypeId, TypeKind, TypeRegistration},
     native::{
         builder::ModuleBuilder, catalog::DeclarationCatalog, declarations::FunctionDecl,
-        module::NativeModule, types::Type,
+        host::HostCallback, module::NativeModule, types::Type,
     },
     value::Value,
 };
@@ -102,7 +102,10 @@ fn root(runtime: &mut Runtime, name: &str, object: u64) -> (TypeId, Value) {
     let root = runtime
         .register_host_root(HostObjectId(object), ty, HostSchemaEpoch::new(0))
         .unwrap();
-    (ty, runtime.gc().alloc_host_root(root).unwrap())
+    (
+        ty,
+        unsafe { runtime.gc().alloc_host_root_transport(root) }.unwrap(),
+    )
 }
 
 fn function(name: &str, parameter: Type, passing: HostPassingStyle) -> FunctionDecl {
@@ -177,15 +180,24 @@ fn with_path(module: &NativeModule, path: DefinitionMetadata<HostPathDeclaration
     )
     .unwrap();
     let path = builder.define_path(path).unwrap();
-    let mut adapter = HostPathAdapter::new().with_read(move |cx, path| {
-        Ok(if host_result {
-            cx.runtime().gc().alloc_host_root(path.root).unwrap()
-        } else {
-            Value::I32(10)
+    let mut adapter = unsafe {
+        // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+        HostPathAdapter::new().with_read_transport(move |cx, path| {
+            Ok(if host_result {
+                cx.runtime()
+                    .gc()
+                    .alloc_host_root_transport(path.root)
+                    .unwrap()
+            } else {
+                Value::I32(10)
+            })
         })
-    });
+    };
     if path.records().access == PathAccess::ReadWrite {
-        adapter = adapter.with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})));
+        adapter = unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            adapter.with_prepare_write_transport(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})))
+        };
     }
     builder.bind_path(&path, adapter).unwrap();
     builder.finish().unwrap()
@@ -251,12 +263,14 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
         .define_function(function("take", parameter, HostPassingStyle::Owned))
         .unwrap();
     module
-        .bind(
-            take,
-            |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
-                panic!("linking cannot invoke callbacks")
-            },
-        )
+        .bind(take, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(
+                |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+                    panic!("linking cannot invoke callbacks")
+                },
+            )
+        })
         .unwrap();
     let module = module.finish().unwrap();
     let mut declarations = standard.declarations().unwrap().to_vec();
@@ -319,9 +333,12 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
         .unwrap();
     let observed = calls.clone();
     module
-        .bind(take, move |_: &HostCallContext<'_>, _: &[Value]| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(Value::Unit)
+        .bind(take, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Unit)
+            })
         })
         .unwrap();
     let result = module
@@ -340,13 +357,16 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let captured = wrong.clone();
     let observed = calls.clone();
     module
-        .bind(result, move |cx: &HostCallContext<'_>, _: &[Value]| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(cx
-                .runtime()
-                .gc()
-                .alloc_tuple(vec![*captured.lock().unwrap()])
-                .unwrap())
+        .bind(result, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(cx
+                    .runtime()
+                    .gc()
+                    .alloc_tuple_transport(vec![*captured.lock().unwrap()])
+                    .unwrap())
+            })
         })
         .unwrap();
     let module = module.finish().unwrap();
@@ -362,7 +382,11 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     invoke(&runtime, &loaded, 0, &[a_value]).unwrap();
     assert!(invoke(&runtime, &loaded, 0, &[b_value]).is_err());
-    let scope = runtime.host_scope(&[]).unwrap();
+    let scope = unsafe {
+        // SAFETY: Empty inputs; this guard owns only host borrow/session leases.
+        runtime.host_scope_transport(&[])
+    }
+    .unwrap();
     let a_token = scope
         .borrows()
         .borrow_shared(HostObjectId(1), a_ty)
@@ -375,7 +399,7 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
         &runtime,
         &loaded,
         0,
-        &[runtime.gc().alloc_host_ref(a_token).unwrap()],
+        &[unsafe { runtime.gc().alloc_host_ref_transport(a_token) }.unwrap()],
     )
     .unwrap();
     assert!(
@@ -383,7 +407,7 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
             &runtime,
             &loaded,
             0,
-            &[runtime.gc().alloc_host_ref(b_token).unwrap()]
+            &[unsafe { runtime.gc().alloc_host_ref_transport(b_token) }.unwrap()]
         )
         .is_err()
     );
@@ -414,9 +438,12 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
         .unwrap();
     let observed = calls.clone();
     module
-        .bind(take, move |_: &HostCallContext<'_>, _: &[Value]| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(Value::Unit)
+        .bind(take, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Unit)
+            })
         })
         .unwrap();
     let result =
@@ -431,9 +458,12 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let captured = foreign_value.clone();
     let observed = calls.clone();
     module
-        .bind(result, move |_: &HostCallContext<'_>, _: &[Value]| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(*captured.lock().unwrap())
+        .bind(result, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(*captured.lock().unwrap())
+            })
         })
         .unwrap();
     let module = module.finish().unwrap();
@@ -449,8 +479,8 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     let (Value::HostRoot(a), Value::HostRoot(b)) = (local_value, other) else {
         unreachable!()
     };
-    let a = local.gc().host_root(a).unwrap();
-    let b = foreign.gc().host_root(b).unwrap();
+    let a = unsafe { local.gc().host_root_transport(a) }.unwrap();
+    let b = unsafe { foreign.gc().host_root_transport(b) }.unwrap();
     assert_eq!(a.object_id(), b.object_id());
     assert_eq!(a.type_id(), b.type_id());
     assert_eq!(a.schema_epoch(), b.schema_epoch());
@@ -463,7 +493,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
         &local,
         &loaded,
         0,
-        &[local.gc().alloc_tuple(vec![local_value]).unwrap()],
+        &[unsafe { local.gc().alloc_tuple_transport(vec![local_value]) }.unwrap()],
     )
     .unwrap();
     assert!(
@@ -471,7 +501,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
             &local,
             &loaded,
             0,
-            &[foreign.gc().alloc_tuple(vec![other]).unwrap()]
+            &[unsafe { foreign.gc().alloc_tuple_transport(vec![other]) }.unwrap()]
         )
         .is_err()
     );
@@ -508,36 +538,42 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
         };
         let descriptor = runtime.resolve_host_path(&declaration).unwrap();
         views.push(
-            runtime
-                .host()
-                .make_path_view(
-                    runtime.gc(),
-                    runtime.gc().host_root(root_id).unwrap(),
+            unsafe {
+                runtime.make_host_path_view_transport(
+                    runtime.gc().host_root_transport(root_id).unwrap(),
                     descriptor,
                     DynamicPathArguments::empty(),
                 )
-                .unwrap(),
+            }
+            .unwrap(),
         );
     }
     assert_eq!(views[0].descriptor_id(), views[1].descriptor_id());
     assert_eq!(views[0].result_type(), views[1].result_type());
     let id = views[0].descriptor_id();
-    let local_view = local.gc().alloc_host_path(views[0].clone()).unwrap();
-    let foreign_view = foreign.gc().alloc_host_path(views[1].clone()).unwrap();
+    let local_view = unsafe { local.gc().alloc_host_path_transport(views[0].clone()) }.unwrap();
+    let foreign_view = unsafe { foreign.gc().alloc_host_path_transport(views[1].clone()) }.unwrap();
     assert!(
-        local
-            .host()
-            .make_path_view_from_value(local.gc(), &local_view, id, vec![])
-            .is_ok()
+        unsafe { local.make_host_path_view_from_value_transport(&local_view, id, vec![]) }.is_ok()
     );
     assert!(
-        local
-            .host()
-            .make_path_view_from_value(local.gc(), &foreign_view, id, vec![])
+        unsafe { local.make_host_path_view_from_value_transport(&foreign_view, id, vec![]) }
             .is_err()
     );
-    assert!(local.host_scope(&[local_view]).is_ok());
-    assert!(local.host_scope(&[foreign_view]).is_err());
+    assert!(
+        unsafe {
+            // SAFETY: Both runtimes keep these checked-ID wrappers live; foreign-owner admission rejects before access.
+            local.host_scope_transport(&[local_view])
+        }
+        .is_ok()
+    );
+    assert!(
+        unsafe {
+            // SAFETY: Both runtimes keep these checked-ID wrappers live; foreign-owner admission rejects before access.
+            local.host_scope_transport(&[foreign_view])
+        }
+        .is_err()
+    );
 }
 
 #[test]
@@ -605,9 +641,16 @@ fn path_fields_are_derived_from_nominal_declarations() {
         )
         .unwrap();
         let bad = builder.define_path(bad).unwrap();
-        let mut adapter = HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(10)));
+        let mut adapter = unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(10)))
+        };
         if access == PathAccess::ReadWrite {
-            adapter = adapter.with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})));
+            adapter = unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+                adapter
+                    .with_prepare_write_transport(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})))
+            };
         }
         builder.bind_path(&bad, adapter).unwrap();
         assert!(builder.finish().is_err());
@@ -712,10 +755,10 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
             ModuleBuilder::from_declaration(module, &Default::default(), BTreeMap::new()).unwrap();
         let declaration = builder.define_path(declaration).unwrap();
         builder
-            .bind_path(
-                &declaration,
-                HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(10))),
-            )
+            .bind_path(&declaration, unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+                HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(10)))
+            })
             .unwrap();
         let module = builder.finish().unwrap();
         let mut runtime = Runtime::default();
@@ -783,7 +826,10 @@ fn paths_reject_types_without_portable_contracts_before_publication() {
     builder
         .bind_path(
             &DefinitionMetadata::checked(context.snapshot(), path, &Default::default()).unwrap(),
-            HostPathAdapter::new().with_read(|_, _| Ok(Value::Unit)),
+            unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+                HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::Unit))
+            },
         )
         .unwrap();
     assert!(builder.finish().is_err());

@@ -178,10 +178,12 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         let root = report.return_value;
         runtime.runtime().collect_garbage().unwrap();
         assert_eq!(
-            runtime
-                .runtime()
-                .result_failure(&root.value(runtime.runtime().gc()).unwrap())
-                .unwrap(),
+            unsafe {
+                runtime.runtime().result_failure_transport(
+                    &root.value_transport(runtime.runtime().gc()).unwrap(),
+                )
+            }
+            .unwrap(),
             failure
         );
         drop(root);
@@ -372,19 +374,21 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
     );
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(
-        runtime
-            .runtime()
-            .result_failure(&root.value(runtime.runtime().gc()).unwrap())
-            .unwrap(),
+        unsafe {
+            runtime
+                .runtime()
+                .result_failure_transport(&root.value_transport(runtime.runtime().gc()).unwrap())
+        }
+        .unwrap(),
         failure
     );
-    let raw = root.value(runtime.runtime().gc()).unwrap();
+    let raw = unsafe { root.value_transport(runtime.runtime().gc()) }.unwrap();
     drop(root);
     drop(old);
     drop(new);
     runtime.runtime().collect_garbage().unwrap();
-    assert!(!runtime.runtime().gc().validate_value(&raw));
-    assert!(runtime.runtime().result_failure(&raw).is_none());
+    assert!(!unsafe { runtime.runtime().gc().validate_value_transport(&raw) });
+    assert!(unsafe { runtime.runtime().result_failure_transport(&raw) }.is_none());
     assert_eq!(failure.message, "old");
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
@@ -489,7 +493,7 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(1000)
     );

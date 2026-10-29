@@ -17,10 +17,9 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, types::Type,
+        declarations::FunctionDecl, host::HostCallback, types::Type,
     },
     value::Value,
-    value_semantics::script_equal,
 };
 
 #[test]
@@ -28,9 +27,12 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
     let mut host_runtime = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
-    logging_module(|_, _| Ok(Value::Unit))
-        .install(&mut host_runtime)
-        .unwrap();
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| Ok(Value::Unit))
+    })
+    .install(&mut host_runtime)
+    .unwrap();
     let mut builder = ModuleBuilder::new("fixtures::scalar", &Default::default()).unwrap();
     let hidden = builder
         .define_function(FunctionDecl::new("hidden").returns(Type::i32()))
@@ -59,7 +61,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
             .execute(&host_module, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(host_vm.runtime().gc())
+            .inspect(host_vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -93,22 +95,16 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
         .select_program(&_reflection_module_program)
         .unwrap();
     let reflection_vm = Vm::new(reflection_runtime);
-    assert!(
-        script_equal(
-            reflection_vm.runtime().gc(),
-            &(reflection_vm
-                .execute_fixture(&reflection_module, FunctionRef::new(0))
-                .unwrap()
-                .return_value
-                .value(reflection_vm.runtime().gc())
-                .expect("retained execution result")),
-            &(reflection_vm
-                .runtime()
-                .gc()
-                .alloc_string("i32".into())
-                .unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        reflection_vm
+            .execute_fixture(&reflection_module, FunctionRef::new(0))
+            .unwrap()
+            .return_value
+            .inspect(reflection_vm.runtime(), |view| Ok(view
+                .as_str()?
+                .to_owned()))
+            .unwrap(),
+        "i32"
     );
     DebugSession::new(&standard_runtime(Default::default())).unwrap();
 }

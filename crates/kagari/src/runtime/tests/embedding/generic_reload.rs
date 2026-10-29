@@ -48,7 +48,17 @@ fn static_call(runtime: &Runtime, module: &Program, entry: &str) -> Value {
         .execute(module, entry, &[], &Default::default())
         .unwrap()
         .return_value
-        .value(runtime.runtime().gc())
+        .inspect(runtime.runtime(), |view| {
+            if view.is_unit() {
+                Ok(Value::Unit)
+            } else if let Ok(value) = view.as_bool() {
+                Ok(Value::Bool(value))
+            } else if let Ok(value) = view.as_i32() {
+                Ok(Value::I32(value))
+            } else {
+                view.as_i64().map(Value::I64)
+            }
+        })
         .unwrap()
 }
 
@@ -310,7 +320,7 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     let old_key = old.key();
     let vm = Vm::new(runtime);
     let saved_root = vm.execute(&old, "make").unwrap().return_value;
-    let saved = saved_root.value(vm.runtime().gc()).unwrap();
+    let saved = unsafe { saved_root.value_transport(vm.runtime().gc()) }.unwrap();
     vm.reload_program(&_old_program, Some("local-reload".into()), replacement)
         .unwrap();
     let _current_program = _old_program.clone();
@@ -319,33 +329,30 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
     let fresh_root = vm.execute(&current, "make").unwrap().return_value;
-    let fresh = fresh_root.value(vm.runtime().gc()).unwrap();
+    let fresh = unsafe { fresh_root.value_transport(vm.runtime().gc()) }.unwrap();
     for (value, expected) in [(&saved, 43), (&fresh, 43)] {
         assert_eq!(
-            vm.invoke_interface_method(value, &run, &[Value::I32(0)])
-                .unwrap(),
+            unsafe { vm.invoke_interface_method_transport(value, &run, &[Value::I32(0)]) }.unwrap(),
             Value::I32(expected)
         );
     }
     for (mode, expected) in [(1, "division by zero"), (2, "call depth")] {
-        let error = vm
-            .invoke_interface_method(&saved, &run, &[Value::I32(mode)])
-            .unwrap_err();
+        let error =
+            unsafe { vm.invoke_interface_method_transport(&saved, &run, &[Value::I32(mode)]) }
+                .unwrap_err();
         assert!(format!("{error:?}").contains(expected), "{error:?}");
         assert_eq!(vm.runtime().gc().active_roots(), 2);
         assert!(!vm.runtime().is_quarantined());
     }
     let session = support::cancel_after(vm.runtime(), &current, 48);
-    let error = vm
-        .invoke_interface_method(&fresh, &run, &[Value::I32(3)])
+    let error = unsafe { vm.invoke_interface_method_transport(&fresh, &run, &[Value::I32(3)]) }
         .unwrap_err();
     drop(session);
     assert!(format!("{error:?}").contains("cancel"), "{error:?}");
     assert_eq!(vm.runtime().gc().active_roots(), 2);
     assert!(!vm.runtime().is_quarantined());
     assert_eq!(
-        vm.invoke_interface_method(&saved, &run, &[Value::I32(0)])
-            .unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&saved, &run, &[Value::I32(0)]) }.unwrap(),
         Value::I32(43)
     );
     drop((saved_root, fresh_root));
@@ -399,13 +406,12 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
         ModuleDecl::method_id(contract.declaration, "late_constructed", old.definitions()).unwrap();
     let old_key = old.key();
     let vm = Vm::new(runtime);
-    let saved = vm
-        .execute(&old, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&old, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let saved = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(saved).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(saved) }.unwrap();
+    drop(source_root);
     vm.reload_program(&_old_program, Some("generic-reload".into()), replacement)
         .unwrap();
     let _current_program = _old_program.clone();
@@ -413,49 +419,42 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
-    let fresh = vm
-        .execute(&current, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&current, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let fresh = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let fresh_root = vm.runtime().root_value(fresh).unwrap();
+    let fresh_root = unsafe { vm.runtime().gc().root_value_transport(fresh) }.unwrap();
+    drop(source_root);
     assert_eq!(
-        vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&saved, &run, &[]) }.unwrap(),
         Value::Bool(false)
     );
     assert_eq!(
-        vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&fresh, &run, &[]) }.unwrap(),
         Value::Bool(false)
     );
     assert_eq!(
-        vm.invoke_interface_method(&saved, &selected_default, &[])
-            .unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&saved, &selected_default, &[]) }.unwrap(),
         Value::Bool(false)
     );
     assert_eq!(
-        vm.invoke_interface_method(&fresh, &selected_default, &[])
-            .unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&fresh, &selected_default, &[]) }.unwrap(),
         Value::Bool(false)
     );
     assert_eq!(
-        vm.invoke_interface_method(&saved, &constructed, &[])
-            .unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&saved, &constructed, &[]) }.unwrap(),
         Value::Bool(false)
     );
     assert_eq!(
-        vm.invoke_interface_method(&fresh, &constructed, &[])
-            .unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&fresh, &constructed, &[]) }.unwrap(),
         Value::Bool(false)
     );
     assert_eq!(
-        vm.invoke_interface_method(&saved, &late_constructed, &[])
-            .unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&saved, &late_constructed, &[]) }.unwrap(),
         Value::Bool(false)
     );
     assert_eq!(
-        vm.invoke_interface_method(&fresh, &late_constructed, &[])
-            .unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&fresh, &late_constructed, &[]) }.unwrap(),
         Value::Bool(false)
     );
     drop((root, fresh_root));
@@ -499,20 +498,18 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
     let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
     let old_key = old.key();
     let vm = Vm::new(runtime);
-    let saved = vm
-        .execute(&old, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&old, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let saved = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(saved).unwrap();
-    let stopped = vm
-        .execute(&old, "make_stopped")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let root = unsafe { vm.runtime().gc().root_value_transport(saved) }.unwrap();
+    drop(source_root);
+    let source_root = vm.execute(&old, "make_stopped").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let stopped = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let stopped_root = vm.runtime().root_value(stopped).unwrap();
+    let stopped_root = unsafe { vm.runtime().gc().root_value_transport(stopped) }.unwrap();
+    drop(source_root);
     vm.reload_program(&_old_program, Some("try-reload".into()), replacement)
         .unwrap();
     let _current_program = _old_program.clone();
@@ -520,31 +517,30 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
     drop(old);
     vm.runtime().collect_garbage().unwrap();
     assert!(vm.runtime().modules().loaded(old_key).is_some());
-    let fresh = vm
-        .execute(&current, "make")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&current, "make").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let fresh = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let fresh_root = vm.runtime().root_value(fresh).unwrap();
-    let fresh_stopped = vm
-        .execute(&current, "make_stopped")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let fresh_root = unsafe { vm.runtime().gc().root_value_transport(fresh) }.unwrap();
+    drop(source_root);
+    let source_root = vm.execute(&current, "make_stopped").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let fresh_stopped = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let fresh_stopped_root = vm.runtime().root_value(fresh_stopped).unwrap();
+    let fresh_stopped_root =
+        unsafe { vm.runtime().gc().root_value_transport(fresh_stopped) }.unwrap();
+    drop(source_root);
     assert_eq!(
-        vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&saved, &run, &[]) }.unwrap(),
         Value::I32(43)
     );
     assert_eq!(
-        vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
+        unsafe { vm.invoke_interface_method_transport(&fresh, &run, &[]) }.unwrap(),
         Value::I32(43)
     );
     for value in [&stopped, &fresh_stopped] {
         assert_eq!(
-            vm.invoke_interface_method(value, &run, &[]).unwrap(),
+            unsafe { vm.invoke_interface_method_transport(value, &run, &[]) }.unwrap(),
             Value::I32(0)
         );
     }
@@ -598,13 +594,15 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let method =
         ModuleDecl::method_id(contract.declaration, "same", current.definitions()).unwrap();
     for (root, expected) in [(&saved, false), (&fresh, false)] {
-        let value = root.value(vm.runtime().gc()).unwrap();
+        let value = unsafe { root.value_transport(vm.runtime().gc()) }.unwrap();
         assert_eq!(
-            vm.invoke_interface_method(
-                &probe.value(vm.runtime().gc()).unwrap(),
-                &method,
-                &[value, value]
-            )
+            unsafe {
+                vm.invoke_interface_method_transport(
+                    &probe.value_transport(vm.runtime().gc()).unwrap(),
+                    &method,
+                    &[value, value],
+                )
+            }
             .unwrap(),
             Value::Bool(expected)
         );
@@ -685,11 +683,13 @@ fn shared_collection_comparison_selects_current_operations(
         ModuleDecl::method_id(contract.declaration, "check", current.definitions()).unwrap();
     for (probe, expected) in [(&old_probe, false), (&fresh_probe, false)] {
         assert_eq!(
-            vm.invoke_interface_method(
-                &probe.value(vm.runtime().gc()).unwrap(),
-                &method,
-                &[factory.value(vm.runtime().gc()).unwrap()],
-            )
+            unsafe {
+                vm.invoke_interface_method_transport(
+                    &probe.value_transport(vm.runtime().gc()).unwrap(),
+                    &method,
+                    &[factory.value_transport(vm.runtime().gc()).unwrap()],
+                )
+            }
             .unwrap(),
             Value::Bool(expected),
         );

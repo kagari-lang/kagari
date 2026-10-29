@@ -41,18 +41,20 @@ fn engine() -> KagariEngine {
         })
         .unwrap();
     module
-        .bind(
-            singleton,
-            NativeBinding::new([Codec::Value], Codec::Value, |call| {
-                let input = call.argument(0)?;
+        .bind(singleton, unsafe {
+            NativeBinding::new_transport([Codec::Value], Codec::Value, |call| {
+                // SAFETY: The active call retains this input until its copy is published or consumed.
+                let input = call.argument_transport(0)?;
                 let input_type = call.argument_type_argument(0)?;
                 let output = call.result_type_argument()?;
                 let mut cx = call.native_context()?;
-                let value: ScriptValue = cx.conversion().decode_value(&input_type, &input)?;
+                // SAFETY: The active native call retains its complete argument snapshot.
+                let value: ScriptValue = cx.conversion().decode_transport(&input_type, &input)?;
                 cx.conversion()
-                    .encode_value(&output, VecValues(vec![value]))
-            }),
-        )
+                    .encode_value(&output, VecValues(vec![value]))?
+                    .value_transport(cx.runtime())
+            })
+        })
         .unwrap();
     let wrong = module
         .define_function(
@@ -66,10 +68,9 @@ fn engine() -> KagariEngine {
         })
         .unwrap();
     module
-        .bind(
-            wrong,
-            NativeBinding::new([], Codec::Value, |_| Ok(Value::I32(42))),
-        )
+        .bind(wrong, unsafe {
+            NativeBinding::new_transport([], Codec::Value, |_| Ok(Value::I32(42)))
+        })
         .unwrap();
     let mut factory = module.define_trait("Factory").unwrap();
     let one = factory.define_method(MethodDecl::instance("one")).unwrap();
@@ -83,18 +84,20 @@ fn engine() -> KagariEngine {
         })
         .unwrap();
     factory
-        .bind(
-            one,
-            NativeBinding::new([Codec::Value, Codec::Value], Codec::Value, |call| {
-                let input = call.argument(1)?;
+        .bind(one, unsafe {
+            NativeBinding::new_transport([Codec::Value, Codec::Value], Codec::Value, |call| {
+                // SAFETY: The active call retains this input until its copy is published or consumed.
+                let input = call.argument_transport(1)?;
                 let input_type = call.argument_type_argument(1)?;
                 let output = call.result_type_argument()?;
                 let mut cx = call.native_context()?;
-                let value: ScriptValue = cx.conversion().decode_value(&input_type, &input)?;
+                // SAFETY: The active native call retains its complete argument snapshot.
+                let value: ScriptValue = cx.conversion().decode_transport(&input_type, &input)?;
                 cx.conversion()
-                    .encode_value(&output, VecValues(vec![value]))
-            }),
-        )
+                    .encode_value(&output, VecValues(vec![value]))?
+                    .value_transport(cx.runtime())
+            })
+        })
         .unwrap();
     factory.finish().unwrap();
     let module = module.finish().unwrap();
@@ -155,7 +158,7 @@ fn concrete_native_results_construct_declared_interfaces_in_generic_calls(#[case
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -287,10 +290,9 @@ fn native_registration_rejects_an_unimplemented_result_interface() {
         })
         .unwrap();
     module
-        .bind(
-            function,
-            NativeBinding::new([], Codec::Value, |_| Ok(Value::I32(42))),
-        )
+        .bind(function, unsafe {
+            NativeBinding::new_transport([], Codec::Value, |_| Ok(Value::I32(42)))
+        })
         .unwrap();
     assert!(module.finish().is_err());
 }

@@ -53,7 +53,20 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn validate_debug_value(&self, value: &Value) -> Result<(), RuntimeError> {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn validate_debug_value_transport(&self, value: &Value) -> Result<(), RuntimeError> {
+        self.validate_debug_value(value)
+    }
+
+    pub(crate) fn validate_debug_value(&self, value: &Value) -> Result<(), RuntimeError> {
         self.resources().poll_execution()?;
         if !self.gc.validate_value(value) {
             return Err(RuntimeError::new(

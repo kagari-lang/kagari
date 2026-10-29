@@ -13,6 +13,7 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::CallContext,
         declarations::{FunctionDecl, MethodDecl},
+        functions::NativeCallback,
         module::NativeModule,
         payload::Opaque,
         typed::NativeContext,
@@ -54,16 +55,20 @@ fn registration(builder_result: bool) -> (NativeModule, TypeRef) {
                         signature.bound(element.clone(), marker.apply([])?)
                     })?;
                     if name == "new" {
-                        methods.bind(
-                            function,
-                            move |call: &mut CallContext<'_>| -> NativeResult<Value> {
-                                call.allocate_result_payload(&[], |call, result| {
-                                    assert_eq!(result.ty(), call.result_type());
-                                    call.collect_garbage()?;
-                                    Ok(BoundedState { value })
-                                })
-                            },
-                        )?;
+                        methods.bind(function, unsafe {
+                            NativeCallback::new(
+                                move |call: &mut CallContext<'_>| -> NativeResult<Value> {
+                                    // SAFETY: The native argument frame and local working roots protect
+                                    // inputs; results are decoded, rooted or returned before another
+                                    // callback.
+                                    call.allocate_result_payload_transport(&[], |call, result| {
+                                        assert_eq!(result.ty(), call.result_type());
+                                        call.collect_garbage()?;
+                                        Ok(BoundedState { value })
+                                    })
+                                },
+                            )
+                        })?;
                     } else {
                         methods.bind(
                             function,
@@ -94,16 +99,17 @@ fn registration(builder_result: bool) -> (NativeModule, TypeRef) {
         .unwrap();
     if builder_result {
         module
-            .bind(
-                adapted,
-                |call: &mut CallContext<'_>| -> NativeResult<Value> {
-                    call.allocate_result_payload(&[], |call, result| {
+            .bind(adapted, unsafe {
+                NativeCallback::new(|call: &mut CallContext<'_>| -> NativeResult<Value> {
+                    // SAFETY: The native argument frame and local working roots protect inputs;
+                    // results are decoded, rooted or returned before another callback.
+                    call.allocate_result_payload_transport(&[], |call, result| {
                         assert_eq!(result.ty(), call.result_type());
                         call.collect_garbage()?;
                         Ok(BoundedState { value: 23 })
                     })
-                },
-            )
+                })
+            })
             .unwrap();
     } else {
         module

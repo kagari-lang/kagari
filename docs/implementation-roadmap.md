@@ -568,8 +568,15 @@ optimization remain separate scopes. Git history owns the completed OM ledger.
 A concrete [direct-reference trial and API proposal](paged-incremental-gc-design.md#direct-reference-trial-and-api-proposal-2026-10-28)
 now specifies the next architecture experiment requested on 2026-10-28: stable
 internal object references, existing owning host handles and scoped inspection.
-It is documented, not implemented or performance-accepted; PG05/NC05 and PG06/NC06
-remain open. Its finite steps and decisions belong to the existing GC plan.
+The first [boundary checkpoint](paged-incremental-gc-design.md#direct-reference-scoped-inspection-checkpoint-2026-10-28)
+implements scoped host inspection and freezes the combined-source baseline. Raw
+transport migration and direct-reference storage remain unfinished; no new performance
+acceptance is claimed. Owning named field reads are also implemented; ordinary
+host reads need not use an inspection closure. PG05/NC05 and PG06/NC06 remain open.
+The GC plan's [four remaining phases](paged-incremental-gc-design.md#finite-trial-sequence-and-acceptance)
+own ordering, implementation checkpoints and acceptance: close raw-value boundaries,
+prove an integrated struct path, migrate all managed owners, then complete joint
+local/CI acceptance. Phase 1 remains in progress; phase 2 is gated on its completion.
 
 The joint [PG00-PG06/NC migration](paged-incremental-gc-design.md#execution-plan)
 was activated at `50ab194b` on 2026-10-26. PG00/NC01 contract closure and baseline

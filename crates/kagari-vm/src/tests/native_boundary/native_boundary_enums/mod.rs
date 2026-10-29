@@ -11,7 +11,6 @@ use kagari_runtime::{
         types::Type,
         value_handle::ScriptValue,
     },
-    value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::language::binding;
@@ -174,7 +173,11 @@ impl KagariType for FailAfterGc {
 }
 
 impl IntoKagari for FailAfterGc {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        _: &TypeArgument,
+    ) -> NativeResult<ScriptValue> {
         assert_eq!(cx.runtime().collect_garbage()?.live_objects, 1);
         Err(RuntimeError::module_validation(
             "payload conversion failure",

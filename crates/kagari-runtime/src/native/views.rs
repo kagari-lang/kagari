@@ -5,7 +5,7 @@ use crate::{
     gc::{GcHeap, HeapObjectId, leases::BorrowedLease, roots::RootedValue},
     native::{
         binding::NativeResult,
-        context::{ArgumentView, CallContext},
+        context::{CallContext, arguments::ArgumentView},
         scalar::NativeScalar,
         storage::{NativePayload, access::StorageAccess},
     },
@@ -97,9 +97,18 @@ impl<'call> ValueHandle<'call> {
         self.ty
     }
 
-    /// This copy remains protected by the argument only while that argument is
-    /// alive. Root it before retaining it beyond the call or mutable reentry.
-    pub fn value(&self) -> Value {
+    /// Extract provider transport while the source argument remains protected.
+    ///
+    /// # Safety
+    /// Retain an independent owner before a copy can outlive the argument view or
+    /// its source can be displaced. Scoped host capabilities cannot outlive their
+    /// original scope. Use root() or scalar() for ordinary safe host reads.
+    #[doc(hidden)]
+    pub unsafe fn value_transport(&self) -> Value {
+        self.value()
+    }
+
+    pub(crate) fn value(&self) -> Value {
         self.arguments
             .get(self.slot)
             .expect("checked native argument slot")
@@ -115,7 +124,7 @@ impl<'call> ValueHandle<'call> {
     }
 
     pub fn root(&self) -> NativeResult<RootedValue> {
-        self.heap.ensure_no_native_borrow()?;
+        self.heap.ensure_no_storage_borrow()?;
         self.heap
             .root_value(self.value())
             .ok_or_else(|| RuntimeError::module_validation("native owning value root"))

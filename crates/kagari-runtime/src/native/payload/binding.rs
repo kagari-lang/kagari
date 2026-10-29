@@ -43,7 +43,7 @@ impl Runtime {
         definitions: &DefinitionTable,
         arguments: &[TypeArgument],
     ) -> NativeResult<NativeType<T>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         let snapshot = self.capture_module(owner)?;
         let owner = &snapshot.root;
         let argument = self.apply_native_type(owner, declaration, definitions, arguments)?;
@@ -57,7 +57,7 @@ impl Runtime {
         definitions: &DefinitionTable,
         arguments: &[TypeArgument],
     ) -> NativeResult<TypeArgument> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.validate_executable_module(owner)?;
         let id = self
             .definition_context()
@@ -105,7 +105,7 @@ impl Runtime {
         argument: TypeArgument,
         authority: Option<ConversionRetention<'_>>,
     ) -> NativeResult<NativeType<T>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;
         argument.validate(self)?;
@@ -145,7 +145,7 @@ impl Runtime {
         owner: &ExecutableModule,
         function: &LinkedNativeFunction,
     ) -> NativeResult<TypeArgument> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;
         let import = owner
@@ -205,7 +205,7 @@ impl Runtime {
         argument: TypeArgument,
         value: &Value,
     ) -> NativeResult<Arc<DataRecord>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;
         argument.validate(self)?;

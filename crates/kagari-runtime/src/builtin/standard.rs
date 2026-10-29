@@ -15,7 +15,7 @@ use std::cmp::Ordering;
 #[cfg(test)]
 mod tests;
 
-pub fn invoke(
+pub(crate) fn invoke(
     runtime: &Runtime,
     owner: &ExecutableModule,
     primitive: RuntimePrimitive,

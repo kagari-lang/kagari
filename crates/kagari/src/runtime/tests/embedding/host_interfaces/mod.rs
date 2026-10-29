@@ -18,7 +18,7 @@ use kagari_contract::types::{InterfaceBridge, PublicItem};
 use kagari_runtime::{
     host::{HostCallContext, HostError, HostObjectId},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, types::Type},
+    native::{builder::ModuleBuilder, host::HostCallback, types::Type},
     value::Value,
 };
 use kagari_source::source_database::SourceLayer;
@@ -31,7 +31,7 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_vm::{reentry::reenter, vm::Vm};
+use kagari_vm::{reentry::reenter_transport, vm::Vm};
 use std::sync::{Arc, Mutex};
 
 const SOURCE: &str = concat!(
@@ -102,7 +102,10 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
         }
         .unwrap();
         assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
+            result
+                .return_value
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap(),
             Value::I32(42)
         );
         assert_eq!(*fixture.trace.lock().unwrap(), [0, 20, 0, 22]);
@@ -141,7 +144,10 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
     assert_eq!(
-        result.return_value.value(runtime.runtime().gc()).unwrap(),
+        result
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+            .unwrap(),
         Value::I32(42)
     );
     assert_eq!(*fixture.trace.lock().unwrap(), [0, 20, 22]);
@@ -264,9 +270,9 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
                     .find(|function| function.name == "answer")
                     .unwrap()
                     .id;
-                let value = reenter(ctx, &version, answer, &[]).unwrap();
+                let value = unsafe { reenter_transport(ctx, &version, answer, &[]) }.unwrap();
                 ctx.runtime().collect_garbage().unwrap();
-                return Ok(value.value(ctx.runtime().gc()).unwrap());
+                return Ok(unsafe { value.value_transport(ctx.runtime().gc()) }.unwrap());
             }
             Ok(args[1])
         },
@@ -282,27 +288,32 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .unwrap();
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
-        .execute(&loaded, "boxed")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&loaded, "boxed").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let rooted = vm.runtime().root_value(value).unwrap();
+    let rooted = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     vm.runtime().collect_garbage().unwrap();
     let method = fixture.method(&loaded);
     assert_eq!(
-        vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
+        unsafe { vm.invoke_interface_method_transport(&value, &method, &[Value::I32(21)]) }
             .unwrap(),
         Value::I32(42)
     );
     assert!(vm.execute(&loaded, "fail").is_err());
     assert_eq!(vm.runtime().gc().active_roots(), 1);
     {
-        let scope = vm
-            .runtime()
-            .host_scope(&[vm.runtime().gc().alloc_host_root(root).unwrap()])
-            .unwrap();
+        let scope = unsafe {
+            // SAFETY: The fresh wrapper transfers immediately to the scope before any collection.
+
+            vm.runtime().host_scope_transport(&[vm
+                .runtime()
+                .gc()
+                .alloc_host_root_transport(root)
+                .unwrap()])
+        }
+        .unwrap();
         assert!(
             scope
                 .borrows()
@@ -335,66 +346,77 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     .unwrap();
     let _new_program = _loaded_program.clone();
     let new = vm.runtime().select_program(&_new_program).unwrap();
-    let new_value = vm
-        .execute(&new, "boxed")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&new, "boxed").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let new_value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let new_root = vm.runtime().root_value(new_value).unwrap();
+    let new_root = unsafe { vm.runtime().gc().root_value_transport(new_value) }.unwrap();
+    drop(source_root);
     assert_eq!(
-        vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
+        unsafe { vm.invoke_interface_method_transport(&value, &method, &[Value::I32(21)]) }
             .unwrap(),
         Value::I32(43)
     );
     assert_eq!(
-        vm.invoke_interface_method(&new_value, &method, &[Value::I32(21)])
+        unsafe { vm.invoke_interface_method_transport(&new_value, &method, &[Value::I32(21)]) }
             .unwrap(),
         Value::I32(43)
     );
     let table_owner = fixture.table_owner(&loaded);
-    vm.runtime()
-        .make_interface(
+    unsafe {
+        vm.runtime().make_interface_transport(
             &table_owner,
             0,
-            vm.runtime().gc().alloc_host_root(root).unwrap(),
+            vm.runtime().gc().alloc_host_root_transport(root).unwrap(),
         )
-        .unwrap();
+    }
+    .unwrap();
     let mut foreign = fixture.runtime();
     let foreign_root = common::register_root(&mut foreign);
     assert!(
-        vm.runtime()
-            .make_interface(
+        unsafe {
+            vm.runtime().make_interface_transport(
                 &table_owner,
                 0,
-                vm.runtime().gc().alloc_host_root(foreign_root).unwrap()
+                vm.runtime()
+                    .gc()
+                    .alloc_host_root_transport(foreign_root)
+                    .unwrap(),
             )
-            .is_err()
+        }
+        .is_err()
     );
     {
-        let scope = vm
-            .runtime()
-            .host_scope(&[vm.runtime().gc().alloc_host_root(root).unwrap()])
-            .unwrap();
+        let scope = unsafe {
+            // SAFETY: The fresh wrapper transfers immediately to the scope before any collection.
+
+            vm.runtime().host_scope_transport(&[vm
+                .runtime()
+                .gc()
+                .alloc_host_root_transport(root)
+                .unwrap()])
+        }
+        .unwrap();
         let token = scope
             .borrows()
             .borrow_shared(root.object_id(), root.type_id())
             .unwrap();
         assert!(
-            vm.runtime()
-                .make_interface(
+            unsafe {
+                vm.runtime().make_interface_transport(
                     &table_owner,
                     0,
-                    vm.runtime().gc().alloc_host_ref(token).unwrap()
+                    vm.runtime().gc().alloc_host_ref_transport(token).unwrap(),
                 )
-                .is_err()
+            }
+            .is_err()
         );
     }
     drop(rooted);
     drop(new_root);
     vm.runtime().collect_garbage().unwrap();
     assert!(
-        vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
+        unsafe { vm.invoke_interface_method_transport(&value, &method, &[Value::I32(21)]) }
             .is_err()
     );
     assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -440,12 +462,14 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
                         effects: Default::default(),
                     },
                 )?;
-                methods.bind(
-                    "number",
-                    |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
-                        panic!("cold bound checking called Rust")
-                    },
-                )
+                methods.bind("number", unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(
+                        |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+                            panic!("cold bound checking called Rust")
+                        },
+                    )
+                })
             })
         })
         .unwrap();
@@ -549,7 +573,10 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
     assert_eq!(
-        result.return_value.value(runtime.runtime().gc()).unwrap(),
+        result
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+            .unwrap(),
         Value::I32(42)
     );
     assert_eq!(*fixture.trace.lock().unwrap(), [0, 42]);
@@ -573,20 +600,20 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         .unwrap();
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
-        .execute(&loaded, "boxed")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .unwrap();
-    let rooted = vm.runtime().root_value(value).unwrap();
+    let source_root = vm.execute(&loaded, "boxed").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }.unwrap();
+    let rooted = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     let method = fixture.method(&loaded);
     assert_eq!(
-        vm.invoke_interface_method(
-            &rooted.value(vm.runtime().gc()).unwrap(),
-            &method,
-            &[Value::I32(42)]
-        )
+        unsafe {
+            vm.invoke_interface_method_transport(
+                &rooted.value_transport(vm.runtime().gc()).unwrap(),
+                &method,
+                &[Value::I32(42)],
+            )
+        }
         .unwrap(),
         Value::I32(42)
     );
@@ -637,14 +664,13 @@ fn interface_method_results_validate_nested_host_roots() {
     config.output = |counter| Type::tuple([counter.apply([]).unwrap(), Type::i32()]).unwrap();
     let fixture = common::Fixture::new(config, |cx, args| {
         let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
-        Ok(cx
-            .runtime()
-            .gc()
-            .alloc_tuple(vec![
-                cx.runtime().gc().alloc_host_root(root).unwrap(),
+        Ok(unsafe {
+            cx.runtime().gc().alloc_tuple_transport(vec![
+                cx.runtime().gc().alloc_host_root_transport(root).unwrap(),
                 args[1],
             ])
-            .unwrap())
+        }
+        .unwrap())
     });
     let context = context(false);
     let mut runtime = fixture.engine.runtime(context.clone());
@@ -663,54 +689,67 @@ fn interface_method_results_validate_nested_host_roots() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
-    let value = runtime
+    let value_root = runtime
         .execute(&loaded, "boxed", &[], &context)
         .unwrap()
-        .return_value
-        .value(runtime.runtime().gc())
+        .return_value;
+    // SAFETY: value_root protects this value through its uses and traced publication.
+    let value = unsafe { value_root.value_transport(runtime.runtime().gc()) }
         .expect("retained execution result");
-    let method = runtime
-        .runtime()
-        .resolve_interface_method(
+    let method = unsafe {
+        runtime.runtime().resolve_interface_method_transport(
             &value,
             &fixture.method(&runtime.runtime().select_program(&loaded).unwrap()),
         )
-        .unwrap();
-    runtime
-        .runtime()
-        .validate_interface_method_result(
-            &method,
-            &runtime
-                .runtime()
-                .gc()
-                .alloc_tuple(vec![
-                    runtime.runtime().gc().alloc_host_root(root).unwrap(),
-                    Value::I32(42),
-                ])
-                .unwrap(),
-        )
-        .unwrap();
-    let mut foreign = fixture.runtime();
-    let invalid = common::register_root(&mut foreign);
-    assert!(
+    }
+    .unwrap();
+    unsafe {
         runtime
             .runtime()
-            .validate_interface_method_result(
+            .validate_interface_method_result_transport(
                 &method,
                 &runtime
                     .runtime()
                     .gc()
-                    .alloc_tuple(vec![
-                        runtime.runtime().gc().alloc_host_root(invalid).unwrap(),
-                        Value::I32(42)
+                    .alloc_tuple_transport(vec![
+                        runtime
+                            .runtime()
+                            .gc()
+                            .alloc_host_root_transport(root)
+                            .unwrap(),
+                        Value::I32(42),
                     ])
-                    .unwrap()
+                    .unwrap(),
             )
-            .is_err()
+    }
+    .unwrap();
+    let mut foreign = fixture.runtime();
+    let invalid = common::register_root(&mut foreign);
+    assert!(
+        unsafe {
+            runtime
+                .runtime()
+                .validate_interface_method_result_transport(
+                    &method,
+                    &runtime
+                        .runtime()
+                        .gc()
+                        .alloc_tuple_transport(vec![
+                            runtime
+                                .runtime()
+                                .gc()
+                                .alloc_host_root_transport(invalid)
+                                .unwrap(),
+                            Value::I32(42),
+                        ])
+                        .unwrap(),
+                )
+        }
+        .is_err()
     );
 }
 

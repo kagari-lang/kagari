@@ -35,13 +35,14 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
         )
         .unwrap();
     let factory = f.invoke("factory", &[]);
-    let task = f
-        .runtime
-        .runtime()
-        .spawn_task(&f.value(scope.capability()), &f.value(&factory))
-        .unwrap()
-        .unwrap();
-    let id = f.runtime.runtime().task_id(&f.value(&task)).unwrap();
+    let task = unsafe {
+        f.runtime
+            .runtime()
+            .spawn_task_transport(&f.value(scope.capability()), &f.value(&factory))
+    }
+    .unwrap()
+    .unwrap();
+    let id = unsafe { f.runtime.runtime().task_id_transport(&f.value(&task)) }.unwrap();
     let _ = f.invoke("save_task", &[f.value(&task)]);
     drop((factory, task));
     assert_eq!(

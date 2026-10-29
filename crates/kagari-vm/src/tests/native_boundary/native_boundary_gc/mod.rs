@@ -16,7 +16,7 @@ use kagari_runtime::{
         value_handle::ScriptValue,
     },
     value::Value,
-    value_semantics::format_value,
+    value_semantics::format_value_transport,
 };
 use kagari_stdlib::{
     collections::{map::ScriptMap, set::ScriptSet, vector::ScriptVec},
@@ -46,16 +46,23 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
+    let value_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: value_root protects this value through its uses and traced publication.
+    let value = unsafe { value_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm
-        .runtime()
-        .root_value(vm.runtime().gc().alloc_tuple(vec![value]).unwrap())
-        .unwrap();
+    let root = unsafe {
+        vm.runtime().gc().root_value_transport(
+            vm.runtime()
+                .gc()
+                .alloc_tuple_transport(vec![value])
+                .unwrap(),
+        )
+    }
+    .unwrap();
+    drop(value_root);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 6);
     let live_units = vm.runtime().gc().stats().current_heap_units;
     assert_eq!(live_units, 12);
@@ -66,7 +73,9 @@ fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachab
         (1, 6)
     );
     assert_eq!(vm.runtime().gc().stats().current_heap_units, live_units);
-    root.set(vm.runtime().gc(), Value::Unit).unwrap();
+    let unit = unsafe { vm.runtime().gc().root_value_transport(Value::Unit) }.unwrap();
+    root.replace(vm.runtime().gc(), &unit).unwrap();
+    drop(unit);
     let collection = vm.runtime().collect_garbage().unwrap();
     assert_eq!(
         (collection.reclaimed_objects, collection.live_objects),
@@ -90,13 +99,15 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
+    let source_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 20_001);
     drop(root);
     assert_eq!(
@@ -118,11 +129,19 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     let map_type = conversion.parameter(result.type_argument(), 0).unwrap();
     let set_type = conversion.parameter(result.type_argument(), 1).unwrap();
     let result_type = result.type_argument().clone();
-    let Value::Tuple(values) = result.into_kagari(&mut conversion, &result_type).unwrap() else {
+    let Value::Tuple(values) = unsafe {
+        result
+            .into_kagari(&mut conversion, &result_type)
+            .unwrap()
+            .value_transport(vm.runtime())
+    }
+    .unwrap() else {
         panic!("containers")
     };
     drop(conversion);
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = unsafe { vm.runtime().gc().tuple_transport(values) }
+        .unwrap()
+        .to_vec();
     let [
         Value::GcHandle(map),
         Value::GcHandle(set),
@@ -137,14 +156,15 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     );
     let (map, set) = (*map, *set);
     let runtime = vm.runtime();
-    let root = runtime
-        .root_value(
+    let root = unsafe {
+        runtime.gc().root_value_transport(
             runtime
                 .gc()
-                .alloc_tuple(vec![Value::GcHandle(map), Value::GcHandle(set)])
+                .alloc_tuple_transport(vec![Value::GcHandle(map), Value::GcHandle(set)])
                 .unwrap(),
         )
-        .unwrap();
+    }
+    .unwrap();
     let call = |entry: &str, arguments: &[Value]| {
         let execution = vm
             .start(&loaded, entry, arguments, Default::default())
@@ -157,29 +177,41 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
                 DriveResult::Runnable => {}
                 DriveResult::Waiting => panic!("synchronous key protocol suspended"),
                 DriveResult::Complete(result) => {
-                    break result.unwrap().value(runtime.gc()).unwrap();
+                    break unsafe { result.unwrap().value_transport(runtime.gc()) }.unwrap();
                 }
             }
         }
     };
     let map_handle = || -> ScriptMap<ScriptValue, i32> {
-        ConversionContext::new(runtime, &loaded)
-            .unwrap()
-            .decode_value(&map_type, &Value::GcHandle(map))
-            .unwrap()
+        // SAFETY: The private tuple root retains the map across this conversion.
+        unsafe {
+            ConversionContext::new(runtime, &loaded)
+                .unwrap()
+                .decode_transport(&map_type, &Value::GcHandle(map))
+        }
+        .unwrap()
     };
     let set_handle = || -> ScriptSet<ScriptValue> {
-        ConversionContext::new(runtime, &loaded)
-            .unwrap()
-            .decode_value(&set_type, &Value::GcHandle(set))
-            .unwrap()
+        // SAFETY: The private tuple root retains the set across this conversion.
+        unsafe {
+            ConversionContext::new(runtime, &loaded)
+                .unwrap()
+                .decode_transport(&set_type, &Value::GcHandle(set))
+        }
+        .unwrap()
     };
     let map_entries = || {
         let mut result = Vec::new();
         map_handle()
             .for_each(&mut vm.context(&loaded).unwrap(), |cx, key, value| {
                 let ty = key.type_argument().clone();
-                result.push((key.into_kagari(cx.conversion(), &ty)?, Value::I32(value)));
+                result.push((
+                    unsafe {
+                        key.into_kagari(cx.conversion(), &ty)?
+                            .value_transport(vm.runtime())
+                    }?,
+                    Value::I32(value),
+                ));
                 Ok(())
             })
             .unwrap();
@@ -190,7 +222,10 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         set_handle()
             .for_each(&mut vm.context(&loaded).unwrap(), |cx, key| {
                 let ty = key.type_argument().clone();
-                result.push(key.into_kagari(cx.conversion(), &ty)?);
+                result.push(unsafe {
+                    key.into_kagari(cx.conversion(), &ty)?
+                        .value_transport(vm.runtime())
+                }?);
                 Ok(())
             })
             .unwrap();
@@ -200,18 +235,22 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     let Value::Enum(value) = key else {
         panic!("enum key")
     };
-    let fields = runtime.gc().enum_snapshot(value).unwrap().fields;
+    let fields = unsafe { runtime.gc().enum_snapshot_transport(value) }
+        .unwrap()
+        .fields;
     let [Value::Tuple(parts)] = fields.as_slice() else {
         panic!("tuple payload")
     };
-    let parts = runtime.gc().tuple(*parts).unwrap().to_vec();
+    let parts = unsafe { runtime.gc().tuple_transport(*parts) }
+        .unwrap()
+        .to_vec();
     let [Value::Struct(object), _] = parts.as_slice() else {
         panic!("identity payload")
     };
     let object = *object;
-    let layout = runtime.gc().struct_layout(object).unwrap();
+    let layout = unsafe { runtime.gc().struct_layout_transport(object) }.unwrap();
     assert_eq!(
-        runtime.gc().struct_get_slot(object, &layout, 0),
+        unsafe { runtime.gc().struct_get_slot_transport(object, &layout, 0) },
         Some(Value::I32(99))
     );
     let hash = call("key_hash", &[key]);
@@ -220,12 +259,14 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     // Six data objects: holder tuple, map, set, Option, payload tuple and identity object.
     // The published program also caches "key" and the encoded Some hash-identity string.
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
-    runtime
-        .gc()
-        .struct_set_slot(object, &layout, 0, Value::I32(101))
-        .unwrap();
+    unsafe {
+        runtime
+            .gc()
+            .struct_set_slot_transport(object, &layout, 0, Value::I32(101))
+    }
+    .unwrap();
     assert_eq!(
-        runtime.gc().struct_get_slot(object, &layout, 0),
+        unsafe { runtime.gc().struct_get_slot_transport(object, &layout, 0) },
         Some(Value::I32(101))
     );
     assert_eq!(hash, call("key_hash", &[key]));
@@ -236,21 +277,22 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         ),
         Value::Bool(true)
     );
-    let equal = runtime
-        .alloc_enum(
-            runtime.gc().enum_snapshot(value).unwrap().tag,
+    let equal = unsafe {
+        runtime.alloc_enum_transport(
+            runtime.gc().enum_snapshot_transport(value).unwrap().tag,
             vec![
                 runtime
                     .gc()
-                    .alloc_tuple(vec![
+                    .alloc_tuple_transport(vec![
                         Value::Struct(object),
-                        runtime.gc().alloc_string("key".into()).unwrap(),
+                        runtime.gc().alloc_string_transport("key".into()).unwrap(),
                     ])
                     .unwrap(),
             ],
         )
-        .unwrap();
-    let equal_root = runtime.root_value(Value::Enum(equal)).unwrap();
+    }
+    .unwrap();
+    let equal_root = unsafe { runtime.gc().root_value_transport(Value::Enum(equal)) }.unwrap();
     assert_eq!(
         call("keys_equal", &[key, Value::Enum(equal)]),
         Value::Bool(true)
@@ -282,7 +324,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     assert_eq!(map_entries(), vec![]);
     assert_eq!(set_entries(), vec![key]);
     assert_eq!(
-        runtime.gc().struct_get_slot(object, &layout, 0),
+        unsafe { runtime.gc().struct_get_slot_transport(object, &layout, 0) },
         Some(Value::I32(101))
     );
 
@@ -298,7 +340,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     assert_eq!(map_entries(), vec![(key, Value::I32(20))]);
     assert_eq!(set_entries(), vec![]);
     assert_eq!(
-        runtime.gc().struct_get_slot(object, &layout, 0),
+        unsafe { runtime.gc().struct_get_slot_transport(object, &layout, 0) },
         Some(Value::I32(101))
     );
 
@@ -307,8 +349,8 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         .unwrap();
     // Only the original enum, tuple and identity object die; both cached strings remain.
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
-    assert!(!runtime.gc().validate_value(&key));
-    assert!(runtime.gc().struct_layout(object).is_none());
+    assert!(!unsafe { runtime.gc().validate_value_transport(&key) });
+    assert!(unsafe { runtime.gc().struct_layout_transport(object) }.is_none());
     drop(root);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
@@ -347,16 +389,10 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
     assert!(map.insert(&mut cx, foreign.clone(), 0).is_err());
     assert!(set.insert(&mut cx, foreign).is_err());
     let f64_type = cx.conversion().type_for::<f64>().unwrap();
-    let wrong: ScriptValue = cx
-        .conversion()
-        .decode_value(&f64_type, &Value::F64(1.0))
-        .unwrap();
+    let wrong = cx.conversion().encode_value(&f64_type, 1.0_f64).unwrap();
     assert!(map.insert(&mut cx, wrong, 0).is_err());
     let i32_type = cx.conversion().type_for::<i32>().unwrap();
-    let key: ScriptValue = cx
-        .conversion()
-        .decode_value(&i32_type, &Value::I32(1))
-        .unwrap();
+    let key = cx.conversion().encode_value(&i32_type, 1_i32).unwrap();
     assert_eq!(map.len(&cx).unwrap(), 1);
     assert_eq!(map.get(&mut cx, key.clone()).unwrap(), Some(42));
     assert_eq!(set.len(&cx).unwrap(), 1);
@@ -382,35 +418,48 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     let mut cx = vm.context(&loaded).unwrap();
     let vector: ScriptVec<ScriptValue> = result.decode(&mut cx).unwrap();
     let ty = result.type_argument().clone();
-    let value = result.into_kagari(cx.conversion(), &ty).unwrap();
+    let value = unsafe {
+        result
+            .into_kagari(cx.conversion(), &ty)
+            .unwrap()
+            .value_transport(vm.runtime())
+    }
+    .unwrap();
     let runtime = vm.runtime();
-    let preview = format_value(runtime.gc(), &value, true).unwrap();
+    let preview = unsafe { format_value_transport(runtime.gc(), &value, true) }.unwrap();
     assert!(preview.starts_with("Vec@"));
     assert_eq!(
-        format_value(
-            runtime.gc(),
-            &vm.runtime().gc().alloc_string("a\nb".into()).unwrap(),
-            true
-        )
+        unsafe {
+            format_value_transport(
+                runtime.gc(),
+                &vm.runtime()
+                    .gc()
+                    .alloc_string_transport("a\nb".into())
+                    .unwrap(),
+                true,
+            )
+        }
         .unwrap(),
         "\"a\\nb\""
     );
     assert!(
-        format_value(
-            runtime.gc(),
-            &vm.runtime()
-                .gc()
-                .alloc_string("x".repeat(1_048_577))
-                .unwrap(),
-            false
-        )
+        unsafe {
+            format_value_transport(
+                runtime.gc(),
+                &vm.runtime()
+                    .gc()
+                    .alloc_string_transport("x".repeat(1_048_577))
+                    .unwrap(),
+                false,
+            )
+        }
         .is_err()
     );
     let mut value = Value::I32(42);
     for _ in 0..66 {
-        value = vm.runtime().gc().alloc_tuple(vec![value]).unwrap();
+        value = unsafe { vm.runtime().gc().alloc_tuple_transport(vec![value]) }.unwrap();
     }
-    assert!(format_value(runtime.gc(), &value, true).is_err());
+    assert!(unsafe { format_value_transport(runtime.gc(), &value, true) }.is_err());
     assert_eq!(vector.len(&cx).unwrap(), 1);
 }
 
@@ -437,13 +486,17 @@ impl DataAdapter {
         ty: &TypeArgument,
         value: &Value,
     ) -> Self {
+        // SAFETY: Both callers retain the source, either the private result root
+        // or a ScriptValue argument. These built-in mappings cannot replace it.
         match kind {
-            DataCollection::Vector => Self::Vector(cx.decode_value(ty, value).unwrap()),
+            DataCollection::Vector => {
+                Self::Vector(unsafe { cx.decode_transport(ty, value) }.unwrap())
+            }
             DataCollection::ScalarMap | DataCollection::ReferenceMap => {
-                Self::Map(cx.decode_value(ty, value).unwrap())
+                Self::Map(unsafe { cx.decode_transport(ty, value) }.unwrap())
             }
             DataCollection::ScalarSet | DataCollection::ReferenceSet => {
-                Self::Set(cx.decode_value(ty, value).unwrap())
+                Self::Set(unsafe { cx.decode_transport(ty, value) }.unwrap())
             }
         }
     }
@@ -482,19 +535,23 @@ fn check_data_metadata_retention(kind: DataCollection, retention: u8) {
         .unwrap();
     let capture_slot = captured.clone();
     builder
-        .bind(
-            capture,
-            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::unit()), move |cx| {
-                let root = cx
-                    .heap()
-                    .root_value(cx.argument(0)?)
-                    .ok_or_else(|| RuntimeError::module_validation("captured data root"))?;
-                let mut slot = capture_slot.lock().unwrap();
-                assert!(slot.is_none());
-                *slot = Some((root, cx.argument_type_argument(0)?));
-                Ok(Value::Unit)
-            }),
-        )
+        .bind(capture, unsafe {
+            NativeBinding::new_transport(
+                vec![Codec::Value],
+                Codec::Exact(Type::unit()),
+                move |cx| {
+                    let root = cx
+                        .heap()
+                        // SAFETY: The active call retains this input until its copy is published or consumed.
+                        .root_value_transport(cx.argument_transport(0)?)
+                        .ok_or_else(|| RuntimeError::module_validation("captured data root"))?;
+                    let mut slot = capture_slot.lock().unwrap();
+                    assert!(slot.is_none());
+                    *slot = Some((root, cx.argument_type_argument(0)?));
+                    Ok(Value::Unit)
+                },
+            )
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let recipe = match kind {
@@ -520,12 +577,16 @@ fn check_data_metadata_retention(kind: DataCollection, retention: u8) {
     assert_eq!(vm.execute_typed::<(), i32>(&old, "main", ()).unwrap(), 42);
     let (root, collection_type) = captured.lock().unwrap().take().unwrap();
     let mut root = Some(root);
-    let raw = root.as_ref().unwrap().value(vm.runtime().gc()).unwrap();
+    let raw = unsafe { root.as_ref().unwrap().value_transport(vm.runtime().gc()) }.unwrap();
     let script_value: Option<ScriptValue> = (retention == 1).then(|| {
-        let value = ConversionContext::new(vm.runtime(), &old)
-            .unwrap()
-            .decode_value(&collection_type, &raw)
-            .unwrap();
+        // SAFETY: Keep the source root until independent data retention succeeds;
+        // sharing that root would incorrectly keep its executable metadata too.
+        let value = unsafe {
+            ConversionContext::new(vm.runtime(), &old)
+                .unwrap()
+                .decode_transport(&collection_type, &raw)
+        }
+        .unwrap();
         drop(root.take());
         value
     });
@@ -580,16 +641,13 @@ fn check_data_metadata_retention(kind: DataCollection, retention: u8) {
         let mut cx = vm.context(&replacement).unwrap();
         let adapter = adapter.clone().unwrap_or_else(|| {
             let value = script_value.as_ref().map_or_else(
-                || root.as_ref().unwrap().value(vm.runtime().gc()).unwrap(),
-                |value| value.value(vm.runtime()).unwrap(),
+                || unsafe { root.as_ref().unwrap().value_transport(vm.runtime().gc()) }.unwrap(),
+                |value| unsafe { value.value_transport(vm.runtime()) }.unwrap(),
             );
             DataAdapter::decode(kind, cx.conversion(), &collection_type, &value)
         });
         let bool_type = cx.conversion().type_for::<bool>().unwrap();
-        let wrong: ScriptValue = cx
-            .conversion()
-            .decode_value(&bool_type, &Value::Bool(true))
-            .unwrap();
+        let wrong = cx.conversion().encode_value(&bool_type, true).unwrap();
         let element_index = usize::from(matches!(
             kind,
             DataCollection::ScalarMap | DataCollection::ReferenceMap
@@ -612,13 +670,13 @@ fn check_data_metadata_retention(kind: DataCollection, retention: u8) {
             }
         };
         assert_eq!(item.type_argument().ty(), element.ty());
-        let raw_item = item.value(vm.runtime()).unwrap();
+        let raw_item = unsafe { item.value_transport(vm.runtime()) }.unwrap();
         if let Value::Struct(id) = raw_item {
-            let (_, fields) = vm.runtime().gc().struct_snapshot(id).unwrap();
+            let (_, fields) = unsafe { vm.runtime().gc().struct_snapshot_transport(id) }.unwrap();
             assert_eq!(fields[0].value, Value::I32(42));
         } else if matches!(kind, DataCollection::ReferenceSet) {
             assert_eq!(
-                format_value(vm.runtime().gc(), &raw_item, false).unwrap(),
+                unsafe { format_value_transport(vm.runtime().gc(), &raw_item, false) }.unwrap(),
                 "42"
             );
         } else {
@@ -679,13 +737,17 @@ fn recursive_element_contracts_reject_foreign_nested_layouts_after_reload() {
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let result: ScriptValue = vm.execute_typed(&old, ProgramEntry::Main, ()).unwrap();
     let old_type = result.type_argument().clone();
-    let old_value = result
-        .into_kagari(
-            &mut ConversionContext::new(vm.runtime(), &old).unwrap(),
-            &old_type,
-        )
-        .unwrap();
-    let old_root = vm.runtime().root_value(old_value).unwrap();
+    let old_value = unsafe {
+        result
+            .into_kagari(
+                &mut ConversionContext::new(vm.runtime(), &old).unwrap(),
+                &old_type,
+            )
+            .unwrap()
+            .value_transport(vm.runtime())
+    }
+    .unwrap();
+    let old_root = unsafe { vm.runtime().gc().root_value_transport(old_value) }.unwrap();
     let replacement = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 42 }", "value: 42, extra: true }");
@@ -706,13 +768,17 @@ fn recursive_element_contracts_reject_foreign_nested_layouts_after_reload() {
     let current = vm.runtime().select_program(&independent).unwrap();
     let result: ScriptValue = vm.execute_typed(&current, ProgramEntry::Main, ()).unwrap();
     let new_type = result.type_argument().clone();
-    let new_value = result
-        .into_kagari(
-            &mut ConversionContext::new(vm.runtime(), &current).unwrap(),
-            &new_type,
-        )
-        .unwrap();
-    let new_root = vm.runtime().root_value(new_value).unwrap();
+    let new_value = unsafe {
+        result
+            .into_kagari(
+                &mut ConversionContext::new(vm.runtime(), &current).unwrap(),
+                &new_type,
+            )
+            .unwrap()
+            .value_transport(vm.runtime())
+    }
+    .unwrap();
+    let new_root = unsafe { vm.runtime().gc().root_value_transport(new_value) }.unwrap();
     let reclaimed = vm.runtime().collect_garbage().unwrap().reclaimed_modules;
     assert!(
         old.members()
@@ -722,14 +788,11 @@ fn recursive_element_contracts_reject_foreign_nested_layouts_after_reload() {
         let replacement = vm.runtime().select_program(&_old_program).unwrap();
         let mut old_cx = vm.context(&replacement).unwrap();
         let mut new_cx = vm.context(&current).unwrap();
-        let old_vector: ScriptVec<ScriptValue> = old_cx
-            .conversion()
-            .decode_value(&old_type, &old_value)
-            .unwrap();
-        let new_vector: ScriptVec<ScriptValue> = new_cx
-            .conversion()
-            .decode_value(&new_type, &new_value)
-            .unwrap();
+        // SAFETY: old_root and new_root retain both graphs through admission.
+        let old_vector: ScriptVec<ScriptValue> =
+            unsafe { old_cx.conversion().decode_transport(&old_type, &old_value) }.unwrap();
+        let new_vector: ScriptVec<ScriptValue> =
+            unsafe { new_cx.conversion().decode_transport(&new_type, &new_value) }.unwrap();
         let old_node = old_vector.get(&mut old_cx, 0).unwrap().unwrap();
         let new_node = new_vector.get(&mut new_cx, 0).unwrap().unwrap();
         assert!(old_vector.push(&mut old_cx, new_node.clone()).is_err());

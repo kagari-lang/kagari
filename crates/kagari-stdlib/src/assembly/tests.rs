@@ -109,14 +109,14 @@ fn representative(
                     declaration.definitions(),
                 )?;
                 on_prepare(preparation)?;
-                Ok(NativeBinding::new(
-                    vec![],
-                    Codec::Exact(result),
-                    move |cx| {
+                Ok(unsafe {
+                    NativeBinding::new_transport(vec![], Codec::Exact(result), move |cx| {
                         counts.callbacks.fetch_add(1, Ordering::SeqCst);
-                        cx.allocate_enum(&cx.result_type_argument()?, &none, vec![])
-                    },
-                ))
+                        // SAFETY: The empty enum has no payload edges and is returned directly for
+                        // publication.
+                        cx.allocate_enum_transport(&cx.result_type_argument()?, &none, vec![])
+                    })
+                })
             }),
         ))?;
         module.define_constructor("String", NativeTypeConstructor::String)?;
@@ -135,11 +135,11 @@ fn representative(
             &interface,
             MethodDecl::static_method("answer")
                 .returns(Type::u64())
-                .implementation_send(NativeBinding::new(
-                    vec![],
-                    Codec::Exact(Type::u64()),
-                    |_| Ok(Value::U64(42)),
-                )),
+                .implementation_send(unsafe {
+                    NativeBinding::new_transport(vec![], Codec::Exact(Type::u64()), |_| {
+                        Ok(Value::U64(42))
+                    })
+                }),
         )?;
         Ok(())
     }))?;

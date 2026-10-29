@@ -376,11 +376,13 @@ pub fn iter(
     let contract = StorageType::prepare_scoped(source_type.clone(), &owner)?;
     let mut conversion = ConversionContext::new(cx.runtime(), cx.owner())?;
     let source = conversion.encode_value(&source_type, map)?;
+    // SAFETY: source protects the map through cursor traced-edge publication.
+    let source_value = unsafe { source.value_transport(cx.runtime()) }?;
     // The conversion's roots protect source through allocation and its safepoint.
     ty.create(
         cx,
         Cursor {
-            source,
+            source: source_value,
             contract,
             after: None,
             revision,

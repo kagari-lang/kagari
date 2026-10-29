@@ -31,7 +31,7 @@ impl Runtime {
             .map(|index| receiver.parameter(self, owner, index))
             .collect::<NativeResult<Vec<_>>>()?;
         let receiver = receiver.ty().clone();
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.validate_executable_module(owner)?;
         for argument in &arguments {

@@ -61,6 +61,15 @@ impl ExecutionState {
         }
     }
 
+    /// Reading retained data does not reopen a closed execution. User inspection
+    /// still cannot run inside a collector/commit callback or a quarantined heap.
+    pub(crate) fn ensure_inspection_allowed(&self) -> Result<(), RuntimeError> {
+        match self.0.get() {
+            Phase::Ready | Phase::Closed => Ok(()),
+            _ => self.ensure_allowed(),
+        }
+    }
+
     pub(crate) fn close(&self) {
         if !self.is_quarantined() {
             self.0.set(Phase::Closed);

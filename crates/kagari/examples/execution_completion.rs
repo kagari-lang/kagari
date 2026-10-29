@@ -97,21 +97,24 @@ impl Fixture {
             .runtime()
             .set_execution_observer(InstructionCount(count.clone()))
             .unwrap();
-        let owner = runtime
-            .backend()
-            .start(
+        let owner = unsafe {
+            runtime.backend().start_transport(
                 &_selected_module,
                 "hold",
                 &[Value::I32(1)],
                 context.interpreter_options().unwrap(),
             )
-            .unwrap();
+        }
+        .unwrap();
         let DriveResult::Complete(result) = runtime.backend().drive(&owner, slice(10_000)).unwrap()
         else {
             panic!("bounded instruction count must complete");
         };
         assert_eq!(
-            result.unwrap().value(runtime.runtime().gc()).unwrap(),
+            result
+                .unwrap()
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap(),
             Value::I32(8)
         );
         drop(owner);
@@ -135,16 +138,15 @@ impl Fixture {
             1
         };
         for index in 0..POPULATION {
-            let owner = self
-                .runtime
-                .backend()
-                .start(
+            let owner = unsafe {
+                self.runtime.backend().start_transport(
                     &self.runtime.runtime().select_program(&self.module).unwrap(),
                     "hold",
                     &[Value::I32(index as i32 + 1)],
                     self.context.interpreter_options().unwrap(),
                 )
-                .unwrap();
+            }
+            .unwrap();
             assert!(matches!(
                 self.runtime.backend().drive(&owner, slice(steps)).unwrap(),
                 DriveResult::Runnable
@@ -174,7 +176,10 @@ impl Fixture {
         } else {
             let expected = (index as i32 + 1) * 8;
             assert_eq!(
-                result.unwrap().value(self.runtime.runtime().gc()).unwrap(),
+                result
+                    .unwrap()
+                    .inspect(self.runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                    .unwrap(),
                 Value::I32(expected)
             );
             i64::from(expected)

@@ -70,7 +70,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             let mut codecs = vec![Codec::Exact(string.clone())];
             for (name, ty) in parameters { codecs.push(Codec::Exact(ty.clone())); method = method.parameter(name, ty); }
             methods.define(documented(method, description, name, example)
-                .implementation_send(NativeBinding::new(codecs, Codec::Exact(result), entry)))?;
+                .implementation_send(unsafe { NativeBinding::new_transport(codecs, Codec::Exact(result), entry) }))?;
         }
         for (name, kind, item, description) in [
             ("chars", StringIterKind::Chars, Type::scalar(BuiltinType::Char), "Traverse Unicode scalars as char, not grapheme clusters. Combining marks and NUL are separate scalar items."),
@@ -80,29 +80,37 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             let result = Type::iterator(item)?;
             let description = format!("{description} Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.");
             methods.define(documented(MethodDecl::instance(name).returns(result.clone()), &description, name, "")
-                .implementation_send(NativeBinding::new(vec![Codec::Exact(string.clone())], Codec::Exact(result), move |cx| cx.iter_operation(0, IterOp::String(kind)))))?;
+                // SAFETY: This terminal return publishes the result before any further callback or
+                // safepoint.
+                .implementation_send(unsafe { NativeBinding::new_transport(vec![Codec::Exact(string.clone())], Codec::Exact(result), move |cx| cx.iter_operation_transport(0, IterOp::String(kind))) }))?;
         }
         methods.define(documented(MethodDecl::instance("split").parameter("separator", string.clone()).returns(list),
             "Return an eager List<String> of literal-separated fields, preserving endpoint empties. An empty separator splits at Unicode scalar boundaries with endpoint empties.", "split", "\"a\"")
-            .produces(vector.clone()).implementation_send(NativeBinding::new(vec![Codec::Exact(string.clone()), Codec::Exact(string.clone())], Codec::Exact(vector), split)))?;
+            .produces(vector.clone()).implementation_send(unsafe { NativeBinding::new_transport(vec![Codec::Exact(string.clone()), Codec::Exact(string.clone())], Codec::Exact(vector), split) }))?;
         Ok(())
     })?;
     default_impl(
         module,
         string.clone(),
-        NativeBinding::new(vec![], Codec::Exact(string), |cx| {
-            cx.encode_result(String::new())
-        }),
+        // SAFETY: This terminal return publishes the result before any further callback or
+        // safepoint.
+        unsafe {
+            NativeBinding::new_transport(vec![], Codec::Exact(string), |cx| {
+                cx.encode_result_transport(String::new())
+            })
+        },
         "Return an empty immutable String.",
     )
 }
 
 fn text<'a>(cx: &'a CallContext<'_>, index: usize) -> NativeResult<Ref<'a, str>> {
-    let Value::Str(id) = cx.argument(index)? else {
+    // SAFETY: The string stays in the call frame for the returned loan, which borrows this context.
+    let Value::Str(id) = unsafe { cx.argument_transport(index) }? else {
         return Err(RuntimeError::module_validation("string argument"));
     };
-    cx.heap()
-        .string(id)
+    // SAFETY: The call argument roots the String; the returned storage loan
+    // prevents collection until the consumer releases it.
+    unsafe { cx.heap().string_transport(id) }
         .ok_or_else(|| RuntimeError::module_validation("invalid string argument"))
 }
 
@@ -124,7 +132,8 @@ fn ends_with(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 fn find(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.find(&*text(cx, 1)?).map(|index| index as u64);
-    cx.encode_result(result)
+    // SAFETY: This terminal return publishes the result before any further callback or safepoint.
+    unsafe { cx.encode_result_transport(result) }
 }
 
 fn slice(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -143,27 +152,32 @@ fn slice(cx: &mut CallContext<'_>) -> NativeResult<Value> {
             )
         })?;
     drop(source);
-    cx.encode_result(result)
+    // SAFETY: This terminal return publishes the result before any further callback or safepoint.
+    unsafe { cx.encode_result_transport(result) }
 }
 
 fn trim(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.trim().to_owned();
-    cx.encode_result(result)
+    // SAFETY: This terminal return publishes the result before any further callback or safepoint.
+    unsafe { cx.encode_result_transport(result) }
 }
 
 fn trim_start(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.trim_start().to_owned();
-    cx.encode_result(result)
+    // SAFETY: This terminal return publishes the result before any further callback or safepoint.
+    unsafe { cx.encode_result_transport(result) }
 }
 
 fn trim_end(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.trim_end().to_owned();
-    cx.encode_result(result)
+    // SAFETY: This terminal return publishes the result before any further callback or safepoint.
+    unsafe { cx.encode_result_transport(result) }
 }
 
 fn replace(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let result = text(cx, 0)?.replace(&*text(cx, 1)?, &text(cx, 2)?);
-    cx.encode_result(result)
+    // SAFETY: This terminal return publishes the result before any further callback or safepoint.
+    unsafe { cx.encode_result_transport(result) }
 }
 
 fn split(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -181,7 +195,8 @@ fn split(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         cx.poll()?;
         parts
     };
-    cx.encode_result(VecValues(parts))
+    // SAFETY: This terminal return publishes the result before any further callback or safepoint.
+    unsafe { cx.encode_result_transport(VecValues(parts)) }
 }
 
 pub(super) const MODULE_DOCS: (&str, &str) = (

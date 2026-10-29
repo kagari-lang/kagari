@@ -101,19 +101,22 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
             ..Default::default()
         },
     );
-    let Value::Enum(result) = fixture
+    let result_root = fixture
         .vm
         .execute(&fixture.loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(fixture.vm.runtime().gc())
+        .return_value;
+    // SAFETY: result_root protects the immediate Option payload read.
+    let Value::Enum(result) = unsafe { result_root.value_transport(fixture.vm.runtime().gc()) }
         .expect("retained execution result")
     else {
         panic!("Option")
     };
     let runtime = fixture.vm.runtime();
     assert_eq!(
-        runtime.gc().enum_snapshot(result).unwrap().fields,
+        unsafe { runtime.gc().enum_snapshot_transport(result) }
+            .unwrap()
+            .fields,
         vec![Value::I32(42)]
     );
     assert!(fixture.is_empty());
@@ -121,13 +124,15 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
     assert_eq!(counters.current_heap_units, 3);
     assert_eq!(counters.peak_heap_units, 4);
 
+    drop(result_root);
     fixture.retained.lock().unwrap().take();
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.resources().counters().current_heap_units, 0);
 
-    runtime
-        .alloc_array(&fixture.loaded, Ty::Builtin(BuiltinType::I32), vec![])
-        .unwrap();
+    unsafe {
+        runtime.alloc_array_transport(&fixture.loaded, Ty::Builtin(BuiltinType::I32), vec![])
+    }
+    .unwrap();
     assert_eq!(runtime.resources().counters().current_heap_units, 1);
 }
 
@@ -180,7 +185,7 @@ use std::hash::{Hash};
                 .execute(&fixture.loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
-                .value(fixture.vm.runtime().gc())
+                .inspect(fixture.vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(2)
         );

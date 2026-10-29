@@ -6,6 +6,7 @@ use crate::{
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
+        context::arguments::ArgumentView,
         conversion::{
             arguments::{FromKagariArguments, KagariArguments},
             context::ConversionContext,
@@ -101,18 +102,25 @@ impl<T: Send + 'static, A: FromKagariArguments, const MUTABLE: bool> FromKagariA
     fn from_arguments(
         cx: &mut ConversionContext<'_>,
         expected: &[TypeArgument],
-        values: &[Value],
+        values: &ArgumentView<'_>,
     ) -> NativeResult<Self> {
+        values.check_heap(cx.runtime().gc())?;
+        let values = values.snapshot()?;
         Self::check_types(cx, expected)?;
         if values.len() != expected.len() || values.is_empty() {
             return Err(RuntimeError::module_validation(
                 "borrowed receiver argument count",
             ));
         }
-        let receiver = receiver::<T, MUTABLE>(cx, &expected[0], &values[0])?;
+        let receiver =
+            receiver::<T, MUTABLE>(cx, &expected[0], &values.get(0).ok_or_else(invalid_slot)?)?;
         // The ordinary invocation owner roots the entire input snapshot. All
         // owned conversions finish before either storage adapter acquires a loan.
-        let arguments = A::from_arguments(cx, &expected[1..], &values[1..])?;
+        let arguments = A::from_arguments(
+            cx,
+            &expected[1..],
+            &values.slice(1..values.len()).ok_or_else(invalid_slot)?,
+        )?;
         Ok(Self(receiver, arguments))
     }
 }
@@ -142,17 +150,27 @@ impl<T: Send + 'static, U: Send + 'static, A: FromKagariArguments, const M1: boo
     fn from_arguments(
         cx: &mut ConversionContext<'_>,
         expected: &[TypeArgument],
-        values: &[Value],
+        values: &ArgumentView<'_>,
     ) -> NativeResult<Self> {
+        values.check_heap(cx.runtime().gc())?;
+        let values = values.snapshot()?;
         Self::check_types(cx, expected)?;
         if values.len() != expected.len() {
             return Err(RuntimeError::module_validation(
                 "borrowed pair argument count",
             ));
         }
-        let first = receiver::<T, M1>(cx, &expected[0], &values[0])?;
-        let second = receiver::<U, M2>(cx, &expected[1], &values[1])?;
-        let owned = A::from_arguments(cx, &expected[2..], &values[2..])?;
+        let first = receiver::<T, M1>(cx, &expected[0], &values.get(0).ok_or_else(invalid_slot)?)?;
+        let second = receiver::<U, M2>(cx, &expected[1], &values.get(1).ok_or_else(invalid_slot)?)?;
+        let owned = A::from_arguments(
+            cx,
+            &expected[2..],
+            &values.slice(2..values.len()).ok_or_else(invalid_slot)?,
+        )?;
         Ok(Self(first, second, owned))
     }
+}
+
+fn invalid_slot() -> RuntimeError {
+    RuntimeError::module_validation("borrowed argument snapshot slot")
 }

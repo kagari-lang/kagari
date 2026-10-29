@@ -49,7 +49,11 @@ fn math_body_is_rejected_before_native_entry_then_runs_in_interpreter_fallback()
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
     assert!(jit.artifact.is_none(), "fallback is not native execution");
     assert_eq!(&jit.diagnostics, diagnostics);
-    let Value::F64(value) = report.return_value.value(runtime.runtime().gc()).unwrap() else {
+    let Value::F64(value) = report
+        .return_value
+        .inspect(runtime.runtime(), |view| view.as_f64().map(Value::F64))
+        .unwrap()
+    else {
         panic!("math fallback must return f64");
     };
     assert_eq!(value.to_bits(), 0.0_f64.to_bits());

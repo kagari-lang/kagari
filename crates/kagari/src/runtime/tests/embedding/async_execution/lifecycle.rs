@@ -68,13 +68,14 @@ fn owned_boundary(f: &Fixture, execution: &OwnedExecution) -> DriveResult {
 }
 
 fn spawn(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedValue) -> TaskId {
-    let task = f
-        .runtime
-        .runtime()
-        .spawn_task(&f.value(scope.capability()), &f.value(factory))
-        .unwrap()
-        .unwrap();
-    f.runtime.runtime().task_id(&f.value(&task)).unwrap()
+    let task = unsafe {
+        f.runtime
+            .runtime()
+            .spawn_task_transport(&f.value(scope.capability()), &f.value(factory))
+    }
+    .unwrap()
+    .unwrap();
+    unsafe { f.runtime.runtime().task_id_transport(&f.value(&task)) }.unwrap()
 }
 
 fn reply(f: &Fixture, value: i32) {
@@ -110,10 +111,11 @@ fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedVa
         let session = runtime.begin_candidate_initialization(&candidate).unwrap();
         if entry == "spawn" {
             assert_eq!(
-                runtime
-                    .spawn_task(&f.value(scope.capability()), &f.value(factory))
-                    .unwrap_err()
-                    .kind(),
+                unsafe {
+                    runtime.spawn_task_transport(&f.value(scope.capability()), &f.value(factory))
+                }
+                .unwrap_err()
+                .kind(),
                 RuntimeErrorKind::ExecutionPhaseViolation
             );
         } else {

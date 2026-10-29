@@ -6,8 +6,18 @@ use crate::{
 use kagari_contract::operations::IterOp;
 
 impl CallContext<'_> {
+    /// Return transport from a checked built-in iterator operation.
+    ///
+    /// # Safety
+    /// Retain or publish the result before its source can change or a callback
+    /// or safepoint can run. Advancing a cursor does not retain extracted items.
+    #[doc(hidden)]
+    pub unsafe fn iter_operation_transport(&self, index: usize, op: IterOp) -> NativeResult<Value> {
+        self.iter_operation(index, op)
+    }
+
     /// Apply a checked built-in operation independently of this call's result type.
-    pub fn iter_operation(&self, index: usize, op: IterOp) -> NativeResult<Value> {
+    pub(crate) fn iter_operation(&self, index: usize, op: IterOp) -> NativeResult<Value> {
         self.runtime.iter_operation_with_type(
             self.owner,
             &self.argument(index)?,
@@ -16,10 +26,24 @@ impl CallContext<'_> {
         )
     }
 
+    /// Commit iterator advancement and hand off raw enum result transport.
+    ///
+    /// # Safety
+    /// Retain or publish the returned result before any callback or safepoint.
+    #[doc(hidden)]
+    pub unsafe fn iterator_next_result_transport(
+        &self,
+        index: usize,
+        present: &VariantRef,
+        empty: &VariantRef,
+    ) -> NativeResult<Value> {
+        self.iterator_next_result(index, present, empty)
+    }
+
     /// Publish an iterator item through this call's prepared enum result contract.
     /// The present member receives one payload; the empty member receives none.
     /// Validate/allocate the result before committing cursor state, without reentry.
-    pub fn iterator_next_result(
+    pub(crate) fn iterator_next_result(
         &self,
         index: usize,
         present: &VariantRef,

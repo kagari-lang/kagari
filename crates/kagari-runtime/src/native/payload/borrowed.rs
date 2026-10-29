@@ -6,7 +6,7 @@ use crate::{
     gc::{HeapObjectId, roots::RootedValue},
     native::{
         binding::NativeResult,
-        context::{ArgumentView, CallContext},
+        context::{CallContext, arguments::ArgumentView},
         conversion::{KagariType, arguments::KagariArguments},
         function_handle::Function,
         payload::{Opaque, operation_guard, read::ReadReceiver},
@@ -91,7 +91,7 @@ impl<'view, P: NativePayload> BorrowedPayload<'view, P> {
         expected: &TypeArgument,
     ) -> NativeResult<Self> {
         let runtime = cx.runtime();
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         admit_payload_mapping::<P>(cx, expected)?;
         let root = root.ok_or_else(|| RuntimeError::module_validation("native storage root"))?;
         let Some(Value::GcHandle(id)) = root.value(runtime.gc()) else {
@@ -169,7 +169,7 @@ impl<P: NativePayload> BorrowedPayload<'_, P> {
         cx.poll()?;
         self.value(cx.runtime())?;
         let heap = self.runtime.gc();
-        heap.ensure_no_native_borrow()?;
+        heap.ensure_no_storage_borrow()?;
         heap.check_native_payload::<P>(self.id, false)?;
         heap.check_native_operation(self.id, None, true)
     }

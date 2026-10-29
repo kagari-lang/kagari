@@ -34,7 +34,7 @@ fn formatter_traps_keep_the_origin_and_release_execution_roots() {
             .execute(&loaded, "healthy", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

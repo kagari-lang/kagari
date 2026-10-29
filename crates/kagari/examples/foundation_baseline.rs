@@ -107,7 +107,7 @@ fn main() {
             vm.execute(&first_loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
         );
     }
@@ -118,7 +118,7 @@ fn main() {
             .execute(&first_loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result")
         else {
             unreachable!("benchmark entry returns i32")

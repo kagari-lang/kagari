@@ -24,6 +24,7 @@ use kagari_runtime::{
         payload::Opaque,
         typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -41,10 +42,10 @@ impl FromKagari for RejectRemovedString {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         _: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         cx.runtime().collect_garbage()?;
-        assert!(cx.runtime().gc().validate_value(value));
+        value.inspect(cx.runtime(), |_| Ok(()))?;
         Err(RuntimeError::module_validation("rejected removed value"))
     }
 }
@@ -326,7 +327,7 @@ fn stored_key_protocol_selects_current_code_and_keeps_metadata_until_last_value_
     let old = runtime.select_program(&_old_program).unwrap();
     let vm = Vm::new(runtime);
     let result = vm.execute(&old, "make").unwrap().return_value;
-    let value = result.value(vm.runtime().gc()).unwrap();
+    let value = unsafe { result.value_transport(vm.runtime().gc()) }.unwrap();
     let Value::Tuple(_) = &value else {
         panic!("tuple");
     };
@@ -349,7 +350,8 @@ fn stored_key_protocol_selects_current_code_and_keeps_metadata_until_last_value_
         .unwrap();
     let (map, key): (ScriptMap<Object, i32>, Object) = {
         let mut conversion = ConversionContext::new(vm.runtime(), &old).unwrap();
-        conversion.decode_value(&result_type, &value).unwrap()
+        /* SAFETY: The execution result root retains this tuple and its children throughout conversion. */
+        unsafe { conversion.decode_transport(&result_type, &value) }.unwrap()
     };
     let stored = {
         let mut cx = vm.context(&old).unwrap();
@@ -421,7 +423,7 @@ fn stored_key_protocol_selects_current_code_and_keeps_metadata_until_last_value_
     let collected = vm.runtime().collect_garbage().unwrap();
     assert!(collected.reclaimed_modules.contains(&old.key()));
     assert_eq!(collected.live_objects, 0);
-    assert!(!vm.runtime().gc().validate_value(&value));
+    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&value) });
     assert!(vm.runtime().modules().loaded(new.key()).is_some());
 }
 

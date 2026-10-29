@@ -18,15 +18,15 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
     let calls = Arc::new(AtomicUsize::new(0));
     let read_calls = calls.clone();
     runtime
-        .register_host_path_adapter(
-            descriptor,
+        .register_host_path_adapter(descriptor, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |_, _| {
+                .with_read_transport(move |_, _| {
                     read_calls.fetch_add(1, Ordering::SeqCst);
                     Ok(Value::I32(10))
                 })
-                .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
-        )
+                .with_prepare_write_transport(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})))
+        })
         .unwrap();
     let scope = runtime.host_scope(&[]).unwrap();
     scope
@@ -94,16 +94,16 @@ fn path_callback_borrows_cannot_escape_in_read_results() {
         .unwrap();
     let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
     runtime
-        .register_host_path_adapter(
-            descriptor,
-            HostPathAdapter::new().with_read(move |call, _| {
+        .register_host_path_adapter(descriptor, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(move |call, _| {
                 let token = call
                     .borrows()
                     .borrow_shared(HostObjectId(2), owner)
                     .unwrap();
                 Ok(call.runtime().gc().alloc_host_ref(token).unwrap())
-            }),
-        )
+            })
+        })
         .unwrap();
     assert_eq!(
         runtime
@@ -146,22 +146,22 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
         let validate_reject = reject.clone();
         let prepare_reject = reject.clone();
         runtime
-            .register_host_path_adapter(
-                descriptor,
+            .register_host_path_adapter(descriptor, unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
                 HostPathAdapter::new()
-                    .with_validate(move |_, _, _, _| {
+                    .with_validate_transport(move |_, _, _, _| {
                         if stage == "validation" && validate_reject.load(Ordering::SeqCst) {
                             return Err(HostError::new("rejected validation"));
                         }
                         Ok(())
                     })
-                    .with_read(move |_, _| {
+                    .with_read_transport(move |_, _| {
                         if stage == "read" && read_reject.load(Ordering::SeqCst) {
                             return Err(HostError::new("rejected read"));
                         }
                         Ok(Value::I32(read_target.load(Ordering::SeqCst)))
                     })
-                    .with_prepare_write(move |_, _, record| {
+                    .with_prepare_write_transport(move |_, _, record| {
                         if stage == "preparation" && prepare_reject.load(Ordering::SeqCst) {
                             return Err(HostError::new("rejected preparation"));
                         }
@@ -172,8 +172,8 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
                         Ok(PreparedHostPathWrite::new(move || {
                             target.store(next, Ordering::SeqCst)
                         }))
-                    }),
-            )
+                    })
+            })
             .unwrap();
         for modifying in [false, true] {
             let error = if modifying {
@@ -247,11 +247,11 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
     let token = CancellationToken::default();
     let cancel = token.clone();
     runtime
-        .register_host_path_adapter(
-            descriptor,
+        .register_host_path_adapter(descriptor, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(read_target.load(Ordering::SeqCst))))
-                .with_prepare_write(move |_, _, record| {
+                .with_read_transport(move |_, _| Ok(Value::I32(read_target.load(Ordering::SeqCst))))
+                .with_prepare_write_transport(move |_, _, record| {
                     let Value::I32(next) = record.new_value else {
                         return Err(HostError::new("expected i32"));
                     };
@@ -261,8 +261,8 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
                         target.store(next, Ordering::SeqCst);
                         cancel.cancel();
                     }))
-                }),
-        )
+                })
+        })
         .unwrap();
     let mut options = runtime.execution_options();
     options.cancellation = token;
@@ -307,14 +307,16 @@ fn nonstorable_previous_value_cannot_escape_through_the_dirty_ledger() {
         .unwrap();
     let descriptor = register_hp_descriptor(&mut runtime, owner, scalar, PathAccess::ReadWrite);
     runtime
-        .register_host_path_adapter(
-            descriptor,
+        .register_host_path_adapter(descriptor, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |call, _| Ok(call.runtime().gc().alloc_host_root(root).unwrap()))
-                .with_prepare_write(|_, _, _| {
+                .with_read_transport(move |call, _| {
+                    Ok(call.runtime().gc().alloc_host_root(root).unwrap())
+                })
+                .with_prepare_write_transport(|_, _, _| {
                     panic!("invalid dirty payload must reject before host preparation")
-                }),
-        )
+                })
+        })
         .unwrap();
     let error = runtime
         .set_host_path(
@@ -361,11 +363,11 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
         let committed = Arc::new(AtomicBool::new(false));
         let prepare_committed = committed.clone();
         runtime
-            .register_host_path_adapter(
-                descriptor,
+            .register_host_path_adapter(descriptor, unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
                 HostPathAdapter::new()
-                    .with_read(|_, _| Ok(Value::I32(10)))
-                    .with_prepare_write(move |_, _, _| {
+                    .with_read_transport(|_, _| Ok(Value::I32(10)))
+                    .with_prepare_write_transport(move |_, _, _| {
                         let allocation = commit_allocation.clone();
                         let committed = prepare_committed.clone();
                         Ok(PreparedHostPathWrite::new(move || {
@@ -395,8 +397,8 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
                             assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
                             // Swallowing the rejected nested operation cannot restore the runtime.
                         }))
-                    }),
-            )
+                    })
+            })
             .unwrap();
         let runtime = Rc::new(runtime);
         COMMIT_RUNTIME.with(|access| *access.borrow_mut() = Some(Rc::downgrade(&runtime)));
@@ -459,18 +461,18 @@ fn executes_path_read_prepare_commit_and_dirty_records_in_order() {
     let dirty_events = Arc::clone(&events);
 
     runtime
-        .register_host_path_adapter(
-            descriptor_id,
+        .register_host_path_adapter(descriptor_id, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_validate(move |_, _, operation, value| {
+                .with_validate_transport(move |_, _, operation, value| {
                     validate_events
                         .lock()
                         .unwrap()
                         .push(format!("validate:{operation:?}:{}", value.is_some()));
                     Ok(())
                 })
-                .with_read(move |_, _| Ok(Value::I32(*read_hp.lock().unwrap())))
-                .with_prepare_write(move |_, _, record| {
+                .with_read_transport(move |_, _| Ok(Value::I32(*read_hp.lock().unwrap())))
+                .with_prepare_write_transport(move |_, _, record| {
                     let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
                     };
@@ -489,8 +491,8 @@ fn executes_path_read_prepare_commit_and_dirty_records_in_order() {
                         *write_hp.lock().unwrap() = value;
                         dirty_events.lock().unwrap().push(event);
                     }))
-                }),
-        )
+                })
+        })
         .unwrap();
     let root_value = runtime.gc().alloc_host_root(root).unwrap();
 
@@ -544,10 +546,10 @@ fn path_execution_classifies_validation_failures() {
         .unwrap();
     let read_only = register_hp_descriptor(&mut runtime, player_id, i32_id, PathAccess::ReadOnly);
     runtime
-        .register_host_path_adapter(
-            read_only,
-            HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(1))),
-        )
+        .register_host_path_adapter(read_only, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(1)))
+        })
         .unwrap();
     let root_value = runtime.gc().alloc_host_root(root).unwrap();
 
@@ -591,11 +593,11 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
         let writes = Arc::new(Mutex::new(0));
         let write_count = writes.clone();
         runtime
-            .register_host_path_adapter(
-                descriptor,
+            .register_host_path_adapter(descriptor, unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
                 HostPathAdapter::new()
-                    .with_read(move |_, _| Ok(Value::I32(*read_value.lock().unwrap())))
-                    .with_prepare_write(move |_, _, record| {
+                    .with_read_transport(move |_, _| Ok(Value::I32(*read_value.lock().unwrap())))
+                    .with_prepare_write_transport(move |_, _, record| {
                         let Value::I32(value) = record.new_value else {
                             return Err(HostError::new("expected i32"));
                         };
@@ -605,8 +607,8 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
                             *write_count.lock().unwrap() += 1;
                             *write_value.lock().unwrap() = value;
                         }))
-                    }),
-            )
+                    })
+            })
             .unwrap();
         let error = runtime
             .modify_host_path(
@@ -648,10 +650,10 @@ fn path_execution_uses_installed_descriptor() {
         })
         .unwrap();
     runtime
-        .register_host_path_adapter(
-            descriptor_id,
-            HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(99))),
-        )
+        .register_host_path_adapter(descriptor_id, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(99)))
+        })
         .unwrap();
 
     assert_eq!(

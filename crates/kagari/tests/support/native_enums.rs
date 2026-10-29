@@ -42,24 +42,37 @@ pub fn module() -> NativeResult<NativeModule> {
         let data = data.clone();
         let closed = closed.clone();
         let foreign = foreign.clone();
-        module.bind(
-            function,
-            NativeBinding::new(
+        module.bind(function, unsafe {
+            NativeBinding::new_transport(
                 [Codec::Value, Codec::Exact(Type::i32())],
                 event.codec(),
                 move |call| {
                     let applied = call.result_type_argument()?;
                     let (variant, fields) = match name {
-                        "wrong_payload" => (&data, vec![call.argument(0)?, Value::Bool(true)]),
-                        "wrong_count" => (&data, vec![call.argument(0)?]),
-                        "foreign_variant" => (&foreign, vec![call.argument(0)?]),
+                        "wrong_payload" => (
+                            &data,
+                            // SAFETY: The active call retains this input until its copy is published or consumed.
+                            vec![call.argument_transport(0)?, Value::Bool(true)],
+                        ),
+                        // SAFETY: The active call retains this input until its copy is published or consumed.
+                        "wrong_count" => (&data, vec![call.argument_transport(0)?]),
+                        "foreign_variant" => {
+                            // SAFETY: The active call retains this input until its copy is published or consumed.
+                            (&foreign, vec![call.argument_transport(0)?])
+                        }
                         "closed" => (&closed, vec![]),
-                        _ => (&data, vec![call.argument(0)?, call.argument(1)?]),
+                        _ => (
+                            &data,
+                            // SAFETY: The active call retains this input until its copy is published or consumed.
+                            vec![call.argument_transport(0)?, call.argument_transport(1)?],
+                        ),
                     };
-                    call.allocate_enum(&applied, variant, fields)
+                    // SAFETY: The call frame retains each payload until the terminal result is
+                    // published.
+                    call.allocate_enum_transport(&applied, variant, fields)
                 },
-            ),
-        )?;
+            )
+        })?;
     }
     for name in [
         "sequence",
@@ -84,19 +97,20 @@ pub fn module() -> NativeResult<NativeModule> {
         })?;
         let data = data.clone();
         let closed = closed.clone();
-        module.bind(
-            function,
-            NativeBinding::new([event.codec()], Codec::Value, move |call| {
+        module.bind(function, unsafe {
+            NativeBinding::new_transport([event.codec()], Codec::Value, move |call| {
                 call.collect_garbage()?;
+                // SAFETY: The call retains the enum payload through return publication.
                 match name {
                     "is_data" => call.enum_argument_is(0, &data).map(Value::Bool),
-                    "roundtrip" => call.argument(0),
-                    "wrong_variant" => call.enum_argument_field(0, &closed, 0),
-                    "wrong_field" => call.enum_argument_field(0, &data, 2),
-                    _ => call.enum_argument_field(0, &data, 1),
+                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                    "roundtrip" => call.argument_transport(0),
+                    "wrong_variant" => call.enum_argument_field_transport(0, &closed, 0),
+                    "wrong_field" => call.enum_argument_field_transport(0, &data, 2),
+                    _ => call.enum_argument_field_transport(0, &data, 1),
                 }
-            }),
-        )?;
+            })
+        })?;
     }
     module.finish()
 }

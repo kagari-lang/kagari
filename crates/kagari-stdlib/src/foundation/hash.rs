@@ -141,7 +141,9 @@ fn typed<A: FromKagariArguments, R: IntoKagari>(
 }
 
 fn raw(count: usize, entry: fn(&mut CallContext<'_>) -> NativeResult<Value>) -> NativeBinding {
-    NativeBinding::new(vec![Codec::Value; count], Codec::Value, entry)
+    // SAFETY: Only the private hash operations register here. Their call inputs
+    // stay rooted; working keys and removed outputs are retained before callbacks.
+    unsafe { NativeBinding::new_transport(vec![Codec::Value; count], Codec::Value, entry) }
 }
 
 fn flat(entry: fn(&mut CallContext<'_>) -> NativeResult<Value>) -> PendingBinding {

@@ -1,3 +1,5 @@
+pub mod value;
+
 use kagari_bytecode::{
     instruction::Slot,
     module::{BytecodeFunction, CallableTarget, SafeDebugPoint},
@@ -8,13 +10,11 @@ use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
-    gc::roots::RootSet,
     module::{ExecutableModule, ModuleId},
     session::{ExecutionEvent, ExecutionId, ExecutionObserver},
-    value::Value,
 };
 
-use crate::error::VmError;
+use crate::{debug::value::DebugValue, error::VmError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugFrameId(u64);
@@ -91,7 +91,7 @@ impl DebugPause {
         runtime: &Runtime,
         frame_id: DebugFrameId,
         watch: &DebugWatch,
-    ) -> Result<Value, VmError> {
+    ) -> Result<DebugValue, VmError> {
         runtime
             .resources()
             .ensure_execution_allowed()
@@ -107,10 +107,8 @@ impl DebugPause {
                 .iter()
                 .find(|binding| binding.name == *name)
                 .map(|binding| {
-                    runtime
-                        .validate_debug_value(&binding.value)
-                        .map_err(VmError::RuntimeError)?;
-                    Ok::<_, VmError>(binding.value)
+                    binding.value.inspect(runtime, |_| Ok(()))?;
+                    Ok::<_, VmError>(binding.value.clone())
                 })
                 .transpose()?
                 .ok_or(VmError::MissingField(name.clone())),
@@ -135,9 +133,8 @@ pub struct DebugFrame {
 pub struct DebugBinding {
     pub name: String,
     pub local: Slot,
-    pub value: Value,
+    pub value: DebugValue,
     pub is_parameter: bool,
-    roots: RootSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,17 +466,21 @@ impl DebugSession {
             .flat_map(|function| &function.metadata.debug.local_live_ranges)
             .filter(|range| range.start <= instruction_offset && instruction_offset < range.end)
             .map(|range| {
-                let value = frame.read_slot(runtime, range.slot)?;
-                runtime
-                    .validate_debug_value(&value)
+                let value = unsafe { frame.read_slot_transport(runtime, range.slot) }?;
+                unsafe { runtime.validate_debug_value_transport(&value) }
                     .map_err(VmError::RuntimeError)?;
                 Ok(DebugBinding {
-                    roots: runtime.gc().root_execution_values(vec![value]).ok_or(
-                        VmError::UnsupportedInstruction("invalid heap reference in debug snapshot"),
-                    )?,
+                    value: DebugValue::new(
+                        unsafe {
+                            // SAFETY: The active frame retains the slot until this independent debug snapshot is published.
+                            runtime.gc().root_execution_values_transport(vec![value])
+                        }
+                        .ok_or(VmError::UnsupportedInstruction(
+                            "invalid heap reference in debug snapshot",
+                        ))?,
+                    ),
                     name: range.name.clone(),
                     local: range.slot,
-                    value,
                     is_parameter: range.is_parameter,
                 })
             })

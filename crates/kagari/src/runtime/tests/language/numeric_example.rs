@@ -82,7 +82,14 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
                     .execute(&loaded, entry, &[], &context)
                     .unwrap_or_else(|error| panic!("{route} run {run}: {error:?}"));
                 assert_eq!(
-                    result.return_value.value(runtime.runtime().gc()).unwrap(),
+                    result
+                        .return_value
+                        .inspect(runtime.runtime(), |view| match expected {
+                            Value::I32(_) => view.as_i32().map(Value::I32),
+                            Value::U64(_) => view.as_u64().map(Value::U64),
+                            _ => unreachable!("numeric entry signature"),
+                        })
+                        .unwrap(),
                     expected,
                     "{route} run {run}: {entry:?}"
                 );

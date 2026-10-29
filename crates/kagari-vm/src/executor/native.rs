@@ -4,11 +4,19 @@ use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     module::ExecutableModule,
-    native::{binding::NativeResult, context::ScriptCall},
+    native::{
+        binding::NativeResult,
+        context::{ScriptCall, ScriptInvoker},
+    },
     value::Value,
 };
 
-pub(crate) fn invoke_script(
+// SAFETY: invoke_script admits the retained target and publishes all arguments
+// into its execution frame before running. Executor transfers the live terminal
+// result immediately, with no intervening collection after releasing the frame.
+pub(crate) const INVOKE_SCRIPT: ScriptInvoker = unsafe { ScriptInvoker::new(invoke_script) };
+
+fn invoke_script(
     runtime: &Runtime,
     _owner: &ExecutableModule,
     target: ScriptCall<'_>,
@@ -17,17 +25,23 @@ pub(crate) fn invoke_script(
     let stack = match target {
         ScriptCall::Closure(closure) => {
             let stack = runtime.enter_closure_execution_stack(closure)?;
-            stack.push_closure(runtime, closure.value(), arguments, None)?;
+            // SAFETY: The admitted ScriptCall keeps its selected closure root
+            // alive until the new frame publishes the closure and its captures.
+            unsafe {
+                stack.push_closure_transport(runtime, closure.value_transport(), arguments, None)
+            }?;
             stack
         }
         ScriptCall::Pinned(function) => {
             let stack = runtime.enter_pinned_execution_stack(function)?;
-            stack.push_pinned_call(runtime, function, arguments)?;
+            unsafe { stack.push_pinned_call_transport(runtime, function, arguments) }?;
             stack
         }
         ScriptCall::Interface(method) => {
             let stack = runtime.enter_interface_execution_stack(method)?;
-            stack.push_interface_method(runtime, method.clone(), arguments, None)?;
+            unsafe {
+                stack.push_interface_method_transport(runtime, method.clone(), arguments, None)
+            }?;
             stack
         }
     };

@@ -9,7 +9,7 @@ use kagari_runtime::{
     frame::driver::ReturnAction,
     gc::GcHeapConfig,
     module::ExecutableModule,
-    native::{binding::NativeResult, module::NativeModule},
+    native::{binding::NativeResult, context::ScriptInvoker, module::NativeModule},
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -28,17 +28,21 @@ fn invoke(
     arguments: &[Value],
 ) -> NativeResult<Value> {
     let stack = runtime.enter_execution_stack(owner)?;
-    stack.push_callable(
-        runtime,
-        owner.clone(),
-        CallableTarget::Native(NativeImportId::new(slot)),
-        arguments,
-        None,
-    )?;
-    stack.start_native_entry(runtime, |_, _, _, _| {
-        panic!("float scalar methods must not reenter script")
+    unsafe {
+        stack.push_callable_transport(
+            runtime,
+            owner.clone(),
+            CallableTarget::Native(NativeImportId::new(slot)),
+            arguments,
+            None,
+        )
+    }?;
+    stack.start_native_entry(runtime, unsafe {
+        // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+        ScriptInvoker::new(|_, _, _, _| panic!("float scalar methods must not reenter script"))
     })?;
-    let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
+    let ReturnAction::Complete(value) = unsafe { stack.finish_native_return_transport(runtime) }?
+    else {
         panic!("expected root native return");
     };
     Ok(value)

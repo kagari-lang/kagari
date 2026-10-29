@@ -215,10 +215,12 @@ fn sdk_script_future_and_for_await_contract() {
     );
     let result = f.complete(&owner);
     assert!(
-        f.runtime
-            .runtime()
-            .result_failure(&f.value(&result))
-            .is_some()
+        unsafe {
+            f.runtime
+                .runtime()
+                .result_failure_transport(&f.value(&result))
+        }
+        .is_some()
     );
     assert_eq!(
         f.starts.load(Ordering::SeqCst),
@@ -240,16 +242,20 @@ fn sdk_script_future_and_for_await_contract() {
     }
     let result = f.complete(&owner);
     assert!(
-        f.runtime
-            .runtime()
-            .result_failure(&f.value(&result))
-            .is_none()
+        unsafe {
+            f.runtime
+                .runtime()
+                .result_failure_transport(&f.value(&result))
+        }
+        .is_none()
     );
     let Value::Enum(id) = f.value(&result) else {
         panic!("business Result");
     };
     assert_eq!(
-        f.runtime.runtime().gc().enum_snapshot(id).unwrap().fields,
+        unsafe { f.runtime.runtime().gc().enum_snapshot_transport(id) }
+            .unwrap()
+            .fields,
         [Value::I32(42)]
     );
 

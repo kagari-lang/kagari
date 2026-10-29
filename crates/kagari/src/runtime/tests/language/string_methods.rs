@@ -45,7 +45,7 @@ fn run(source: &str, expected_error: Option<&str>) {
             result
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_bool().map(Value::Bool))
                 .expect("retained execution result"),
             Value::Bool(true)
         ),

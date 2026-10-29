@@ -17,7 +17,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
-    gc::{GcHeapConfig, roots::RootedValue},
+    gc::GcHeapConfig,
     module::{Program, entry::ProgramEntry},
     native::{
         binding::NativeResult,
@@ -33,9 +33,9 @@ use kagari_runtime::{
         objects::Object,
         typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
-    value_semantics::script_equal,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{declaration::module::ModuleDecl, language::binding};
@@ -168,7 +168,12 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
                     .unwrap()
                     .encode(7i32)
                     .unwrap();
-                assert_eq!(value.value(runtime.gc()), Some(Value::I32(7)));
+                assert_eq!(
+                    value
+                        .inspect(runtime, |view| view.as_i32().map(Value::I32))
+                        .ok(),
+                    Some(Value::I32(7))
+                );
                 drop(value);
                 assert_eq!(runtime.gc().active_roots(), roots);
                 assert_eq!(runtime.resources().counters().current_call_depth, 0);
@@ -294,18 +299,10 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
         fn from_kagari(
             cx: &mut ConversionContext<'_>,
             _: &TypeArgument,
-            value: &Value,
+            value: &ScriptValue,
         ) -> NativeResult<Self> {
-            let Value::Enum(id) = value else {
-                return Err(RuntimeError::module_validation("Label receiver"));
-            };
-            let payload = cx
-                .runtime()
-                .gc()
-                .enum_snapshot(*id)
-                .ok_or_else(|| RuntimeError::module_validation("Label payload"))?;
-            let ty = cx.type_for::<String>()?;
-            cx.decode_value(&ty, &payload.fields[0]).map(Self)
+            let (text,): (String,) = cx.decode_variant(value.type_argument(), value, "Text")?;
+            Ok(Self(text))
         }
     }
     let catalog = StandardDeclarations::default().catalog().unwrap();
@@ -347,17 +344,13 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(vm.execute(&loaded, ProgramEntry::Main)
-                .unwrap()
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime().gc().alloc_string("雪🌱!".into()).unwrap())
-        )
-        .unwrap()
+    assert_eq!(
+        vm.execute(&loaded, ProgramEntry::Main)
+            .unwrap()
+            .return_value
+            .inspect(vm.runtime(), |view| Ok(view.as_str()?.to_owned()))
+            .unwrap(),
+        "雪🌱!"
     );
 }
 
@@ -462,7 +455,7 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -528,7 +521,7 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_u64().map(Value::U64))
             .expect("retained execution result"),
         Value::U64(3)
     );
@@ -547,10 +540,11 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
     impl IntoKagari for Invalid {
         fn into_kagari(
             self,
-            _: &mut ConversionContext<'_>,
+            cx: &mut ConversionContext<'_>,
             _: &TypeArgument,
-        ) -> NativeResult<Value> {
-            Ok(Value::Bool(true))
+        ) -> NativeResult<ScriptValue> {
+            let boolean = cx.type_for::<bool>()?;
+            true.into_kagari(cx, &boolean)
         }
     }
     let catalog = StandardDeclarations::default().catalog().unwrap();
@@ -606,7 +600,7 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
         vm.execute(&loaded, "healthy")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -615,7 +609,7 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
 
 #[test]
 fn typed_host_entries_convert_composites_and_retain_returned_handles() {
-    struct RetainedVec(RootedValue);
+    struct RetainedVec(ScriptValue);
 
     impl KagariType for RetainedVec {
         fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
@@ -626,14 +620,11 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     impl FromKagari for RetainedVec {
         const PRESERVES_IDENTITY: bool = true;
         fn from_kagari(
-            cx: &mut ConversionContext<'_>,
+            _: &mut ConversionContext<'_>,
             _: &TypeArgument,
-            value: &Value,
+            value: &ScriptValue,
         ) -> NativeResult<Self> {
-            cx.runtime()
-                .root_value(*value)
-                .map(Self)
-                .ok_or_else(|| RuntimeError::module_validation("retained array result"))
+            Ok(Self(value.clone()))
         }
     }
     let module = ModuleBuilder::new(
@@ -672,7 +663,9 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     vm.runtime().collect_garbage().unwrap();
     {
         let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
-        let values: ScriptVec<i32> = conversion.decode(&retained.0).unwrap();
+        let values: ScriptVec<i32> = conversion
+            .decode_value(retained.0.type_argument(), &retained.0)
+            .unwrap();
         assert_eq!(
             values.get(&mut vm.context(&loaded).unwrap(), 1).unwrap(),
             Some(22)
@@ -696,7 +689,7 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
         fn from_kagari(
             _: &mut ConversionContext<'_>,
             _: &TypeArgument,
-            _: &Value,
+            _: &ScriptValue,
         ) -> NativeResult<Self> {
             Err(RuntimeError::module_validation(
                 "data-dependent output rejection",
@@ -786,7 +779,7 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
         );
     }
     let other = Runtime::default();
-    assert!(clone.value(other.gc()).is_none());
+    assert!(clone.inspect(&other, |_| Ok(())).is_err());
     drop(clone);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }

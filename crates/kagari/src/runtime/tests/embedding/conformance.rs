@@ -10,7 +10,7 @@ use kagari_bytecode::artifact::{
     DependencyFingerprint,
 };
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value_semantics::script_equal;
+use kagari_runtime::value_semantics::script_equal_transport;
 
 use {
     kagari_common::identity::{
@@ -190,24 +190,26 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
         .expect("builtin surface should execute through embedding API");
 
     assert!(
-        script_equal(
-            runtime.runtime().gc(),
-            &(report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result")),
-            &(runtime
-                .runtime()
-                .gc()
-                .alloc_tuple(vec![
-                    Value::U64(3),
-                    Value::U64(2),
-                    Value::U64(1),
-                    Value::Bool(true),
-                    Value::I32(7),
-                ])
-                .unwrap())
-        )
+        unsafe {
+            script_equal_transport(
+                runtime.runtime().gc(),
+                &(report
+                    .return_value
+                    .value_transport(runtime.runtime().gc())
+                    .expect("retained execution result")),
+                &(runtime
+                    .runtime()
+                    .gc()
+                    .alloc_tuple_transport(vec![
+                        Value::U64(3),
+                        Value::U64(2),
+                        Value::U64(1),
+                        Value::Bool(true),
+                        Value::I32(7),
+                    ])
+                    .unwrap()),
+            )
+        }
         .unwrap()
     );
 }
@@ -275,7 +277,7 @@ pub fn main() -> u64 {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_u64().map(Value::U64))
             .expect("retained execution result"),
         Value::U64(2)
     );

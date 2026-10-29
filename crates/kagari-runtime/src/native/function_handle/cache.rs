@@ -45,7 +45,7 @@ impl Runtime {
         owner: &Module,
         path: &str,
     ) -> NativeResult<Function<A, R>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         let snapshot = self.capture_module(owner)?;
         let (target, function) = snapshot.function_target(path)?;
         self.cache_function(EntryEvidence::script(self, &target, function)?)
@@ -74,7 +74,7 @@ impl Runtime {
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<Function<A, R>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         let snapshot = self.capture_module(owner)?;
         let owner = &snapshot.root;
         for argument in arguments {
@@ -120,7 +120,7 @@ impl Runtime {
         member: &InherentMember,
         arguments: &[TypeArgument],
     ) -> NativeResult<Function<A, R>> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         member.applied.validate(self)?;
         let arguments = member.arguments(self, arguments)?;
         let evidence =

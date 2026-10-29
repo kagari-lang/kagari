@@ -278,6 +278,12 @@ impl ResourceState {
         Ok(session)
     }
 
+    /// Inspect retained data even after execution closes or a session cancels.
+    /// Collector/commit exclusion remains authoritative and cannot be bypassed.
+    pub(crate) fn ensure_inspection_allowed(&self) -> Result<(), RuntimeError> {
+        self.execution.ensure_inspection_allowed()
+    }
+
     pub fn is_quarantined(&self) -> bool {
         self.execution.is_quarantined()
     }

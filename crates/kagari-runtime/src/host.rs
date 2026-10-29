@@ -484,7 +484,19 @@ impl HostPathAdapter {
         Self::default()
     }
 
-    pub fn with_read(
+    /// Admit a raw path-read provider under the existing checked host scope.
+    ///
+    /// # Safety
+    /// Context edges are protected only through this callback. Retain copies
+    /// before they outlive that protection or their source changes. Captured edges
+    /// need independent tracing. Return live transport immediately for publication;
+    /// do not collect after releasing its last owner.
+    ///
+    /// ```compile_fail,E0133
+    /// use kagari_runtime::{host::HostPathAdapter, value::Value};
+    /// let adapter = HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::Unit));
+    /// ```
+    pub unsafe fn with_read_transport(
         mut self,
         read: impl Fn(&HostCallContext<'_>, &HostPathContext) -> Result<Value, HostError>
         + Send
@@ -495,7 +507,14 @@ impl HostPathAdapter {
         self
     }
 
-    pub fn with_prepare_write(
+    /// Admit preparation of an external write from protected raw transport.
+    ///
+    /// # Safety
+    /// Context and mutation-record edges are protected during preparation. Copy
+    /// host data or independently retain managed edges before they escape into the
+    /// deferred commit or other storage. Preserve the prepared commit's no-reentry
+    /// contract and the original scope of any external capability.
+    pub unsafe fn with_prepare_write_transport(
         mut self,
         prepare: impl Fn(
             &HostCallContext<'_>,
@@ -510,7 +529,13 @@ impl HostPathAdapter {
         self
     }
 
-    pub fn with_validate(
+    /// Admit path validation over the checked operation's protected transport.
+    ///
+    /// # Safety
+    /// Raw context/value copies must not outlive their traced protection or original
+    /// host scope. Retain managed copies before callbacks or mutation can remove
+    /// that protection; captured managed values need independent traced ownership.
+    pub unsafe fn with_validate_transport(
         mut self,
         validate: impl Fn(
             &HostCallContext<'_>,
@@ -804,10 +829,6 @@ impl HostCallGuard<'_> {
             )));
         }
         self.table.validate(token, required_kind)
-    }
-
-    pub fn validate_no_escape(heap: &GcHeap, value: &Value) -> Result<(), RuntimeError> {
-        HostBorrowTable::validate_no_escape(heap, value)
     }
 }
 

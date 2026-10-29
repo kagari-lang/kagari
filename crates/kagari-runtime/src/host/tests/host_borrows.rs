@@ -2,7 +2,7 @@ use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    host::{HostBorrowKind, HostBorrowTable, HostCallGuard, HostObjectId},
+    host::{HostBorrowKind, HostBorrowTable, HostObjectId},
     metadata::TypeId,
 };
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
@@ -138,7 +138,7 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
         RuntimeErrorKind::HostBorrowEscape
     );
     assert_eq!(
-        HostCallGuard::validate_no_escape(runtime.gc(), &borrow_value)
+        HostBorrowTable::validate_no_escape(runtime.gc(), &borrow_value)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowEscape

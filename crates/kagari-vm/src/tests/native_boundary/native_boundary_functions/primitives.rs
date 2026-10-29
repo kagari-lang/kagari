@@ -48,14 +48,16 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
 
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
-    let callback = NativeBinding::new(
-        vec![Codec::Exact(Type::scalar(BuiltinType::String))],
-        Codec::Exact(Type::u64()),
-        move |_| {
-            observed.fetch_add(1, Ordering::Relaxed);
-            Ok(Value::U64(41))
-        },
-    );
+    let callback = unsafe {
+        NativeBinding::new_transport(
+            vec![Codec::Exact(Type::scalar(BuiltinType::String))],
+            Codec::Exact(Type::u64()),
+            move |_| {
+                observed.fetch_add(1, Ordering::Relaxed);
+                Ok(Value::U64(41))
+            },
+        )
+    };
     let mut modules = Vec::new();
     for binding in [primitive(), callback] {
         let mut builder = ModuleBuilder::new("example::primitives", &catalog).unwrap();
@@ -108,7 +110,10 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
         let vm = Vm::new(runtime);
         let report = vm.execute(&owner, ProgramEntry::Main).unwrap();
         assert_eq!(
-            report.return_value.value(vm.runtime().gc()),
+            report
+                .return_value
+                .inspect(vm.runtime(), |view| view.as_u64().map(Value::U64))
+                .ok(),
             Some(Value::U64(if index == 0 { 8 } else { 82 }))
         );
         let bound = vm

@@ -295,8 +295,10 @@ fn iter_array_option() {
         "iter-array-option",
         "fn main() -> (u64, i32, bool) { val a = [4, 7]; { val cursor = a.iter(); cursor.next(); val second = match cursor.next() { Some(x) => x, None => 0 }; (a.len(), second, match cursor.next() { Some(x) => false, None => true }) } }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::U64(2), Value::I32(7), Value::Bool(true)])
-                .unwrap()
+            unsafe {
+                heap.alloc_tuple_transport(vec![Value::U64(2), Value::I32(7), Value::Bool(true)])
+            }
+            .unwrap()
         }),
     ));
 }
@@ -307,8 +309,10 @@ fn pop_empty_option() {
         "pop-empty-option",
         "fn main() -> (i32, bool, u64) { val a = Vec::from([7]); val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }",
         Expected::Value(|heap| {
-            heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)])
-                .unwrap()
+            unsafe {
+                heap.alloc_tuple_transport(vec![Value::I32(7), Value::Bool(true), Value::U64(0)])
+            }
+            .unwrap()
         }),
     ));
 }

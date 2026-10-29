@@ -100,13 +100,14 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
         )
         .unwrap();
     module
-        .bind(
-            through,
-            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), |cx| {
+        .bind(through, unsafe {
+            NativeBinding::new_transport(vec![Codec::Value], Codec::Exact(Type::i32()), |cx| {
                 let callback = cx.callable(0)?;
-                callback.call_values(cx, &[Value::I32(20), Value::I32(22)])
-            }),
-        )
+                // SAFETY: The native argument frame and local working roots protect inputs; results
+                // are decoded, rooted or returned before another callback.
+                callback.call_values_transport(cx, &[Value::I32(20), Value::I32(22)])
+            })
+        })
         .unwrap();
     let module = module.finish().unwrap();
     let source = r#"
@@ -140,7 +141,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
         .start(
             &old,
             "owned",
-            &[callback.value(vm.runtime().gc()).unwrap()],
+            &[unsafe { callback.value_transport(vm.runtime().gc()) }.unwrap()],
             Default::default(),
         )
         .unwrap();
@@ -157,11 +158,12 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
             DriveResult::Waiting => panic!("synchronous native entry cannot wait"),
             DriveResult::Complete(result) => {
                 let result = result.unwrap();
-                let Some(Value::Str(id)) = result.value(vm.runtime().gc()) else {
+                let Some(Value::Str(id)) = (unsafe { result.value_transport(vm.runtime().gc()) })
+                else {
                     panic!("native string result")
                 };
                 assert_eq!(
-                    &*vm.runtime().gc().string(id).unwrap(),
+                    &*unsafe { vm.runtime().gc().string_transport(id) }.unwrap(),
                     "retained native result"
                 );
                 completed = true;
@@ -386,10 +388,9 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
         .unwrap()
         .encode(native)
         .unwrap();
-    let value = root.value(vm.runtime().gc()).unwrap();
+    let value = unsafe { root.value_transport(vm.runtime().gc()) }.unwrap();
     assert!(
-        vm.runtime()
-            .resolve_closure(&value)
+        unsafe { vm.runtime().resolve_closure_transport(&value) }
             .unwrap()
             .script_function()
             .is_none()

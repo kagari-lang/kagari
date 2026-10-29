@@ -65,7 +65,7 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -141,7 +141,7 @@ fn dependency_bindings_are_checked_before_execution() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -192,7 +192,7 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
                 .execute(&active, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -275,7 +275,7 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
                 .execute(module, ProgramEntry::Main)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(value)
         );
@@ -300,7 +300,7 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
             .execute(&new, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );

@@ -83,7 +83,7 @@ impl<S> Object<S> {
     }
 
     pub(crate) fn id(&self, cx: &NativeContext<'_>) -> NativeResult<HeapObjectId> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().gc().ensure_no_storage_borrow()?;
         cx.runtime().resources().ensure_execution_allowed()?;
         match self.root.value(cx.runtime().gc()) {
             Some(Value::Struct(id)) => Ok(id),

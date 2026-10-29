@@ -57,7 +57,8 @@ pub(crate) fn map_insert(call: &mut CallContext<'_>) -> NativeResult<Value> {
 
 pub(crate) fn map_insert_fluent(call: &mut CallContext<'_>) -> NativeResult<Value> {
     map_insert(call)?;
-    call.argument(0)
+    // SAFETY: The call frame retains the receiver through return publication.
+    unsafe { call.argument_transport(0) }
 }
 
 pub(crate) fn set_insert(call: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -70,7 +71,8 @@ pub(crate) fn set_insert(call: &mut CallContext<'_>) -> NativeResult<Value> {
 
 pub(crate) fn set_insert_fluent(call: &mut CallContext<'_>) -> NativeResult<Value> {
     set_insert(call)?;
-    call.argument(0)
+    // SAFETY: The call frame retains the receiver through return publication.
+    unsafe { call.argument_transport(0) }
 }
 
 pub(crate) fn map_remove(call: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -85,11 +87,12 @@ pub(crate) fn map_remove(call: &mut CallContext<'_>) -> NativeResult<Value> {
     let result_type = call.result_type_argument()?;
     let result: ScriptValue = {
         let mut conversion = cx.conversion_scope(cx.owner())?;
-        let result = conversion.encode_value(&result_type, value)?;
-        conversion.decode_value(&result_type, &result)?
+        conversion.encode_value(&result_type, value)?
     };
     operations::remove(&mut cx, &object, found)?;
-    result.value(cx.runtime())
+    // SAFETY: The prepared result survives removal; this terminal Native return
+    // publishes it before another collection can run.
+    unsafe { result.value_transport(cx.runtime()) }
 }
 
 pub(crate) fn set_remove(call: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -110,5 +113,6 @@ pub(crate) fn clear<P: HashPayload>(call: &mut CallContext<'_>) -> NativeResult<
 
 pub(crate) fn clear_fluent<P: HashPayload>(call: &mut CallContext<'_>) -> NativeResult<Value> {
     clear::<P>(call)?;
-    call.argument(0)
+    // SAFETY: The call frame retains the receiver through return publication.
+    unsafe { call.argument_transport(0) }
 }

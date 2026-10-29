@@ -1,6 +1,26 @@
 //! Heap-owned exclusion records. Guards never own storage or execution state.
 use crate::{error::RuntimeError, gc::HeapObjectId, native::views::NativeOperationKind};
-use std::{cell::RefCell, collections::HashMap};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+};
+
+/// Exclude collection, script reentry and competing storage access during a loan.
+/// The caller finishes ordered admission before constructing this guard.
+pub(super) struct StorageBorrow<'heap>(&'heap Cell<usize>);
+
+impl<'heap> StorageBorrow<'heap> {
+    pub(super) fn enter(borrows: &'heap Cell<usize>) -> Self {
+        borrows.set(borrows.get() + 1);
+        Self(borrows)
+    }
+}
+
+impl Drop for StorageBorrow<'_> {
+    fn drop(&mut self) {
+        self.0.set(self.0.get() - 1);
+    }
+}
 
 #[derive(Debug, Default)]
 struct Entry {

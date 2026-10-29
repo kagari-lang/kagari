@@ -302,7 +302,7 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
             .returns(destination.clone())
             .documentation(format!("Consume through the requested destination's {target} implementation; preserve its checked construction and arithmetic semantics."))
             .configure(move |function| { function.type_parameter("D")?; function.requires_draft(requirement)?; Ok(()) })
-            .implementation_send(NativeBinding::new(vec![Codec::Value], Codec::Value, iterable::destination)))
+            .implementation_send(unsafe { NativeBinding::new_transport(vec![Codec::Value], Codec::Value, iterable::destination) }))
             .arguments([receiver.clone(), item.clone(), destination.clone()])
             .bounds([bound(&destination, applied)])
             .assumptions([bound(&receiver, iteration.item.bind(iteration.iterable.apply([])?, item.clone())?)]))?;
@@ -316,7 +316,7 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
         .returns(accumulator.clone())
         .documentation("Consume in source order, passing the accumulator and each item to the callback. Empty input returns initial; completed source/callback effects survive failure.")
         .configure(move |function| { function.type_parameter("A")?; for requirement in source.requirements { function.requires_draft(requirement)?; } Ok(()) })
-        .implementation_with_send(|view| { let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?; Ok(NativeBinding::new(vec![Codec::Value; 3], Codec::Value, move |cx| iterable::fold(&symbols, cx))) }))
+        .implementation_with_send(|view| { let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?; Ok(unsafe { NativeBinding::new_transport(vec![Codec::Value; 3], Codec::Value, move |cx| iterable::fold(&symbols, cx)) }) }))
         .arguments([receiver.clone(), item.clone(), accumulator, cursor.clone()]).assumptions(source.assumptions))?;
     for (name, terminal, doc) in [
         (

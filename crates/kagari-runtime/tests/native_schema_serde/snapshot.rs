@@ -65,11 +65,16 @@ impl<'de> Deserialize<'de> for Reentrant {
         let hook = HOOK.with(|hook| hook.borrow_mut().take());
         match hook {
             Some(Hook::Rewrite(runtime, parent, next)) => {
-                let layout = runtime.gc().struct_layout(parent).unwrap();
-                runtime
-                    .gc()
-                    .struct_set_slot(parent, &layout, 1, next.value(runtime.gc()).unwrap())
-                    .unwrap();
+                let layout = unsafe { runtime.gc().struct_layout_transport(parent) }.unwrap();
+                unsafe {
+                    runtime.gc().struct_set_slot_transport(
+                        parent,
+                        &layout,
+                        1,
+                        next.value_transport(runtime.gc()).unwrap(),
+                    )
+                }
+                .unwrap();
                 runtime.collect_garbage().unwrap();
             }
             Some(Hook::Panic) => panic!("Serde child visitor unwind"),
@@ -107,7 +112,7 @@ fn serde_snapshot_survives_alias_mutation_gc_and_visitor_unwind() {
             }],
         }))
         .unwrap();
-    let Value::Struct(parent) = root.value(runtime.gc()).unwrap() else {
+    let Value::Struct(parent) = unsafe { root.value_transport(runtime.gc()) }.unwrap() else {
         panic!("Graph");
     };
     let empty = cx.encode(Serde(Vec::<Graph>::new())).unwrap();
@@ -143,13 +148,13 @@ fn serde_owned_graph_rejects_cycles_through_nominal_sequences() {
             children: vec![],
         }))
         .unwrap();
-    let value = root.value(runtime.gc()).unwrap();
-    let Value::Struct(parent) = value else {
+    let value = unsafe { root.value_transport(runtime.gc()) }.unwrap();
+    let Value::Struct(_) = value else {
         panic!("Graph");
     };
     let ty = cx.type_for::<Serde<Graph>>().unwrap();
-    let child: ScriptValue = cx.decode_value(&ty, &value).unwrap();
-    let mut fields = cx.read_struct(&ty, &Value::Struct(parent)).unwrap();
+    let child = cx.retain(&ty, root.clone()).unwrap();
+    let mut fields = cx.read_struct(&ty, &child).unwrap();
     let children: ScriptVec<ScriptValue> = fields.field("children").unwrap();
     drop(fields);
     children

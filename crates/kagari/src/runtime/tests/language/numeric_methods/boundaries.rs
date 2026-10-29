@@ -216,7 +216,10 @@ fn allocating_numeric_results_survive_collection_and_traps_release_execution_roo
     runtime.runtime().collect_garbage().unwrap();
     let after = runtime.execute(&loaded, "after", &[], &context).unwrap();
     assert_eq!(
-        after.return_value.value(runtime.runtime().gc()).unwrap(),
+        after
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_bool().map(Value::Bool))
+            .unwrap(),
         Value::Bool(true)
     );
     drop(after);

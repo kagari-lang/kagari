@@ -98,11 +98,11 @@ fn main() {
     let hp = Arc::new(AtomicI32::new(10));
     let (read_hp, prepare_hp) = (hp.clone(), hp.clone());
     module
-        .bind_path(
-            &path,
+        .bind_path(&path, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(read_hp.load(Ordering::SeqCst))))
-                .with_prepare_write(move |_, _, record| {
+                .with_read_transport(move |_, _| Ok(Value::I32(read_hp.load(Ordering::SeqCst))))
+                .with_prepare_write_transport(move |_, _, record| {
                     let Value::I32(value) = record.new_value else {
                         return Err(HostError::new("hp expects i32"));
                     };
@@ -114,16 +114,16 @@ fn main() {
                     Ok(PreparedHostPathWrite::new(move || {
                         hp.store(value, Ordering::SeqCst)
                     }))
-                }),
-        )
+                })
+        })
         .unwrap();
     let preview_hp = hp.clone();
     module
-        .bind_path(
-            &preview,
+        .bind_path(&preview, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(move |_, _| Ok(Value::I32(preview_hp.load(Ordering::SeqCst)))),
-        )
+                .with_read_transport(move |_, _| Ok(Value::I32(preview_hp.load(Ordering::SeqCst))))
+        })
         .unwrap();
     let mut runtime = Runtime::default();
     module.finish().unwrap().install(&mut runtime).unwrap();
@@ -137,28 +137,23 @@ fn main() {
         .unwrap();
     let path = runtime.resolve_host_path(&path).unwrap();
     let preview = runtime.resolve_host_path(&preview).unwrap();
-    let root = runtime.gc().alloc_host_root(root).unwrap();
+    let root = unsafe { runtime.gc().alloc_host_root_transport(root) }.unwrap();
     assert_eq!(
-        runtime.read_host_path(&root, preview, vec![]).unwrap(),
+        unsafe { runtime.read_host_path_transport(&root, preview, vec![]) }.unwrap(),
         Value::I32(10)
     );
-    runtime
-        .set_host_path(&root, path, vec![], Value::I32(20))
-        .unwrap();
-    let error = runtime
-        .set_host_path(&root, preview, vec![], Value::I32(30))
+    unsafe { runtime.set_host_path_transport(&root, path, vec![], Value::I32(20)) }.unwrap();
+    let error = unsafe { runtime.set_host_path_transport(&root, preview, vec![], Value::I32(30)) }
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
     assert_eq!(hp.load(Ordering::SeqCst), 20);
-    assert_eq!(runtime.host_dirty_paths().len(), 1);
+    assert_eq!(unsafe { runtime.host_dirty_paths_transport() }.len(), 1);
     assert!(!runtime.is_quarantined());
-    let record = runtime.host_dirty_paths().remove(0);
+    let record = unsafe { runtime.host_dirty_paths_transport() }.remove(0);
     assert_eq!(record.old_value, Some(Value::I32(10)));
     assert_eq!(record.new_value, Value::I32(20));
     runtime.clear_host_dirty_paths();
-    runtime
-        .set_host_path(&root, path, vec![], Value::I32(30))
-        .unwrap();
+    unsafe { runtime.set_host_path_transport(&root, path, vec![], Value::I32(30)) }.unwrap();
     assert_eq!(hp.load(Ordering::SeqCst), 30);
     println!("readonly view preserved hp=20; writable path updated hp=30");
 }

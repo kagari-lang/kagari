@@ -43,7 +43,7 @@ impl Runtime {
         path: &str,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         let snapshot = self.capture_module(owner)?;
         let export = snapshot.resolve_public_path(path, PublicPathKind::Type)?;
         let PublicPathTarget::Type(export) = export else {
@@ -85,7 +85,7 @@ impl Runtime {
         declaration: &DefinitionPath,
         arguments: &[TypeArgument],
     ) -> NativeResult<ObjectType> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         let snapshot = self.capture_module(owner)?;
         let declaration = snapshot
             .root

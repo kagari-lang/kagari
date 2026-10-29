@@ -92,7 +92,7 @@ impl<T: Send + 'static> RustType<T> {
         argument: TypeArgument,
         authority: Option<ConversionRetention<'_>>,
     ) -> NativeResult<Self> {
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(owner)?;
         check_mapping::<T>(runtime, owner, &argument)?;
@@ -178,7 +178,7 @@ pub(crate) fn check_mapping<T: Send + 'static>(
     owner: &ExecutableModule,
     expected: &TypeArgument,
 ) -> NativeResult<()> {
-    runtime.gc().ensure_no_native_borrow()?;
+    runtime.gc().ensure_no_storage_borrow()?;
     runtime.resources().ensure_execution_allowed()?;
     runtime.validate_executable_module(owner)?;
     expected.validate(runtime)?;

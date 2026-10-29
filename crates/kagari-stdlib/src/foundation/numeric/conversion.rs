@@ -25,11 +25,12 @@ fn result_item(cx: &CallContext<'_>) -> NativeResult<BuiltinType> {
 }
 
 pub(crate) fn from_str(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let Value::Str(text) = cx.argument(0)? else {
+    // SAFETY: The call frame retains the input through parsing/conversion and result publication.
+    let Value::Str(text) = unsafe { cx.argument_transport(0) }? else {
         return Err(invalid());
     };
     let parsed = {
-        let text = cx.heap().string(text).ok_or_else(invalid)?;
+        let text = unsafe { cx.heap().string_transport(text) }.ok_or_else(invalid)?;
         parse(result_item(cx)?, &text)?
     };
     result(
@@ -68,7 +69,11 @@ fn result(
             )?,
         ),
     };
-    let _root = cx.heap().root_value(value).ok_or_else(invalid)?;
+    let _root = unsafe {
+        // SAFETY: The conversion result transfers directly into its root before carrier allocation.
+        cx.heap().root_value_transport(value)
+    }
+    .ok_or_else(invalid)?;
     enums::allocate(
         symbols,
         cx,
@@ -83,7 +88,10 @@ pub(crate) fn try_from(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> Nativ
     let Ty::Builtin(source) = cx.argument_type(0)? else {
         return Err(invalid());
     };
-    let converted = numeric::checked_convert(*source, result_item(cx)?, cx.argument(0)?)?;
+    // SAFETY: The call frame retains the input through parsing/conversion and result publication.
+    let converted = numeric::checked_convert(*source, result_item(cx)?, unsafe {
+        cx.argument_transport(0)
+    }?)?;
     result(
         symbols,
         cx,

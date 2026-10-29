@@ -95,14 +95,34 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
             label: external.label.clone(),
         })
         .unwrap();
-    vm.runtime_mut()
+    let retained = vm
+        .runtime_mut()
         .with_host_scope(|scope| {
+            let snapshot = scope.retain(&original)?;
+            let replacement = ConversionContext::new(scope.runtime(), &owner)?.encode(Player {
+                hp: 99,
+                label: "replacement".into(),
+            })?;
+            original
+                .replace(scope.runtime().gc(), &replacement)
+                .unwrap();
+            scope.runtime().collect_garbage()?;
+            let preserved = snapshot.retain()?;
+            assert_eq!(
+                ConversionContext::new(scope.runtime(), &owner)?
+                    .decode::<Player>(&preserved)?
+                    .hp,
+                10
+            );
+            // Restore the fixture's original value from the independently retained snapshot.
+            original.replace(scope.runtime().gc(), &preserved).unwrap();
             let view = scope.borrow_mut(&descriptor, &mut external)?;
+            assert!(view.argument().retain().is_err());
             let text = Vm::execute_scoped(
                 scope,
                 &_owner_program,
                 "inspect",
-                &[view.value()],
+                &[view.argument()],
                 Default::default(),
             )?;
             assert_eq!(
@@ -110,21 +130,19 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
                     scope,
                     &_owner_program,
                     "damage",
-                    &[view.value(), Value::I32(3)],
+                    &[view.argument(), scope.scalar(3_i32)],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(7)
             );
             // A later invocation may collect; the earlier heap result is retained
             // for the active scope, independently of the original Rust object.
-            scope.execute(&[], |runtime, _| {
-                runtime.collect_garbage()?;
-                let Value::Str(id) = text else {
-                    panic!("String");
-                };
-                assert_eq!(&*runtime.gc().string(id).unwrap(), "external hp=10");
-                Ok(Value::Unit)
-            })?;
+            scope.runtime().collect_garbage()?;
+            assert_eq!(
+                text.inspect(|view| Ok(view.as_str()?.to_owned()))?,
+                "external hp=10"
+            );
             view.read(scope, |player| {
                 assert_eq!(player.hp, 7);
                 Ok(())
@@ -134,14 +152,21 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
                     scope,
                     &_owner_program,
                     "damage",
-                    &[view.value(), Value::I32(1)],
+                    &[view.argument(), scope.scalar(1_i32)],
                     Default::default()
                 ))
                 .is_err()
             );
-            Ok(())
+            text.retain()
         })
         .unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(
+        retained
+            .inspect(vm.runtime(), |view| Ok(view.as_str()?.to_owned()))
+            .unwrap(),
+        "external hp=10"
+    );
     assert_eq!(external.hp, 7);
     let mut cx = ConversionContext::new(vm.runtime(), &owner).unwrap();
     assert_eq!(cx.decode::<Player>(&original).unwrap().hp, 10);

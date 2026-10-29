@@ -87,15 +87,15 @@ fn alias(state: State, kind: i32) -> bool {
             ("alias", kind, kind, false, 1),
         ] {
             let root = vm.execute(&loaded, "make").unwrap().return_value;
-            let state = root.value(vm.runtime().gc()).unwrap();
+            let state = unsafe { root.value_transport(vm.runtime().gc()) }.unwrap();
             let arguments = if entry == "alias" {
                 vec![Value::I32(kind)]
             } else {
                 vec![Value::I32(left), Value::I32(right), Value::Bool(negated)]
             };
-            let error = vm
-                .invoke_interface_method(&state, &method(entry), &arguments)
-                .unwrap_err();
+            let error =
+                unsafe { vm.invoke_interface_method_transport(&state, &method(entry), &arguments) }
+                    .unwrap_err();
             assert!(
                 format!("{error:?}").contains("division by zero"),
                 "{error:?}"
@@ -103,7 +103,7 @@ fn alias(state: State, kind: i32) -> bool {
             assert_eq!(vm.runtime().gc().active_roots(), 1);
             assert!(!vm.runtime().is_quarantined());
             assert_eq!(
-                vm.invoke_interface_method(&state, &method("trace"), &[])
+                unsafe { vm.invoke_interface_method_transport(&state, &method("trace"), &[]) }
                     .unwrap(),
                 Value::I32(expected_trace)
             );

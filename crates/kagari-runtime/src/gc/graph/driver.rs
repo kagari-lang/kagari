@@ -111,7 +111,7 @@ impl GcHeap {
         modules: &ModuleStore,
         budget: &mut ScanBudget,
     ) -> Result<ScanStatus, RuntimeError> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         let result = self
             .resources
             .collect_operation(|| self.scan_graph_inner(modules, budget))

@@ -22,8 +22,10 @@ impl Executor<'_> {
             | BinaryOp::Div
             | BinaryOp::Rem => numeric::binary(op, lhs, rhs).map_err(VmError::RuntimeError),
             BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {
-                let equal = value_semantics::identity_equal(self.runtime.gc(), &lhs, &rhs)
-                    .map_err(VmError::RuntimeError)?;
+                let equal = unsafe {
+                    value_semantics::identity_equal_transport(self.runtime.gc(), &lhs, &rhs)
+                }
+                .map_err(VmError::RuntimeError)?;
                 Ok(Value::Bool(if op == BinaryOp::IdentityEq {
                     equal
                 } else {
@@ -31,8 +33,10 @@ impl Executor<'_> {
                 }))
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
-                let equal = value_semantics::script_equal(self.runtime.gc(), &lhs, &rhs)
-                    .map_err(VmError::RuntimeError)?;
+                let equal = unsafe {
+                    value_semantics::script_equal_transport(self.runtime.gc(), &lhs, &rhs)
+                }
+                .map_err(VmError::RuntimeError)?;
                 Ok(Value::Bool(if op == BinaryOp::Eq { equal } else { !equal }))
             }
             BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => {

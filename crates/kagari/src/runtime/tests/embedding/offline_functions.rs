@@ -10,7 +10,8 @@ use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{
     host::HostCallContext,
     native::{
-        builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::Type,
+        builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback,
+        module::NativeModule, types::Type,
     },
     value::Value,
 };
@@ -35,15 +36,18 @@ fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
         )
         .unwrap();
     builder
-        .bind(echo, move |_: &HostCallContext<'_>, args: &[Value]| {
-            let [Value::I32(value)] = args else {
-                unreachable!()
-            };
-            calls.lock().unwrap().push(*value);
-            Ok(if returns_bool {
-                Value::Bool(true)
-            } else {
-                Value::I32(value + 1)
+        .bind(echo, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_: &HostCallContext<'_>, args: &[Value]| {
+                let [Value::I32(value)] = args else {
+                    unreachable!()
+                };
+                calls.lock().unwrap().push(*value);
+                Ok(if returns_bool {
+                    Value::Bool(true)
+                } else {
+                    Value::I32(value + 1)
+                })
             })
         })
         .unwrap();
@@ -207,7 +211,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             assert_eq!(
                 report
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(5)
             );
@@ -272,7 +276,7 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

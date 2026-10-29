@@ -11,7 +11,26 @@ use crate::{
 impl ExecutionStack<'_> {
     /// Admit an exact callback/host selection. Its producer owns current-route
     /// selection and environment transport; retained queued work must not reselect.
-    pub fn push_selected_call(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn push_selected_call_transport(
+        &self,
+        runtime: &Runtime,
+        caller: &ExecutableModule,
+        selected: &LinkedCallable,
+        args: &[Value],
+    ) -> Result<(), RuntimeError> {
+        self.push_selected_call(runtime, caller, selected, args)
+    }
+
+    pub(crate) fn push_selected_call(
         &self,
         runtime: &Runtime,
         caller: &ExecutableModule,

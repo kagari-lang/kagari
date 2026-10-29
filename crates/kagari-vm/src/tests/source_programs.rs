@@ -86,7 +86,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                 assert_eq!(
                     report
                         .return_value
-                        .value(vm.runtime().gc())
+                        .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                         .expect("retained execution result"),
                     Value::I32(42)
                 );
@@ -128,7 +128,7 @@ fn cross_module_debug_frames_keep_their_member_identity() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

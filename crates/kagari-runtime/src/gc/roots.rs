@@ -94,11 +94,44 @@ impl RootedValue {
     }
 
     /// Read a protected value after checking the heap identity and root generation.
-    pub fn value(&self, heap: &GcHeap) -> Option<Value> {
+    pub(crate) fn value(&self, heap: &GcHeap) -> Option<Value> {
         self.roots.get(heap, 0)
     }
 
-    pub fn set(&self, heap: &GcHeap, value: Value) -> Option<()> {
+    /// Replace this shared root from another live root in the same heap.
+    /// Clones observe replacement; the target lease and its metadata stay shared.
+    /// Foreign/expired sources and targets, invalid values and excluded mutation reject.
+    pub fn replace(&self, heap: &GcHeap, source: &Self) -> Option<()> {
+        self.set(heap, source.value(heap)?)
+    }
+
+    /// Read backend transport with caller-owned lifetime protection.
+    ///
+    /// # Safety
+    /// Keep the referent protected until every copy is consumed or published to
+    /// another traced owner. Cloning this mutable root alone does not protect an
+    /// old copy against replacement through an alias. Terminal backend handoffs
+    /// must not collect between releasing this lease and destination publication.
+    /// With the current checked-ID representation, detached copies may be used
+    /// only for identity/expiry rejection probes that cannot dereference reclaimed
+    /// storage. Such probes are not live backend inputs.
+    #[doc(hidden)]
+    pub unsafe fn value_transport(&self, heap: &GcHeap) -> Option<Value> {
+        self.value(heap)
+    }
+
+    /// Publish already protected backend transport into this root.
+    ///
+    /// # Safety
+    /// The new value must remain live in its originating heap through publication.
+    /// In-flight raw readers of this root must have independent protection before
+    /// replacement can release their source. Stale transport is not a valid input.
+    #[doc(hidden)]
+    pub unsafe fn set_transport(&self, heap: &GcHeap, value: Value) -> Option<()> {
+        self.set(heap, value)
+    }
+
+    pub(crate) fn set(&self, heap: &GcHeap, value: Value) -> Option<()> {
         if !value.is_storable(heap) {
             return None;
         }
@@ -213,8 +246,33 @@ impl RootSet {
         self.with_value(heap, index, |_| ()).is_some()
     }
 
-    pub fn get(&self, heap: &GcHeap, index: usize) -> Option<Value> {
+    pub(crate) fn slot_count(&self, heap: &GcHeap) -> Option<usize> {
+        if !self.belongs_to(heap) {
+            return None;
+        }
+        Some(heap.roots.try_borrow().ok()?.entry(self)?.values.len())
+    }
+
+    pub(crate) fn get(&self, heap: &GcHeap, index: usize) -> Option<Value> {
         self.with_value(heap, index, Value::clone)
+    }
+
+    /// Replace one slot from a live, storable root in the same heap.
+    /// Invalid owners, generations, bounds and excluded mutation reject.
+    pub fn replace(&self, heap: &GcHeap, index: usize, source: &RootedValue) -> Option<()> {
+        self.set(heap, index, source.value(heap)?)
+    }
+
+    /// Read transport from an execution root pack.
+    ///
+    /// # Safety
+    /// Keep the selected value live until every copy is consumed or published.
+    /// A pack alias can replace the slot, so a shared lease alone is insufficient
+    /// across arbitrary callbacks. Scoped host references also require their
+    /// original host scope, which this pack does not extend.
+    #[doc(hidden)]
+    pub unsafe fn get_transport(&self, heap: &GcHeap, index: usize) -> Option<Value> {
+        self.get(heap, index)
     }
 
     pub(crate) fn with_value<R>(
@@ -230,7 +288,7 @@ impl RootSet {
         roots.entry(self)?.values.get(index).map(read)
     }
 
-    pub fn set(&self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {
+    pub(crate) fn set(&self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {
         heap.ensure_execution_allowed().ok()?;
         if self.id.owner != heap.owner {
             return None;
@@ -521,7 +579,24 @@ impl GcHeap {
         Some(roots)
     }
 
-    pub fn root_value(&self, value: Value) -> Option<RootedValue> {
+    /// Publish live backend transport into an independently owned script root.
+    /// Nonstorable values and failed runtime/publication admission are rejected.
+    ///
+    /// # Safety
+    /// Keep the input live through publication, using its existing traced owner
+    /// or immediate allocation/result handoff with no intervening collection.
+    /// Rooting cannot revive an expired reference. Source aliases must not replace
+    /// the input before publication. Ordinary hosts use typed conversion or scoped
+    /// retention instead of raw transport.
+    /// The checked-ID implementation also permits non-dereferencing invalid-ID
+    /// rejection probes. They are not live backend inputs and must be replaced
+    /// with inert identity/retained-wrapper checks before direct references.
+    #[doc(hidden)]
+    pub unsafe fn root_value_transport(&self, value: Value) -> Option<RootedValue> {
+        self.root_value(value)
+    }
+
+    pub(crate) fn root_value(&self, value: Value) -> Option<RootedValue> {
         if !value.is_storable(self) {
             return None;
         }
@@ -545,7 +620,7 @@ impl GcHeap {
     /// identity and root admission without lifting the loan's GC exclusion.
     pub(crate) fn retain_native_value(&self, value: Value) -> NativeResult<RetainedValue> {
         self.resources.ensure_execution_allowed()?;
-        if self.native_borrows.get() == 0 {
+        if self.storage_borrows.get() == 0 {
             return Err(RuntimeError::module_validation(
                 "native root retention requires an active payload loan",
             ));
@@ -595,7 +670,30 @@ impl GcHeap {
         Ok(RetainedValue::from_root(RootedValue { roots }))
     }
 
-    pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
+    /// Publish a complete live backend argument/snapshot pack into execution roots.
+    /// Unlike an owning script value, these slots may retain scoped capabilities.
+    ///
+    /// # Safety
+    /// Protect every input until the complete pack is published, including across
+    /// earlier input preparation. Host capabilities require their original frame;
+    /// an execution root does not extend their Rust ownership or scope. Detached
+    /// expired references cannot be made valid by registering roots.
+    ///
+    /// ```compile_fail,E0133
+    /// use kagari_runtime::{gc::GcHeap, value::Value};
+    /// fn unprotected(heap: &GcHeap) {
+    ///     let roots = heap.root_execution_values_transport(vec![Value::Unit]);
+    /// }
+    /// ```
+    /// The checked-ID implementation also permits non-dereferencing invalid-ID
+    /// rejection probes. They are not live backend inputs and must be replaced
+    /// with inert identity/retained-wrapper checks before direct references.
+    #[doc(hidden)]
+    pub unsafe fn root_execution_values_transport(&self, values: Vec<Value>) -> Option<RootSet> {
+        self.root_execution_values(values)
+    }
+
+    pub(crate) fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
         self.ensure_execution_allowed().ok()?;
         self.publish_root_values(&values)?;
         self.insert_root(values).ok()

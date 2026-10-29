@@ -250,7 +250,10 @@ pub(super) fn run(options: &Options) {
                 return entry.call::<i32>(()).unwrap();
             }
             let report = runtime.execute(&loaded, name, &[], &context).unwrap();
-            let Value::I32(value) = report.return_value.value(runtime.runtime().gc()).unwrap()
+            let Value::I32(value) = report
+                .return_value
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap()
             else {
                 panic!("forms result");
             };

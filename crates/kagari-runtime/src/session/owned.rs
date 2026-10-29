@@ -193,7 +193,26 @@ impl Drop for SessionState {
 
 impl Runtime {
     /// Reserve a checked entry and its rooted arguments without running script.
-    pub fn start_owned_execution(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn start_owned_execution_transport(
+        &self,
+        module: &ExecutableModule,
+        entry: FunctionRef,
+        args: &[Value],
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        self.start_owned_execution(module, entry, args, options)
+    }
+
+    pub(crate) fn start_owned_execution(
         &self,
         module: &ExecutableModule,
         entry: FunctionRef,
@@ -232,7 +251,24 @@ impl Runtime {
 
     /// Queue exactly one Future layer. Neither script code nor native submission
     /// runs until the host drives the returned owner.
-    pub fn start_owned_future(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn start_owned_future_transport(
+        &self,
+        value: &Value,
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        self.start_owned_future(value, options)
+    }
+
+    pub(crate) fn start_owned_future(
         &self,
         value: &Value,
         options: ExecutionOptions,
@@ -270,7 +306,24 @@ impl Runtime {
 
     /// Queue a zero-argument Future factory. Its ordinary body and exactly one
     /// returned Future layer run in this same execution on subsequent drives.
-    pub fn start_owned_factory(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn start_owned_factory_transport(
+        &self,
+        value: &Value,
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        self.start_owned_factory(value, options)
+    }
+
+    pub(crate) fn start_owned_factory(
         &self,
         value: &Value,
         options: ExecutionOptions,
@@ -484,7 +537,7 @@ impl Runtime {
         owner: &OwnedExecution,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.ensure_scheduler_open()?;
         self.validate_owned_execution(owner)?;
         let activation = self.resources().begin_synchronous_activation()?;

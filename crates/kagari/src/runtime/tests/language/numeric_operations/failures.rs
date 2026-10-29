@@ -4,7 +4,7 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
-        types::Type,
+        host::HostCallback, types::Type,
     },
     value::Value,
 };
@@ -54,10 +54,13 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let memory_slot = Arc::new(Mutex::new(None));
     let captured_memory = memory_slot.clone();
     builder
-        .bind(memory, move |_: &HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::GcHandle(
-                captured_memory.lock().unwrap().expect("initialized memory"),
-            ))
+        .bind(memory, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                Ok(Value::GcHandle(
+                    captured_memory.lock().unwrap().expect("initialized memory"),
+                ))
+            })
         })
         .unwrap();
     let engine =
@@ -93,7 +96,8 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         .unwrap()
         .encode(VecValues(vec![7i32]))
         .unwrap();
-    let Value::GcHandle(memory) = root.value(runtime.runtime().gc()).unwrap() else {
+    let Value::GcHandle(memory) = unsafe { root.value_transport(runtime.runtime().gc()) }.unwrap()
+    else {
         panic!("Vec memory fixture")
     };
     *memory_slot.lock().unwrap() = Some(memory);

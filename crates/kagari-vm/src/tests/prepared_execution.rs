@@ -128,12 +128,11 @@ fn prepared_native_execution_reports_the_installed_descriptor_and_cleans_frames(
     let report = vm
         .execute_prepared(&module, ProgramEntry::Main, &preparation)
         .unwrap();
-    assert_eq!(
+    assert!(
         report
             .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Unit
+            .inspect(vm.runtime(), |view| Ok(view.is_unit()))
+            .expect("retained execution result")
     );
     let jit = report.jit.unwrap();
     assert_eq!(jit.status, JitExecutionStatus::Native);
@@ -158,7 +157,7 @@ fn unsupported_preparation_runs_the_interpreter_with_an_honest_report() {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -229,11 +228,9 @@ fn optimized_execution_preserves_results_traps_and_source_origins(#[case] source
         match (a, b) {
             (Ok(a), Ok(b)) => {
                 assert_eq!(
-                    a.return_value
-                        .value(before.runtime().gc())
+                    unsafe { a.return_value.value_transport(before.runtime().gc()) }
                         .expect("retained execution result"),
-                    b.return_value
-                        .value(after.runtime().gc())
+                    unsafe { b.return_value.value_transport(after.runtime().gc()) }
                         .expect("retained execution result"),
                     "{source}"
                 )

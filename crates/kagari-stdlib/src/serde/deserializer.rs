@@ -27,17 +27,17 @@ use serde::{
 pub(super) struct Deserializer<'scope, 'runtime> {
     cx: &'scope mut ConversionContext<'runtime>,
     expected: &'scope TypeArgument,
-    value: Value,
+    value: ScriptValue,
 }
 
 pub(super) fn decode<'de, S: DeserializeSeed<'de>>(
     cx: &mut ConversionContext<'_>,
     expected: &TypeArgument,
-    value: &Value,
+    value: &ScriptValue,
     seed: S,
 ) -> NativeResult<S::Value> {
-    cx.decode_scope(expected, value, |cx| {
-        seed.deserialize(Deserializer::new(cx, expected, *value))
+    cx.decode_scope(expected, value, |cx, input| {
+        seed.deserialize(Deserializer::new(cx, expected, input.clone()))
     })
 }
 
@@ -45,7 +45,7 @@ impl<'scope, 'runtime> Deserializer<'scope, 'runtime> {
     pub(super) fn new(
         cx: &'scope mut ConversionContext<'runtime>,
         expected: &'scope TypeArgument,
-        value: Value,
+        value: ScriptValue,
     ) -> Self {
         Self {
             cx,
@@ -171,14 +171,23 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
         let field = self.cx.parameter(self.expected, 0)?;
         let values = snapshot
             .into_iter()
-            .map(|value| self.cx.encode_value(&field, value))
+            // SAFETY: The conversion frame retains every encoded child until
+            // the complete immutable RootSet below is published.
+            .map(|value| unsafe {
+                self.cx
+                    .encode_value(&field, value)?
+                    .value_transport(self.cx.runtime())
+            })
             .collect::<NativeResult<Vec<_>>>()?;
-        let roots = self
-            .cx
-            .runtime()
-            .gc()
-            .root_execution_values(values)
-            .ok_or_else(|| unsupported("sequence snapshot roots"))?;
+        let roots = unsafe {
+            // SAFETY: The retained source and conversion roots protect every child until the complete visitor snapshot is published.
+
+            self.cx
+                .runtime()
+                .gc()
+                .root_execution_values_transport(values)
+        }
+        .ok_or_else(|| unsupported("sequence snapshot roots"))?;
         Sequence::visit_repeated(self.cx, roots, count, field, visitor)
     }
 
@@ -187,25 +196,26 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
             return Err(unsupported("tuple schema mismatch"));
         }
         self.cx.check_elements(len)?;
-        let Value::Tuple(id) = self.value else {
+        // SAFETY: self.value owns the tuple until its complete child snapshot
+        // is rooted below, before any user visitor can run.
+        let Value::Tuple(id) = unsafe { self.value.value_transport(self.cx.runtime()) }? else {
             return Err(unsupported("tuple value"));
         };
-        let values = self
-            .cx
-            .runtime()
-            .gc()
-            .tuple(id)
+        let values = unsafe { self.cx.runtime().gc().tuple_transport(id) }
             .ok_or_else(|| unsupported("tuple identity"))?
             .to_vec();
         if values.len() != len {
             return Err(unsupported("tuple arity"));
         }
-        let roots = self
-            .cx
-            .runtime()
-            .gc()
-            .root_execution_values(values)
-            .ok_or_else(|| unsupported("tuple snapshot roots"))?;
+        let roots = unsafe {
+            // SAFETY: The retained source and conversion roots protect every child until the complete visitor snapshot is published.
+
+            self.cx
+                .runtime()
+                .gc()
+                .root_execution_values_transport(values)
+        }
+        .ok_or_else(|| unsupported("tuple snapshot roots"))?;
         let fields = (0..len)
             .map(|i| self.cx.parameter(self.expected, i))
             .collect::<NativeResult<_>>()?;

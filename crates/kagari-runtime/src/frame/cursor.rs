@@ -40,7 +40,25 @@ impl ExecutionStack<'_> {
     /// The driver has already polled and observed the first logical instruction.
     /// `invoke_script` supplies synchronous native-to-script reentry and never runs
     /// while the cursor retains a frame, session-state or operand-bank borrow.
-    pub fn execute_region(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn execute_region_transport(
+        &self,
+        runtime: &Runtime,
+        remaining: &mut Option<usize>,
+        invoke_script: ScriptInvoker,
+    ) -> Result<RegionExit, RegionError> {
+        self.execute_region(runtime, remaining, invoke_script)
+    }
+
+    pub(crate) fn execute_region(
         &self,
         runtime: &Runtime,
         remaining: &mut Option<usize>,
@@ -68,7 +86,7 @@ impl ExecutionStack<'_> {
         // current_mut admits the active session/frame scope and sticky termination.
         let mut frame = self.current_mut()?;
         frame.completed = None;
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         let mut values = runtime
             .resources()
             .frame_values

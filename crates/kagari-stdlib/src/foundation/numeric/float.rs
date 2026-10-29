@@ -134,13 +134,16 @@ macro_rules! declare_float {
                         &format!("value: {receiver}, min: {receiver}, max: {receiver}"),
                         "value.clamp(min, max)",
                     ))
-                    .implementation_send(NativeBinding::new(
+                    .implementation_send(unsafe { NativeBinding::new_transport(
                         vec![Codec::Exact(scalar.clone()); 3],
                         Codec::Exact(scalar.clone()),
                         |cx| {
-                            let value = $float::decode(cx.argument(0)?)?;
-                            let min = $float::decode(cx.argument(1)?)?;
-                            let max = $float::decode(cx.argument(2)?)?;
+                            // SAFETY: Exact scalar codecs are checked before entry; no managed edge escapes decoding.
+                            let value = $float::decode(cx.argument_transport(0)?)?;
+                            // SAFETY: Exact scalar codecs are checked before entry; no managed edge escapes decoding.
+                            let min = $float::decode(cx.argument_transport(1)?)?;
+                            // SAFETY: Exact scalar codecs are checked before entry; no managed edge escapes decoding.
+                            let max = $float::decode(cx.argument_transport(2)?)?;
                             if min.is_nan() || max.is_nan() || min > max {
                                 return Err(RuntimeError::new(
                                     RuntimeErrorKind::ScriptTrap,
@@ -149,7 +152,7 @@ macro_rules! declare_float {
                             }
                             Ok(value.clamp(min, max).encode())
                         },
-                    )),
+                    ) }),
             )?;
             methods.define(
                 MethodDecl::instance("to_bits")

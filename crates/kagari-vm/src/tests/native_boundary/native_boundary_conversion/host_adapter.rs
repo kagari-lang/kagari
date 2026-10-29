@@ -15,6 +15,8 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         context::CallContext,
         declarations::{FunctionDecl, MethodDecl},
+        functions::NativeCallback,
+        host::HostCallback,
         installation::NativeInstallation,
         types::Type,
     },
@@ -60,21 +62,26 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         .unwrap();
     assert!(
         builder
-            .bind(echo.clone(), |cx: &mut CallContext<'_>| cx.argument(0))
+            .bind(echo.clone(), unsafe {
+                NativeCallback::new(|cx: &mut CallContext<'_>| cx.argument_transport(0))
+            })
             .is_err()
     );
     builder
-        .bind(echo.clone(), |cx: &HostCallContext<'_>, args: &[Value]| {
-            cx.runtime().collect_garbage().unwrap();
-            let Value::Str(id) = args[0] else {
-                panic!("string argument")
-            };
-            let text = cx.runtime().gc().string(id).unwrap().to_owned();
-            let time = cx.execution_time_millis().unwrap();
-            cx.runtime()
-                .gc()
-                .alloc_string(format!("{text}:{time}"))
-                .map_err(|error| HostError::new(error.to_string()))
+        .bind(echo.clone(), unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|cx: &HostCallContext<'_>, args: &[Value]| {
+                cx.runtime().collect_garbage().unwrap();
+                let Value::Str(id) = args[0] else {
+                    panic!("string argument")
+                };
+                let text = cx.runtime().gc().string_transport(id).unwrap().to_owned();
+                let time = cx.execution_time_millis().unwrap();
+                cx.runtime()
+                    .gc()
+                    .alloc_string_transport(format!("{text}:{time}"))
+                    .map_err(|error| HostError::new(error.to_string()))
+            })
         })
         .unwrap();
     let entered = Arc::new(AtomicUsize::new(0));
@@ -94,17 +101,20 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
             .unwrap();
         let entered = entered.clone();
         builder
-            .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
-                entered.fetch_add(1, Ordering::Relaxed);
-                match name {
-                    "configuration" => Ok(Value::I32(7)),
-                    "fail" => Err(HostError::new("service failed")),
-                    "cancel" => {
-                        cx.runtime().execution_options().cancellation.cancel();
-                        Err(HostError::new("failure after cancellation"))
+            .bind(function, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |cx: &HostCallContext<'_>, _: &[Value]| {
+                    entered.fetch_add(1, Ordering::Relaxed);
+                    match name {
+                        "configuration" => Ok(Value::I32(7)),
+                        "fail" => Err(HostError::new("service failed")),
+                        "cancel" => {
+                            cx.runtime().execution_options().cancellation.cancel();
+                            Err(HostError::new("failure after cancellation"))
+                        }
+                        _ => panic!("service unwind"),
                     }
-                    _ => panic!("service unwind"),
-                }
+                })
             })
             .unwrap();
     }
@@ -113,15 +123,17 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         .unwrap();
     assert!(
         builder
-            .bind(
-                missing_policy.clone(),
-                |_: &HostCallContext<'_>, _: &[Value]| Ok(Value::Unit)
-            )
+            .bind(missing_policy.clone(), unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| Ok(Value::Unit))
+            })
             .is_err()
     );
     // A rejected binding does not consume the declaration; complete it normally.
     builder
-        .bind(missing_policy, |_: &mut CallContext<'_>| Ok(Value::Unit))
+        .bind(missing_policy, unsafe {
+            NativeCallback::new(|_: &mut CallContext<'_>| Ok(Value::Unit))
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, owner) = source_free_vm(
@@ -146,10 +158,15 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         };
         let session = vm.runtime().begin_execution(&owner, options).unwrap();
         let report = vm.execute(&owner, "run").unwrap();
-        let Value::Str(id) = report.return_value.value(vm.runtime().gc()).unwrap() else {
+        let Value::Str(id) =
+            unsafe { report.return_value.value_transport(vm.runtime().gc()) }.unwrap()
+        else {
             panic!("string result")
         };
-        assert_eq!(&*vm.runtime().gc().string(id).unwrap(), "hello:123");
+        assert_eq!(
+            &*unsafe { vm.runtime().gc().string_transport(id) }.unwrap(),
+            "hello:123"
+        );
         assert_eq!(session.host_scope_count(), 0);
         let error = vm.execute(&owner, "fail").unwrap_err();
         assert!(
@@ -190,7 +207,10 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         let before = entered.load(Ordering::Relaxed);
         let report = vm.execute(&owner, "configuration").unwrap();
         assert_eq!(
-            report.return_value.value(vm.runtime().gc()),
+            report
+                .return_value
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
+                .ok(),
             Some(Value::I32(7))
         );
         let error = vm.execute(&owner, "fail").unwrap_err();
@@ -278,30 +298,30 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
         )
         .unwrap();
     builder
-        .bind_path(
-            &preview,
-            HostPathAdapter::new().with_read(|context, path| {
+        .bind_path(&preview, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+            HostPathAdapter::new().with_read_transport(|context, path| {
                 context
                     .runtime()
                     .gc()
-                    .alloc_host_root(path.root)
+                    .alloc_host_root_transport(path.root)
                     .map_err(|error| HostError::new(error.to_string()))
-            }),
-        )
+            })
+        })
         .unwrap();
     builder
-        .bind_path(
-            &identity,
+        .bind_path(&identity, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(|context, path| {
+                .with_read_transport(|context, path| {
                     context
                         .runtime()
                         .gc()
-                        .alloc_host_root(path.root)
+                        .alloc_host_root_transport(path.root)
                         .map_err(|error| HostError::new(error.to_string()))
                 })
-                .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
-        )
+                .with_prepare_write_transport(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})))
+        })
         .unwrap();
     let mut interface = builder.define_trait("HasHp").unwrap();
     interface
@@ -325,9 +345,9 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                             },
                         }),
                 )?;
-                methods.bind(
-                    method,
-                    move |context: &HostCallContext<'_>, values: &[Value]| {
+                methods.bind(method, unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(move |context: &HostCallContext<'_>, values: &[Value]| {
                         context.runtime().collect_garbage().unwrap();
                         let [value, Value::I32(amount)] = values else {
                             panic!("root and amount")
@@ -337,8 +357,8 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                             (edited.fetch_add(*amount as usize, Ordering::SeqCst)
                                 + *amount as usize) as i32,
                         ))
-                    },
-                )
+                    })
+                })
             })?;
             let read = state.clone();
             let identity = identity.clone();
@@ -350,9 +370,9 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                         effects: Default::default(),
                     },
                 )?;
-                methods.bind(
-                    "hp",
-                    move |context: &HostCallContext<'_>, values: &[Value]| {
+                methods.bind("hp", unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(move |context: &HostCallContext<'_>, values: &[Value]| {
                         context.runtime().collect_garbage().unwrap();
                         let [value] = values else { panic!("root") };
                         assert_external_argument(context, value, PathAccess::ReadOnly);
@@ -360,19 +380,19 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                             let path = context.runtime().resolve_host_path(&identity).unwrap();
                             let nested = context
                                 .runtime()
-                                .make_host_path_view_from_value(value, path, vec![])
+                                .make_host_path_view_from_value_transport(value, path, vec![])
                                 .unwrap();
                             assert_eq!(nested.access(), PathAccess::ReadOnly);
                             assert!(
                                 context
                                     .runtime()
-                                    .set_host_path(value, path, vec![], *value)
+                                    .set_host_path_transport(value, path, vec![], *value)
                                     .is_err()
                             );
                         }
                         Ok(Value::I32(read.load(Ordering::SeqCst) as i32))
-                    },
-                )
+                    })
+                })
             })
         })
         .unwrap();
@@ -402,22 +422,24 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     let root = runtime
         .register_host_root(HostObjectId(17), type_id, HostSchemaEpoch::new(3))
         .unwrap();
-    let value = runtime.gc().alloc_host_root(root).unwrap();
-    let value = runtime.gc().root_execution_values(vec![value]).unwrap();
+    let value = unsafe { runtime.gc().alloc_host_root_transport(root) }.unwrap();
+    let value = unsafe { runtime.gc().root_execution_values_transport(vec![value]) }.unwrap();
     let owner = runtime.load_program("shared-root", program).unwrap();
     let _owner_program = owner;
     let mut vm = Vm::new(runtime);
-    let argument = value.get(vm.runtime().gc(), 0).unwrap();
     vm.runtime_mut()
         .with_host_scope(|scope| {
+            assert!(scope.retain_slot(&value, 1).is_err());
+            assert!(scope.retain_slot(&value, 0)?.retain().is_err());
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
                     &_owner_program,
                     "main",
-                    &[argument],
+                    &[scope.retain_slot(&value, 0)?],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(15)
             );
             Ok(())
@@ -425,23 +447,31 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
         .unwrap();
     assert_eq!(state.load(Ordering::SeqCst), 15);
     let path = vm.runtime().resolve_host_path(&identity).unwrap();
-    let view = vm
-        .runtime()
-        .make_host_path_view(root, path, Default::default())
-        .unwrap();
-    let view = vm.runtime().gc().alloc_host_path(view).unwrap();
-    let view = vm.runtime().gc().root_execution_values(vec![view]).unwrap();
-    let view_value = view.get(vm.runtime().gc(), 0).unwrap();
+    let view = unsafe {
+        vm.runtime()
+            .make_host_path_view_transport(root, path, Default::default())
+    }
+    .unwrap();
+    let view = unsafe { vm.runtime().gc().alloc_host_path_transport(view) }.unwrap();
+    let view = unsafe {
+        vm.runtime()
+            .gc()
+            .root_execution_values_transport(vec![view])
+    }
+    .unwrap();
     vm.runtime_mut()
         .with_host_scope(|scope| {
+            assert!(scope.retain_slot(&view, 1).is_err());
+            assert!(scope.retain_slot(&view, 0)?.retain().is_err());
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
                     &_owner_program,
                     "main",
-                    &[view_value],
+                    &[scope.retain_slot(&view, 0)?],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(20)
             );
             Ok(())
@@ -449,17 +479,18 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
         .unwrap();
     assert_eq!(state.load(Ordering::SeqCst), 20);
     let preview_path = vm.runtime().resolve_host_path(&preview).unwrap();
-    let readonly = vm
-        .runtime()
-        .make_host_path_view(root, preview_path, Default::default())
-        .unwrap();
-    let readonly = vm.runtime().gc().alloc_host_path(readonly).unwrap();
-    let readonly = vm
-        .runtime()
-        .gc()
-        .root_execution_values(vec![readonly])
-        .unwrap();
-    let readonly_value = readonly.get(vm.runtime().gc(), 0).unwrap();
+    let readonly = unsafe {
+        vm.runtime()
+            .make_host_path_view_transport(root, preview_path, Default::default())
+    }
+    .unwrap();
+    let readonly = unsafe { vm.runtime().gc().alloc_host_path_transport(readonly) }.unwrap();
+    let readonly = unsafe {
+        vm.runtime()
+            .gc()
+            .root_execution_values_transport(vec![readonly])
+    }
+    .unwrap();
     vm.runtime_mut()
         .with_host_scope(|scope| {
             assert_eq!(
@@ -467,9 +498,10 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                     scope,
                     &_owner_program,
                     "read",
-                    &[readonly_value],
+                    &[scope.retain_slot(&readonly, 0)?],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(20)
             );
             assert!(
@@ -477,7 +509,7 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
                     scope,
                     &_owner_program,
                     "main",
-                    &[readonly_value],
+                    &[scope.retain_slot(&readonly, 0)?],
                     Default::default()
                 )
                 .is_err()
@@ -486,14 +518,21 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
         })
         .unwrap();
     assert_eq!(state.load(Ordering::SeqCst), 20);
-    let Value::HostPathView(id) = view.get(vm.runtime().gc(), 0).unwrap() else {
+    let Value::HostPathView(id) = unsafe { view.get_transport(vm.runtime().gc(), 0) }.unwrap()
+    else {
         panic!("view")
     };
     assert_eq!(
-        vm.runtime().gc().host_path(id).unwrap().access(),
+        unsafe { vm.runtime().gc().host_path_transport(id) }
+            .unwrap()
+            .access(),
         PathAccess::ReadWrite
     );
-    let scope = vm.runtime().host_scope(&[]).unwrap();
+    let scope = unsafe {
+        // SAFETY: Empty inputs; this guard owns only host borrow/session leases.
+        vm.runtime().host_scope_transport(&[])
+    }
+    .unwrap();
     scope
         .borrows()
         .borrow_unique(HostObjectId(17), type_id)
@@ -503,16 +542,23 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     let foreign = other
         .register_host_root(HostObjectId(17), type_id, HostSchemaEpoch::new(3))
         .unwrap();
-    let foreign = vm.runtime().gc().alloc_host_root(foreign).unwrap();
+    let foreign = unsafe { vm.runtime().gc().alloc_host_root_transport(foreign) }.unwrap();
+    let foreign = unsafe {
+        vm.runtime()
+            .gc()
+            .root_execution_values_transport(vec![foreign])
+    }
+    .unwrap();
     assert!(
         vm.runtime_mut()
             .with_host_scope(|scope| Vm::execute_scoped(
                 scope,
                 &_owner_program,
                 "main",
-                &[foreign],
+                &[scope.retain_slot(&foreign, 0)?],
                 Default::default()
-            ))
+            )
+            .map(|_| ()))
             .is_err()
     );
     assert_eq!(state.load(Ordering::SeqCst), 20);
@@ -521,9 +567,11 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
 fn assert_external_argument(context: &HostCallContext<'_>, value: &Value, access: PathAccess) {
     let runtime = context.runtime();
     let object = match value {
-        Value::HostRoot(id) => runtime.gc().host_root(*id).unwrap().object_id(),
+        Value::HostRoot(id) => unsafe { runtime.gc().host_root_transport(*id) }
+            .unwrap()
+            .object_id(),
         Value::HostPathView(id) => {
-            let view = runtime.gc().host_path(*id).unwrap();
+            let view = unsafe { runtime.gc().host_path_transport(*id) }.unwrap();
             assert_eq!(view.access(), access);
             view.root().object_id()
         }

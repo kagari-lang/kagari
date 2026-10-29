@@ -13,8 +13,8 @@ use crate::{
     native::{
         binding::NativeResult, catalog::DeclarationCatalog, conversion::context::ConversionContext,
         projection::GeneratedField, schema::TypeRegistration, types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
 };
 
 /// Resolve the Rust boundary type through the installed declaration catalog.
@@ -23,13 +23,14 @@ pub trait KagariType {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type>;
 
     /// Read an owned scalar or retained handle from an inline borrowed field.
+    /// The result owns its retention beyond the field loan and conversion context.
     /// Structured data is exposed as a location, never implicitly copied here.
     #[doc(hidden)]
     fn snapshot_field(
         &self,
         _: &mut ConversionContext<'_>,
         _: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         Err(RuntimeError::module_validation(
             "Rust field has no owned leaf reader",
         ))
@@ -60,17 +61,22 @@ pub trait KagariType {
     }
 }
 
-/// Convert owned Rust data. Composite adapters use `encode_value` for children,
-/// so they share type checks, recursion/work bounds and temporary roots.
+/// Convert owned Rust data into a retained script value.
+/// The result keeps its declared type and managed data alive independently of
+/// the conversion context; scalar results need no GC root entry. Composite
+/// adapters use `encode_value` for children to share type checks, recursion/work
+/// bounds and temporary roots. External adapters compose converters or checked
+/// builders rather than returning copied managed transport.
 pub trait IntoKagari: KagariType + Sized {
     fn into_kagari(
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value>;
+    ) -> NativeResult<ScriptValue>;
 }
 
-/// Convert a checked script value into owned Rust data or an owning handle.
+/// Convert a retained script value into owned Rust data or an owning handle.
+/// The input stays live through collection and reentry during conversion.
 /// Input and output capabilities are independent, including for user adapters.
 /// Borrowing a conversion input into the returned Rust value is forbidden:
 ///
@@ -78,10 +84,10 @@ pub trait IntoKagari: KagariType + Sized {
 /// use kagari_runtime::{
 ///     frame::types::arguments::TypeArgument,
 ///     native::{binding::NativeResult, catalog::DeclarationCatalog,
-///         conversion::{KagariType, FromKagari, context::ConversionContext}, types::Type},
-///     value::Value,
+///         conversion::{KagariType, FromKagari, context::ConversionContext},
+///         types::Type, value_handle::ScriptValue},
 /// };
-/// struct Borrowed<'a>(&'a str);
+/// struct Borrowed<'a>(&'a ScriptValue);
 /// impl KagariType for Borrowed<'_> {
 ///     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
 ///         String::kagari_type(catalog)
@@ -89,9 +95,8 @@ pub trait IntoKagari: KagariType + Sized {
 /// }
 /// impl<'a> FromKagari for Borrowed<'a> {
 ///     fn from_kagari(_: &mut ConversionContext<'_>, _: &TypeArgument,
-///                    value: &Value) -> NativeResult<Self> {
-///         let Value::Str(text) = value else { panic!("string") };
-///         Ok(Self(text.as_str()))
+///                    value: &ScriptValue) -> NativeResult<Self> {
+///         Ok(Self(value))
 ///     }
 /// }
 /// ```
@@ -103,6 +108,6 @@ pub trait FromKagari: KagariType + Sized {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self>;
 }

@@ -31,7 +31,7 @@ fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .unwrap(),
             Value::I32(42)
         );

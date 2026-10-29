@@ -9,6 +9,7 @@ use crate::{
     native::{
         builder::ModuleBuilder,
         declarations::{FunctionDecl, MethodDecl},
+        host::HostCallback,
         types::{Type, TypeRef},
     },
     value::Value,
@@ -88,18 +89,21 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
         )
         .unwrap();
     module
-        .bind(function, |context: &HostCallContext<'_>, _: &[Value]| {
-            let ty = context
-                .runtime()
-                .types()
-                .get_by_name("game::Player")
-                .unwrap()
-                .id;
-            let token = context
-                .borrows()
-                .borrow_unique(HostObjectId(1), ty)
-                .unwrap();
-            Ok(context.runtime().gc().alloc_host_mut(token).unwrap())
+        .bind(function, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|context: &HostCallContext<'_>, _: &[Value]| {
+                let ty = context
+                    .runtime()
+                    .types()
+                    .get_by_name("game::Player")
+                    .unwrap()
+                    .id;
+                let token = context
+                    .borrows()
+                    .borrow_unique(HostObjectId(1), ty)
+                    .unwrap();
+                Ok(context.runtime().gc().alloc_host_mut(token).unwrap())
+            })
         })
         .unwrap();
     let module = module.finish().unwrap();
@@ -144,13 +148,13 @@ fn registers_host_function_metadata_and_invokes_handler() {
         )
         .unwrap();
     module
-        .bind(
-            function,
-            |_: &HostCallContext<'_>, args: &[Value]| match args {
+        .bind(function, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_: &HostCallContext<'_>, args: &[Value]| match args {
                 [Value::HostRoot(_), Value::I32(hp)] => Ok(Value::I32(*hp)),
                 _ => Err(HostError::new("game::heal expects host root and i32")),
-            },
-        )
+            })
+        })
         .unwrap();
     let module = module.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
@@ -187,9 +191,12 @@ fn installed_host_functions_are_available() {
         }))
         .unwrap();
     module
-        .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
-            *calls_for_host.lock().unwrap() += 1;
-            Ok(Value::Unit)
+        .bind(function, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_: &HostCallContext<'_>, _: &[Value]| {
+                *calls_for_host.lock().unwrap() += 1;
+                Ok(Value::Unit)
+            })
         })
         .unwrap();
     let module = module.finish().unwrap();
@@ -212,8 +219,9 @@ fn rejects_duplicate_host_function_symbols() {
     let function = module.define_function(declaration.clone()).unwrap();
     assert!(module.define_function(declaration).is_err());
     module
-        .bind(function, |_: &HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::Unit)
+        .bind(function, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| Ok(Value::Unit))
         })
         .unwrap();
     let module = module.finish().unwrap();
@@ -246,7 +254,10 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
                             effects: Default::default(),
                         }),
                 )?;
-                methods.bind(heal, |_: &HostCallContext<'_>, args: &[Value]| Ok(args[1]))
+                methods.bind(heal, unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(|_: &HostCallContext<'_>, args: &[Value]| Ok(args[1]))
+                })
             })
         })
         .unwrap();

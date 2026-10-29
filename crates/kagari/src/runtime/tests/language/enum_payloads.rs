@@ -9,7 +9,7 @@ use kagari_runtime::{
     module::{EnumVariantRef, ExecutableModule, entry::ProgramEntry},
     reflection,
     value::{EnumTag, Value},
-    value_semantics::script_equal,
+    value_semantics::script_equal_transport,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
@@ -74,25 +74,29 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
         .unwrap();
     let root = report.return_value;
-    let Value::Enum(handle) = root
-        .value(runtime.runtime().gc())
-        .expect("retained execution result")
+    let Value::Enum(handle) =
+        unsafe { root.value_transport(runtime.runtime().gc()) }.expect("retained execution result")
     else {
         panic!("constructed enum")
     };
     assert_eq!(
-        runtime.runtime().gc().enum_snapshot(handle).unwrap().fields,
+        unsafe { runtime.runtime().gc().enum_snapshot_transport(handle) }
+            .unwrap()
+            .fields,
         [Value::I32(42)]
     );
     let Value::Str(name) =
-        reflection::type_of(runtime.runtime().gc(), &Value::Enum(handle)).unwrap()
+        unsafe { reflection::type_of_transport(runtime.runtime().gc(), &Value::Enum(handle)) }
+            .unwrap()
     else {
         panic!("enum type name")
     };
-    assert_eq!(&*runtime.runtime().gc().string(name).unwrap(), "Option");
-    let standard = runtime
-        .runtime()
-        .make_enum_member(
+    assert_eq!(
+        &*unsafe { runtime.runtime().gc().string_transport(name) }.unwrap(),
+        "Option"
+    );
+    let standard = unsafe {
+        runtime.runtime().make_enum_member_transport(
             &_selected_loaded,
             &runtime
                 .runtime()
@@ -108,16 +112,22 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
             "Some",
             vec![Value::I32(42)],
         )
-        .unwrap();
-    assert!(!script_equal(runtime.runtime().gc(), &Value::Enum(handle), &standard).unwrap());
+    }
+    .unwrap();
+    assert!(
+        !unsafe { script_equal_transport(runtime.runtime().gc(), &Value::Enum(handle), &standard) }
+            .unwrap()
+    );
 
     for fields in [vec![], vec![Value::Bool(true)]] {
         assert_eq!(
-            runtime
-                .runtime()
-                .alloc_enum(EnumTag::Declared(option.clone()), fields)
-                .unwrap_err()
-                .kind(),
+            unsafe {
+                runtime
+                    .runtime()
+                    .alloc_enum_transport(EnumTag::Declared(option.clone()), fields)
+            }
+            .unwrap_err()
+            .kind(),
             RuntimeErrorKind::ScriptTrap
         );
     }
@@ -130,52 +140,52 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         )
         .unwrap();
     assert_eq!(
-        runtime
-            .runtime()
-            .alloc_enum(
+        unsafe {
+            runtime.runtime().alloc_enum_transport(
                 EnumTag::Declared(variant(
                     &foreign_runtime.runtime().select_program(&foreign).unwrap(),
-                    "Option"
+                    "Option",
                 )),
-                vec![Value::I32(42)]
+                vec![Value::I32(42)],
             )
-            .unwrap_err()
-            .kind(),
+        }
+        .unwrap_err()
+        .kind(),
         RuntimeErrorKind::ModuleValidation
     );
 
-    let array = runtime
-        .runtime()
-        .alloc_array(
+    let array = unsafe {
+        runtime.runtime().alloc_array_transport(
             &_selected_loaded,
             Ty::Builtin(BuiltinType::I32),
             vec![Value::I32(1)],
         )
-        .unwrap();
-    let wrong = runtime
-        .runtime()
-        .alloc_enum(
+    }
+    .unwrap();
+    let wrong = unsafe {
+        runtime.runtime().alloc_enum_transport(
             EnumTag::Declared(variant(&_selected_loaded, "Other")),
             vec![Value::I32(42)],
         )
-        .unwrap();
+    }
+    .unwrap();
     assert!(
-        runtime
-            .runtime()
-            .alloc_enum(
+        unsafe {
+            runtime.runtime().alloc_enum_transport(
                 EnumTag::Declared(holder.clone()),
-                vec![Value::Enum(wrong), Value::Array(array)]
+                vec![Value::Enum(wrong), Value::Array(array)],
             )
-            .is_err()
+        }
+        .is_err()
     );
     assert!(
-        runtime
-            .runtime()
-            .alloc_enum(
+        unsafe {
+            runtime.runtime().alloc_enum_transport(
                 EnumTag::Declared(holder.clone()),
-                vec![Value::Enum(handle), Value::Array(array)]
+                vec![Value::Enum(handle), Value::Array(array)],
             )
-            .is_ok()
+        }
+        .is_ok()
     );
     let old_key = _selected_loaded.key();
     let changed = compile(
@@ -199,42 +209,44 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     // the changed schema still cannot consume the retained old values.
     let new = runtime.load_program(&changed, Default::default()).unwrap();
     assert!(
-        runtime
-            .runtime()
-            .alloc_enum(
+        unsafe {
+            runtime.runtime().alloc_enum_transport(
                 EnumTag::Declared(variant(
                     &runtime.runtime().select_program(&new).unwrap(),
-                    "Holder"
+                    "Holder",
                 )),
-                vec![Value::Enum(handle), Value::Array(array)]
+                vec![Value::Enum(handle), Value::Array(array)],
             )
-            .is_err()
+        }
+        .is_err()
     );
     drop(holder);
     drop(option);
     drop(loaded);
     runtime.runtime().collect_garbage().unwrap();
-    let snapshot = runtime.runtime().gc().enum_snapshot(handle).unwrap();
+    let snapshot = unsafe { runtime.runtime().gc().enum_snapshot_transport(handle) }.unwrap();
     let EnumTag::Declared(retained) = snapshot.tag;
     assert_eq!(retained.module().key(), old_key);
     assert_eq!(snapshot.fields, [Value::I32(42)]);
     assert!(
-        runtime
-            .runtime()
-            .alloc_enum(EnumTag::Declared(retained.clone()), vec![Value::I32(7)])
-            .is_ok()
+        unsafe {
+            runtime
+                .runtime()
+                .alloc_enum_transport(EnumTag::Declared(retained.clone()), vec![Value::I32(7)])
+        }
+        .is_ok()
     );
     drop(root);
     runtime.runtime().collect_garbage().unwrap();
-    assert!(runtime.runtime().gc().enum_snapshot(handle).is_none());
+    assert!(unsafe { runtime.runtime().gc().enum_snapshot_transport(handle) }.is_none());
     assert!(
-        runtime
-            .runtime()
-            .alloc_enum(
+        unsafe {
+            runtime.runtime().alloc_enum_transport(
                 EnumTag::Declared(retained.clone()),
-                vec![Value::Enum(handle)]
+                vec![Value::Enum(handle)],
             )
-            .is_err()
+        }
+        .is_err()
     );
 }
 
@@ -274,7 +286,7 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_bool().map(Value::Bool))
             .expect("retained execution result"),
         Value::Bool(true)
     );

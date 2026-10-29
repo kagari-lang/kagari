@@ -7,6 +7,7 @@ use crate::{
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         schema::TypeRegistration,
         types::Type,
+        value_handle::ScriptValue,
     },
     value::{EnumTag, Value},
 };
@@ -39,16 +40,18 @@ impl<T: IntoKagari> IntoKagari for Option<T> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         let (member, fields) = match self {
             None => ("None", vec![]),
             Some(value) => {
                 let element = cx.parameter(expected, 0)?;
-                ("Some", vec![cx.encode_value(&element, value)?])
+                ("Some", vec![cx.encode_transport(&element, value)?])
             }
         };
-        cx.runtime()
-            .make_enum_member(cx.owner(), expected, member, fields)
+        let value = cx
+            .runtime()
+            .make_enum_member(cx.owner(), expected, member, fields)?;
+        cx.retain_converted(expected, value)
     }
 }
 
@@ -56,13 +59,16 @@ impl<T: FromKagari> FromKagari for Option<T> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        let value = &raw;
         match enum_payload(cx, expected, value, "None", "Some")? {
             (false, EnumPayload::Empty) => Ok(None),
             (true, EnumPayload::Single(value)) => {
                 let element = cx.parameter(expected, 0)?;
-                cx.decode_value(&element, &value).map(Some)
+                let protected = cx.retain_converted(&element, value)?;
+                cx.decode_value(&element, &protected).map(Some)
             }
             _ => Err(RuntimeError::module_validation("Option conversion payload")),
         }
@@ -120,19 +126,21 @@ impl<T: IntoKagari, E: IntoKagari> IntoKagari for Result<T, E> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         let (member, value) = match self {
             Ok(value) => {
                 let element = cx.parameter(expected, 0)?;
-                ("Ok", cx.encode_value(&element, value)?)
+                ("Ok", cx.encode_transport(&element, value)?)
             }
             Err(value) => {
                 let element = cx.parameter(expected, 1)?;
-                ("Err", cx.encode_value(&element, value)?)
+                ("Err", cx.encode_transport(&element, value)?)
             }
         };
-        cx.runtime()
-            .make_enum_member(cx.owner(), expected, member, vec![value])
+        let value = cx
+            .runtime()
+            .make_enum_member(cx.owner(), expected, member, vec![value])?;
+        cx.retain_converted(expected, value)
     }
 }
 
@@ -140,17 +148,20 @@ impl<T: FromKagari, E: FromKagari> FromKagari for Result<T, E> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        let value = &raw;
         let (error, payload) = enum_payload(cx, expected, value, "Ok", "Err")?;
         let EnumPayload::Single(value) = payload else {
             return Err(RuntimeError::module_validation("Result conversion payload"));
         };
         let element = cx.parameter(expected, usize::from(error))?;
+        let protected = cx.retain_converted(&element, value)?;
         if error {
-            cx.decode_value(&element, &value).map(Err)
+            cx.decode_value(&element, &protected).map(Err)
         } else {
-            cx.decode_value(&element, &value).map(Ok)
+            cx.decode_value(&element, &protected).map(Ok)
         }
     }
 }

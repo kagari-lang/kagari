@@ -54,7 +54,26 @@ impl Runtime {
     /// Construct a declared member in a validated, generation-pinned type scope.
     /// Member lookup and payload checks precede allocation; retain a root before
     /// another allocation or reentry. Native bindings normally use VariantRef.
-    pub fn make_enum_member(
+    /// Admit protected transport at the backend execution boundary.
+    ///
+    /// # Safety
+    /// Keep all managed inputs live until the destination frame or result owner is
+    /// published. Inputs that can be replaced through aliases require independent
+    /// protection across callbacks. Root raw results before collection, reentry or
+    /// source retirement; host capabilities must remain in their original host scope.
+    /// Existing owner/type/generation checks cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn make_enum_member_transport(
+        &self,
+        owner: &ExecutableModule,
+        applied: &TypeArgument,
+        member: &str,
+        fields: Vec<Value>,
+    ) -> NativeResult<Value> {
+        self.make_enum_member(owner, applied, member, fields)
+    }
+
+    pub(crate) fn make_enum_member(
         &self,
         owner: &ExecutableModule,
         applied: &TypeArgument,
@@ -117,9 +136,24 @@ impl CallContext<'_> {
             .enum_variant_in_scope(self.owner, applied, variant)
     }
 
+    /// Allocate raw enum transport from protected provider payloads.
+    ///
+    /// # Safety
+    /// Keep every payload live through publication; retain or publish the result
+    /// before any callback or safepoint. Variant/type validation still applies.
+    #[doc(hidden)]
+    pub unsafe fn allocate_enum_transport(
+        &self,
+        applied: &TypeArgument,
+        variant: &VariantRef,
+        fields: Vec<Value>,
+    ) -> NativeResult<Value> {
+        self.allocate_enum(applied, variant, fields)
+    }
+
     /// Allocate an ordinary registered enum in its checked, pinned type scope.
     /// Root the returned Value before further allocation or synchronous reentry.
-    pub fn allocate_enum(
+    pub(crate) fn allocate_enum(
         &self,
         applied: &TypeArgument,
         variant: &VariantRef,
@@ -157,7 +191,12 @@ impl CallContext<'_> {
     }
 
     /// Read a checked payload field; the argument root retains its referent for this call.
-    pub fn enum_argument_field(
+    ///
+    /// # Safety
+    /// The source enum argument protects this immutable payload during the call.
+    /// Retain another owner before the returned copy can outlive that protection.
+    #[doc(hidden)]
+    pub unsafe fn enum_argument_field_transport(
         &self,
         index: usize,
         variant: &VariantRef,

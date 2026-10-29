@@ -11,7 +11,9 @@ use crate::{
     module::ExecutableModule,
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
-        context::{CallContext, LinkedCallable, LinkedOperation, ScriptInvoker},
+        context::{
+            CallContext, LinkedCallable, LinkedOperation, ScriptInvoker, arguments::ArgumentView,
+        },
         conversion::{
             FromKagari, IntoKagari, arguments::FromKagariArguments, context::ConversionContext,
         },
@@ -200,14 +202,10 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
     )?;
     // Keep the complete pack through result conversion as well as decoding and
     // payload access. A loan ends before the result's first allocation/safepoint.
-    let roots = context
-        .runtime()
-        .gc()
-        .root_execution_values(values.clone())
-        .ok_or_else(|| RuntimeError::module_validation("native invocation argument roots"))?;
-    let arguments = A::from_arguments(&mut context.conversion, types, &values)?;
+    let roots = ArgumentView::from_values(call.heap(), values)?;
+    let arguments = A::from_arguments(&mut context.conversion, types, &roots)?;
     let result = entry(&mut context, arguments)?;
-    let result = context.conversion.encode_value(result_type, result);
+    let result = context.conversion.encode_transport(result_type, result);
     drop(roots);
     result
     // No safepoint occurs between dropping this scope and the caller publishing

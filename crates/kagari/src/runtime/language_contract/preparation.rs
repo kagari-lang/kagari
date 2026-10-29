@@ -10,7 +10,7 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, installation::NativeInstallation},
+    native::{builder::ModuleBuilder, host::HostCallback, installation::NativeInstallation},
     value::Value,
 };
 use kagari_source::{identity::FileId, source_database::SourceSnapshot};
@@ -32,8 +32,11 @@ pub(super) fn engine(vector: bool) -> KagariEngine {
             .unwrap();
             let vector = module.declared_function("vector").unwrap();
             module
-                .bind(vector, |_: &HostCallContext<'_>, _: &[Value]| {
-                    Err(HostError::new("compilation-only provider must not execute"))
+                .bind(vector, unsafe {
+                    // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                    HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| {
+                        Err(HostError::new("compilation-only provider must not execute"))
+                    })
                 })
                 .unwrap();
             builder.install(module.finish().unwrap()).unwrap();

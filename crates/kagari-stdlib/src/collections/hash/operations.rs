@@ -12,7 +12,7 @@ use kagari_runtime::native::{
     views::{NativeOperationGuard, NativeOperationKind},
 };
 use kagari_runtime::value::Value;
-use kagari_runtime::value_semantics::{hash::script_hash, script_equal};
+use kagari_runtime::value_semantics::{hash::script_hash_transport, script_equal_transport};
 use kagari_runtime::{Runtime, error::RuntimeError};
 
 pub(crate) struct Lookup<'runtime> {
@@ -53,8 +53,7 @@ pub(crate) fn encode<P: HashPayload, T: IntoKagari>(
 ) -> NativeResult<ScriptValue> {
     let mut conversion = cx.conversion_scope(cx.owner())?;
     let argument = conversion.parameter(object.type_argument(), index)?;
-    let value = conversion.encode_value(&argument, value)?;
-    conversion.decode_value(&argument, &value)
+    conversion.encode_value(&argument, value)
 }
 
 fn scalar_position<V: HashValue>(
@@ -62,11 +61,11 @@ fn scalar_position<V: HashValue>(
     table: &HashTable<V>,
     key: Value,
 ) -> NativeResult<(i64, Option<usize>)> {
-    let hash = script_hash(runtime.gc(), &key).ok_or_else(invalid)?;
+    let hash = unsafe { script_hash_transport(runtime.gc(), &key) }.ok_or_else(invalid)?;
     let mut position = table.buckets.get(&hash).copied();
     while let Some(slot) = position {
         runtime.resources().poll_execution()?;
-        if script_equal(runtime.gc(), &table.slots[slot].key, &key)? {
+        if unsafe { script_equal_transport(runtime.gc(), &table.slots[slot].key, &key) }? {
             return Ok((hash, Some(slot)));
         }
         position = table.next(hash, slot);
@@ -234,7 +233,7 @@ fn primitive_lookup<'view, P: HashPayload>(
             guard,
         });
     }
-    let hash = script_hash(cx.runtime().gc(), &key).ok_or_else(invalid)?;
+    let hash = unsafe { script_hash_transport(cx.runtime().gc(), &key) }.ok_or_else(invalid)?;
     let mut position = None;
     let mut first = true;
     loop {
@@ -258,7 +257,7 @@ fn primitive_lookup<'view, P: HashPayload>(
         };
         match candidate {
             Some((slot, next, candidate)) => {
-                if script_equal(cx.runtime().gc(), &candidate, &key)? {
+                if unsafe { script_equal_transport(cx.runtime().gc(), &candidate, &key) }? {
                     return Ok(Lookup {
                         hash,
                         slot: Some(slot),

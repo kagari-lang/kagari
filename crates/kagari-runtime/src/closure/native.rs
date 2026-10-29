@@ -18,7 +18,7 @@ impl Runtime {
         target: &LinkedCallable,
         signature: Arc<ScopedSignature>,
     ) -> NativeResult<Value> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         let owner = target.owner(caller)?;
         self.validate_executable_module(&owner)?;

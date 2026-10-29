@@ -6,6 +6,7 @@ use crate::{
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
+        context::arguments::ArgumentView,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         types::Type,
     },
@@ -34,12 +35,17 @@ pub trait IntoKagariArguments: KagariArguments + Sized {
     ) -> NativeResult<RootSet>;
 }
 
+/// Convert a protected argument pack, including the runtime's scoped loan adapters.
+/// Ordinary custom adapters retain storable slots through ArgumentView instead of
+/// copying raw values. A snapshot preserves the whole pack across child callbacks;
+/// slicing that snapshot shares its existing root lease.
 pub trait FromKagariArguments: KagariArguments + Sized {
-    /// Retains a snapshot of the entire pack before user-defined conversion runs.
+    /// Check the whole signature before user-defined child conversion runs.
+    /// Scoped capabilities retain their original loan validity and access checks.
     fn from_arguments(
         cx: &mut ConversionContext<'_>,
         expected: &[TypeArgument],
-        values: &[Value],
+        values: &ArgumentView<'_>,
     ) -> NativeResult<Self>;
 }
 
@@ -102,7 +108,7 @@ macro_rules! arguments {
                 $(cx.check_type::<$ty>(&expected[$slot])?;)*
                 cx.check_elements($count)?;
                 cx.argument_scope(|cx| {
-                    let values = vec![$(cx.encode_value(&expected[$slot], self.$slot)?),*];
+                    let values = vec![$(cx.encode_transport(&expected[$slot], self.$slot)?),*];
                     cx.runtime().gc().root_execution_values(values)
                         .ok_or_else(|| RuntimeError::module_validation("typed argument roots"))
                 })
@@ -110,22 +116,26 @@ macro_rules! arguments {
         }
 
         impl<$($ty: FromKagari),*> FromKagariArguments for ($($ty,)*) {
-            fn from_arguments(cx: &mut ConversionContext<'_>, expected: &[TypeArgument], values: &[Value]) -> NativeResult<Self> {
+            fn from_arguments(cx: &mut ConversionContext<'_>, expected: &[TypeArgument], values: &ArgumentView<'_>) -> NativeResult<Self> {
                 check_arity(expected, $count)?;
                 if values.len() != $count { return Err(RuntimeError::module_validation("typed input argument count")); }
+                values.check_heap(cx.runtime().gc())?;
+                let values = values.snapshot()?;
                 $(cx.check_type::<$ty>(&expected[$slot])?;)*
                 cx.check_elements($count)?;
-                for (ty, value) in expected.iter().zip(values) { cx.check_value(ty, value)?; }
-                let roots = cx.runtime().gc().root_execution_values(values.to_vec())
-                    .ok_or_else(|| RuntimeError::module_validation("typed input argument roots"))?;
+                for (slot, ty) in expected.iter().enumerate() {
+                    let value = values.get(slot).ok_or_else(|| RuntimeError::module_validation("typed input argument slot"))?;
+                    cx.check_value(ty, &value)?;
+                }
                 let result = cx.argument_scope(|_cx| {
                     Ok(($({
-                        let value = roots.get(_cx.runtime().gc(), $slot)
+                        let value = values.get($slot)
                             .ok_or_else(|| RuntimeError::module_validation("typed input argument slot"))?;
-                        _cx.decode_value::<$ty>(&expected[$slot], &value)?
+                        // SAFETY: The private argument snapshot retains this slot through admission.
+                        unsafe { _cx.decode_transport::<$ty>(&expected[$slot], &value) }?
                     },)*))
                 });
-                drop(roots);
+                drop(values);
                 result
             }
         }

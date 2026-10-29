@@ -89,13 +89,16 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         .execute_typed(&loaded, "cursor", (values.clone(),), &context)
         .unwrap();
     let cursor_type = iter.type_argument().clone();
-    let value = iter
-        .clone()
-        .into_kagari(
-            &mut ConversionContext::new(rt, &_selected_loaded).unwrap(),
-            &cursor_type,
-        )
-        .unwrap();
+    let value = unsafe {
+        iter.clone()
+            .into_kagari(
+                &mut ConversionContext::new(rt, &_selected_loaded).unwrap(),
+                &cursor_type,
+            )
+            .unwrap()
+            .value_transport(rt)
+    }
+    .unwrap();
     values
         .set(
             &mut NativeContext::new(rt, &_selected_loaded).unwrap(),
@@ -137,11 +140,8 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     );
     drop(iter);
     rt.collect_garbage().unwrap();
-    // An expired raw identity cannot be converted back into an owning iterator.
-    assert!(
-        ConversionContext::new(rt, &_selected_loaded)
-            .unwrap()
-            .decode_value::<ScriptValue>(&cursor_type, &value)
-            .is_err()
-    );
+    // Checked-ID diagnostics confirm reclamation after the last retained cursor.
+    // Safe conversion no longer accepts raw transport; its compile-fail contract
+    // prevents reconstructing an owning cursor from this expired diagnostic ID.
+    assert!(!unsafe { rt.gc().validate_value_transport(&value) });
 }

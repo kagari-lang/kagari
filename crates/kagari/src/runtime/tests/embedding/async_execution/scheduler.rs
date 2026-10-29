@@ -244,16 +244,15 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let mut options = ExecutionContext::default();
     options.inputs.unix_time_millis = 123;
-    let execution = f
-        .runtime
-        .backend()
-        .start(
+    let execution = unsafe {
+        f.runtime.backend().start_transport(
             &f.runtime.runtime().select_program(&f.module).unwrap(),
             "value",
             &[],
             options.interpreter_options().unwrap(),
         )
-        .unwrap();
+    }
+    .unwrap();
     let id = execution.execution_id();
     let mut ticket = f
         .runtime
@@ -361,10 +360,12 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     assert_eq!(late.complete(Ok(9)), CompletionStatus::Stale);
     assert!(scope.is_closed());
     assert!(
-        f.runtime
-            .backend()
-            .start(&selected, "value", &[], Default::default())
-            .is_err()
+        unsafe {
+            f.runtime
+                .backend()
+                .start_transport(&selected, "value", &[], Default::default())
+        }
+        .is_err()
     );
     let mut other = Fixture::source(SOURCE);
     let mut ticket = scheduled(&other, "io", &[Value::I32(10)]);
@@ -391,16 +392,15 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
     let converted_drops = drops.clone();
     let (converting, started) = mpsc::sync_channel(1);
     let (abandoned, dropped) = mpsc::sync_channel(1);
-    let execution = f
-        .runtime
-        .backend()
-        .start(
+    let execution = unsafe {
+        f.runtime.backend().start_transport(
             &f.runtime.runtime().select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
         )
-        .unwrap();
+    }
+    .unwrap();
     let ticket = f
         .runtime
         .runtime()
@@ -480,16 +480,15 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
             }
             scheduled(&f, "observe", &[f.value(&task)])
         } else {
-            let execution = f
-                .runtime
-                .backend()
-                .start(
+            let execution = unsafe {
+                f.runtime.backend().start_transport(
                     &f.runtime.runtime().select_program(&f.module).unwrap(),
                     "value",
                     &[],
                     Default::default(),
                 )
-                .unwrap();
+            }
+            .unwrap();
             f.runtime
                 .runtime()
                 .schedule_execution(execution, decode)
@@ -566,16 +565,15 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
             }
             scheduled(&f, "observe", &[f.value(&task)])
         } else {
-            let execution = f
-                .runtime
-                .backend()
-                .start(
+            let execution = unsafe {
+                f.runtime.backend().start_transport(
                     &f.runtime.runtime().select_program(&f.module).unwrap(),
                     "value",
                     &[],
                     Default::default(),
                 )
-                .unwrap();
+            }
+            .unwrap();
             f.runtime
                 .runtime()
                 .schedule_execution(execution, decode)
@@ -626,16 +624,15 @@ impl Drop for CleanupFault {
 fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
     let mut f = Fixture::source(SOURCE);
     let host = HostLoop::new();
-    let execution = f
-        .runtime
-        .backend()
-        .start(
+    let execution = unsafe {
+        f.runtime.backend().start_transport(
             &f.runtime.runtime().select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
         )
-        .unwrap();
+    }
+    .unwrap();
     let completed = f
         .runtime
         .runtime()
@@ -678,16 +675,15 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
         );
         assert_eq!(f.starts.load(Ordering::SeqCst), 1);
         let late = f.sent.lock().unwrap().pop().unwrap();
-        let execution = f
-            .runtime
-            .backend()
-            .start(
+        let execution = unsafe {
+            f.runtime.backend().start_transport(
                 &f.runtime.runtime().select_program(&f.module).unwrap(),
                 "value",
                 &[],
                 Default::default(),
             )
-            .unwrap();
+        }
+        .unwrap();
         let fault = CleanupFault;
         let mut cancelled = f
             .runtime
@@ -733,16 +729,15 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
 #[test]
 fn scheduler_conversion_fault_drains_other_invocations() {
     let mut f = Fixture::source(SOURCE);
-    let execution = f
-        .runtime
-        .backend()
-        .start(
+    let execution = unsafe {
+        f.runtime.backend().start_transport(
             &f.runtime.runtime().select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
         )
-        .unwrap();
+    }
+    .unwrap();
     let mut broken = f
         .runtime
         .runtime()

@@ -7,6 +7,7 @@ use crate::{
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         objects::{Dynamic, Object},
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -54,9 +55,11 @@ impl<S: KagariType> FromKagari for Object<S> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         Self::check_type(cx, expected)?;
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        let value = &raw;
         cx.check_value(expected, value)?;
         let Value::Struct(id) = value else {
             return Err(RuntimeError::module_validation(
@@ -87,13 +90,17 @@ impl<S: KagariType> IntoKagari for Object<S> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         Self::check_type(cx, expected)?;
         let value = self
             .root
             .value(cx.runtime().gc())
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired object handle"))?;
         cx.check_value(expected, &value)?;
-        Ok(value)
+        Ok(ScriptValue::from_root(
+            self.root,
+            expected.clone(),
+            cx.owner().clone(),
+        ))
     }
 }

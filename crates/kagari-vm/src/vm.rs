@@ -181,11 +181,12 @@ impl Vm {
     ) -> Result<ExecutionReport, VmError> {
         let mut executor = Executor::new(&self.runtime, module, function, &[])?;
         let return_value = executor.run()?;
-        let failure = self.runtime.result_failure(&return_value);
-        let return_value = self
-            .runtime
-            .root_value(return_value)
-            .ok_or_else(|| RuntimeError::module_validation("execution result root"))?;
+        let failure = unsafe { self.runtime.result_failure_transport(&return_value) };
+        let return_value = unsafe {
+            // SAFETY: Executor transfers its live terminal value here before any callback or collection.
+            self.runtime.gc().root_value_transport(return_value)
+        }
+        .ok_or_else(|| RuntimeError::module_validation("execution result root"))?;
 
         Ok(ExecutionReport {
             module_name: module.name.clone(),
@@ -201,25 +202,46 @@ impl Vm {
     /// Invokes a linked script implementation through a runtime-owned
     /// interface value. The method ID must belong to the value's retained definition
     /// prefix. The receiver and arguments remain rooted while the method body executes.
-    pub fn invoke_interface_method(
+    /// Admit protected transport at the backend execution boundary.
+    ///
+    /// # Safety
+    /// Keep all managed inputs live until the destination frame or result owner is
+    /// published. Inputs that can be replaced through aliases require independent
+    /// protection across callbacks. Root raw results before collection, reentry or
+    /// source retirement; host capabilities must remain in their original host scope.
+    /// Existing owner/type/generation checks cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn invoke_interface_method_transport(
         &self,
         interface: &Value,
         method: &DefinitionId,
         arguments: &[Value],
     ) -> Result<Value, VmError> {
-        let resolved = self
-            .runtime
-            .resolve_interface_method(interface, method)
-            .map_err(VmError::RuntimeError)?;
+        self.invoke_interface_method(interface, method, arguments)
+    }
+
+    pub(crate) fn invoke_interface_method(
+        &self,
+        interface: &Value,
+        method: &DefinitionId,
+        arguments: &[Value],
+    ) -> Result<Value, VmError> {
+        let resolved = unsafe {
+            self.runtime
+                .resolve_interface_method_transport(interface, method)
+        }
+        .map_err(VmError::RuntimeError)?;
         let loaded = resolved.implementation(&self.runtime)?;
-        let args = iter::once(*resolved.receiver())
+        let args = iter::once(*unsafe { resolved.receiver_transport() })
             .chain(arguments.iter().cloned())
             .collect::<Vec<_>>();
-        let _argument_roots = self
-            .runtime
-            .gc()
-            .root_execution_values(args.clone())
-            .ok_or(VmError::TypeMismatch("invalid interface method argument"))?;
+        let _argument_roots = unsafe {
+            // SAFETY: No callbacks or safepoints separate receiver resolution, argument copying and checked-ID root publication.
+            self.runtime
+                .gc()
+                .root_execution_values_transport(args.clone())
+        }
+        .ok_or(VmError::TypeMismatch("invalid interface method argument"))?;
         let _session = self.begin_execution(&loaded)?;
         self.runtime
             .validate_executable_module(&loaded)

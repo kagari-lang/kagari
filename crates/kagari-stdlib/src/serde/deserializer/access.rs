@@ -10,6 +10,7 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         conversion::{context::ConversionContext, structures::StructDecoder},
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -159,10 +160,7 @@ impl<'de> SeqAccess<'de> for Sequence<'_, '_> {
             SequenceTypes::Repeated(field, _) => field,
             SequenceTypes::Fields(fields) => &fields[self.next],
         };
-        let value = self
-            .roots
-            .get(self.cx.runtime().gc(), self.next)
-            .ok_or_else(|| unsupported("expired child snapshot"))?;
+        let value = self.cx.retain_slot(field, &self.roots, self.next)?;
         let result = decode(self.cx, field, &value, seed)
             .map_err(|error| error.at_conversion(format_args!("element {}", self.next)))?;
         self.next += 1;
@@ -185,27 +183,30 @@ impl<'scope, 'runtime> Variant<'scope, 'runtime> {
     pub(super) fn new(
         cx: &'scope mut ConversionContext<'runtime>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
+        // SAFETY: value retains the enum through the callback-free layout reads
+        // and complete child-root publication, before a user visitor runs.
+        let raw = unsafe { value.value_transport(cx.runtime()) }?;
         let layout = cx.variant_layout(expected, value)?;
         let name = cx.variant_name(expected, value)?;
         let fields = cx.variant_fields(&layout)?;
-        let Value::Enum(id) = value else {
+        let Value::Enum(id) = raw else {
             return Err(unsupported("enum value"));
         };
-        let snapshot = cx
-            .runtime()
-            .gc()
-            .enum_snapshot(*id)
+        let snapshot = unsafe { cx.runtime().gc().enum_snapshot_transport(id) }
             .ok_or_else(|| unsupported("enum snapshot"))?;
         if fields.len() != snapshot.fields.len() {
             return Err(unsupported("enum payload arity"));
         }
-        let roots = cx
-            .runtime()
-            .gc()
-            .root_execution_values(snapshot.fields)
-            .ok_or_else(|| unsupported("enum snapshot roots"))?;
+        let roots = unsafe {
+            // SAFETY: The retained enum protects these fields until the whole snapshot is published, before any visitor callback.
+
+            cx.runtime()
+                .gc()
+                .root_execution_values_transport(snapshot.fields)
+        }
+        .ok_or_else(|| unsupported("enum snapshot roots"))?;
         Ok(Self {
             cx,
             name,
@@ -219,13 +220,10 @@ impl<'scope, 'runtime> Variant<'scope, 'runtime> {
     }
 
     pub(super) fn some<'de, V: Visitor<'de>>(self, visitor: V) -> NativeResult<V::Value> {
-        let value = self
-            .roots
-            .get(self.cx.runtime().gc(), 0)
-            .ok_or_else(|| unsupported("Option snapshot"))?;
         let field = &self.fields[0];
-        self.cx.decode_scope(field, &value, |cx| {
-            visitor.visit_some(Deserializer::new(cx, field, value))
+        let value = self.cx.retain_slot(field, &self.roots, 0)?;
+        self.cx.decode_scope(field, &value, |cx, input| {
+            visitor.visit_some(Deserializer::new(cx, field, input.clone()))
         })
     }
 }
@@ -255,11 +253,9 @@ impl<'de> VariantAccess<'de> for Variant<'_, '_> {
         if self.fields.len() != 1 {
             return Err(unsupported("newtype variant arity"));
         }
-        let value = self
-            .roots
-            .get(self.cx.runtime().gc(), 0)
-            .ok_or_else(|| unsupported("variant snapshot"))?;
-        decode(self.cx, &self.fields[0], &value, seed)
+        let field = &self.fields[0];
+        let value = self.cx.retain_slot(field, &self.roots, 0)?;
+        decode(self.cx, field, &value, seed)
     }
 
     fn tuple_variant<V: Visitor<'de>>(self, len: usize, visitor: V) -> NativeResult<V::Value> {

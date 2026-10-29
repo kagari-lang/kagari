@@ -143,7 +143,26 @@ impl Runtime {
 
     /// Construct using a checked body's exact capability and supplying generation.
     /// Returns an error for stale environments, foreign values or absent evidence.
-    pub fn make_bound_interface(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn make_bound_interface_transport(
+        &self,
+        owner: &ExecutableModule,
+        environment: &TypeEnvironment,
+        required: &ConstructionRequirement,
+        data: Value,
+    ) -> Result<Value, RuntimeError> {
+        self.make_bound_interface(owner, environment, required, data)
+    }
+
+    pub(crate) fn make_bound_interface(
         &self,
         owner: &ExecutableModule,
         environment: &TypeEnvironment,

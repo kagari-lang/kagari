@@ -48,12 +48,14 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         })
         .unwrap();
     declaration
-        .bind(
-            identity,
-            NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |cx| {
-                cx.argument(1)
-            }),
-        )
+        .bind(identity, unsafe {
+            NativeBinding::new_transport(
+                vec![Codec::Value, Codec::Value],
+                Codec::Value,
+                // SAFETY: The active call retains this input until its copy is published or consumed.
+                |cx| cx.argument_transport(1),
+            )
+        })
         .unwrap();
     let contract = declaration.finish().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
@@ -61,13 +63,17 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     module
         .implement(Type::i32(), |group| {
             group.trait_impl(contract.apply([Type::i32()])?, |methods| {
-                methods.bind(
-                    "identity",
-                    NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
-                        observed.fetch_add(1, Ordering::SeqCst);
-                        cx.argument(1)
-                    }),
-                )
+                methods.bind("identity", unsafe {
+                    NativeBinding::new_transport(
+                        vec![Codec::Value, Codec::Value],
+                        Codec::Value,
+                        move |cx| {
+                            observed.fetch_add(1, Ordering::SeqCst);
+                            // SAFETY: The active call retains this input until its copy is published or consumed.
+                            cx.argument_transport(1)
+                        },
+                    )
+                })
             })
         })
         .unwrap();
@@ -110,7 +116,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -118,7 +124,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         vm.execute(&loaded, "overridden")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -127,7 +133,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         vm.execute(&loaded, "nested")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -135,7 +141,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         vm.execute(&loaded, "bounded")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -163,17 +169,19 @@ fn registered_default_calls_the_selected_receiver_operation() {
         .method(&twice, |method| method.requires(operation))
         .unwrap();
     declaration
-        .bind(
-            twice,
-            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
-                let receiver = cx.argument(0)?;
+        .bind(twice, unsafe {
+            NativeBinding::new_transport(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
+                // SAFETY: The active call retains this input until its copy is published or consumed.
+                let receiver = cx.argument_transport(0)?;
                 let target = cx.selected(&selected)?;
-                let Value::I32(value) = cx.call_values(target, &[receiver])? else {
+                // SAFETY: The native argument frame and local working roots protect inputs; results
+                // are decoded, rooted or returned before another callback.
+                let Value::I32(value) = cx.call_values_transport(target, &[receiver])? else {
                     return Err(RuntimeError::module_validation("checked Read result"));
                 };
                 Ok(Value::I32(value * 2))
-            }),
-        )
+            })
+        })
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
@@ -195,7 +203,7 @@ fn registered_default_calls_the_selected_receiver_operation() {
             vm.execute(&loaded, entry)
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -222,7 +230,7 @@ fn dynamic_list_iteration_adapts_the_concrete_cursor_result() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -249,7 +257,7 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -359,7 +367,7 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -368,7 +376,7 @@ fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -409,7 +417,7 @@ fn script_iterator_results_use_the_same_dynamic_adapter() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -448,7 +456,7 @@ fn default_map_and_set_iterate_through_readonly_parent_views() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -479,18 +487,20 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
         })
         .unwrap();
     declaration
-        .bind(
-            compare,
-            NativeBinding::new(
+        .bind(compare, unsafe {
+            NativeBinding::new_transport(
                 vec![Codec::Value, Codec::Value, Codec::Value],
                 Codec::Value,
                 move |cx| {
-                    let args = [cx.argument(1)?, cx.argument(2)?];
+                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                    let args = [cx.argument_transport(1)?, cx.argument_transport(2)?];
                     let target = cx.selected(&selected)?;
-                    cx.call_values(target, &args)
+                    // SAFETY: The native argument frame and local working roots protect inputs;
+                    // results are decoded, rooted or returned before another callback.
+                    cx.call_values_transport(target, &args)
                 },
-            ),
-        )
+            )
+        })
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
@@ -532,7 +542,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -571,7 +581,7 @@ fn main() -> i32 {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -596,10 +606,11 @@ pub(super) fn generic_identity_module() -> NativeModule {
         })
         .unwrap();
     module
-        .bind(
-            identity,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| cx.argument(0)),
-        )
+        .bind(identity, unsafe {
+            NativeBinding::new_transport(vec![Codec::Value], Codec::Value, |cx| {
+                cx.argument_transport(0)
+            })
+        })
         .unwrap();
     let singleton = module
         .define_function(FunctionDecl::new("singleton"))
@@ -651,13 +662,12 @@ pub fn runner() -> Run { 7 }
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let mut vm = Vm::new(runtime);
-    let receiver = vm
-        .execute(&old, "receiver")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let source_root = vm.execute(&old, "receiver").unwrap().return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let receiver = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(receiver).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(receiver) }.unwrap();
+    drop(source_root);
     let next_source = source
         .replace("val value: i32", "val value: i32, val extra: bool")
         .replace("value: 42 }", "value: 42, extra: true }");
@@ -682,11 +692,9 @@ pub fn runner() -> Run { 7 }
     let current = candidate.module().clone();
     vm.runtime_mut().publish_staged_reload(candidate).unwrap();
     let _current_program = _old_program.clone();
-    let runner = vm
-        .execute(&current, "runner")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let runner_root = vm.execute(&current, "runner").unwrap().return_value;
+    // SAFETY: runner_root protects this value through its uses and traced publication.
+    let runner = unsafe { runner_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
     let method = current
         .bytecode
@@ -711,6 +719,7 @@ pub fn runner() -> Run { 7 }
             .unwrap(),
         Value::I32(43)
     );
+    drop(runner_root);
     drop(root);
     // Retire the linked construction cache as well as its old receiver value.
     let candidate = vm
@@ -758,19 +767,26 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
         })
         .unwrap();
     declaration
-        .bind(
-            echo,
-            NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
-                let receiver = cx.argument(0)?;
-                let target = cx.selected(&selected)?;
-                if cx.call_values(target, &[receiver])? != Value::I32(42) {
-                    return Err(RuntimeError::module_validation(
-                        "selected receiver returned wrong value",
-                    ));
-                }
-                cx.argument(1)
-            }),
-        )
+        .bind(echo, unsafe {
+            NativeBinding::new_transport(
+                vec![Codec::Value, Codec::Value],
+                Codec::Value,
+                move |cx| {
+                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                    let receiver = cx.argument_transport(0)?;
+                    let target = cx.selected(&selected)?;
+                    // SAFETY: The native argument frame and local working roots protect inputs; results
+                    // are decoded, rooted or returned before another callback.
+                    if cx.call_values_transport(target, &[receiver])? != Value::I32(42) {
+                        return Err(RuntimeError::module_validation(
+                            "selected receiver returned wrong value",
+                        ));
+                    }
+                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                    cx.argument_transport(1)
+                },
+            )
+        })
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
@@ -802,7 +818,7 @@ fn main() -> i32 {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -846,13 +862,19 @@ fn a_shared_native_helper_calls_a_generic_constraint_member() {
         })
         .unwrap();
     module
-        .bind(
-            invoke,
-            NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
-                let arguments = [cx.argument(0)?, cx.argument(1)?];
-                cx.call_values(cx.selected(&selected)?, &arguments)
-            }),
-        )
+        .bind(invoke, unsafe {
+            NativeBinding::new_transport(
+                vec![Codec::Value, Codec::Value],
+                Codec::Value,
+                move |cx| {
+                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                    let arguments = [cx.argument_transport(0)?, cx.argument_transport(1)?];
+                    // SAFETY: The native argument frame and local working roots protect inputs; results
+                    // are decoded, rooted or returned before another callback.
+                    cx.call_values_transport(cx.selected(&selected)?, &arguments)
+                },
+            )
+        })
         .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = compile(
@@ -880,7 +902,7 @@ fn main() -> i32 {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

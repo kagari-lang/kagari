@@ -11,16 +11,16 @@ pub(crate) fn invalid() -> RuntimeError {
 }
 
 pub(crate) fn source(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
-    let Value::Array(id) = cx.checked_argument(0)? else {
+    // SAFETY: The call frame retains the array throughout this operation.
+    let Value::Array(id) = unsafe { cx.checked_argument_transport(0) }? else {
         return Err(invalid());
     };
-    cx.heap().array_len(id).ok_or_else(invalid)?;
+    unsafe { cx.heap().array_len_transport(id) }.ok_or_else(invalid)?;
     Ok(id)
 }
 
 pub(crate) fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.heap()
-        .array_len(source(cx)?)
+    unsafe { cx.heap().array_len_transport(source(cx)?) }
         .map(NativeScalar::encode)
         .ok_or_else(invalid)
 }
@@ -39,29 +39,38 @@ pub(crate) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         )
     };
 
-    cx.heap()
-        .array_element(source, index)?
-        .ok_or_else(out_of_bounds)
+    unsafe { cx.heap().array_element_transport(source, index) }?.ok_or_else(out_of_bounds)
 }
 
 /// Compare fixed arrays in order through the checked element operation.
 pub(crate) fn equal(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let left = source(cx)?;
-    let Value::Array(right) = cx.checked_argument(1)? else {
+    // SAFETY: The call frame retains the array throughout this operation.
+    let Value::Array(right) = unsafe { cx.checked_argument_transport(1) }? else {
         return Err(invalid());
     };
-    let count = cx.heap().array_len(left).ok_or_else(invalid)?;
-    if count != cx.heap().array_len(right).ok_or_else(invalid)? {
+    let count = unsafe { cx.heap().array_len_transport(left) }.ok_or_else(invalid)?;
+    if count != unsafe { cx.heap().array_len_transport(right) }.ok_or_else(invalid)? {
         return Ok(Value::Bool(false));
     }
     let equal = cx.selected_at(0)?;
     for index in 0..count {
         cx.poll()?;
-        let a = cx.heap().array_get(left, index).ok_or_else(invalid)?;
-        let b = cx.heap().array_get(right, index).ok_or_else(invalid)?;
-        let _a = cx.heap().root_value(a).ok_or_else(invalid)?;
-        let _b = cx.heap().root_value(b).ok_or_else(invalid)?;
-        let Value::Bool(same) = cx.call_values(equal, &[a, b])? else {
+        let a = unsafe { cx.heap().array_get_transport(left, index) }.ok_or_else(invalid)?;
+        let b = unsafe { cx.heap().array_get_transport(right, index) }.ok_or_else(invalid)?;
+        let _a = unsafe {
+            // SAFETY: Argument arrays protect extracted elements until both working roots precede the equality callback.
+            cx.heap().root_value_transport(a)
+        }
+        .ok_or_else(invalid)?;
+        let _b = unsafe {
+            // SAFETY: Argument arrays protect extracted elements until both working roots precede the equality callback.
+            cx.heap().root_value_transport(b)
+        }
+        .ok_or_else(invalid)?;
+        // SAFETY: The element working roots cover the callback; its scalar result is decoded
+        // immediately.
+        let Value::Bool(same) = unsafe { cx.call_values_transport(equal, &[a, b]) }? else {
             return Err(invalid());
         };
         if !same {
@@ -72,5 +81,6 @@ pub(crate) fn equal(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 pub(crate) fn index_argument(cx: &CallContext<'_>, slot: usize) -> NativeResult<u64> {
-    u64::decode(cx.argument(slot)?)
+    // SAFETY: Decode the scalar immediately while the argument frame is live.
+    u64::decode(unsafe { cx.argument_transport(slot) }?)
 }

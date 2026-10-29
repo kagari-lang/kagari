@@ -2,9 +2,10 @@ use super::*;
 use crate::tests::common::load_bytecode_program;
 use crate::tests::common::round_trip_bytecode;
 use crate::tests::common::{compile_logging_test_bytecode, logging_module};
-use kagari_runtime::module::entry::ProgramEntry;
-
-use kagari_runtime::value_semantics::script_equal;
+use kagari_runtime::{
+    module::entry::ProgramEntry, native::host::HostCallback,
+    value_semantics::script_equal_transport,
+};
 
 #[test]
 fn executes_source_lowered_declared_host_log() {
@@ -12,14 +13,21 @@ fn executes_source_lowered_declared_host_log() {
     let sink = Arc::clone(&messages);
 
     let mut runtime = standard_runtime(RuntimeConfig::default());
-    logging_module(move |cx, args| {
-        let Some(Value::Str(message)) = args.first() else {
-            return Err(HostError::new("host.log expects one string argument"));
-        };
-        sink.lock()
-            .expect("message sink should lock")
-            .push(cx.runtime().gc().string(*message).unwrap().to_owned());
-        Ok(Value::Unit)
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(move |cx, args| {
+            let Some(Value::Str(message)) = args.first() else {
+                return Err(HostError::new("host.log expects one string argument"));
+            };
+            sink.lock().expect("message sink should lock").push(
+                cx.runtime()
+                    .gc()
+                    .string_transport(*message)
+                    .unwrap()
+                    .to_owned(),
+            );
+            Ok(Value::Unit)
+        })
     })
     .install(&mut runtime)
     .expect("host function should register");
@@ -35,12 +43,11 @@ fn executes_source_lowered_declared_host_log() {
         .execute(&loaded, ProgramEntry::Main)
         .expect("vm should execute");
 
-    assert_eq!(
+    assert!(
         report
             .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::Unit
+            .inspect(vm.runtime(), |view| Ok(view.is_unit()))
+            .expect("retained execution result")
     );
     assert_eq!(
         *messages.lock().expect("message sink should lock"),
@@ -70,22 +77,24 @@ fn main()->(u64,bool,u64,bool){
         .expect("vm should execute");
 
     assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(report
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime()
-                .gc()
-                .alloc_tuple(vec![
-                    Value::U64(1),
-                    Value::Bool(true),
-                    Value::U64(1),
-                    Value::Bool(true),
-                ])
-                .unwrap())
-        )
+        unsafe {
+            script_equal_transport(
+                vm.runtime().gc(),
+                &(report
+                    .return_value
+                    .value_transport(vm.runtime().gc())
+                    .expect("retained execution result")),
+                &(vm.runtime()
+                    .gc()
+                    .alloc_tuple_transport(vec![
+                        Value::U64(1),
+                        Value::Bool(true),
+                        Value::U64(1),
+                        Value::Bool(true),
+                    ])
+                    .unwrap()),
+            )
+        }
         .unwrap()
     );
 }
@@ -112,7 +121,7 @@ fn main() -> u64 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_u64().map(Value::U64))
             .expect("retained execution result"),
         Value::U64(3)
     );
@@ -145,7 +154,7 @@ fn main() -> i32 {
     assert_eq!(
         report
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(9)
     );

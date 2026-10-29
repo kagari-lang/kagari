@@ -40,20 +40,27 @@ impl<'call, 'symbols> Comparison<'call, 'symbols> {
             Algorithm::SortBy | Algorithm::SortByKey | Algorithm::Retain
         ) {
             let ty = call.argument_type_argument(1)?;
-            let value = call.argument(1)?;
+            // SAFETY: The call frame retains the callback until its owning Function is decoded.
+            let value = unsafe { call.argument_transport(1) }?;
             if matches!(algorithm, Algorithm::SortBy) {
                 Some(
-                    cx.conversion()
-                        .decode_value::<Function<(ScriptValue, ScriptValue), ScriptValue>>(
-                            &ty, &value,
-                        )?
-                        .prepare_call(cx.runtime())?,
+                    // SAFETY: CallContext retains the callback in its argument snapshot.
+                    unsafe {
+                        cx.conversion()
+                            .decode_transport::<Function<(ScriptValue, ScriptValue), ScriptValue>>(
+                                &ty, &value,
+                            )
+                    }?
+                    .prepare_call(cx.runtime())?,
                 )
             } else {
                 Some(
-                    cx.conversion()
-                        .decode_value::<Function<(ScriptValue,), ScriptValue>>(&ty, &value)?
-                        .prepare_call(cx.runtime())?,
+                    // SAFETY: CallContext retains the callback in its argument snapshot.
+                    unsafe {
+                        cx.conversion()
+                            .decode_transport::<Function<(ScriptValue,), ScriptValue>>(&ty, &value)
+                    }?
+                    .prepare_call(cx.runtime())?,
                 )
             }
         } else {
@@ -128,7 +135,8 @@ impl<'call, 'symbols> Comparison<'call, 'symbols> {
         };
         // The checked result already owns its root. Re-encoding into the outer
         // conversion context would retain every comparator result until sort exit.
-        let value = result.value(cx.runtime())?;
+        // SAFETY: result stays retained through the callback-free ordering read.
+        let value = unsafe { result.value_transport(cx.runtime()) }?;
         enums::ordering(self.symbols, self.call, &value)
     }
 }

@@ -14,8 +14,8 @@ use crate::{
         },
         function_handle::{Function, FunctionBinding, PreparedFunction, Target},
         types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_types::ty::Ty;
@@ -60,9 +60,11 @@ impl<A: KagariArguments, R: KagariType> FromKagari for Function<A, R> {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         cx.check_type::<Self>(expected)?;
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        let value = &raw;
         cx.check_value(expected, value)?;
         let prepared = PreparedClosure::from_value(cx.runtime(), *value)?;
         let snapshot = prepared.snapshot(cx.runtime())?;
@@ -136,14 +138,18 @@ impl<A: KagariArguments, R: KagariType> IntoKagari for Function<A, R> {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         cx.check_type::<Self>(expected)?;
         if let FunctionBinding::NamedClosure { root, .. } = self.binding.as_ref() {
             let value = root
                 .value(cx.runtime().gc())
                 .ok_or_else(|| RuntimeError::module_validation("closure handle root"))?;
             cx.check_value(expected, &value)?;
-            return Ok(value);
+            return Ok(ScriptValue::from_root(
+                root.clone(),
+                expected.clone(),
+                cx.owner().clone(),
+            ));
         }
         let prepared = self.prepare_call(cx.runtime())?;
         let value = match &prepared.target {
@@ -164,7 +170,6 @@ impl<A: KagariArguments, R: KagariType> IntoKagari for Function<A, R> {
                 )?,
             },
         };
-        cx.check_value(expected, &value)?;
-        Ok(value)
+        cx.retain_converted(expected, value)
     }
 }

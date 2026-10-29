@@ -69,10 +69,12 @@ pub(crate) fn iter<P: HashPayload>(
         let mut conversion = cx.conversion_scope(cx.owner())?;
         conversion.encode_value(&source_type, source.clone())?
     };
+    // SAFETY: source_value retains the source until ty.create publishes its traced edge.
+    let raw_source = unsafe { source_value.value_transport(cx.runtime()) }?;
     ty.create(
         cx,
         HashCursor {
-            source: source_value,
+            source: raw_source,
             contract,
             position: 0,
             revision,

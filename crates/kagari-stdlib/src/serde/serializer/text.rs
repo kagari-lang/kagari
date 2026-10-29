@@ -46,5 +46,5 @@ pub(super) fn collect<T: Display + ?Sized>(
         return Err(error);
     }
     result.map_err(|_| RuntimeError::module_validation("Serde formatting failed"))?;
-    writer.cx.runtime().gc().alloc_string(writer.text)
+    unsafe { writer.cx.runtime().gc().alloc_string_transport(writer.text) }
 }

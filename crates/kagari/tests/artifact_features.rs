@@ -102,7 +102,7 @@ fn portable_artifact_executes_without_source_compilation() {
         assert_eq!(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42),
             "{entry:?}",
@@ -183,7 +183,7 @@ fn source_free_shared_operator_contract_executes() {
     assert_eq!(
         result
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -213,7 +213,7 @@ fn source_free_native_bindings_execute_and_release_scopes() {
                     .execute(&loaded, entry, &[], &context)
                     .unwrap()
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(42)
             );
@@ -249,7 +249,7 @@ fn source_free_native_enums_retain_nested_payloads() {
                 .execute(&loaded, "native_enum_values", &[], &Default::default())
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -275,7 +275,7 @@ fn source_free_try_carriers_execute_with_selected_residual_calls() {
                     .execute(&loaded, entry, &[], &Default::default())
                     .unwrap()
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(42)
             );
@@ -512,7 +512,7 @@ mod native {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -551,7 +551,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -572,7 +572,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -600,7 +600,7 @@ fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
         assert_eq!(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );

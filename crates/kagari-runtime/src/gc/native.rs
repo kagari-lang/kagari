@@ -10,7 +10,11 @@ mod tests;
 use crate::{
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
-    gc::{GcHeap, HeapObjectId, leases::BorrowedLease, storage::HeapObject},
+    gc::{
+        GcHeap, HeapObjectId,
+        leases::{BorrowedLease, StorageBorrow},
+        storage::HeapObject,
+    },
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -21,15 +25,7 @@ use crate::{
     value::Value,
 };
 use kagari_types::ty::Ty;
-use std::{any::Any, cell::Cell, sync::Arc};
-
-struct NativeBorrow<'heap>(&'heap Cell<usize>);
-
-impl Drop for NativeBorrow<'_> {
-    fn drop(&mut self) {
-        self.0.set(self.0.get() - 1);
-    }
-}
+use std::{any::Any, sync::Arc};
 
 impl GcHeap {
     pub(crate) fn scan_native_payload<'a>(
@@ -45,8 +41,7 @@ impl GcHeap {
                 RuntimeError::module_validation("conflicting native scan workspace borrow")
             })?
             .reserve(storage.scan_layout())?;
-        self.native_borrows.set(self.native_borrows.get() + 1);
-        let _borrow = NativeBorrow(&self.native_borrows);
+        let _borrow = StorageBorrow::enter(&self.storage_borrows);
         storage.scan_payload(payload, visit)
     }
 
@@ -55,7 +50,7 @@ impl GcHeap {
         id: HeapObjectId,
         edit: impl for<'payload> FnOnce(&'payload mut S) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         let mut objects = self.objects_mut()?;
@@ -85,8 +80,7 @@ impl GcHeap {
         };
         object.revision = revision;
         let data = object.payload_mut::<S>()?;
-        self.native_borrows.set(self.native_borrows.get() + 1);
-        let _borrow = NativeBorrow(&self.native_borrows);
+        let _borrow = StorageBorrow::enter(&self.storage_borrows);
         edit(data)
     }
 
@@ -172,17 +166,8 @@ impl GcHeap {
         Some(object.definition_name(nominal.declaration)?.to_owned())
     }
 
-    pub(crate) fn ensure_no_native_borrow(&self) -> NativeResult<()> {
-        if self.native_borrows.get() != 0 {
-            return Err(RuntimeError::module_validation(
-                "script reentry during native storage access",
-            ));
-        }
-        Ok(())
-    }
-
     pub(crate) fn alloc_native(&self, mut object: NativeObject) -> NativeResult<HeapObjectId> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         object
             .charge
@@ -274,8 +259,7 @@ impl GcHeap {
         };
         let payload = object.payload::<S>()?;
 
-        self.native_borrows.set(self.native_borrows.get() + 1);
-        let _borrow = NativeBorrow(&self.native_borrows);
+        let _borrow = StorageBorrow::enter(&self.storage_borrows);
         access(payload)
     }
 }

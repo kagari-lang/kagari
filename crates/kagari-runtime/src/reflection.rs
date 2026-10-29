@@ -47,7 +47,20 @@ impl From<RuntimeError> for ReflectionError {
     }
 }
 
-pub fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn type_of_transport(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
+    type_of(gc, value)
+}
+
+pub(crate) fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
     let type_name = match value {
         Value::Range(value) => gc
             .range(*value)
@@ -94,7 +107,28 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
     gc.alloc_string(type_name.to_owned()).map_err(Into::into)
 }
 
-pub fn get_field(gc: &GcHeap, value: &Value, field_name: &str) -> Result<Value, ReflectionError> {
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn get_field_transport(
+    gc: &GcHeap,
+    value: &Value,
+    field_name: &str,
+) -> Result<Value, ReflectionError> {
+    get_field(gc, value, field_name)
+}
+
+pub(crate) fn get_field(
+    gc: &GcHeap,
+    value: &Value,
+    field_name: &str,
+) -> Result<Value, ReflectionError> {
     match value {
         Value::Struct(handle) => {
             let (layout, slot) = resolve_field(gc, *handle, field_name)?;
@@ -107,7 +141,25 @@ pub fn get_field(gc: &GcHeap, value: &Value, field_name: &str) -> Result<Value, 
     }
 }
 
-pub fn set_field(
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn set_field_transport(
+    gc: &GcHeap,
+    value: &Value,
+    field_name: &str,
+    next_value: Value,
+) -> Result<Value, ReflectionError> {
+    set_field(gc, value, field_name, next_value)
+}
+
+pub(crate) fn set_field(
     gc: &GcHeap,
     value: &Value,
     field_name: &str,
@@ -132,7 +184,25 @@ pub fn set_field(
     }
 }
 
-pub fn set_index(
+/// Access protected backend values through the existing semantic operation.
+///
+/// # Safety
+/// Keep source objects and all managed arguments traced through this operation.
+/// Copied managed results and nested snapshot edges need independent protection
+/// before callbacks, collection, source mutation or clearing diagnostic records.
+/// Returned storage loans must end before reentry. Validation cannot revive an
+/// expired direct reference; scoped host resources keep their original lifetime.
+#[doc(hidden)]
+pub unsafe fn set_index_transport(
+    gc: &GcHeap,
+    value: &Value,
+    index: &Value,
+    next_value: Value,
+) -> Result<Value, ReflectionError> {
+    set_index(gc, value, index, next_value)
+}
+
+pub(crate) fn set_index(
     gc: &GcHeap,
     value: &Value,
     index: &Value,

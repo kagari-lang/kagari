@@ -22,7 +22,21 @@ pub(super) struct TupleData {
 }
 
 impl GcHeap {
-    pub fn alloc_string(&self, text: String) -> Result<Value, RuntimeError> {
+    /// Allocate raw backend transport through the existing checked heap owner.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through allocation and publication. Root or trace
+    /// the returned value before any callback, collection or loss of its source
+    /// protection. Host capability wrappers still require their original frame.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_string_transport(&self, text: String) -> Result<Value, RuntimeError> {
+        self.alloc_string(text)
+    }
+
+    pub(crate) fn alloc_string(&self, text: String) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         self.alloc_object(HeapObject::String(text)).map(Value::Str)
     }
@@ -30,8 +44,28 @@ impl GcHeap {
     /// The storage borrow prevents collection or mutation until the view is dropped.
     /// Release it before calling script/native code or creating another heap value.
     /// Returns None during a native payload loan, whose exit must restore storage.
-    pub fn string(&self, id: HeapObjectId) -> Option<Ref<'_, str>> {
-        self.ensure_no_native_borrow().ok()?;
+    /// Borrow raw backend storage through the existing checked storage loan.
+    ///
+    /// # Safety
+    /// Keep the input live through loan admission. Release the returned borrow
+    /// before allocation, collection or reentry. Copied managed children require
+    /// independent traced protection before their source can change or expire.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn string_transport(&self, id: HeapObjectId) -> Option<Ref<'_, str>> {
+        self.string(id)
+    }
+
+    pub(crate) fn string(&self, id: HeapObjectId) -> Option<Ref<'_, str>> {
+        self.ensure_no_storage_borrow().ok()?;
+        self.borrow_string_storage(id)
+    }
+
+    /// Shared physical read for ordinary access and admitted host inspection.
+    /// Callers establish storage-loan admission before borrowing these bytes.
+    pub(super) fn borrow_string_storage(&self, id: HeapObjectId) -> Option<Ref<'_, str>> {
         Ref::filter_map(self.objects.try_borrow().ok()?, |objects| {
             match self.object_ref(objects, id)? {
                 HeapObject::String(text) => Some(text.as_str()),
@@ -42,7 +76,21 @@ impl GcHeap {
     }
 
     /// Construct immutable membership; updates publish another tuple sharing its members.
-    pub fn alloc_tuple(&self, members: Vec<Value>) -> Result<Value, RuntimeError> {
+    /// Allocate raw backend transport through the existing checked heap owner.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through allocation and publication. Root or trace
+    /// the returned value before any callback, collection or loss of its source
+    /// protection. Host capability wrappers still require their original frame.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_tuple_transport(&self, members: Vec<Value>) -> Result<Value, RuntimeError> {
+        self.alloc_tuple(members)
+    }
+
+    pub(crate) fn alloc_tuple(&self, members: Vec<Value>) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !members.iter().all(|value| self.validate_value(value)) {
             return Err(RuntimeError::module_validation("invalid tuple member"));
@@ -62,8 +110,22 @@ impl GcHeap {
     }
 
     /// Borrow immutable members, unless a native payload loan is active.
-    pub fn tuple(&self, id: HeapObjectId) -> Option<Ref<'_, [Value]>> {
-        self.ensure_no_native_borrow().ok()?;
+    /// Borrow raw backend storage through the existing checked storage loan.
+    ///
+    /// # Safety
+    /// Keep the input live through loan admission. Release the returned borrow
+    /// before allocation, collection or reentry. Copied managed children require
+    /// independent traced protection before their source can change or expire.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn tuple_transport(&self, id: HeapObjectId) -> Option<Ref<'_, [Value]>> {
+        self.tuple(id)
+    }
+
+    pub(crate) fn tuple(&self, id: HeapObjectId) -> Option<Ref<'_, [Value]>> {
+        self.ensure_no_storage_borrow().ok()?;
         self.tuple_view(id)
     }
 
@@ -91,8 +153,25 @@ impl GcHeap {
     /// The caller retains its value root and releases this view before collection,
     /// heap allocation or a script/native callback, as with string/tuple views.
     /// Returns None during a native payload loan.
-    pub fn enum_view(&self, id: HeapObjectId) -> Option<Ref<'_, EnumValueSnapshot>> {
-        self.ensure_no_native_borrow().ok()?;
+    /// Borrow raw backend storage through the existing checked storage loan.
+    ///
+    /// # Safety
+    /// Keep the input live through loan admission. Release the returned borrow
+    /// before allocation, collection or reentry. Copied managed children require
+    /// independent traced protection before their source can change or expire.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn enum_view_transport(
+        &self,
+        id: HeapObjectId,
+    ) -> Option<Ref<'_, EnumValueSnapshot>> {
+        self.enum_view(id)
+    }
+
+    pub(crate) fn enum_view(&self, id: HeapObjectId) -> Option<Ref<'_, EnumValueSnapshot>> {
+        self.ensure_no_storage_borrow().ok()?;
         self.enum_storage_view(id)
     }
 
@@ -123,13 +202,40 @@ impl GcHeap {
         }
     }
 
-    pub fn alloc_range(&self, range: RangeValue) -> Result<Value, RuntimeError> {
+    /// Allocate raw backend transport through the existing checked heap owner.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through allocation and publication. Root or trace
+    /// the returned value before any callback, collection or loss of its source
+    /// protection. Host capability wrappers still require their original frame.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_range_transport(&self, range: RangeValue) -> Result<Value, RuntimeError> {
+        self.alloc_range(range)
+    }
+
+    pub(crate) fn alloc_range(&self, range: RangeValue) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         self.alloc_object(HeapObject::Range(range))
             .map(Value::Range)
     }
 
-    pub fn range(&self, id: HeapObjectId) -> Option<RangeValue> {
+    /// Query checked heap metadata for protected backend transport.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through this query. Type/owner validation cannot
+    /// establish the lifetime of an expired direct reference.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn range_transport(&self, id: HeapObjectId) -> Option<RangeValue> {
+        self.range(id)
+    }
+
+    pub(crate) fn range(&self, id: HeapObjectId) -> Option<RangeValue> {
         let objects = self.objects.try_borrow().ok()?;
         match self.object_ref(&objects, id)? {
             HeapObject::Range(range) => Some(*range),
@@ -137,13 +243,43 @@ impl GcHeap {
         }
     }
 
-    pub fn alloc_host_root(&self, root: HostRootHandle) -> Result<Value, RuntimeError> {
+    /// Allocate raw backend transport through the existing checked heap owner.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through allocation and publication. Root or trace
+    /// the returned value before any callback, collection or loss of its source
+    /// protection. Host capability wrappers still require their original frame.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_host_root_transport(
+        &self,
+        root: HostRootHandle,
+    ) -> Result<Value, RuntimeError> {
+        self.alloc_host_root(root)
+    }
+
+    pub(crate) fn alloc_host_root(&self, root: HostRootHandle) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         self.alloc_object(HeapObject::HostRoot(root))
             .map(Value::HostRoot)
     }
 
-    pub fn host_root(&self, id: HeapObjectId) -> Option<HostRootHandle> {
+    /// Query checked heap metadata for protected backend transport.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through this query. Type/owner validation cannot
+    /// establish the lifetime of an expired direct reference.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn host_root_transport(&self, id: HeapObjectId) -> Option<HostRootHandle> {
+        self.host_root(id)
+    }
+
+    pub(crate) fn host_root(&self, id: HeapObjectId) -> Option<HostRootHandle> {
         let objects = self.objects.try_borrow().ok()?;
         match self.object_ref(&objects, id)? {
             HeapObject::HostRoot(root) => Some(*root),
@@ -151,7 +287,24 @@ impl GcHeap {
         }
     }
 
-    pub fn alloc_host_path(&self, path: HostPathViewHandle) -> Result<Value, RuntimeError> {
+    /// Allocate raw backend transport through the existing checked heap owner.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through allocation and publication. Root or trace
+    /// the returned value before any callback, collection or loss of its source
+    /// protection. Host capability wrappers still require their original frame.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_host_path_transport(
+        &self,
+        path: HostPathViewHandle,
+    ) -> Result<Value, RuntimeError> {
+        self.alloc_host_path(path)
+    }
+
+    pub(crate) fn alloc_host_path(&self, path: HostPathViewHandle) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !path
             .retained_values()
@@ -167,7 +320,21 @@ impl GcHeap {
 
     /// The returned descriptor does not root its dynamic argument values.
     /// Keep the containing Value in a live execution or host root while using it.
-    pub fn host_path(&self, id: HeapObjectId) -> Option<Arc<HostPathViewHandle>> {
+    /// Read a checked backend snapshot without adding independent retention.
+    ///
+    /// # Safety
+    /// Keep source objects live through the read. Protect copied managed edges
+    /// or identities before callbacks, collection or source mutation can remove
+    /// their last traced owner. A returned snapshot is not a root.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn host_path_transport(&self, id: HeapObjectId) -> Option<Arc<HostPathViewHandle>> {
+        self.host_path(id)
+    }
+
+    pub(crate) fn host_path(&self, id: HeapObjectId) -> Option<Arc<HostPathViewHandle>> {
         let objects = self.objects.try_borrow().ok()?;
         match self.object_ref(&objects, id)? {
             HeapObject::HostPath(path) => Some(path.clone()),
@@ -175,7 +342,7 @@ impl GcHeap {
         }
     }
 
-    pub fn alloc_ephemeral(&self, value: EphemeralValue) -> Result<Value, RuntimeError> {
+    pub(crate) fn alloc_ephemeral(&self, value: EphemeralValue) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         if let EphemeralValue::Runtime(id) = value {
             return Ok(Value::RuntimeEphemeral(id));
@@ -184,7 +351,7 @@ impl GcHeap {
             .map(Value::Ephemeral)
     }
 
-    pub fn ephemeral(&self, id: HeapObjectId) -> Option<EphemeralValue> {
+    pub(crate) fn ephemeral(&self, id: HeapObjectId) -> Option<EphemeralValue> {
         let objects = self.objects.try_borrow().ok()?;
         match self.object_ref(&objects, id)? {
             HeapObject::Ephemeral(value) => Some(*value),
@@ -192,11 +359,51 @@ impl GcHeap {
         }
     }
 
-    pub fn alloc_host_ref(&self, token: FrameHostBorrowToken) -> Result<Value, RuntimeError> {
+    /// Allocate raw backend transport through the existing checked heap owner.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through allocation and publication. Root or trace
+    /// the returned value before any callback, collection or loss of its source
+    /// protection. Host capability wrappers still require their original frame.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_host_ref_transport(
+        &self,
+        token: FrameHostBorrowToken,
+    ) -> Result<Value, RuntimeError> {
+        self.alloc_host_ref(token)
+    }
+
+    pub(crate) fn alloc_host_ref(
+        &self,
+        token: FrameHostBorrowToken,
+    ) -> Result<Value, RuntimeError> {
         self.alloc_ephemeral(EphemeralValue::HostRef(token))
     }
 
-    pub fn alloc_host_mut(&self, token: FrameHostBorrowToken) -> Result<Value, RuntimeError> {
+    /// Allocate raw backend transport through the existing checked heap owner.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through allocation and publication. Root or trace
+    /// the returned value before any callback, collection or loss of its source
+    /// protection. Host capability wrappers still require their original frame.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_host_mut_transport(
+        &self,
+        token: FrameHostBorrowToken,
+    ) -> Result<Value, RuntimeError> {
+        self.alloc_host_mut(token)
+    }
+
+    pub(crate) fn alloc_host_mut(
+        &self,
+        token: FrameHostBorrowToken,
+    ) -> Result<Value, RuntimeError> {
         self.alloc_ephemeral(EphemeralValue::HostMut(token))
     }
 }

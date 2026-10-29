@@ -54,7 +54,7 @@ impl<T: NativeData> ManagedBuilder<T> {
     }
 
     fn prepare(&self, cx: &NativeContext<'_>) -> NativeResult<Managed<T>> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().gc().ensure_no_storage_borrow()?;
         cx.runtime().resources().ensure_execution_allowed()?;
         cx.runtime()
             .validate_executable_module(self.native_type.owner())?;

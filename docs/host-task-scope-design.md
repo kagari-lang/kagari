@@ -161,7 +161,7 @@ serialized by publication.
 
 ## Backend integration boundary
 
-Core runtime manual scopes and `Vm::{start, start_future, drive, drive_task}` remain
+Core runtime manual scopes and `Vm::{start_transport, start_future_transport, drive, drive_task}` remain
 available for backend tooling and low-level contract tests, not as normal SDK aliases.
 Manual scopes use checked `ReadyNotice`/`TaskDispatcher`, `ready_tasks`,
 `take_task_report` and explicit retirement draining. Their dispatcher can report

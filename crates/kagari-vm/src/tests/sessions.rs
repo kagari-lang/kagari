@@ -19,6 +19,7 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     host::HostBorrowKind,
     module::{ExecutableModule, entry::ProgramEntry},
+    native::host::HostCallback,
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     value::Value,
@@ -65,9 +66,11 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let retained = Arc::new(Mutex::new(None));
             let result = retained.clone();
             let mut runtime = runtime();
-            logging_module(move |context, args| {
+            logging_module(unsafe {
+// SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+HostCallback::new(move |context, args| {
                     let runtime = context.runtime();
-                    if matches!(args, [Value::Str(id)] if &*runtime.gc().string(*id).unwrap() == "outer") {
+                    if matches!(args, [Value::Str(id)] if &*runtime.gc().string_transport(*id).unwrap() == "outer") {
                         let token = context
                             .borrows()
                             .borrow_unique(HostObjectId(1), TypeId::new(0))
@@ -93,11 +96,11 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                             .validate(token, HostBorrowKind::Unique)
                             .unwrap();
                         runtime.collect_garbage().unwrap();
-                        let Value::Array(id) = value.value(runtime.gc()).unwrap() else {
+                        let Value::Array(id) = value.value_transport(runtime.gc()).unwrap() else {
                             panic!("array result")
                         };
                         assert_eq!(
-                            runtime.gc().array_snapshot(id).unwrap(),
+                            runtime.gc().array_snapshot_transport(id).unwrap(),
                             [Value::I32(7), Value::I32(8)]
                         );
                         *result.lock().unwrap() = Some(value);
@@ -114,7 +117,8 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                         runtime.collect_garbage().unwrap();
                     }
                     Ok(Value::Unit)
-                }).install(&mut runtime)
+                })
+}).install(&mut runtime)
                 .unwrap();
             let loaded = runtime
                 .load_program("reentry.kgr", route(module, encoded))
@@ -132,7 +136,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             assert_eq!(
                 report
                     .return_value
-                    .value(vm.runtime().gc())
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(42)
             );
@@ -146,24 +150,30 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                     .active_calls,
                 0
             );
-            let resources = vm.runtime().host_scope(&[]).unwrap();
+            let resources = unsafe {
+                // SAFETY: Empty inputs; this guard owns only host borrow/session leases.
+                vm.runtime().host_scope_transport(&[])
+            }
+            .unwrap();
             let frame = resources.borrows();
             frame
                 .borrow_unique(HostObjectId(1), TypeId::new(0))
                 .unwrap();
             vm.runtime().collect_garbage().unwrap();
-            let raw = retained
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .value(vm.runtime().gc())
-                .unwrap();
-            assert!(vm.runtime().gc().validate_value(&raw));
-            assert!(!Runtime::default().gc().validate_value(&raw));
+            let raw = unsafe {
+                retained
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .value_transport(vm.runtime().gc())
+            }
+            .unwrap();
+            assert!(unsafe { vm.runtime().gc().validate_value_transport(&raw) });
+            assert!(!unsafe { Runtime::default().gc().validate_value_transport(&raw) });
             retained.lock().unwrap().take();
             vm.runtime().collect_garbage().unwrap();
-            assert!(!vm.runtime().gc().validate_value(&raw));
+            assert!(!unsafe { vm.runtime().gc().validate_value_transport(&raw) });
             assert_eq!(vm.runtime().gc().active_roots(), 0);
         }
     }
@@ -192,13 +202,15 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     },
                     ..Default::default()
                 });
-                logging_module(move |context, args| {
+                logging_module(unsafe {
+// SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+HostCallback::new(move |context, args| {
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
-                    let temporary = Value::Array(context.runtime().alloc_array(&context.runtime().execution_root().unwrap(), Ty::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
+                    let temporary = Value::Array(context.runtime().alloc_array_transport(&context.runtime().execution_root().unwrap(), Ty::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
                     context.retain_temporaries(std::slice::from_ref(&temporary)).unwrap();
                     context.runtime().collect_garbage().unwrap();
-                    assert!(context.runtime().gc().validate_value(&temporary));
-                    if matches!(args, [Value::Str(id)] if &*context.runtime().gc().string(*id).unwrap() == "inner") {
+                    assert!(context.runtime().gc().validate_value_transport(&temporary));
+                    if matches!(args, [Value::Str(id)] if &*context.runtime().gc().string_transport(*id).unwrap() == "inner") {
                         cancellation.cancel();
                     } else {
                         let error = reenter(context, &context.runtime().execution_root().unwrap(), nested, &[]).expect_err("nested termination");
@@ -206,7 +218,8 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     }
                     // Even a host deliberately swallowing a nested terminal error cannot resume.
                     Ok(Value::Unit)
-                }).install(&mut runtime).unwrap();
+                })
+}).install(&mut runtime).unwrap();
                 let loaded = runtime
                     .load_program("termination.kgr", route(module, encoded))
                     .unwrap();
@@ -247,7 +260,11 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 assert_eq!(vm.runtime().gc().active_roots(), 0);
                 assert_eq!(scope.host_scope_count(), 0);
                 drop(scope);
-                let resources = vm.runtime().host_scope(&[]).unwrap();
+                let resources = unsafe {
+                    // SAFETY: Empty inputs; this guard owns only host borrow/session leases.
+                    vm.runtime().host_scope_transport(&[])
+                }
+                .unwrap();
                 let frame = resources.borrows();
                 frame
                     .borrow_unique(HostObjectId(2), TypeId::new(0))
@@ -278,9 +295,12 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let mut foreign = standard_runtime(Default::default());
-    logging_module(|_, _| Ok(Value::Unit))
-        .install(&mut foreign)
-        .unwrap();
+    logging_module(unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(|_, _| Ok(Value::Unit))
+    })
+    .install(&mut foreign)
+    .unwrap();
     let foreign_module = foreign
         .load_program(
             "foreign.kgr",
@@ -290,25 +310,29 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let _foreign_module_program = foreign_module;
     let foreign_module = foreign.select_program(&_foreign_module_program).unwrap();
     let foreign_value = Value::Array(
-        foreign
-            .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
-            .unwrap(),
+        unsafe {
+            foreign.alloc_array_transport(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
+        }
+        .unwrap(),
     );
-    assert!(foreign.gc().validate_value(&foreign_value));
+    assert!(unsafe { foreign.gc().validate_value_transport(&foreign_value) });
     let retained_foreign_value = foreign_value;
     let mut runtime = runtime();
-    logging_module(move |context, _| {
+    logging_module(unsafe {
+// SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+HostCallback::new(move |context, _| {
         called.fetch_add(1, Ordering::SeqCst);
         let runtime = context.runtime();
         assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::StaleHandle));
         if let Some(root) = runtime.execution_root() {
                 assert!(matches!(reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
-                let stale = Value::Array(runtime.alloc_array(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
+                let stale = Value::Array(runtime.alloc_array_transport(&root, Ty::Builtin(BuiltinType::I32), vec![]).unwrap());
                 runtime.collect_garbage().unwrap();
                 assert!(matches!(reenter(context, &root, echo, &[stale]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
         }
         Ok(Value::Unit)
-    }).install(&mut runtime).unwrap();
+    })
+}).install(&mut runtime).unwrap();
     let loaded = runtime.load_program("inputs.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -317,11 +341,15 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
-    assert!(foreign.gc().validate_value(&retained_foreign_value));
+    assert!(unsafe {
+        foreign
+            .gc()
+            .validate_value_transport(&retained_foreign_value)
+    });
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
@@ -350,16 +378,21 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
         let targets = versions.clone();
         let values = observed.clone();
         let mut runtime = runtime();
-        logging_module(move |context, _| {
-            let versions = targets.lock().unwrap().clone();
-            for version in &versions {
-                let result = reenter(context, version, function, &[]);
-                values
-                    .lock()
-                    .unwrap()
-                    .push(result.unwrap().value(context.runtime().gc()).unwrap());
-            }
-            Ok(Value::Unit)
+        logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context, _| {
+                let versions = targets.lock().unwrap().clone();
+                for version in &versions {
+                    let result = reenter(context, version, function, &[]);
+                    values.lock().unwrap().push(
+                        result
+                            .unwrap()
+                            .inspect(context.runtime(), |view| view.as_i32().map(Value::I32))
+                            .unwrap(),
+                    );
+                }
+                Ok(Value::Unit)
+            })
         })
         .install(&mut runtime)
         .unwrap();
@@ -409,7 +442,9 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         .unwrap()
         .id;
     let mut runtime = runtime();
-    logging_module(move |context, args| {
+    logging_module(unsafe {
+// SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+HostCallback::new(move |context, args| {
         let root = context.runtime().execution_root().unwrap();
         let error = reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
         assert!(matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
@@ -417,9 +452,10 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         context.runtime().collect_garbage().unwrap();
         assert_eq!(context.runtime().gc().allocated_objects(), 1);
         let [Value::Str(text)] = args else { panic!("outer argument") };
-        assert_eq!(&*context.runtime().gc().string(*text).unwrap(), "enter");
+        assert_eq!(&*context.runtime().gc().string_transport(*text).unwrap(), "enter");
         Ok(Value::Unit)
-    }).install(&mut runtime).unwrap();
+    })
+}).install(&mut runtime).unwrap();
     let loaded = runtime.load_program("trap.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -428,7 +464,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -476,10 +512,13 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let cancel = token.clone();
             let calls = Arc::new(AtomicUsize::new(0));
             let recorded = calls.clone();
-            logging_module(move |_, _| {
-                recorded.fetch_add(1, Ordering::SeqCst);
-                cancel.cancel();
-                Ok(Value::Unit)
+            logging_module(unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(move |_, _| {
+                    recorded.fetch_add(1, Ordering::SeqCst);
+                    cancel.cancel();
+                    Ok(Value::Unit)
+                })
             })
             .install(&mut runtime)
             .unwrap();
@@ -520,7 +559,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
                 vm.execute(&loaded, "ready")
                     .unwrap()
                     .return_value
-                    .value(vm.runtime().gc())
+                    .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                     .expect("retained execution result"),
                 Value::I32(7)
             );
@@ -551,9 +590,12 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = calls.clone();
         let mut runtime = runtime();
-        logging_module(move |_, _| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(Value::Unit)
+        logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |_, _| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Unit)
+            })
         })
         .install(&mut runtime)
         .unwrap();
@@ -612,38 +654,41 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         let captured = Arc::new(Mutex::new(None));
         let saved = captured.clone();
         let mut runtime = runtime();
-        logging_module(move |context, _| {
-            let owner = context.runtime().execution_root().unwrap();
-            let ty = binding::result(
-                &context.runtime().host().definitions(),
-                Ty::Builtin(BuiltinType::I32),
-                Ty::Builtin(BuiltinType::String),
-            )
-            .unwrap();
-            let applied = context
-                .runtime()
-                .resolve_type_arguments(&owner, &[ty])
-                .unwrap()
-                .remove(0);
-            let value = context
-                .runtime()
-                .make_enum_member(
-                    &owner,
-                    &applied,
-                    "Err",
-                    vec![
-                        context
-                            .runtime()
-                            .gc()
-                            .alloc_string("host failure".into())
-                            .unwrap(),
-                    ],
+        logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context, _| {
+                let owner = context.runtime().execution_root().unwrap();
+                let ty = binding::result(
+                    &context.runtime().host().definitions(),
+                    Ty::Builtin(BuiltinType::I32),
+                    Ty::Builtin(BuiltinType::String),
                 )
                 .unwrap();
-            *saved.lock().unwrap() = context.runtime().result_failure(&value);
-            let root = context.runtime().execution_root().unwrap();
-            let error = reenter(context, &root, fail, &[]).unwrap_err();
-            Err(HostError::new("nested call failed").with_trace(error.trace().unwrap().clone()))
+                let applied = context
+                    .runtime()
+                    .resolve_type_arguments(&owner, &[ty])
+                    .unwrap()
+                    .remove(0);
+                let value = context
+                    .runtime()
+                    .make_enum_member_transport(
+                        &owner,
+                        &applied,
+                        "Err",
+                        vec![
+                            context
+                                .runtime()
+                                .gc()
+                                .alloc_string_transport("host failure".into())
+                                .unwrap(),
+                        ],
+                    )
+                    .unwrap();
+                *saved.lock().unwrap() = context.runtime().result_failure_transport(&value);
+                let root = context.runtime().execution_root().unwrap();
+                let error = reenter(context, &root, fail, &[]).unwrap_err();
+                Err(HostError::new("nested call failed").with_trace(error.trace().unwrap().clone()))
+            })
         })
         .install(&mut runtime)
         .unwrap();

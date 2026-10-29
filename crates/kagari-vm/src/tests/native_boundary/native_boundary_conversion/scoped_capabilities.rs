@@ -39,9 +39,24 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
                 forward,
                 |cx: &mut CallContext<'_>, value: ValueHandle<'_>, callback: CallableHandle<'_>| {
                     cx.collect_garbage()?;
-                    assert_eq!(value.value(), cx.argument(0)?);
-                    assert_eq!(value.value(), cx.arguments().get(0).unwrap());
-                    i32::decode(callback.call_values(cx, &[value.value()])?)
+                    let expected = cx.argument_type_argument(0)?;
+                    let arguments = cx.arguments().snapshot()?;
+                    let mut native = cx.native_context()?;
+                    assert!(arguments.retain(native.conversion(), &expected, 0).is_err());
+                    // SAFETY: The active call and original host scope cover this read and synchronous forwarding.
+                    assert_eq!(unsafe { value.value_transport() }, unsafe {
+                        cx.argument_transport(0)
+                    }?);
+                    // SAFETY: The active call retains the argument and its original host scope.
+                    assert_eq!(
+                        // SAFETY: The active call and original host scope cover this read and synchronous forwarding.
+                        unsafe { value.value_transport() },
+                        unsafe { cx.arguments().get_transport(0) }.unwrap()
+                    );
+                    // SAFETY: The active call and original host scope cover this read and synchronous forwarding.
+                    i32::decode(unsafe {
+                        callback.call_values_transport(cx, &[value.value_transport()])
+                    }?)
                 },
             )
             .unwrap();
@@ -74,7 +89,7 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
                         scope,
                         &_owner_program,
                         entry,
-                        &[player.value()],
+                        &[player.argument()],
                         Default::default()
                     )
                     .is_err()
@@ -85,9 +100,10 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
                     scope,
                     &_owner_program,
                     "read",
-                    &[player.value()],
+                    &[player.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(40)
             );
             assert_eq!(
@@ -95,9 +111,10 @@ fn shared_formal_arguments_cannot_forward_mutable_capabilities() {
                     scope,
                     &_owner_program,
                     "direct",
-                    &[player.value()],
+                    &[player.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(41)
             );
             Ok(())

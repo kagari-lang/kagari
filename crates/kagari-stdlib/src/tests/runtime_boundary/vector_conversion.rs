@@ -14,8 +14,8 @@ use kagari_runtime::{
         module::NativeModule,
         typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
-    value::Value,
 };
 
 struct Reentrant {
@@ -34,7 +34,7 @@ impl IntoKagari for Reentrant {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         let mut native = NativeContext::new(cx.runtime(), cx.owner())?;
         if self.clear {
             self.alias.clear(&mut native)?;

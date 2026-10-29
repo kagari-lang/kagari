@@ -35,7 +35,25 @@ mod method_view;
 mod operations;
 
 impl Runtime {
-    pub fn alloc_array(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_array_transport(
+        &self,
+        owner: &ExecutableModule,
+        element: Ty,
+        elements: Vec<Value>,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.alloc_array(owner, element, elements)
+    }
+
+    pub(crate) fn alloc_array(
         &self,
         owner: &ExecutableModule,
         element: Ty,
@@ -46,7 +64,26 @@ impl Runtime {
         self.gc.alloc_array(owner, element, elements)
     }
 
-    pub fn alloc_array_repeat(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_array_repeat_transport(
+        &self,
+        owner: &ExecutableModule,
+        element: Ty,
+        value: Value,
+        count: usize,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.alloc_array_repeat(owner, element, value, count)
+    }
+
+    pub(crate) fn alloc_array_repeat(
         &self,
         owner: &ExecutableModule,
         element: Ty,
@@ -58,7 +95,24 @@ impl Runtime {
         self.gc.alloc_array_repeat(owner, element, value, count)
     }
 
-    pub fn alloc_struct(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_struct_transport(
+        &self,
+        layout: module::StructLayoutRef,
+        fields: Vec<Value>,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.alloc_struct(layout, fields)
+    }
+
+    pub(crate) fn alloc_struct(
         &self,
         layout: module::StructLayoutRef,
         fields: Vec<Value>,
@@ -74,7 +128,24 @@ impl Runtime {
         self.gc.alloc_struct(layout, fields)
     }
 
-    pub fn alloc_enum(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn alloc_enum_transport(
+        &self,
+        tag: value::EnumTag,
+        fields: Vec<Value>,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.alloc_enum(tag, fields)
+    }
+
+    pub(crate) fn alloc_enum(
         &self,
         tag: value::EnumTag,
         fields: Vec<Value>,
@@ -92,7 +163,25 @@ impl Runtime {
 
     /// Box a concrete script value or durable host root behind a verified table.
     /// The resulting heap object retains the table's entire execution version.
-    pub fn make_interface(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn make_interface_transport(
+        &self,
+        implementation: &ExecutableModule,
+        table_index: usize,
+        data: value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        self.make_interface(implementation, table_index, data)
+    }
+
+    pub(crate) fn make_interface(
         &self,
         implementation: &ExecutableModule,
         table_index: usize,
@@ -111,7 +200,33 @@ impl Runtime {
 
     /// Instantiate a verified table using the allocating frame's type arguments
     /// and retained construction applications. A shared caller supplies its environment.
-    pub fn make_interface_applied(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn make_interface_applied_transport(
+        &self,
+        implementation: &ExecutableModule,
+        table_index: usize,
+        arguments: &[TypeArgument],
+        construction_environment: Option<&TypeEnvironment>,
+        data: Value,
+    ) -> Result<Value, RuntimeError> {
+        self.make_interface_applied(
+            implementation,
+            table_index,
+            arguments,
+            construction_environment,
+            data,
+        )
+    }
+
+    pub(crate) fn make_interface_applied(
         &self,
         implementation: &ExecutableModule,
         table_index: usize,
@@ -221,7 +336,26 @@ impl Runtime {
         Ok(prepared)
     }
 
-    pub fn make_closure(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn make_closure_transport(
+        &self,
+        implementation: &ExecutableModule,
+        function: FunctionRef,
+        captures: Vec<value::Value>,
+        environment: Option<TypeEnvironment>,
+    ) -> Result<value::Value, RuntimeError> {
+        self.make_closure(implementation, function, captures, environment)
+    }
+
+    pub(crate) fn make_closure(
         &self,
         implementation: &ExecutableModule,
         function: FunctionRef,
@@ -314,7 +448,26 @@ impl Runtime {
         })
     }
 
-    pub fn iter_operation(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn iter_operation_transport(
+        &self,
+        owner: &ExecutableModule,
+        value: &value::Value,
+        ty: &Ty,
+        op: IterOp,
+    ) -> Result<value::Value, RuntimeError> {
+        self.iter_operation(owner, value, ty, op)
+    }
+
+    pub(crate) fn iter_operation(
         &self,
         owner: &ExecutableModule,
         value: &value::Value,
@@ -387,7 +540,24 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn make_capture_cell(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn make_capture_cell_transport(
+        &self,
+        ty: ValueType,
+        value: value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        self.make_capture_cell(ty, value)
+    }
+
+    pub(crate) fn make_capture_cell(
         &self,
         ty: ValueType,
         value: value::Value,
@@ -395,7 +565,24 @@ impl Runtime {
         self.gc.alloc_cell(ty, value).map(Value::Cell)
     }
 
-    pub fn read_capture_cell(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn read_capture_cell_transport(
+        &self,
+        cell: &value::Value,
+        ty: ValueType,
+    ) -> Result<value::Value, RuntimeError> {
+        self.read_capture_cell(cell, ty)
+    }
+
+    pub(crate) fn read_capture_cell(
         &self,
         cell: &value::Value,
         ty: ValueType,
@@ -409,7 +596,25 @@ impl Runtime {
         self.gc.cell_get(*id, ty)
     }
 
-    pub fn write_capture_cell(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn write_capture_cell_transport(
+        &self,
+        cell: &value::Value,
+        ty: ValueType,
+        value: value::Value,
+    ) -> Result<(), RuntimeError> {
+        self.write_capture_cell(cell, ty, value)
+    }
+
+    pub(crate) fn write_capture_cell(
         &self,
         cell: &value::Value,
         ty: ValueType,
@@ -427,11 +632,27 @@ impl Runtime {
     /// Borrow the checked heap record for inspection. Release the view before
     /// heap mutation, collection or execution that may perform either operation.
     /// A native payload loan rejects this escaping directory view.
-    pub fn resolve_closure(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn resolve_closure_transport(
         &self,
         value: &value::Value,
     ) -> Result<Ref<'_, ClosureValueSnapshot>, RuntimeError> {
-        self.gc.ensure_no_native_borrow()?;
+        self.resolve_closure(value)
+    }
+
+    pub(crate) fn resolve_closure(
+        &self,
+        value: &value::Value,
+    ) -> Result<Ref<'_, ClosureValueSnapshot>, RuntimeError> {
+        self.gc.ensure_no_storage_borrow()?;
         let Value::Closure(id) = value else {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -446,7 +667,24 @@ impl Runtime {
     /// Resolve a method ID in the interface value's retained execution generation.
     /// Reject foreign identities, IDs beyond that generation's prefix and methods
     /// absent from its linked interface/parent tables. The result roots the receiver.
-    pub fn resolve_interface_method(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn resolve_interface_method_transport(
+        &self,
+        value: &Value,
+        method: &DefinitionId,
+    ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        self.resolve_interface_method(value, method)
+    }
+
+    pub(crate) fn resolve_interface_method(
         &self,
         value: &Value,
         method: &DefinitionId,
@@ -529,7 +767,25 @@ impl Runtime {
 
     /// Creates a parent interface view using already compiled tables from the
     /// receiver's retained execution version. It never specializes at runtime.
-    pub fn upcast_interface(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn upcast_interface_transport(
+        &self,
+        value: &value::Value,
+        source: &NominalTy,
+        target: &NominalTy,
+    ) -> Result<value::Value, RuntimeError> {
+        self.upcast_interface(value, source, target)
+    }
+
+    pub(crate) fn upcast_interface(
         &self,
         value: &value::Value,
         source: &NominalTy,
@@ -555,7 +811,26 @@ impl Runtime {
 
     /// Resolves a trait declaration's verified method ordinal without a
     /// name or declaration search during script dispatch.
-    pub fn resolve_interface_method_slot(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn resolve_interface_method_slot_transport(
+        &self,
+        value: &Value,
+        interface: &NominalTy,
+        slot: usize,
+        arguments: &[TypeArgument],
+    ) -> Result<RootedInterfaceMethod, RuntimeError> {
+        self.resolve_interface_method_slot(value, interface, slot, arguments)
+    }
+
+    pub(crate) fn resolve_interface_method_slot(
         &self,
         value: &Value,
         interface: &NominalTy,
@@ -626,7 +901,24 @@ impl Runtime {
         }
     }
 
-    pub fn validate_interface_method_arguments(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn validate_interface_method_arguments_transport(
+        &self,
+        method: &RootedInterfaceMethod,
+        arguments: &[value::Value],
+    ) -> Result<(), RuntimeError> {
+        self.validate_interface_method_arguments(method, arguments)
+    }
+
+    pub(crate) fn validate_interface_method_arguments(
         &self,
         method: &RootedInterfaceMethod,
         arguments: &[value::Value],
@@ -671,7 +963,24 @@ impl Runtime {
         }
     }
 
-    pub fn validate_interface_method_result(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn validate_interface_method_result_transport(
+        &self,
+        method: &RootedInterfaceMethod,
+        result: &value::Value,
+    ) -> Result<(), RuntimeError> {
+        self.validate_interface_method_result(method, result)
+    }
+
+    pub(crate) fn validate_interface_method_result(
         &self,
         method: &RootedInterfaceMethod,
         result: &value::Value,

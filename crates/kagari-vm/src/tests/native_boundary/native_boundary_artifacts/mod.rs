@@ -116,7 +116,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
             vm.execute(&loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -277,7 +277,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
             vm.execute(&loaded, ProgramEntry::Main)
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -349,7 +349,7 @@ pub fn answer() -> i32 {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

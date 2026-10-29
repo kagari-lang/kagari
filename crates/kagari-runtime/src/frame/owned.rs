@@ -22,7 +22,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         #[cfg(test)]
         retention_probe::record(runtime.gc(), Event::Proof);
         self.validate_runtime(runtime)?;
-        runtime.gc().ensure_no_native_borrow()?;
+        runtime.gc().ensure_no_storage_borrow()?;
         if runtime.static_initialization_active() {
             return Ok(false);
         }

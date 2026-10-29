@@ -38,18 +38,27 @@ fn main() {
     let owner = runtime.select_program(&owner_program).unwrap();
 
     let gc = runtime.gc();
-    let id = runtime
-        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
-        .unwrap();
+    let id = unsafe {
+        runtime.alloc_array_transport(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
+    }
+    .unwrap();
     // Fixed arrays permit element replacement without invalidating traversal.
-    gc.array_set(id, 0, Value::I32(42)).unwrap();
+    unsafe { gc.array_set_transport(id, 0, Value::I32(42)) }.unwrap();
     assert_eq!(
-        gc.array_set(id, 1, Value::I32(9)).unwrap_err().kind(),
+        unsafe { gc.array_set_transport(id, 1, Value::I32(9)) }
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::IndexOutOfBounds,
     );
-    assert_eq!(gc.array_get(id, 0), Some(Value::I32(42)));
-    assert_eq!(gc.array_len(id), Some(1));
+    assert_eq!(
+        unsafe { gc.array_get_transport(id, 0) },
+        Some(Value::I32(42))
+    );
+    assert_eq!(unsafe { gc.array_len_transport(id) }, Some(1));
     // Fixed length is an array invariant, independent of any iterator.
-    gc.array_set(id, 0, Value::I32(7)).unwrap();
-    assert_eq!(gc.array_snapshot(id), Some(vec![Value::I32(7)]));
+    unsafe { gc.array_set_transport(id, 0, Value::I32(7)) }.unwrap();
+    assert_eq!(
+        unsafe { gc.array_snapshot_transport(id) },
+        Some(vec![Value::I32(7)])
+    );
 }

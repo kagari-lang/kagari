@@ -114,7 +114,7 @@ impl Runtime {
         }
         self.resources().ensure_execution_allowed()?;
         self.ensure_scheduler_open()?;
-        self.gc().ensure_no_native_borrow()
+        self.gc().ensure_no_storage_borrow()
     }
 }
 

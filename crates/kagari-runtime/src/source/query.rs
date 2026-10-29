@@ -155,7 +155,7 @@ impl Runtime {
         &self,
         frame: &ExecutionFrame,
     ) -> Result<FunctionSourceTarget, RuntimeError> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         let session = self.resources().active_session().ok_or_else(|| {
             RuntimeError::module_validation("source frame requires an active observation session")

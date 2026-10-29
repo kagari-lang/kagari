@@ -5,7 +5,10 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
-    gc::roots::{RetainedValue, RootedValue},
+    gc::{
+        inspection::{ValueView, inspect_value},
+        roots::{RetainedValue, RootedValue},
+    },
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -34,6 +37,29 @@ pub struct ScriptValue {
 }
 
 impl ScriptValue {
+    pub(crate) fn from_transport(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        cx.check_type::<Self>(expected)?;
+        cx.check_value(expected, value)?;
+        let root = cx
+            .runtime()
+            .gc()
+            .retain_value(*value)
+            .ok_or_else(|| RuntimeError::module_validation("script value retention"))?;
+        Ok(Self {
+            root,
+            argument: expected.clone(),
+            owner: cx.owner().clone(),
+        })
+    }
+
+    pub(crate) fn retained_root(&self) -> Option<&RootedValue> {
+        self.root.as_root()
+    }
+
     pub(crate) fn from_root(
         root: RootedValue,
         argument: TypeArgument,
@@ -97,13 +123,43 @@ impl ScriptValue {
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))
     }
 
-    /// Read the checked value while this handle's root remains alive. The copy
-    /// must not outlive that protection unless the caller retains another root.
-    pub fn value(&self, runtime: &Runtime) -> NativeResult<Value> {
+    pub(crate) fn value(&self, runtime: &Runtime) -> NativeResult<Value> {
         self.argument.validate(runtime)?;
         self.root
             .value(runtime.gc())
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))
+    }
+
+    /// Read backend transport after checking its retained type and heap owner.
+    ///
+    /// # Safety
+    /// Keep the referent protected through every use or destination publication.
+    /// With the current checked-ID representation, detached copies may be used
+    /// only for identity/expiry rejection probes that cannot dereference reclaimed
+    /// storage. Such probes are not live backend inputs.
+    /// Root aliases may replace the source; retain an independent snapshot before
+    /// arbitrary callbacks can do so. A terminal backend handoff must publish before
+    /// any collection after this handle is released. Ordinary host code uses
+    /// inspect, typed conversion or owning object/collection access instead.
+    #[doc(hidden)]
+    pub unsafe fn value_transport(&self, runtime: &Runtime) -> NativeResult<Value> {
+        self.value(runtime)
+    }
+
+    /// Inspect the retained value without exposing unrooted object transport.
+    /// Retained type metadata is validated before lending a non-reentrant view. Release
+    /// the view before conversions, callbacks, allocation or collection.
+    pub fn inspect<R>(
+        &self,
+        runtime: &Runtime,
+        read: impl for<'view> FnOnce(ValueView<'view>) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        self.argument.validate(runtime)?;
+        let value = self
+            .root
+            .value(runtime.gc())
+            .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))?;
+        inspect_value(runtime.gc(), value, read)
     }
 
     pub fn type_argument(&self) -> &TypeArgument {
@@ -124,11 +180,7 @@ impl ScriptValue {
         // The supplied argument preserves its original lexical metadata. The caller
         // lends live execution services; data alone does not pin obsolete programs.
         let mut conversion = cx.conversion_scope(cx.owner())?;
-        let value = self
-            .root
-            .value(cx.runtime().gc())
-            .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))?;
-        conversion.decode_prepared(&self.argument, &value)
+        conversion.decode_value(&self.argument, self)
     }
 }
 
@@ -150,20 +202,12 @@ impl FromKagari for ScriptValue {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         cx.check_type::<Self>(expected)?;
-        cx.check_value(expected, value)?;
-        let root = cx
-            .runtime()
-            .gc()
-            .retain_value(*value)
-            .ok_or_else(|| RuntimeError::module_validation("script value retention"))?;
-        Ok(Self {
-            root,
-            argument: expected.clone(),
-            owner: cx.owner().clone(),
-        })
+        let raw = value.call_argument(cx.runtime(), expected, cx.owner())?;
+        cx.check_value(expected, &raw)?;
+        Ok(value.clone())
     }
 }
 
@@ -172,7 +216,7 @@ impl IntoKagari for ScriptValue {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         cx.check_type::<Self>(expected)?;
         if !self
             .argument
@@ -188,6 +232,6 @@ impl IntoKagari for ScriptValue {
             .value(cx.runtime().gc())
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired script value"))?;
         cx.check_value(expected, &value)?;
-        Ok(value)
+        Ok(self)
     }
 }

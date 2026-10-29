@@ -97,7 +97,20 @@ impl Drop for TaskActivation<'_> {
 }
 
 impl Runtime {
-    pub fn task_id(&self, value: &Value) -> NativeResult<TaskId> {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn task_id_transport(&self, value: &Value) -> NativeResult<TaskId> {
+        self.task_id(value)
+    }
+
+    pub(crate) fn task_id(&self, value: &Value) -> NativeResult<TaskId> {
         self.gc().task_snapshot(value).map(|(id, _)| id)
     }
 
@@ -124,7 +137,7 @@ impl Runtime {
         task: TaskId,
     ) -> NativeResult<TaskAcquisition<'_>> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.validate_scope_owner(scope)?;
         if scope.control.scheduler.is_some() {
             return Err(RuntimeError::module_validation(
@@ -140,7 +153,7 @@ impl Runtime {
         task: TaskId,
     ) -> NativeResult<TaskAcquisition<'_>> {
         self.require_idle_driver()?;
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         let (state, signal, options) = {
             let mut tasks = self.tasks.borrow_mut();
             let Some(record) = tasks.tasks.get_mut(task.0) else {

@@ -31,7 +31,7 @@ use kagari_runtime::{
     error::RuntimeError,
     host::{HostCallContext, HostError},
     module::{Program, entry::ProgramEntry},
-    native::builder::ModuleBuilder,
+    native::{builder::ModuleBuilder, host::HostCallback},
     value::Value,
 };
 use kagari_source::{
@@ -280,17 +280,21 @@ fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
     .map_err(registration)?;
     let log = module.declared_function("log").map_err(registration)?;
     module
-        .bind(log, |cx: &HostCallContext<'_>, args: &[Value]| {
-            let [Value::Str(message)] = args else {
-                return Err(HostError::new("host.log expects one string argument"));
-            };
-            let message = cx
-                .runtime()
-                .gc()
-                .string(*message)
-                .ok_or_else(|| HostError::new("invalid host.log string"))?;
-            println!("{}", &*message);
-            Ok(Value::Unit)
+        .bind(log, unsafe {
+            // SAFETY: The input frame protects String bytes through printing.
+            // No managed copy escapes; the callback returns Unit.
+            HostCallback::new(|cx: &HostCallContext<'_>, args: &[Value]| {
+                let [Value::Str(message)] = args else {
+                    return Err(HostError::new("host.log expects one string argument"));
+                };
+                let message = cx
+                    .runtime()
+                    .gc()
+                    .string_transport(*message)
+                    .ok_or_else(|| HostError::new("invalid host.log string"))?;
+                println!("{}", &*message);
+                Ok(Value::Unit)
+            })
         })
         .map_err(registration)?;
     engine

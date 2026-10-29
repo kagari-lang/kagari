@@ -24,9 +24,13 @@ impl ReceiverCalls {
         start: usize,
         mutable: bool,
     ) -> NativeResult<Self> {
-        let source = cx
-            .conversion()
-            .decode_value(&call.argument_type_argument(0)?, &call.argument(0)?)?;
+        // SAFETY: CallContext owns the complete argument snapshot.
+        let source = unsafe {
+            cx.conversion().decode_transport(
+                &call.argument_type_argument(0)?,
+                &call.argument_transport(0)?,
+            )
+        }?;
         Ok(Self {
             iter: cx
                 .selected_function::<(ScriptValue,), ScriptValue>(start)?

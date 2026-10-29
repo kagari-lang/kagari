@@ -7,7 +7,7 @@ use crate::{
     error::RuntimeErrorKind,
     host::{HostBorrowKind, HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     metadata::TypeId,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     session::TraceValue,
     value::Value,
 };
@@ -290,9 +290,9 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     let invoked = Arc::new(AtomicUsize::new(0));
     let called = invoked.clone();
     module
-        .bind(
-            write,
-            move |context: &HostCallContext<'_>, args: &[Value]| {
+        .bind(write, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context: &HostCallContext<'_>, args: &[Value]| {
                 called.fetch_add(1, Ordering::SeqCst);
                 let owner = context.runtime().execution_root().unwrap();
                 assert_eq!(
@@ -302,11 +302,14 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
                     RuntimeErrorKind::HostBorrowConflict
                 );
                 Err(HostError::new("business failure"))
-            },
-        )
+            })
+        })
         .unwrap();
     module
-        .bind(read, |_: &HostCallContext<'_>, _: &[Value]| Ok(Value::Unit))
+        .bind(read, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| Ok(Value::Unit))
+        })
         .unwrap();
     let module = module.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
@@ -427,8 +430,6 @@ fn quarantine_does_not_block_host_scope_cleanup() {
 
 #[test]
 fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
-    let raw = Arc::new(Mutex::new(None));
-    let saved = raw.clone();
     let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
     let make = module
         .define_function(FunctionDecl::new("make").host_policy(HostCallPolicy {
@@ -441,21 +442,23 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
         }))
         .unwrap();
     module
-        .bind(make, move |context: &HostCallContext<'_>, _: &[Value]| {
-            let owner = context.runtime().execution_root().unwrap();
-            let value = Value::Array(
+        .bind(make, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context: &HostCallContext<'_>, _: &[Value]| {
+                let owner = context.runtime().execution_root().unwrap();
+                let value = Value::Array(
+                    context
+                        .runtime()
+                        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+                        .unwrap(),
+                );
                 context
-                    .runtime()
-                    .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-                    .unwrap(),
-            );
-            context
-                .retain_temporaries(std::slice::from_ref(&value))
-                .unwrap();
-            context.runtime().collect_garbage().unwrap();
-            assert!(context.runtime().gc().validate_value(&value));
-            *saved.lock().unwrap() = Some(value);
-            Err(HostError::new("stop"))
+                    .retain_temporaries(std::slice::from_ref(&value))
+                    .unwrap();
+                context.runtime().collect_garbage().unwrap();
+                assert!(context.runtime().gc().validate_value(&value));
+                Err(HostError::new("stop"))
+            })
         })
         .unwrap();
     let module = module.finish().unwrap();
@@ -469,12 +472,9 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
         RuntimeErrorKind::HostCallFailure
     );
     assert_eq!(runtime.gc().active_roots(), 0);
-    runtime.collect_garbage().unwrap();
-    assert!(
-        !runtime
-            .gc()
-            .validate_value(raw.lock().unwrap().as_ref().unwrap())
-    );
+    let collection = runtime.collect_garbage().unwrap();
+    assert_eq!(collection.reclaimed_objects, 1);
+    assert_eq!(collection.live_objects, 0);
 }
 
 #[test]
@@ -486,12 +486,15 @@ fn host_callbacks_observe_replayable_root_inputs() {
         .define_function(function("sample", Type::unit()))
         .unwrap();
     module
-        .bind(sample, move |context: &HostCallContext<'_>, _: &[Value]| {
-            captured.lock().unwrap().push((
-                context.execution_time_millis().unwrap(),
-                context.next_execution_random_u64().unwrap(),
-            ));
-            Ok(Value::Unit)
+        .bind(sample, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(move |context: &HostCallContext<'_>, _: &[Value]| {
+                captured.lock().unwrap().push((
+                    context.execution_time_millis().unwrap(),
+                    context.next_execution_random_u64().unwrap(),
+                ));
+                Ok(Value::Unit)
+            })
         })
         .unwrap();
     let module = module.finish().unwrap();
@@ -536,23 +539,30 @@ fn host_trace_keeps_invocation_order_across_reentry() {
         ))
         .unwrap();
     builder
-        .bind(inner, |_: &HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::I32(2))
+        .bind(inner, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| Ok(Value::I32(2)))
         })
         .unwrap();
     builder
-        .bind(outer, |context: &HostCallContext<'_>, _: &[Value]| {
-            let owner = context.runtime().execution_root().unwrap();
-            assert_eq!(
-                invoke(context.runtime(), &owner, 0, &[]).unwrap(),
-                Value::I32(2)
-            );
-            Ok(Value::I32(3))
+        .bind(outer, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|context: &HostCallContext<'_>, _: &[Value]| {
+                let owner = context.runtime().execution_root().unwrap();
+                assert_eq!(
+                    invoke(context.runtime(), &owner, 0, &[]).unwrap(),
+                    Value::I32(2)
+                );
+                Ok(Value::I32(3))
+            })
         })
         .unwrap();
     builder
-        .bind(fail, |_: &HostCallContext<'_>, _: &[Value]| {
-            Err(HostError::new("expected failure"))
+        .bind(fail, unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| {
+                Err(HostError::new("expected failure"))
+            })
         })
         .unwrap();
     let declarations = builder.finish().unwrap();

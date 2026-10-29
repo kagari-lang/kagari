@@ -50,7 +50,20 @@ impl RootedInterfaceMethod {
         })
     }
 
-    pub fn receiver(&self) -> &Value {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn receiver_transport(&self) -> &Value {
+        self.receiver()
+    }
+
+    pub(crate) fn receiver(&self) -> &Value {
         &self.bound_receiver.receiver
     }
 

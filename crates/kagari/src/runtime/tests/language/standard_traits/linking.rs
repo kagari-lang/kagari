@@ -70,7 +70,7 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );

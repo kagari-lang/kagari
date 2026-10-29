@@ -14,7 +14,7 @@ use crate::{
     },
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionStack,
-    gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, roots::RootedValue},
+    gc::{GcCollection, GcHeap, GcHeapConfig, roots::RootedValue},
     host::{
         FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostRegistry,
         installation::PreparedHostTypes,
@@ -248,7 +248,7 @@ impl Runtime {
         &self,
         module: &ExecutableModule,
     ) -> Result<ExecutionStack<'_>, RuntimeError> {
-        self.gc.ensure_no_native_borrow()?;
+        self.gc.ensure_no_storage_borrow()?;
         let session = self.begin_execution(module, self.execution_options())?;
         ExecutionStack::new(session)
     }
@@ -354,7 +354,7 @@ impl Runtime {
     ) -> Result<ExecutionSession<'_>, RuntimeError> {
         let activation = self.resources().begin_synchronous_activation()?;
         self.ensure_scheduler_open()?;
-        self.gc.ensure_no_native_borrow()?;
+        self.gc.ensure_no_storage_borrow()?;
         if self.modules.is_staged(module)
             && self.resources().active_session().is_none()
             && !matches!(entry, ExecutionEntry::Candidate)
@@ -462,7 +462,25 @@ impl Runtime {
         self.host_borrows.validate(token, required)
     }
 
-    pub fn host_scope(&self, values: &[Value]) -> Result<HostResourceScope<'_>, RuntimeError> {
+    /// Admit raw execution values into an external-ID resource scope.
+    /// Ordinary borrowed host calls use with_host_scope and branded arguments.
+    ///
+    /// # Safety
+    /// Inputs must remain live through scope publication. Detached copies need
+    /// independent traced protection before this scope ends; external capabilities
+    /// still require their original host frame. This does not transfer Rust ownership.
+    #[doc(hidden)]
+    pub unsafe fn host_scope_transport(
+        &self,
+        values: &[Value],
+    ) -> Result<HostResourceScope<'_>, RuntimeError> {
+        self.host_scope(values)
+    }
+
+    pub(crate) fn host_scope(
+        &self,
+        values: &[Value],
+    ) -> Result<HostResourceScope<'_>, RuntimeError> {
         HostResourceScope::new(self, values)
     }
 
@@ -507,7 +525,25 @@ impl Runtime {
         self.host.resolve_path(declaration)
     }
 
-    pub fn make_host_path_view(
+    /// Access protected backend values through the existing semantic operation.
+    ///
+    /// # Safety
+    /// Keep source objects and all managed arguments traced through this operation.
+    /// Copied managed results and nested snapshot edges need independent protection
+    /// before callbacks, collection, source mutation or clearing diagnostic records.
+    /// Returned storage loans must end before reentry. Validation cannot revive an
+    /// expired direct reference; scoped host resources keep their original lifetime.
+    #[doc(hidden)]
+    pub unsafe fn make_host_path_view_transport(
+        &self,
+        root: host::HostRootHandle,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: host::DynamicPathArguments,
+    ) -> Result<host::HostPathViewHandle, RuntimeError> {
+        self.make_host_path_view(root, descriptor_id, dynamic_args)
+    }
+
+    pub(crate) fn make_host_path_view(
         &self,
         root: host::HostRootHandle,
         descriptor_id: host::HostPathDescriptorId,
@@ -528,7 +564,25 @@ impl Runtime {
             .make_path_view(&self.gc, root, descriptor_id, dynamic_args)
     }
 
-    pub fn make_host_path_view_from_value(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn make_host_path_view_from_value_transport(
+        &self,
+        root_or_view: &value::Value,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: Vec<value::Value>,
+    ) -> Result<host::HostPathViewHandle, RuntimeError> {
+        self.make_host_path_view_from_value(root_or_view, descriptor_id, dynamic_args)
+    }
+
+    pub(crate) fn make_host_path_view_from_value(
         &self,
         root_or_view: &value::Value,
         descriptor_id: host::HostPathDescriptorId,
@@ -547,7 +601,25 @@ impl Runtime {
             .make_path_view_from_value(&self.gc, root_or_view, descriptor_id, dynamic_args)
     }
 
-    pub fn read_host_path(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn read_host_path_transport(
+        &self,
+        root_or_view: &value::Value,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: Vec<value::Value>,
+    ) -> Result<value::Value, RuntimeError> {
+        self.read_host_path(root_or_view, descriptor_id, dynamic_args)
+    }
+
+    pub(crate) fn read_host_path(
         &self,
         root_or_view: &value::Value,
         descriptor_id: host::HostPathDescriptorId,
@@ -562,7 +634,26 @@ impl Runtime {
         result
     }
 
-    pub fn set_host_path(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn set_host_path_transport(
+        &self,
+        root_or_view: &value::Value,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: Vec<value::Value>,
+        value: value::Value,
+    ) -> Result<(), RuntimeError> {
+        self.set_host_path(root_or_view, descriptor_id, dynamic_args, value)
+    }
+
+    pub(crate) fn set_host_path(
         &self,
         root_or_view: &value::Value,
         descriptor_id: host::HostPathDescriptorId,
@@ -578,7 +669,27 @@ impl Runtime {
         result
     }
 
-    pub fn modify_host_path(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn modify_host_path_transport(
+        &self,
+        root_or_view: &value::Value,
+        descriptor_id: host::HostPathDescriptorId,
+        dynamic_args: Vec<value::Value>,
+        op: BinaryOp,
+        value: value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        self.modify_host_path(root_or_view, descriptor_id, dynamic_args, op, value)
+    }
+
+    pub(crate) fn modify_host_path(
         &self,
         root_or_view: &value::Value,
         descriptor_id: host::HostPathDescriptorId,
@@ -595,7 +706,20 @@ impl Runtime {
         result
     }
 
-    pub fn host_dirty_paths(&self) -> Vec<host::HostPathMutationRecord> {
+    /// Access protected backend values through the existing semantic operation.
+    ///
+    /// # Safety
+    /// Keep source objects and all managed arguments traced through this operation.
+    /// Copied managed results and nested snapshot edges need independent protection
+    /// before callbacks, collection, source mutation or clearing diagnostic records.
+    /// Returned storage loans must end before reentry. Validation cannot revive an
+    /// expired direct reference; scoped host resources keep their original lifetime.
+    #[doc(hidden)]
+    pub unsafe fn host_dirty_paths_transport(&self) -> Vec<host::HostPathMutationRecord> {
+        self.host_dirty_paths()
+    }
+
+    pub(crate) fn host_dirty_paths(&self) -> Vec<host::HostPathMutationRecord> {
         self.host.dirty_paths()
     }
 
@@ -638,7 +762,7 @@ impl Runtime {
         Some(artifact)
     }
 
-    pub fn root_value(&self, value: value::Value) -> Option<RootedValue> {
+    pub(crate) fn root_value(&self, value: Value) -> Option<RootedValue> {
         self.gc.root_value(value)
     }
 
@@ -656,15 +780,11 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn trace_roots(&self) -> Option<Vec<HeapObjectId>> {
-        self.gc.trace_roots()
-    }
-
     /// Collect unreachable heap objects and module instances in one graph traversal.
     pub fn collect_garbage(&self) -> Result<GcCollection, RuntimeError> {
         let entry = self.gc.collection_entry_time();
         self.resources().ensure_not_publishing()?;
-        self.gc.ensure_no_native_borrow()?;
+        self.gc.ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         self.gc.collect(&self.modules, &self.host, entry)
     }
@@ -675,12 +795,48 @@ impl Runtime {
         self.gc.service_collection(&self.modules, &self.host, entry)
     }
 
-    pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn reflect_type_of_transport(
+        &self,
+        value: &value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        self.reflect_type_of(value)
+    }
+
+    pub(crate) fn reflect_type_of(
+        &self,
+        value: &value::Value,
+    ) -> Result<value::Value, RuntimeError> {
         self.resources().poll_execution()?;
         reflection::type_of(&self.gc, value).map_err(|error| error.into_runtime_error())
     }
 
-    pub fn reflect_get_field(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn reflect_get_field_transport(
+        &self,
+        value: &value::Value,
+        field_name: &str,
+    ) -> Result<value::Value, RuntimeError> {
+        self.reflect_get_field(value, field_name)
+    }
+
+    pub(crate) fn reflect_get_field(
         &self,
         value: &value::Value,
         field_name: &str,
@@ -690,7 +846,25 @@ impl Runtime {
             .map_err(|error| RuntimeError::invalid_reflective_read(error.message()))
     }
 
-    pub fn reflect_set_field(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn reflect_set_field_transport(
+        &self,
+        value: &value::Value,
+        field_name: &str,
+        next_value: value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        self.reflect_set_field(value, field_name, next_value)
+    }
+
+    pub(crate) fn reflect_set_field(
         &self,
         value: &value::Value,
         field_name: &str,
@@ -701,7 +875,25 @@ impl Runtime {
             .map_err(ReflectionError::into_write_error)
     }
 
-    pub fn reflect_set_index(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn reflect_set_index_transport(
+        &self,
+        value: &value::Value,
+        index: &value::Value,
+        next_value: value::Value,
+    ) -> Result<value::Value, RuntimeError> {
+        self.reflect_set_index(value, index, next_value)
+    }
+
+    pub(crate) fn reflect_set_index(
         &self,
         value: &value::Value,
         index: &value::Value,
@@ -713,7 +905,25 @@ impl Runtime {
     }
 
     /// Invoke a checked primitive value operation.
-    pub fn invoke_standard_builtin(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn invoke_standard_builtin_transport(
+        &self,
+        owner: &ExecutableModule,
+        intrinsic: RuntimePrimitive,
+        args: &[value::Value],
+    ) -> Result<value::Value, BuiltinError> {
+        self.invoke_standard_builtin(owner, intrinsic, args)
+    }
+
+    pub(crate) fn invoke_standard_builtin(
         &self,
         owner: &ExecutableModule,
         intrinsic: RuntimePrimitive,

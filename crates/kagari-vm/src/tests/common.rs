@@ -17,7 +17,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
     module::{Program, VerifiedProgram},
-    native::{builder::ModuleBuilder, module::NativeModule},
+    native::{builder::ModuleBuilder, host::HostCallback, module::NativeModule},
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -114,10 +114,12 @@ pub fn load_test_module(source_text: &str) -> (Runtime, Program) {
 
 /// Bind the fixed print service through ordinary common native registration.
 pub fn logging_module(
-    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
-    + Send
-    + Sync
-    + 'static,
+    entry: HostCallback<
+        impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+        + Send
+        + Sync
+        + 'static,
+    >,
 ) -> NativeModule {
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
@@ -134,7 +136,13 @@ pub fn logging_module(
 
 /// Compile the explicit logging contract; callers install their own logging implementation.
 pub fn compile_logging_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
-    compile_native_test_bytecode(source_text, &[&logging_module(|_, _| Ok(Value::Unit))])
+    compile_native_test_bytecode(
+        source_text,
+        &[&logging_module(unsafe {
+            // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+            HostCallback::new(|_, _| Ok(Value::Unit))
+        })],
+    )
 }
 
 pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {

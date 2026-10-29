@@ -515,8 +515,12 @@ These are attributed occupancy counters, not cumulative allocation or quotas.
 The integrated incremental driver remains under PG05 acceptance; generational GC
 remains deferred. Ordinary-build service observations are specified below.
 
-Host retention uses gc::roots::RootedValue, returned by Runtime::root_value. The
-heap owns a generational root table containing the values; handles contain checked
+Host retention uses gc::roots::RootedValue, returned by execution, typed conversion
+and scoped retention. Raw backend registration is owned by GcHeap through unsafe
+root_value_transport/root_execution_values_transport. Inputs require continuous
+protection through publication; root registration cannot revive expired references.
+Owning values reject nonstorable host capabilities, while execution packs preserve
+their original scope requirements. The heap owns a generational root table containing the values; handles contain checked
 heap/root identities and Arc leases. Clones share one entry. Registration reserves
 one final-release notification credit and free-slot capacity. The last Arc lease
 Drop enqueues its complete owner/slot/generation ID in a shared mutex-protected Vec
@@ -535,9 +539,10 @@ upgrade racing the final host drop can conservatively retain an object for that
 collection, never omit a live root. Messages carry no values, metadata or runtime
 owner; table destruction disconnects the transport and frees its pending buffer,
 making later lease drops harmless.
-RootedValue::value and set require the owning heap and validate identity/generation
-and the exact lease pointer;
-replacement also validates incoming references. Copying a raw Value does not retain
+RootedValue::value and set are crate-private and validate the owning heap,
+identity/generation and exact lease pointer. Safe replace consumes another retained
+root; raw value_transport/set_transport require explicit backend protection.
+Replacement also validates incoming references. Copying a raw Value does not retain
 heap objects. Persistent native/debug retention uses this table; active interpreter
 frames are traced from runtime-owned scalar/managed windows.
 Executable metadata roots are published through Runtime so program ownership and
@@ -610,7 +615,9 @@ module::retention::ProgramLease. Runtime owns execution-state and candidate-acce
 policy; ModuleStore owns records and no longer retains ResourceState. Instance
 reads and writes enter through Runtime's checked APIs. ModuleStore's instance and
 retention mutation methods are crate-private storage operations.
-Runtime::read_module_slot and write_module_slot are the execution access boundary.
+Runtime::read_module_slot_transport and write_module_slot_transport are the unsafe
+backend execution access boundary; callers protect raw inputs and publish copied
+results before collection or callbacks.
 Writes check the installed descriptor, slot bounds and mutability, its bytecode
 representation, storable/live heap references and candidate ownership before
 replacing a reference. Candidate checks also apply between initialization and

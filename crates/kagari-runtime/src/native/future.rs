@@ -11,6 +11,7 @@ use crate::{
         binding::NativeResult,
         completion::{Completion, CompletionRegistry, Operation, OperationPoll},
         composition::ColdComposition,
+        context::arguments::ArgumentView,
         conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
         storage::{NativePayload, NativeStorage},
     },
@@ -89,7 +90,8 @@ where
         let mut operation = registry.reserve::<R>()?;
         operation.set_waker(wake);
         let completion = operation.completion()?;
-        let arguments = A::from_arguments(cx, &cold.parameters, &cold.values)?;
+        let snapshot = ArgumentView::from_values(cx.runtime().gc(), cold.values.clone())?;
+        let arguments = A::from_arguments(cx, &cold.parameters, &snapshot)?;
         cx.poll()?;
         match (self.entry)(arguments, completion.clone())? {
             NativeStart::Ready(value) => {
@@ -129,7 +131,7 @@ impl<R: IntoKagari + Send + 'static> PendingNative for TypedPending<R> {
             OperationPoll::Ready(result) => {
                 let mut cx = ConversionContext::new(runtime, &self.owner)?;
                 cx.poll()?;
-                let value = cx.encode_value(&self.output, result?)?;
+                let value = cx.encode_transport(&self.output, result?)?;
                 cx.poll()?;
                 Ok(Poll::Ready(value))
             }

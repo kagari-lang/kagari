@@ -200,7 +200,7 @@ impl Value {
         }
     }
 
-    pub fn is_storable(&self, heap: &GcHeap) -> bool {
+    pub(crate) fn is_storable(&self, heap: &GcHeap) -> bool {
         match self {
             Self::Tuple(id) => heap.tuple_properties(*id).is_some_and(|p| p.storable),
             Self::HostRoot(_)
@@ -215,7 +215,7 @@ impl Value {
         matches!(self, Self::Ephemeral(_) | Self::RuntimeEphemeral(_))
     }
 
-    pub fn contains_ephemeral(&self, heap: &GcHeap) -> bool {
+    pub(crate) fn contains_ephemeral(&self, heap: &GcHeap) -> bool {
         match self {
             Self::Tuple(id) => heap.tuple_properties(*id).is_none_or(|p| p.ephemeral),
             Self::Ephemeral(_) | Self::RuntimeEphemeral(_) => true,
@@ -223,7 +223,7 @@ impl Value {
         }
     }
 
-    pub fn contains_host_borrow(&self, heap: &GcHeap) -> bool {
+    pub(crate) fn contains_host_borrow(&self, heap: &GcHeap) -> bool {
         match self {
             Self::Tuple(id) => heap.tuple_properties(*id).is_none_or(|p| p.host_borrow),
             Self::Ephemeral(_) => true,
@@ -231,7 +231,17 @@ impl Value {
         }
     }
 
-    pub fn is_default_heap_payload(&self, heap: &GcHeap) -> bool {
+    /// Check the default storage category of protected backend transport.
+    ///
+    /// # Safety
+    /// Keep this value's managed referent live through the query. Aggregate
+    /// classification reads heap metadata and does not establish a root.
+    #[doc(hidden)]
+    pub unsafe fn is_default_heap_payload_transport(&self, heap: &GcHeap) -> bool {
+        self.is_default_heap_payload(heap)
+    }
+
+    pub(crate) fn is_default_heap_payload(&self, heap: &GcHeap) -> bool {
         self.is_storable(heap)
     }
 }

@@ -136,11 +136,12 @@ impl Vm {
                 None,
             ),
         };
-        let failure = self.runtime.result_failure(&return_value);
-        let return_value = self
-            .runtime
-            .root_value(return_value)
-            .ok_or_else(|| RuntimeError::module_validation("execution result root"))?;
+        let failure = unsafe { self.runtime.result_failure_transport(&return_value) };
+        let return_value = unsafe {
+            // SAFETY: Native/interpreter completion transfers this value before any further callback or collection.
+            self.runtime.gc().root_value_transport(return_value)
+        }
+        .ok_or_else(|| RuntimeError::module_validation("execution result root"))?;
         Ok(ExecutionReport {
             module_name: module.name.clone(),
             epoch: module.epoch.0,

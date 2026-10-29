@@ -959,13 +959,16 @@ declaration and inferred arguments; IR lowering specializes that selection rathe
 than repeating name or implementation lookup. Whole-program verification
 resolves imported implementations through the dependency graph.
 
-An embedding path that already has a linked implementation can create and
+A backend embedding path that already has a linked implementation can create and
 retain such a value explicitly:
 
 ```rust,ignore
 let value = vm.runtime().make_interface(&loaded_impl, table_index, concrete_value)?;
-let rooted = vm.runtime().root_value(value).expect("valid runtime-owned value");
-let value = rooted.value(vm.runtime().gc()).expect("owning runtime");
+// SAFETY: Transfer the fresh interface directly before any callback or collection.
+let rooted = unsafe { vm.runtime().gc().root_value_transport(value) }
+    .expect("valid runtime-owned value");
+// SAFETY: rooted remains alive through the immediate backend invocation.
+let value = unsafe { rooted.value_transport(vm.runtime().gc()) }.expect("owning runtime");
 let result = vm.invoke_interface_method(&value, &method_id, &[])?;
 ```
 

@@ -54,13 +54,17 @@ impl Tasks {
     fn spawn(&self, entry: &str, args: &[Value]) -> (TaskId, RootedValue) {
         let f = &self.fixture;
         let factory = f.invoke(entry, args);
-        let task = f
-            .runtime
-            .runtime()
-            .spawn_task(&f.value(self.scope.capability()), &f.value(&factory))
-            .unwrap()
-            .unwrap();
-        (f.runtime.runtime().task_id(&f.value(&task)).unwrap(), task)
+        let task = unsafe {
+            f.runtime
+                .runtime()
+                .spawn_task_transport(&f.value(self.scope.capability()), &f.value(&factory))
+        }
+        .unwrap()
+        .unwrap();
+        (
+            unsafe { f.runtime.runtime().task_id_transport(&f.value(&task)) }.unwrap(),
+            task,
+        )
     }
 
     fn drive(&self, id: TaskId) -> TaskDriveResult {
@@ -112,7 +116,7 @@ fn scoped_task_shared_wait_contract() {
         tasks.report(excess).outcome.unwrap_err().error.kind(),
         RuntimeErrorKind::ResourceLimitExceeded
     );
-    runtime.cancel_task(&f.value(&left_handle)).unwrap();
+    unsafe { runtime.cancel_task_transport(&f.value(&left_handle)) }.unwrap();
     assert_eq!(runtime.drain_cancelled_tasks().unwrap(), 1);
     assert_eq!(
         tasks.report(left).outcome.unwrap_err().cancellation,
@@ -250,11 +254,12 @@ fn scoped_task_dependency_failure_contract() {
         )
         .unwrap();
     let factory = f.invoke("observe", &[f.value(&handle), Value::I32(1)]);
-    let other = runtime
-        .spawn_task(&f.value(other_scope.capability()), &f.value(&factory))
-        .unwrap()
-        .unwrap();
-    let other_id = runtime.task_id(&f.value(&other)).unwrap();
+    let other = unsafe {
+        runtime.spawn_task_transport(&f.value(other_scope.capability()), &f.value(&factory))
+    }
+    .unwrap()
+    .unwrap();
+    let other_id = unsafe { runtime.task_id_transport(&f.value(&other)) }.unwrap();
     assert_eq!(
         f.runtime
             .backend()
@@ -283,7 +288,7 @@ fn scoped_task_dependency_failure_contract() {
     let (last, _) = tasks.spawn("observe", &[f.value(&middle_handle), Value::I32(2)]);
     assert_eq!(tasks.drive(middle), TaskDriveResult::Waiting);
     assert_eq!(tasks.drive(last), TaskDriveResult::Waiting);
-    runtime.cancel_task(&f.value(&handle)).unwrap();
+    unsafe { runtime.cancel_task_transport(&f.value(&handle)) }.unwrap();
     assert_eq!(runtime.drain_cancelled_tasks().unwrap(), 1);
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
     assert_eq!(

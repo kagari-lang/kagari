@@ -84,7 +84,7 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -158,7 +158,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
             .execute(&old, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -167,7 +167,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
             .execute(&current, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(2)
     );

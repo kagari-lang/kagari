@@ -92,12 +92,12 @@ fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
         )
         .unwrap();
     module
-        .bind_path(
-            &path,
+        .bind_path(&path, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(|_, _| Ok(Value::I32(10)))
-                .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
-        )
+                .with_read_transport(|_, _| Ok(Value::I32(10)))
+                .with_prepare_write_transport(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})))
+        })
         .unwrap();
     let mut runtime = Runtime::default();
     module.finish().unwrap().install(&mut runtime).unwrap();
@@ -195,12 +195,15 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
     let Value::Tuple(tuple) = root.value(runtime.gc()).unwrap() else {
         unreachable!()
     };
-    assert_eq!(runtime.trace_roots().unwrap(), vec![tuple, record, leaf]);
+    assert_eq!(
+        runtime.gc().trace_roots().unwrap(),
+        vec![tuple, record, leaf]
+    );
     root.set(runtime.gc(), Value::GcHandle(leaf)).unwrap();
-    assert_eq!(runtime.trace_roots().unwrap(), vec![leaf]);
+    assert_eq!(runtime.gc().trace_roots().unwrap(), vec![leaf]);
     assert_eq!(root.value(runtime.gc()).unwrap(), Value::GcHandle(leaf));
     drop(root);
-    assert!(runtime.trace_roots().unwrap().is_empty());
+    assert!(runtime.gc().trace_roots().unwrap().is_empty());
 }
 
 #[test]
@@ -378,5 +381,5 @@ fn host_objects_are_not_gc_payloads_or_trace_targets() {
     let Value::Tuple(tuple) = root.value(runtime.gc()).unwrap() else {
         unreachable!()
     };
-    assert_eq!(runtime.trace_roots().unwrap(), vec![tuple, script]);
+    assert_eq!(runtime.gc().trace_roots().unwrap(), vec![tuple, script]);
 }

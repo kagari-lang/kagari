@@ -26,9 +26,9 @@ use kagari_runtime::{
         interfaces::Interface,
         typed::NativeContext,
         types::Type,
+        value_handle::ScriptValue,
     },
     task::value::TaskScope,
-    value::Value,
 };
 use kagari_source::source::SourceFile;
 use std::{
@@ -184,7 +184,7 @@ impl FromKagari for Output {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         ty: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         Ok(Self {
             value: Cell::new(i32::from_kagari(cx, ty, value)?),
@@ -202,7 +202,11 @@ impl KagariType for Input {
 }
 
 impl IntoKagari for Input {
-    fn into_kagari(self, cx: &mut ConversionContext<'_>, ty: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        ty: &TypeArgument,
+    ) -> NativeResult<ScriptValue> {
         assert_eq!(cx.runtime().execution_time_millis()?, 123);
         (*self.0).into_kagari(cx, ty)
     }
@@ -217,7 +221,11 @@ impl KagariType for PanickingInput {
 }
 
 impl IntoKagari for PanickingInput {
-    fn into_kagari(self, _: &mut ConversionContext<'_>, _: &TypeArgument) -> NativeResult<Value> {
+    fn into_kagari(
+        self,
+        _: &mut ConversionContext<'_>,
+        _: &TypeArgument,
+    ) -> NativeResult<ScriptValue> {
         panic!("argument converter panic");
     }
 }

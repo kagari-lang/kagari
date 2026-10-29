@@ -86,7 +86,12 @@ fn register<T: NativePayload>(
     module
         .bind(
             new,
-            NativeBinding::new(vec![], ty.codec(), |cx| cx.allocate_result()),
+            // SAFETY: The created payload is handed directly to native result publication.
+            unsafe {
+                NativeBinding::new_transport(vec![], ty.codec(), |cx| {
+                    cx.allocate_result_transport()
+                })
+            },
         )
         .unwrap();
 }

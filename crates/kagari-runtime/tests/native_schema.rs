@@ -22,6 +22,7 @@ use kagari_runtime::{
         module::NativeModule,
         schema::{TypeRegistration, ValueField},
         types::Type,
+        value_handle::ScriptValue,
     },
     value::Value,
 };
@@ -201,7 +202,7 @@ impl IntoKagari for Leaf {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         let mut fields = cx.write_struct(expected)?;
         fields.field("value", self.value)?;
         fields.finish()
@@ -217,17 +218,19 @@ impl FromKagari for Leaf {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         if let Some(parent) = REWRITE_PARENT.take() {
             let empty = cx.encode(VecValues::<Tree>(vec![]))?;
-            let layout = cx.runtime().gc().struct_layout(parent).unwrap();
-            cx.runtime().gc().struct_set_slot(
-                parent,
-                &layout,
-                1,
-                empty.value(cx.runtime().gc()).unwrap(),
-            )?;
+            let layout = unsafe { cx.runtime().gc().struct_layout_transport(parent) }.unwrap();
+            unsafe {
+                cx.runtime().gc().struct_set_slot_transport(
+                    parent,
+                    &layout,
+                    1,
+                    empty.value_transport(cx.runtime().gc()).unwrap(),
+                )
+            }?;
             cx.runtime().collect_garbage()?;
         }
         assert!(!PANIC_IN_LEAF.replace(false), "DTO child conversion unwind");
@@ -262,7 +265,11 @@ fn char_host_conversions_preserve_domains_in_scalars_and_generic_containers() {
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     for ch in ['\0', 'é', '🙂', char::MAX] {
         let root = cx.encode(ch).unwrap();
-        assert_eq!(root.value(runtime.gc()), Some(Value::Char(ch)));
+        assert_eq!(
+            root.inspect(&runtime, |view| view.as_char().map(Value::Char))
+                .ok(),
+            Some(Value::Char(ch))
+        );
         assert_eq!(cx.decode::<char>(&root).unwrap(), ch);
         assert!(cx.decode::<u32>(&root).is_err());
         let integer = cx.encode(u32::from(ch)).unwrap();
@@ -301,18 +308,22 @@ fn nested_dtos_and_enum_payloads_round_trip_with_owned_isolation_and_collection(
     let mut decoded: Tree = cx.decode(&root).unwrap();
     decoded.leaf.value = 99;
     assert_eq!(cx.decode::<Tree>(&root).unwrap(), input);
-    let Value::Struct(id) = root.value(runtime.gc()).unwrap() else {
+    let Value::Struct(id) = unsafe { root.value_transport(runtime.gc()) }.unwrap() else {
         panic!("DTO struct")
     };
-    let layout = runtime.gc().struct_layout(id).unwrap();
-    let Value::Struct(leaf) = runtime.gc().struct_get_slot(id, &layout, 0).unwrap() else {
+    let layout = unsafe { runtime.gc().struct_layout_transport(id) }.unwrap();
+    let Value::Struct(leaf) =
+        unsafe { runtime.gc().struct_get_slot_transport(id, &layout, 0) }.unwrap()
+    else {
         panic!("nested DTO")
     };
-    let leaf_layout = runtime.gc().struct_layout(leaf).unwrap();
-    runtime
-        .gc()
-        .struct_set_slot(leaf, &leaf_layout, 0, Value::I32(12))
-        .unwrap();
+    let leaf_layout = unsafe { runtime.gc().struct_layout_transport(leaf) }.unwrap();
+    unsafe {
+        runtime
+            .gc()
+            .struct_set_slot_transport(leaf, &leaf_layout, 0, Value::I32(12))
+    }
+    .unwrap();
     assert_eq!(decoded.leaf.value, 99);
     assert_eq!(cx.decode::<Tree>(&root).unwrap().leaf.value, 12);
     for input in [Choice::Empty, Choice::Leaf(Leaf { value: 23 })] {
@@ -393,7 +404,7 @@ fn dto_snapshot_survives_alias_mutation_collection_and_child_unwind() {
         }]),
     };
     let root = cx.encode(input.clone()).unwrap();
-    let Value::Struct(parent) = root.value(runtime.gc()).unwrap() else {
+    let Value::Struct(parent) = unsafe { root.value_transport(runtime.gc()) }.unwrap() else {
         panic!("Tree")
     };
     REWRITE_PARENT.set(Some(parent));

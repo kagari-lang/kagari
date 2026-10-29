@@ -42,7 +42,7 @@ pub fn update() { STATE = 5; }
             .execute(module, entry, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .unwrap()
     };
     assert_eq!(call(&old, "read"), Value::I32(13));
@@ -59,7 +59,7 @@ pub fn update() { STATE = 5; }
                 .execute(&current, entry, &[], &Default::default())
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
                 .unwrap(),
             Value::I32(expected),
             "{entry}/decoded={decoded}"
@@ -85,22 +85,28 @@ fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
-    let root = runtime
-        .runtime()
-        .root_value(
+    let root = unsafe {
+        runtime.runtime().gc().root_value_transport(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .value_transport(runtime.runtime().gc())
                 .expect("retained execution result"),
         )
-        .unwrap();
+    }
+    .unwrap();
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(drops.load(Ordering::SeqCst), 0);
     drop(runtime);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     let other = engine.runtime(context);
-    assert!(root.value(other.runtime().gc()).is_none());
-    assert!(root.set(other.runtime().gc(), Value::Unit).is_none());
+    assert!(root.inspect(other.runtime(), |_| Ok(())).is_err());
+    assert!(
+        root.replace(
+            other.runtime().gc(),
+            &unsafe { other.runtime().gc().root_value_transport(Value::Unit) }.unwrap()
+        )
+        .is_none()
+    );
     drop(root);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
@@ -128,7 +134,7 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

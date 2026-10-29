@@ -112,7 +112,26 @@ impl ExecutionStack<'_> {
     /// Start a single await. Repeated polling uses `poll_await`, never this entry.
     /// The backend advances its PC before entering and publishes no destination
     /// value until the resumed completion is successfully converted.
-    pub fn begin_await(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn begin_await_transport(
+        &self,
+        runtime: &Runtime,
+        value: Value,
+        destination: Slot,
+        future: &Ty,
+    ) -> NativeResult<()> {
+        self.begin_await(runtime, value, destination, future)
+    }
+
+    pub(crate) fn begin_await(
         &self,
         runtime: &Runtime,
         value: Value,
@@ -281,7 +300,23 @@ impl ExecutionStack<'_> {
 
     /// No callback, conversion or result destruction occurs while the session
     /// table is borrowed. This also permits custom conversion to allocate safely.
-    pub fn poll_await(&self, runtime: &Runtime) -> NativeResult<Poll<Option<Value>>> {
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn poll_await_transport(
+        &self,
+        runtime: &Runtime,
+    ) -> NativeResult<Poll<Option<Value>>> {
+        self.poll_await(runtime)
+    }
+
+    pub(crate) fn poll_await(&self, runtime: &Runtime) -> NativeResult<Poll<Option<Value>>> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::AwaitPoll);
         self.validate_runtime(runtime)?;

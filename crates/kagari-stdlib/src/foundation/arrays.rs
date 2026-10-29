@@ -37,11 +37,9 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                                 "fn example(values: [i32]) {{ val result = values.{name}(); }}"
                             ),
                         ))
-                        .implementation_send(NativeBinding::new(
-                            vec![Codec::Value],
-                            Codec::Value,
-                            callback,
-                        )),
+                        .implementation_send(unsafe {
+                            NativeBinding::new_transport(vec![Codec::Value], Codec::Value, callback)
+                        }),
                 )?;
             }
             Ok(())

@@ -11,10 +11,12 @@ fn sdk_owned_future_factory_contract() {
     ));
     let events = f.invoke("events", &[]);
     let start = |factory: &RootedValue| {
-        f.runtime
-            .runtime()
-            .start_owned_factory(&f.value(factory), Default::default())
-            .unwrap()
+        unsafe {
+            f.runtime
+                .runtime()
+                .start_owned_factory_transport(&f.value(factory), Default::default())
+        }
+        .unwrap()
     };
     for (entry, expected) in [("ordinary", 1), ("explicit", 2)] {
         let factory = f.invoke(entry, &[f.value(&events)]);
@@ -60,10 +62,12 @@ fn sdk_owned_future_factory_contract() {
     }
     let wrong = f.invoke("wrong", &[]);
     assert!(
-        f.runtime
-            .runtime()
-            .start_owned_factory(&f.value(&wrong), Default::default())
-            .is_err()
+        unsafe {
+            f.runtime
+                .runtime()
+                .start_owned_factory_transport(&f.value(&wrong), Default::default())
+        }
+        .is_err()
     );
     let factory = f.invoke("trapped", &[f.value(&events)]);
     let owner = start(&factory);

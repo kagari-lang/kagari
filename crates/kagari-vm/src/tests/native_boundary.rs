@@ -15,6 +15,7 @@ use kagari_runtime::{
         context::CallContext,
         conversion::context::ConversionContext,
         declarations::FunctionDecl,
+        functions::NativeCallback,
         module::NativeModule,
         objects::Object,
         payload::Opaque,
@@ -167,7 +168,7 @@ fn scalar_function_executes_through_the_checked_registration() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -186,10 +187,11 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
         .define_function(FunctionDecl::new("broken").returns(Type::i32()))
         .unwrap();
     module
-        .bind(
-            function,
-            |_cx: &mut CallContext<'_>| -> NativeResult<Value> { Ok(Value::Bool(true)) },
-        )
+        .bind(function, unsafe {
+            NativeCallback::new(|_cx: &mut CallContext<'_>| -> NativeResult<Value> {
+                Ok(Value::Bool(true))
+            })
+        })
         .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = compile(
@@ -203,7 +205,7 @@ fn raw_result_contract_failure_releases_the_execution_scope() {
         vm.execute(&loaded, "healthy")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -232,7 +234,7 @@ fn foundation_defaults_execute_without_optional_modules() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -267,7 +269,7 @@ use std::hash::{Hash};
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -307,26 +309,29 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
         })
         .unwrap();
     module
-        .bind(
-            repeat,
-            NativeBinding::new(
+        .bind(repeat, unsafe {
+            NativeBinding::new_transport(
                 vec![Codec::Value, Codec::Exact(Type::i32())],
                 Codec::Exact(Type::i32()),
                 move |cx| {
-                    let receiver = cx.argument(0)?;
-                    let Value::I32(count) = cx.argument(1)? else {
+                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                    let receiver = cx.argument_transport(0)?;
+                    // SAFETY: The active call retains this input until its copy is published or consumed.
+                    let Value::I32(count) = cx.argument_transport(1)? else {
                         unreachable!()
                     };
                     let target = cx.selected(&selected)?;
                     let mut value = Value::I32(0);
                     for _ in 0..count {
                         cx.poll()?;
-                        value = cx.call_values(target, &[receiver, value])?;
+                        // SAFETY: The native argument frame and local working roots protect inputs;
+                        // results are decoded, rooted or returned before another callback.
+                        value = cx.call_values_transport(target, &[receiver, value])?;
                     }
                     Ok(value)
                 },
-            ),
-        )
+            )
+        })
         .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = compile(
@@ -349,7 +354,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
             vm.execute(&loaded, entry)
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -407,10 +412,14 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
     declaration.type_parameter("T").unwrap();
     declaration
         .native_storage(NativeStorage::new(move |context| {
-            let values = context.allocate_array(
-                context.resolve_type(Type::i32().abi())?,
-                vec![Value::I32(42)],
-            )?;
+            // SAFETY: Inputs are scalars; no collection occurs before the returned
+            // payload publishes its array edge through the ordinary scanner.
+            let values = unsafe {
+                context.allocate_array_transport(
+                    context.resolve_type(Type::i32().abi())?,
+                    vec![Value::I32(42)],
+                )
+            }?;
             Ok(TracedCounter {
                 values,
                 contract: None,
@@ -426,7 +435,13 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
     builder
         .bind(
             new,
-            NativeBinding::new(vec![], counter.codec(), |context| context.allocate_result()),
+            // SAFETY: The native argument frame and local working roots protect inputs; results are
+            // decoded, rooted or returned before another callback.
+            unsafe {
+                NativeBinding::new_transport(vec![], counter.codec(), |context| {
+                    context.allocate_result_transport()
+                })
+            },
         )
         .unwrap();
     let read = builder
@@ -437,36 +452,28 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         )
         .unwrap();
     builder
-        .bind(
-            read,
-            NativeBinding::new(
+        .bind(read, unsafe {
+            NativeBinding::new_transport(
                 vec![counter.codec()],
                 Codec::Exact(Type::i32()),
                 |context| {
-                    unsafe {
-                        context.with_payload::<TracedCounter, _>(0, |payload| {
-                            // Collection and execution cannot invalidate this scoped Rust borrow.
-                            assert!(
-                                context
-                                    .allocate_array(
-                                        context.resolve_type(Type::i32().abi())?,
-                                        vec![]
-                                    )
-                                    .unwrap_err()
-                                    .message()
-                                    .contains("native storage access")
-                            );
-                            let Value::Array(id) = payload.values else {
-                                panic!("counter payload");
-                            };
-                            context.heap().array_get(id, 0).ok_or_else(|| {
-                                RuntimeError::module_validation("missing traced child")
-                            })
-                        })
-                    }
+                    context.with_payload::<TracedCounter, _>(0, |payload| {
+                        // Collection and execution cannot invalidate this scoped Rust borrow.
+                        assert_eq!(
+                            context.allocate_result_transport().unwrap_err().message(),
+                            "module validation failed: script reentry during heap storage access"
+                        );
+                        let Value::Array(id) = payload.values else {
+                            panic!("counter payload");
+                        };
+                        context
+                            .heap()
+                            .array_get_transport(id, 0)
+                            .ok_or_else(|| RuntimeError::module_validation("missing traced child"))
+                    })
                 },
-            ),
-        )
+            )
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, loaded) = compile(
@@ -475,20 +482,22 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
+    let source_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let rooted = vm.runtime().gc().root_value(value).unwrap();
+    let rooted = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     assert_eq!(
         vm.execute(&loaded, "answer")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -547,7 +556,7 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -636,7 +645,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -645,7 +654,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
         vm.execute(&loaded, "healthy")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -809,7 +818,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_bool().map(Value::Bool))
             .expect("retained execution result"),
         Value::Bool(true)
     );
@@ -853,7 +862,7 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
         vm.execute(&loaded, "healthy")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -887,20 +896,10 @@ use std::hash::{Hash};
     let custom: ScriptMap<Object, i32> = vm.execute_typed(&loaded, "custom", ()).unwrap();
     let key: Object = vm.execute_typed(&loaded, "key", ()).unwrap();
     let mut conversion = ConversionContext::new(vm.runtime(), &loaded).unwrap();
-    let wrong = conversion.encode(true).unwrap();
-    let wrong: ScriptValue = conversion
-        .decode_value(
-            &conversion.type_for::<bool>().unwrap(),
-            &wrong.value(vm.runtime().gc()).unwrap(),
-        )
-        .unwrap();
-    let one = conversion.encode(1i32).unwrap();
-    let one: ScriptValue = conversion
-        .decode_value(
-            &conversion.type_for::<i32>().unwrap(),
-            &one.value(vm.runtime().gc()).unwrap(),
-        )
-        .unwrap();
+    let wrong_type = conversion.type_for::<bool>().unwrap();
+    let wrong = conversion.encode_value(&wrong_type, true).unwrap();
+    let one_type = conversion.type_for::<i32>().unwrap();
+    let one = conversion.encode_value(&one_type, 1_i32).unwrap();
     let mut cx = vm.context(&loaded).unwrap();
     assert!(map.insert(&mut cx, wrong.clone(), one.clone()).is_err());
     assert!(map.insert(&mut cx, one, wrong.clone()).is_err());
@@ -932,17 +931,16 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     let slot = Arc::new(Mutex::new(None::<kagari_runtime::gc::roots::RootedValue>));
     let capture = slot.clone();
     builder
-        .bind(
-            hold,
-            NativeBinding::new(vec![], Codec::Iterator, move |cx| {
+        .bind(hold, unsafe {
+            NativeBinding::new_transport(vec![], Codec::Iterator, move |cx| {
                 capture
                     .lock()
                     .unwrap()
                     .as_ref()
-                    .and_then(|root| root.value(cx.heap()))
+                    .and_then(|root| root.value_transport(cx.heap()))
                     .ok_or_else(|| RuntimeError::module_validation("missing retained cursor"))
-            }),
-        )
+            })
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, loaded) = compile(
@@ -957,19 +955,18 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
-        .execute(&loaded, "cursor")
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+    let value_root = vm.execute(&loaded, "cursor").unwrap().return_value;
+    // SAFETY: value_root protects this value through its uses and traced publication.
+    let value = unsafe { value_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    *slot.lock().unwrap() = Some(vm.runtime().root_value(value).unwrap());
+    *slot.lock().unwrap() = Some(unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap());
+    drop(value_root);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(
         vm.execute(&loaded, "first")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(20)
     );
@@ -978,7 +975,7 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
         vm.execute(&loaded, "rest")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(22)
     );
@@ -986,7 +983,7 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
         vm.execute(&loaded, "rest")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(0)
     );
@@ -1018,20 +1015,22 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .unwrap();
     let capture = dropped.clone();
     builder
-        .bind(
-            new,
-            NativeBinding::new(vec![Codec::Value], counter.codec(), move |cx| {
+        .bind(new, unsafe {
+            NativeBinding::new_transport(vec![Codec::Value], counter.codec(), move |cx| {
                 let payload = TracedCounter {
-                    values: cx.argument(0)?,
+                    // SAFETY: The call retains this input until the payload scanner publishes its edge.
+                    values: cx.argument_transport(0)?,
                     contract: Some(StorageType::prepare_scoped(
                         cx.argument_type_argument(0)?,
                         cx.owner(),
                     )?),
                     dropped: capture.clone(),
                 };
-                cx.allocate_result_payload(&[], |_, _| Ok(payload))
-            }),
-        )
+                // SAFETY: The native argument frame and local working roots protect inputs; results
+                // are decoded, rooted or returned before another callback.
+                cx.allocate_result_payload_transport(&[], |_, _| Ok(payload))
+            })
+        })
         .unwrap();
     let wrong = builder
         .define_function(FunctionDecl::new("missing_payload").returns(ty.clone()))
@@ -1039,7 +1038,13 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     builder
         .bind(
             wrong,
-            NativeBinding::new(vec![], counter.codec(), |cx| cx.allocate_result()),
+            // SAFETY: The native argument frame and local working roots protect inputs; results are
+            // decoded, rooted or returned before another callback.
+            unsafe {
+                NativeBinding::new_transport(vec![], counter.codec(), |cx| {
+                    cx.allocate_result_transport()
+                })
+            },
         )
         .unwrap();
     let read = builder
@@ -1050,28 +1055,26 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         )
         .unwrap();
     builder
-        .bind(
-            read,
-            NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
+        .bind(read, unsafe {
+            NativeBinding::new_transport(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
                 let mut native = cx.native_context()?;
+                // SAFETY: CallContext retains the complete input argument snapshot.
                 let object: Opaque<TracedCounter> = native
                     .conversion()
-                    .decode_value(&cx.argument_type_argument(0)?, &cx.argument(0)?)?;
-                let values = unsafe {
-                    object.read(&native, None, |payload, access| {
-                        access.retain(
-                            payload.contract.as_ref().expect("provided child contract"),
-                            &payload.values,
-                        )
-                    })?
-                };
+                    .decode_transport(&cx.argument_type_argument(0)?, &cx.argument_transport(0)?)?;
+                let values = object.read(&native, None, |payload, access| {
+                    access.retain(
+                        payload.contract.as_ref().expect("provided child contract"),
+                        &payload.values,
+                    )
+                })?;
                 let values = values.decode::<ScriptVec<i32>>(&mut native)?;
                 values
                     .get(&mut native, 0)?
                     .map(Value::I32)
                     .ok_or_else(|| RuntimeError::module_validation("counter element"))
-            }),
-        )
+            })
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, loaded) = compile(
@@ -1090,20 +1093,22 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         panic!("expected storage allocation error");
     };
     assert!(error.message().contains("explicitly supplied payload"));
-    let value = vm
+    let source_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     assert_eq!(
         vm.execute(&loaded, "healthy")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

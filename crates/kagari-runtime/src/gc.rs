@@ -66,6 +66,7 @@ mod collection;
 mod collector;
 mod directory;
 pub(crate) mod graph;
+pub mod inspection;
 pub(crate) mod interfaces;
 mod iter;
 pub(crate) mod leases;
@@ -212,7 +213,7 @@ pub struct GcHeap {
     next_collection: Cell<usize>,
     next_byte_collection: Cell<u128>,
     native_operations: LeaseTable,
-    native_borrows: Cell<usize>,
+    storage_borrows: Cell<usize>,
     native_scan_workspace: RefCell<ScanWorkspace>,
     pub(crate) graph: GraphState,
     graph_scan: RefCell<Option<ActiveScan>>,
@@ -245,8 +246,17 @@ impl GcHeap {
         self.resources.prepare_dirty_record(current)
     }
 
+    pub(crate) fn ensure_no_storage_borrow(&self) -> Result<(), RuntimeError> {
+        if self.storage_borrows.get() != 0 {
+            return Err(RuntimeError::module_validation(
+                "script reentry during heap storage access",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.resources.ensure_execution_allowed()
     }
 
@@ -263,7 +273,7 @@ impl GcHeap {
             owner,
             config,
             native_operations: Default::default(),
-            native_borrows: Cell::new(0),
+            storage_borrows: Cell::new(0),
             native_scan_workspace: RefCell::default(),
             graph: GraphState::default(),
             graph_scan: RefCell::default(),
@@ -365,7 +375,20 @@ impl GcHeap {
     }
 
     /// Diagnostic-only metadata; never participates in equality or key hashing.
-    pub fn result_error_trace(&self, value: &Value) -> Option<Arc<ErrorTrace>> {
+    /// Query checked heap metadata for protected backend transport.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through this query. Type/owner validation cannot
+    /// establish the lifetime of an expired direct reference.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn result_error_trace_transport(&self, value: &Value) -> Option<Arc<ErrorTrace>> {
+        self.result_error_trace(value)
+    }
+
+    pub(crate) fn result_error_trace(&self, value: &Value) -> Option<Arc<ErrorTrace>> {
         let Value::Enum(id) = value else {
             return None;
         };
@@ -415,11 +438,38 @@ impl GcHeap {
     /// Copy tag and fields for an owning inspection boundary. This copy does not
     /// root payload handles; retain their source root across allocation or reentry.
     /// Synchronous reads should use `enum_view` and release it before either boundary.
-    pub fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
+    /// Read a checked backend snapshot without adding independent retention.
+    ///
+    /// # Safety
+    /// Keep source objects live through the read. Protect copied managed edges
+    /// or identities before callbacks, collection or source mutation can remove
+    /// their last traced owner. A returned snapshot is not a root.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn enum_snapshot_transport(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
+        self.enum_snapshot(id)
+    }
+
+    pub(crate) fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
         self.enum_view(id).map(|view| (*view).clone())
     }
 
-    pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
+    /// Query checked heap metadata for protected backend transport.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through this query. Type/owner validation cannot
+    /// establish the lifetime of an expired direct reference.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn object_kind_transport(&self, id: HeapObjectId) -> Option<GcObjectKind> {
+        self.object_kind(id)
+    }
+
+    pub(crate) fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
         let objects = self.objects.try_borrow().ok()?;
         let location = self.object_location(&objects, id)?;
         Self::object_kind_at(&objects, location)
@@ -591,11 +641,25 @@ impl GcHeap {
         self.interface_metadata(self.interface_snapshot_id(id)?)
     }
 
-    pub fn trace_roots(&self) -> Option<Vec<HeapObjectId>> {
+    /// Read a checked backend snapshot without adding independent retention.
+    ///
+    /// # Safety
+    /// Keep source objects live through the read. Protect copied managed edges
+    /// or identities before callbacks, collection or source mutation can remove
+    /// their last traced owner. A returned snapshot is not a root.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn trace_roots_transport(&self) -> Option<Vec<HeapObjectId>> {
+        self.trace_roots()
+    }
+
+    pub(crate) fn trace_roots(&self) -> Option<Vec<HeapObjectId>> {
         self.trace_values(&self.root_snapshots()?)
     }
 
-    pub fn trace_value(&self, value: &Value) -> Option<Vec<HeapObjectId>> {
+    pub(crate) fn trace_value(&self, value: &Value) -> Option<Vec<HeapObjectId>> {
         self.trace_values(slice::from_ref(value))
     }
 
@@ -618,7 +682,20 @@ impl GcHeap {
                     >= self.next_byte_collection.get())
     }
 
-    pub fn validate_value(&self, value: &Value) -> bool {
+    /// Query checked heap metadata for protected backend transport.
+    ///
+    /// # Safety
+    /// Keep managed inputs live through this query. Type/owner validation cannot
+    /// establish the lifetime of an expired direct reference.
+    /// With the current checked-ID representation, invalid-ID rejection probes
+    /// must remain non-dereferencing; replace them with inert identity or retained
+    /// wrapper checks before converting these paths to direct references.
+    #[doc(hidden)]
+    pub unsafe fn validate_value_transport(&self, value: &Value) -> bool {
+        self.validate_value(value)
+    }
+
+    pub(crate) fn validate_value(&self, value: &Value) -> bool {
         if value.object_id().is_none() {
             return true;
         }

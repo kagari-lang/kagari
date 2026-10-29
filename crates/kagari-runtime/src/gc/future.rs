@@ -86,7 +86,7 @@ impl GcHeap {
         &self,
         operation: impl FnOnce(&mut AsyncValues<'_>) -> NativeResult<T>,
     ) -> NativeResult<T> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         #[cfg(test)]
         retention_probe::record(self, Event::Walk);
         self.resources.collect_operation(|| {
@@ -103,7 +103,7 @@ impl GcHeap {
         &self,
         id: HeapObjectId,
     ) -> NativeResult<(ExecutableModule, Ty, Option<TypeArgument>)> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         let objects = self
             .objects
@@ -139,7 +139,7 @@ impl GcHeap {
         &self,
         id: HeapObjectId,
     ) -> NativeResult<Option<CallableObservation>> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         let objects = self
             .objects
@@ -199,7 +199,7 @@ impl GcHeap {
         &self,
         ids: [HeapObjectId; 2],
     ) -> NativeResult<[ColdFuture; 2]> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         if ids[0] == ids[1] {
             return Err(RuntimeError::new(
@@ -239,7 +239,7 @@ impl GcHeap {
     }
 
     pub(crate) fn take_cold_future(&self, id: HeapObjectId) -> NativeResult<ColdFuture> {
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         self.ensure_execution_allowed()?;
         let cold = {
             let mut objects = self.objects_mut()?;

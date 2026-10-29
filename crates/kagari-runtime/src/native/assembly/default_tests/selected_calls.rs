@@ -13,7 +13,7 @@ use crate::{
         },
         binding::{Codec, NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
-        context::ScriptCall,
+        context::{ScriptCall, ScriptInvoker},
         declarations::{CallableRequirement, MethodDecl, SelectedCall},
         typed::NativeContext,
         types::{Type, same_definition},
@@ -214,7 +214,10 @@ fn invoke_selected(
     };
     let stack = runtime.enter_pinned_execution_stack(function)?;
     stack.push_pinned_call(runtime, function, arguments)?;
-    stack.start_native_entry(runtime, invoke_selected)?;
+    stack.start_native_entry(runtime, unsafe {
+        // SAFETY: The helper admits the selected target, roots its frame and transfers the terminal result immediately.
+        ScriptInvoker::new(invoke_selected)
+    })?;
     let ReturnAction::Complete(result) = stack.finish_native_return(runtime)? else {
         panic!("selected return")
     };
@@ -245,7 +248,10 @@ fn execute_main(runtime: &Runtime, loaded: &ExecutableModule) -> Value {
                     .observe_execution(ExecutionEvent::BeforeInstruction)
                     .unwrap();
                 match stack
-                    .execute_region(runtime, &mut None, invoke_selected)
+                    .execute_region(runtime, &mut None, unsafe {
+                        // SAFETY: The helper admits the selected target, roots its frame and transfers the terminal result immediately.
+                        ScriptInvoker::new(invoke_selected)
+                    })
                     .unwrap()
                 {
                     RegionExit::Return(value) => stack.finish_return(runtime, value).unwrap(),
@@ -259,7 +265,12 @@ fn execute_main(runtime: &Runtime, loaded: &ExecutableModule) -> Value {
                 runtime
                     .observe_execution(ExecutionEvent::BeforeInstruction)
                     .unwrap();
-                stack.start_native_entry(runtime, invoke_selected).unwrap();
+                stack
+                    .start_native_entry(runtime, unsafe {
+                        // SAFETY: The helper admits the selected target, roots its frame and transfers the terminal result immediately.
+                        ScriptInvoker::new(invoke_selected)
+                    })
+                    .unwrap();
                 continue;
             }
             ExecutionAction::NativeReturn => stack.finish_native_return(runtime).unwrap(),

@@ -9,7 +9,6 @@ use kagari::{
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 
 fn main() {
@@ -40,9 +39,9 @@ fn main() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .inspect(runtime.runtime(), |view| view.as_i32())
                 .expect("retained execution result"),
-            Value::I32(42)
+            42
         );
     }
 
@@ -61,9 +60,9 @@ fn main() {
             .execute(&loaded, ProgramEntry::Main, &[], &fresh)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32())
             .expect("retained execution result"),
-        Value::I32(42)
+        42
     );
     println!(
         "two independent execution sessions completed; cancellation left the runtime reusable"

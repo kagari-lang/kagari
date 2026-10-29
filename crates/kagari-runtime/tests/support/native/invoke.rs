@@ -1,7 +1,10 @@
 //! Scoped native fixture metadata and the ordinary execution frame driver.
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_runtime::{
-    Runtime, frame::driver::ReturnAction, module::ExecutableModule, native::binding::NativeResult,
+    Runtime,
+    frame::driver::ReturnAction,
+    module::ExecutableModule,
+    native::{binding::NativeResult, context::ScriptInvoker},
     value::Value,
 };
 
@@ -13,17 +16,21 @@ pub fn invoke(
     args: &[Value],
 ) -> NativeResult<Value> {
     let stack = runtime.enter_execution_stack(owner)?;
-    stack.push_callable(
-        runtime,
-        owner.clone(),
-        CallableTarget::Native(NativeImportId::new(slot)),
-        args,
-        None,
-    )?;
-    stack.start_native_entry(runtime, |_, _, _, _| {
-        unreachable!("fixture does not call script")
+    unsafe {
+        stack.push_callable_transport(
+            runtime,
+            owner.clone(),
+            CallableTarget::Native(NativeImportId::new(slot)),
+            args,
+            None,
+        )
+    }?;
+    stack.start_native_entry(runtime, unsafe {
+        // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+        ScriptInvoker::new(|_, _, _, _| unreachable!("fixture does not call script"))
     })?;
-    let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
+    let ReturnAction::Complete(value) = unsafe { stack.finish_native_return_transport(runtime) }?
+    else {
         panic!("root native return");
     };
     Ok(value)

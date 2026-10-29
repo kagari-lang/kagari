@@ -11,6 +11,7 @@ use kagari_runtime::{
         context::CallContext,
         declarations::FunctionDecl,
         function_handle::Function,
+        functions::NativeCallback,
         storage::NativeStorage,
         typed::NativeContext,
         types::Type,
@@ -174,7 +175,7 @@ fn function_arguments_call_captured_script_closures_synchronously() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -185,7 +186,7 @@ fn function_arguments_call_captured_script_closures_synchronously() {
         vm.execute(&loaded, "healthy")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -250,7 +251,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -269,7 +270,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         vm.execute(&replacement, "run")
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -277,7 +278,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         vm.execute(&replacement, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(100)
     );
@@ -317,24 +318,31 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         )
         .unwrap();
     builder
-        .bind(
-            new,
-            |cx: &mut CallContext<'_>, callback: CallableHandle<'_>| -> NativeResult<Value> {
-                let payload = callback.store();
-                cx.allocate_result_payload(&[], |call, _| {
-                    call.collect_garbage()?;
-                    let mut native = call.native_context()?;
-                    let function: Callback = native
-                        .conversion()
-                        .decode_value(&call.argument_type_argument(0)?, &call.argument(0)?)?;
-                    assert_eq!(function.call(&mut native, (0,))?, 41);
-                    drop(function);
-                    drop(native);
-                    call.collect_garbage()?;
-                    Ok(payload)
-                })
-            },
-        )
+        .bind(new, unsafe {
+            NativeCallback::new(
+                |cx: &mut CallContext<'_>, callback: CallableHandle<'_>| -> NativeResult<Value> {
+                    // SAFETY: The native argument frame and local working roots protect inputs; results
+                    // are decoded, rooted or returned before another callback.
+                    let payload = callback.store_transport();
+                    // SAFETY: The native argument frame and local working roots protect inputs; results
+                    // are decoded, rooted or returned before another callback.
+                    cx.allocate_result_payload_transport(&[], |call, _| {
+                        call.collect_garbage()?;
+                        let mut native = call.native_context()?;
+                        // SAFETY: CallContext retains the complete callback argument snapshot.
+                        let function: Callback = native.conversion().decode_transport(
+                            &call.argument_type_argument(0)?,
+                            &call.argument_transport(0)?,
+                        )?;
+                        assert_eq!(function.call(&mut native, (0,))?, 41);
+                        drop(function);
+                        drop(native);
+                        call.collect_garbage()?;
+                        Ok(payload)
+                    })
+                },
+            )
+        })
         .unwrap();
     let invoke = builder
         .define_function(
@@ -351,7 +359,11 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
                     handler.with_payload::<StoredCallable, _>(None, |callback| Ok(callback.clone()))
                 }?;
                 cx.collect_garbage()?;
-                let Value::I32(result) = stored.call_values(cx, &[Value::I32(1)])? else {
+                let Value::I32(result) =
+                    // SAFETY: The native argument frame and local working roots protect inputs;
+                    // results are decoded, rooted or returned before another callback.
+                    unsafe { stored.call_values_transport(cx, &[Value::I32(1)]) }?
+                else {
                     panic!("checked stored callback result");
                 };
                 Ok(result)
@@ -373,7 +385,7 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -381,7 +393,8 @@ fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
 }
 
 fn identity(_cx: &mut CallContext<'_>, value: ValueHandle<'_>) -> NativeResult<Value> {
-    Ok(value.value())
+    // SAFETY: The active call retains this input until its copy is published or consumed.
+    Ok(unsafe { value.value_transport() })
 }
 
 #[test]
@@ -404,7 +417,9 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
             Ok(())
         })
         .unwrap();
-    builder.bind(function, identity).unwrap();
+    builder
+        .bind(function, unsafe { NativeCallback::new(identity) })
+        .unwrap();
     let probe = builder
         .define_function(
             FunctionDecl::new("probe")
@@ -451,7 +466,7 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -501,7 +516,7 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .inspect(vm.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );

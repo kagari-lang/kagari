@@ -336,8 +336,7 @@ impl<T: FromKagari> ScriptVec<T> {
 impl<T: IntoKagari> ScriptVec<T> {
     fn retained(&self, cx: &mut NativeContext<'_>, value: T) -> NativeResult<ScriptValue> {
         let mut conversion = cx.conversion_scope(cx.owner())?;
-        let value = conversion.encode_value(&self.element, value)?;
-        conversion.decode_value(&self.element, &value)
+        conversion.encode_value(&self.element, value)
     }
 
     pub fn set(&self, cx: &mut NativeContext<'_>, index: usize, value: T) -> NativeResult<()> {

@@ -11,7 +11,10 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     host::{HostCallContext, HostError},
     metadata::TypeKind,
-    native::{builder::ModuleBuilder, declarations::MethodDecl, module::NativeModule, types::Type},
+    native::{
+        builder::ModuleBuilder, declarations::MethodDecl, host::HostCallback, module::NativeModule,
+        types::Type,
+    },
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -155,12 +158,14 @@ fn bound(declarations: DefinitionMetadata<ModuleDecl>) -> Result<NativeModule, R
     let method = builder.declared_method(0, "add_score")?;
     assert!(builder.declared_method(1, "add_score").is_err());
     assert!(builder.declared_method(0, "missing").is_err());
-    builder.bind(
-        method,
-        |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
-            panic!("metadata linking cannot invoke callbacks")
-        },
-    )?;
+    builder.bind(method, unsafe {
+        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+        HostCallback::new(
+            |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+                panic!("metadata linking cannot invoke callbacks")
+            },
+        )
+    })?;
     builder.finish()
 }
 
@@ -238,8 +243,9 @@ fn trait_module(implementation: Option<HostPassingStyle>) -> NativeModule {
                             effects: Default::default(),
                         },
                     )?;
-                    methods.bind("get", |_: &HostCallContext<'_>, _: &[Value]| {
-                        Ok(Value::I32(1))
+                    methods.bind("get", unsafe {
+                        // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                        HostCallback::new(|_: &HostCallContext<'_>, _: &[Value]| Ok(Value::I32(1)))
                     })
                 })
             })

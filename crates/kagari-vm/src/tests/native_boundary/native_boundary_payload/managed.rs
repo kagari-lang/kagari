@@ -20,7 +20,6 @@ use kagari_runtime::{
         types::{Type, TypeRef},
         value_handle::ScriptValue,
     },
-    value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::{
@@ -369,7 +368,7 @@ impl FromKagari for Converted {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-        value: &Value,
+        value: &ScriptValue,
     ) -> NativeResult<Self> {
         String::from_kagari(cx, expected, value).map(|text| Self { text, fail: false })
     }
@@ -386,7 +385,7 @@ impl IntoKagari for Converted {
         self,
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
-    ) -> NativeResult<Value> {
+    ) -> NativeResult<ScriptValue> {
         cx.runtime().collect_garbage()?;
         if self.fail {
             return Err(RuntimeError::module_validation(

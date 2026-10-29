@@ -66,11 +66,15 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     } else {
                         Arc::new(Join)
                     };
-                    Ok(NativeBinding::new(
-                        vec![Codec::Value; 2],
-                        Codec::Value,
-                        move |cx| cx.compose_pair(policy.clone()),
-                    ))
+                    Ok(unsafe {
+                        NativeBinding::new_transport(
+                            vec![Codec::Value; 2],
+                            Codec::Value,
+                            // SAFETY: The newly constructed Future is published directly as the native
+                            // result.
+                            move |cx| cx.compose_pair_transport(policy.clone()),
+                        )
+                    })
                 }),
         )?;
     }
@@ -160,7 +164,7 @@ impl PairPolicy for TryJoin {
             &cx.parameter(cx.output_type(), 0)?,
             vec![cx.field(0, &self.ok, 0)?, cx.field(1, &self.ok, 0)?],
         )?;
-        cx.allocate_enum(cx.output_type(), &self.ok, vec![cx.value(&pair)?])
+        cx.allocate_enum(cx.output_type(), &self.ok, vec![pair])
             .map(PairDecision::Finish)
     }
 }

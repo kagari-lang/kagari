@@ -58,14 +58,16 @@ fn batch(
                         if let Some(fail) = fail {
                             fail()?;
                         }
-                        Ok(NativeBinding::new(
-                            vec![],
-                            Codec::Exact(Type::unit()),
-                            move |_| {
-                                let _retained = &capture;
-                                Ok(Value::Unit)
-                            },
-                        ))
+                        Ok(unsafe {
+                            NativeBinding::new_transport(
+                                vec![],
+                                Codec::Exact(Type::unit()),
+                                move |_| {
+                                    let _retained = &capture;
+                                    Ok(Value::Unit)
+                                },
+                            )
+                        })
                     }),
                 ))?;
                 Ok(())

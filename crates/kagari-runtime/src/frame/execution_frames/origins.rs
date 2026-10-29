@@ -2,7 +2,7 @@
 use super::loaded_function;
 use crate::{
     Runtime, error::RuntimeErrorKind, frame::cursor::kernel::RegionError, module::VerifiedProgram,
-    value::Value,
+    native::context::ScriptInvoker, value::Value,
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
@@ -100,7 +100,10 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
             None,
         )
         .unwrap();
-    let Err(error) = stack.execute_region(&runtime, &mut None, |_, _, _, _| unreachable!()) else {
+    let Err(error) = stack.execute_region(&runtime, &mut None, unsafe {
+        // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+        ScriptInvoker::new(|_, _, _, _| unreachable!())
+    }) else {
         panic!("the selected negation must overflow");
     };
     assert!(

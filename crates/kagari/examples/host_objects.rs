@@ -135,7 +135,9 @@ pub fn main() {
         .unwrap();
     let player = runtime.call(&new, ()).unwrap();
     let alias = runtime.call(&roundtrip, (player.clone(),)).unwrap();
-    assert_eq!(runtime.get(&player, &hp).unwrap(), 100);
+    // Named reads need no inspection closure. Reuse `hp` for repeated access.
+    let initial_hp: i32 = runtime.get_field(&player, "hp").unwrap();
+    assert_eq!(initial_hp, 100);
     runtime.set(&alias, &hp, 90).unwrap();
     assert_eq!(runtime.call_method(&player, &damage, (10,)).unwrap(), 80);
 

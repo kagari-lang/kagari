@@ -16,7 +16,7 @@ import statistics
 import automatic_baselines
 import automatic_summary
 
-ORDINARY = {"setup", "construct", "live_gc", "release_gc"}
+ORDINARY = {"setup", "construct", "live_gc", "verified", "release_gc"}
 PHASES = {
     "sparse_types_32x4": ORDINARY,
     "mixed_native_128x6": ORDINARY,

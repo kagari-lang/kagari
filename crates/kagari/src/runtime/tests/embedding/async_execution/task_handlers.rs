@@ -36,7 +36,7 @@ fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
 fn task(f: &Fixture, result: &RootedValue) -> (TaskId, RootedValue) {
     let handle = f.invoke("unwrap_i32", &[f.value(result)]);
     (
-        f.runtime.runtime().task_id(&f.value(&handle)).unwrap(),
+        unsafe { f.runtime.runtime().task_id_transport(&f.value(&handle)) }.unwrap(),
         handle,
     )
 }
@@ -140,7 +140,7 @@ fn scoped_task_handler_contract() {
     );
     let nested = f.invoke("nested", slice::from_ref(&capability));
     let nested_handle = f.invoke("unwrap_nested", &[f.value(&nested)]);
-    let nested_id = runtime.task_id(&f.value(&nested_handle)).unwrap();
+    let nested_id = unsafe { runtime.task_id_transport(&f.value(&nested_handle)) }.unwrap();
     let starts = f.starts.load(Ordering::SeqCst);
     assert_eq!(drive(&f, &scope, nested_id), TaskDriveResult::Complete);
     assert_eq!(

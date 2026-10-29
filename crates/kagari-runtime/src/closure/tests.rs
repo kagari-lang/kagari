@@ -7,8 +7,7 @@ use crate::{
     },
     module::dispatch::CallRouteKind,
     native::{
-        callable::PreparedClosure,
-        conversion::{FromKagari, context::ConversionContext},
+        callable::PreparedClosure, context::ScriptInvoker, conversion::context::ConversionContext,
         function_handle::Function,
     },
     source::{SourceQuery, SourceUnavailableReason},
@@ -117,7 +116,10 @@ fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exa
             let mut called = false;
             for _ in 0..64 {
                 match stack
-                    .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))
+                    .execute_region(&runtime, &mut None, unsafe {
+                        // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+                        ScriptInvoker::new(|_, _, _, _| panic!("no native calls"))
+                    })
                     .unwrap()
                 {
                     RegionExit::Call(ExecutionAction::Script) => {
@@ -157,7 +159,8 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
     let named = {
         let mut cx = ConversionContext::new(&runtime, &old).unwrap();
         let signature = cx.type_for::<Function<(), i32>>().unwrap();
-        Function::<(), i32>::from_kagari(&mut cx, &signature, &value).unwrap()
+        /* SAFETY: The new closure has no intervening collection; its concrete Function mapping has no user callback before retention. */
+        unsafe { cx.decode_transport::<Function<(), i32>>(&signature, &value) }.unwrap()
     };
     let generated = old
         .bytecode
@@ -223,7 +226,10 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
         .push_closure(&runtime, &root.value(runtime.gc()).unwrap(), &[], None)
         .unwrap();
     let RegionExit::Return(result) = stack
-        .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))
+        .execute_region(&runtime, &mut None, unsafe {
+            // SAFETY: The callback rejects execution or returns only a scalar; it retains no raw edges.
+            ScriptInvoker::new(|_, _, _, _| panic!("no native calls"))
+        })
         .unwrap()
     else {
         panic!("scalar helper returns directly");

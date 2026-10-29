@@ -202,10 +202,11 @@ fn generic_bindings_keep_type_evidence_without_pinning_ordinary_code() {
         })
         .unwrap();
     builder
-        .bind(
-            identity,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| cx.argument(0)),
-        )
+        .bind(identity, unsafe {
+            NativeBinding::new_transport(vec![Codec::Value], Codec::Value, |cx| {
+                cx.argument_transport(0)
+            })
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
@@ -345,16 +346,18 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     builder
-        .bind(
-            repeat,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, move |cx| {
+        .bind(repeat, unsafe {
+            NativeBinding::new_transport(vec![Codec::Value], Codec::Value, move |cx| {
                 observed.fetch_add(1, Ordering::Relaxed);
-                let item = cx.argument(0)?;
+                // SAFETY: The active call retains this input until its copy is published or consumed.
+                let item = cx.argument_transport(0)?;
                 let operation = cx.selected(&selected)?;
                 cx.collect_garbage()?;
-                cx.call_values(operation, &[item, Value::I32(0)])
-            }),
-        )
+                // SAFETY: The native argument frame and local working roots protect inputs; results
+                // are decoded, rooted or returned before another callback.
+                cx.call_values_transport(operation, &[item, Value::I32(0)])
+            })
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, owner) = fixture(
@@ -432,23 +435,25 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
     let owners = Arc::new(Mutex::new(Vec::new()));
     let observed = owners.clone();
     builder
-        .bind(
-            invoke,
-            NativeBinding::new(vec![Codec::Value], Codec::Value, move |cx| {
+        .bind(invoke, unsafe {
+            NativeBinding::new_transport(vec![Codec::Value], Codec::Value, move |cx| {
                 let owner = cx.owner().key();
                 observed.lock().unwrap().push(owner);
-                let item = cx.argument(0)?;
+                // SAFETY: The active call retains this input until its copy is published or consumed.
+                let item = cx.argument_transport(0)?;
                 let operation = cx.selected(&selected)?;
                 let continuation = 100;
                 cx.collect_garbage()?;
-                let Value::I32(result) = cx.call_values(operation, &[item])? else {
+                // SAFETY: The native argument frame and local working roots protect inputs; results
+                // are decoded, rooted or returned before another callback.
+                let Value::I32(result) = cx.call_values_transport(operation, &[item])? else {
                     panic!("checked callback result");
                 };
                 cx.collect_garbage()?;
                 assert_eq!(cx.owner().key(), owner);
                 Ok(Value::I32(continuation + result))
-            }),
-        )
+            })
+        })
         .unwrap();
     let module = builder.finish().unwrap();
     let source =

@@ -58,7 +58,6 @@ fn indexed_hash_relocation_and_partial_preparation_preserve_scan_and_charge() {
     let value = conversion
         .encode_value(&argument, "edge".to_owned())
         .unwrap();
-    let value = conversion.decode_value(&argument, &value).unwrap();
     // SAFETY: Checked publication precedes each slot write; this test directly
     // exercises the provider's backing/accounting owner without invoking Hash/Eq.
     unsafe {

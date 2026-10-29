@@ -6,6 +6,8 @@ use crate::vm::Vm;
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
+    gc::roots::RootSet,
+    host_scope::{scoped::HostScope, value::ScopedValue},
     native::binding::NativeResult,
     value::Value,
 };
@@ -26,8 +28,8 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
         hp: 10,
         position: [1.0; 3],
     };
-    let stale = vm
-        .runtime_mut()
+    let mut stale = None;
+    vm.runtime_mut()
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
             view.read(scope, |state| {
@@ -43,7 +45,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                     scope,
                     &_owner_program,
                     "scoped_read_mut",
-                    &[view.value()],
+                    &[view.argument()],
                     Default::default(),
                 )?;
                 assert!(
@@ -51,7 +53,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                         scope,
                         &_owner_program,
                         "scoped_damage",
-                        &[view.value()],
+                        &[view.argument()],
                         Default::default()
                     )
                     .is_err()
@@ -64,7 +66,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                         scope,
                         &_owner_program,
                         "scoped_read_mut",
-                        &[view.value()],
+                        &[view.argument()],
                         Default::default()
                     )
                     .is_err()
@@ -98,26 +100,25 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                     scope,
                     &_owner_program,
                     "scoped_damage",
-                    &[view.value()],
+                    &[view.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(9)
             );
             let inspected = Vm::execute_scoped(
                 scope,
                 &_owner_program,
                 "scoped_read_mut",
-                &[view.value()],
+                &[view.argument()],
                 Default::default(),
             )?;
-            scope.execute(&[inspected], |runtime, arguments| {
-                let Value::Str(id) = arguments[0] else {
-                    panic!("string inspection")
-                };
-                assert_eq!(&*runtime.gc().string(id).unwrap(), "hp=9");
-                Ok(Value::Unit)
-            })?;
-            Ok(view.value())
+            assert_eq!(
+                inspected.inspect(|view| Ok(view.as_str()?.to_owned()))?,
+                "hp=9"
+            );
+            stale = Some(revocation_probe(scope, view.argument())?);
+            Ok(())
         })
         .unwrap();
     assert_eq!(external.hp, 9);
@@ -140,31 +141,24 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                     scope,
                     &_owner_program,
                     "scoped_damage",
-                    &[view.value()],
+                    &[view.argument()],
                     Default::default()
                 )
                 .is_err()
             );
+            assert!(scope.retain_slot(stale.as_ref().unwrap(), 0).is_err());
+            // SAFETY: The argument stays live; returning its capability must fail escape validation.
             assert!(
-                Vm::execute_scoped(
-                    scope,
-                    &_owner_program,
-                    "scoped_inspect",
-                    &[stale],
-                    Default::default()
-                )
+                unsafe {
+                    scope.execute_transport(&[view.argument()], |_, arguments| Ok(arguments[0]))
+                }
                 .is_err()
-            );
-            assert!(
-                scope
-                    .execute(&[view.value()], |_, arguments| Ok(arguments[0]))
-                    .is_err()
             );
             Vm::execute_scoped(
                 scope,
                 &_owner_program,
                 "scoped_inspect",
-                &[view.value()],
+                &[view.argument()],
                 Default::default(),
             )?;
             Ok(())
@@ -176,7 +170,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
         catch_unwind(AssertUnwindSafe(|| {
             let _: NativeResult<()> = vm.runtime_mut().with_host_scope(|scope| {
                 let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-                revoked.set(Some(view.value()));
+                revoked.set(Some(revocation_probe(scope, view.argument())?));
                 view.edit(scope, |state| {
                     state.hp = 8;
                     Ok(())
@@ -189,16 +183,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
     assert_eq!(external.hp, 8);
     vm.runtime_mut()
         .with_host_scope(|scope| {
-            assert!(
-                Vm::execute_scoped(
-                    scope,
-                    &_owner_program,
-                    "scoped_inspect",
-                    &[revoked.get().unwrap()],
-                    Default::default()
-                )
-                .is_err()
-            );
+            assert!(scope.retain_slot(&revoked.take().unwrap(), 0).is_err());
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
             view.edit(scope, |state| {
                 state.hp = 9;
@@ -214,7 +199,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                 scope,
                 &_owner_program,
                 "scoped_recurse",
-                &[view.value()],
+                &[view.argument()],
                 Default::default(),
             )
             .unwrap_err();
@@ -228,34 +213,55 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                 Ok(())
             })?;
             let token = CancellationToken::default();
-            let error = scope
-                .execute(&[view.value()], |runtime, _| {
-                    let mut options = runtime.execution_options();
-                    options.cancellation = token.clone();
-                    let _session = runtime.begin_execution(&owner, options)?;
-                    token.cancel();
-                    Vm::execute_scoped(
-                        scope,
-                        &_owner_program,
-                        "scoped_damage",
-                        &[view.value()],
-                        Default::default(),
-                    )
-                })
-                .unwrap_err();
+            let error = (|| {
+                let runtime = scope.runtime();
+                let mut options = runtime.execution_options();
+                options.cancellation = token.clone();
+                let _session = runtime.begin_execution(&owner, options)?;
+                token.cancel();
+                Vm::execute_scoped(
+                    scope,
+                    &_owner_program,
+                    "scoped_damage",
+                    &[view.argument()],
+                    Default::default(),
+                )
+            })()
+            .unwrap_err();
             assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
             assert_eq!(
                 Vm::execute_scoped(
                     scope,
                     &_owner_program,
                     "scoped_damage",
-                    &[view.value()],
+                    &[view.argument()],
                     Default::default()
-                )?,
+                )?
+                .inspect(|view| view.as_i32().map(Value::I32))?,
                 Value::I32(8)
             );
             Ok(())
         })
         .unwrap();
     assert_eq!(external.hp, 8);
+}
+
+// Keep the GC wrapper alive to test revoked-host-capability admission, without
+// dereferencing an expired heap identity or letting a Rust address escape.
+fn revocation_probe<'scope>(
+    scope: &HostScope<'scope, '_>,
+    argument: ScopedValue<'scope>,
+) -> NativeResult<RootSet> {
+    let mut root = None;
+    // SAFETY: The argument is live through root publication. After scope exit
+    // the wrapper is used only for rejection by original host-frame validation.
+    unsafe {
+        scope.execute_transport(&[argument], |runtime, values| {
+            root = runtime
+                .gc()
+                .root_execution_values_transport(values.to_vec());
+            Ok(Value::Unit)
+        })
+    }?;
+    root.ok_or_else(|| RuntimeError::module_validation("revocation probe root"))
 }

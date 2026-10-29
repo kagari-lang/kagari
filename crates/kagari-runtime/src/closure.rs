@@ -59,7 +59,7 @@ impl Runtime {
         &self,
         root: &RootedValue,
     ) -> Result<Option<CallableObservation>, RuntimeError> {
-        self.gc().ensure_no_native_borrow()?;
+        self.gc().ensure_no_storage_borrow()?;
         self.resources().ensure_execution_allowed()?;
         let value = root
             .value(self.gc())

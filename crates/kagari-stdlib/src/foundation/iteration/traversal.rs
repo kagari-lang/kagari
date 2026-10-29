@@ -27,7 +27,8 @@ pub(crate) fn vec_argument(cx: &CallContext<'_>) -> NativeResult<Option<HeapObje
     if argument.definitions().lookup(identity::vector_id()) != Some(nominal.declaration) {
         return Ok(None);
     }
-    let Value::GcHandle(id) = cx.argument(0)? else {
+    // SAFETY: The call frame retains the source throughout traversal; extracted children have separate roots.
+    let Value::GcHandle(id) = unsafe { cx.argument_transport(0) }? else {
         return Err(invalid());
     };
     Ok(Some(id))
@@ -39,15 +40,19 @@ pub(crate) fn for_each(
     first: usize,
     mut visit: impl FnMut(&mut CallContext<'_>, Value) -> NativeResult<()>,
 ) -> NativeResult<()> {
-    let source = cx.argument(0)?;
+    // SAFETY: The call frame retains the source throughout traversal; extracted children have separate roots.
+    let source = unsafe { cx.argument_transport(0) }?;
     // The standard Vec has no iteration callbacks. Read its contiguous storage
     // directly without allocating a cursor or Option for each element.
     if vec_argument(cx)?.is_some() {
         let vector: ScriptVec<ScriptValue> = {
             let mut native = cx.native_context()?;
-            native
-                .conversion()
-                .decode_value(&cx.argument_type_argument(0)?, &source)?
+            // SAFETY: CallContext owns the complete argument snapshot.
+            unsafe {
+                native
+                    .conversion()
+                    .decode_transport(&cx.argument_type_argument(0)?, &source)
+            }?
         };
         let (revision, length) = {
             let native = cx.native_context()?;
@@ -65,21 +70,35 @@ pub(crate) fn for_each(
                 let ty = value.type_argument().clone();
                 native.conversion().encode_value(&ty, value.clone())?
             };
-            visit(cx, raw)?;
+            // SAFETY: raw remains retained for the complete visitor call.
+            let raw_value = unsafe { raw.value_transport(cx.native_context()?.runtime()) }?;
+            visit(cx, raw_value)?;
         }
         return vector.check_revision(&cx.native_context()?, revision);
     }
     let iter = cx.selected_at(first)?;
     let next = cx.selected_at(first + 1)?;
-    let cursor = cx.call_values(iter, &[source])?;
-    let _root = cx.heap().root_value(cursor).ok_or_else(invalid)?;
+    // SAFETY: The source/cursor roots cover reentry; the result is read without GC before rooting
+    // its item.
+    let cursor = unsafe { cx.call_values_transport(iter, &[source]) }?;
+    let _root = unsafe {
+        // SAFETY: The cursor/item result transfers immediately into a working root before invoking the visitor.
+        cx.heap().root_value_transport(cursor)
+    }
+    .ok_or_else(invalid)?;
     loop {
         cx.poll()?;
-        let value = cx.call_values(next, slice::from_ref(&cursor))?;
+        // SAFETY: The source/cursor roots cover reentry; the result is read without GC before
+        // rooting its item.
+        let value = unsafe { cx.call_values_transport(next, slice::from_ref(&cursor)) }?;
         let Some(item) = enums::read_option(symbols, cx, &value)? else {
             return Ok(());
         };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
+        let _item = unsafe {
+            // SAFETY: The cursor/item result transfers immediately into a working root before invoking the visitor.
+            cx.heap().root_value_transport(item)
+        }
+        .ok_or_else(invalid)?;
         visit(cx, item)?;
     }
 }

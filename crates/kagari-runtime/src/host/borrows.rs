@@ -166,7 +166,7 @@ impl HostBorrowTable {
         Ok(())
     }
 
-    pub fn validate_no_escape(heap: &GcHeap, value: &Value) -> Result<(), RuntimeError> {
+    pub(crate) fn validate_no_escape(heap: &GcHeap, value: &Value) -> Result<(), RuntimeError> {
         if value.contains_host_borrow(heap) {
             Err(RuntimeError::host_borrow_escape(
                 "frame-scoped host borrow cannot outlive its call frame",

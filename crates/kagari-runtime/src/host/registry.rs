@@ -324,7 +324,7 @@ impl HostRegistry {
         self.path_descriptors.values()
     }
 
-    pub fn make_path_view(
+    pub(crate) fn make_path_view(
         &self,
         gc: &GcHeap,
         root: HostRootHandle,
@@ -362,7 +362,7 @@ impl HostRegistry {
         ))
     }
 
-    pub fn make_path_view_from_value(
+    pub(crate) fn make_path_view_from_value(
         &self,
         gc: &GcHeap,
         root_or_view: &Value,
@@ -555,7 +555,7 @@ impl HostRegistry {
         Ok(new_value)
     }
 
-    pub fn dirty_paths(&self) -> Vec<HostPathMutationRecord> {
+    pub(crate) fn dirty_paths(&self) -> Vec<HostPathMutationRecord> {
         self.dirty_paths.borrow().clone()
     }
 

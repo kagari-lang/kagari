@@ -1,11 +1,10 @@
 //! Short payload loans release the directory before validation/root services run.
-use super::NativeBorrow;
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, storage::HeapObject},
+    gc::{GcHeap, HeapObjectId, leases::StorageBorrow, storage::HeapObject},
     native::{
         binding::NativeResult,
         payload::read::ReadReceiver,
@@ -33,7 +32,7 @@ struct PayloadLoan<'heap> {
     max_units: usize,
     cleanup_bytes: Option<usize>,
     change: Option<HeapChange<'heap>>,
-    _borrow: NativeBorrow<'heap>,
+    _borrow: StorageBorrow<'heap>,
 }
 
 impl PayloadLoan<'_> {
@@ -96,7 +95,7 @@ impl Drop for PayloadLoan<'_> {
             }))
         });
         // The same nonmoving allocation holds header and payload. The active
-        // NativeBorrow excludes detach/collection/reentry, and all internal header
+        // StorageBorrow excludes detach/collection/reentry, and all internal header
         // validation views have ended before this loan's Drop. Restore through the
         // pinned owner instead of resolving its identity in the directory again.
         let object = unsafe { self.header.as_mut() };
@@ -176,7 +175,6 @@ impl GcHeap {
         }
         let revision = object.revision;
         let payload = object.loan_payload()?;
-        self.native_borrows.set(self.native_borrows.get() + 1);
         let max_units = object.charge.logical_units;
         let header = NonNull::from(object);
         let mut loan = PayloadLoan {
@@ -189,7 +187,7 @@ impl GcHeap {
             max_units,
             cleanup_bytes: None,
             change: None,
-            _borrow: NativeBorrow(&self.native_borrows),
+            _borrow: StorageBorrow::enter(&self.storage_borrows),
         };
         if let Some(plan) = plan {
             loan.prepare_edit(plan, cleanup, protected_revision)?;
@@ -211,7 +209,7 @@ impl GcHeap {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::NativeRead);
         self.check_native_operation(id, operation, false)?;
-        self.ensure_no_native_borrow()?;
+        self.ensure_no_storage_borrow()?;
         let mut loan = self.loan_native(id, None, false, Some(TypeId::of::<P>()), false)?;
         // SAFETY: the active loan owns access to initialized, nonmoving T. The
         // callback cannot retain this reference or collect/reenter through an alias.
@@ -242,7 +240,7 @@ impl GcHeap {
             operation.is_some(),
         )?;
         let next = loan.next_revision;
-        // SAFETY: exclusive loan flag and NativeBorrow exclude all competing T access.
+        // SAFETY: exclusive loan flag and StorageBorrow exclude all competing T access.
         let payload = unsafe { loan.payload.as_mut() }
             .downcast_mut::<P>()
             .expect("checked payload type");
@@ -330,7 +328,7 @@ impl GcHeap {
             let next = revision.checked_add(1).ok_or_else(|| {
                 RuntimeError::module_validation("native recovery revision exhausted")
             })?;
-            self.ensure_no_native_borrow()?;
+            self.ensure_no_storage_borrow()?;
             let mut loan = self.loan_native(
                 id,
                 Some(EditPlan {

@@ -1,16 +1,13 @@
 //! One registered method set serves runtime-owned and externally borrowed players.
 use kagari::runtime::Runtime;
 use kagari::{context::ExecutionContext, engine::KagariEngine};
-use kagari_runtime::{
-    native::{
-        builder::ModuleBuilder,
-        declarations::MethodDecl,
-        payload::Opaque,
-        storage::NativeStorage,
-        typed::{NativeContext, loans::LoanContext},
-        types::Type,
-    },
-    value::Value,
+use kagari_runtime::native::{
+    builder::ModuleBuilder,
+    declarations::MethodDecl,
+    payload::Opaque,
+    storage::NativeStorage,
+    typed::{NativeContext, loans::LoanContext},
+    types::Type,
 };
 use kagari_source::source::SourceFile;
 use kagari_types::reference::ReferenceAccess;
@@ -92,14 +89,13 @@ fn main() {
     let borrowed_hp = runtime
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-            let Value::I32(hp) =
-                Runtime::execute_scoped(scope, &loaded, "borrowed", &[view.value()], &context)?
-            else {
-                unreachable!()
-            };
+            let hp =
+                Runtime::execute_scoped(scope, &loaded, "borrowed", &[view.argument()], &context)?
+                    .inspect(|view| view.as_i32())?;
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?,
-                Value::I32(hp)
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.argument()], &context)?
+                    .inspect(|view| view.as_i32())?,
+                hp
             );
             Ok(hp)
         })
@@ -111,8 +107,9 @@ fn main() {
         .with_host_scope(|scope| {
             let view = scope.borrow(descriptor.rust_type(), &external)?;
             assert_eq!(
-                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.value()], &context)?,
-                Value::I32(70)
+                Runtime::execute_scoped(scope, &loaded, "inspect", &[view.argument()], &context)?
+                    .inspect(|view| view.as_i32())?,
+                70
             );
             Ok(())
         })

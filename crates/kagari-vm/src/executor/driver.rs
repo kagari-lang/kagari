@@ -35,9 +35,7 @@ impl Executor<'_> {
                 action = Some(self.stack().next_action(self.runtime)?);
             }
             if action == Some(ExecutionAction::Await) {
-                let resumed = self
-                    .stack()
-                    .poll_await(self.runtime)
+                let resumed = unsafe { self.stack().poll_await_transport(self.runtime) }
                     .map_err(VmError::RuntimeError);
                 match self.report_operation(resumed)? {
                     Poll::Pending => return Ok(DriveOutcome::Waiting),
@@ -55,10 +53,9 @@ impl Executor<'_> {
             }
             match action.expect("classified activation") {
                 ExecutionAction::NativeReturn => {
-                    let result = self
-                        .stack()
-                        .finish_native_return(self.runtime)
-                        .map_err(VmError::RuntimeError);
+                    let result =
+                        unsafe { self.stack().finish_native_return_transport(self.runtime) }
+                            .map_err(VmError::RuntimeError);
                     match self.report_operation(result)? {
                         ReturnAction::Complete(value) => return Ok(DriveOutcome::Complete(value)),
                         ReturnAction::Continue(next) => action = Some(next),
@@ -74,7 +71,7 @@ impl Executor<'_> {
                         .observe_execution(ExecutionEvent::BeforeInstruction)?;
                     let result = self
                         .stack()
-                        .start_native_entry(self.runtime, native::invoke_script)
+                        .start_native_entry(self.runtime, native::INVOKE_SCRIPT)
                         .map_err(VmError::RuntimeError);
                     action = Some(self.report_operation(result)?);
                     continue;
@@ -93,10 +90,14 @@ impl Executor<'_> {
             self.runtime
                 .observe_execution(ExecutionEvent::BeforeInstruction)?;
 
-            let result = self
-                .stack()
-                .execute_region(self.runtime, &mut remaining, native::invoke_script)
-                .map_err(VmError::from);
+            let result = unsafe {
+                self.stack().execute_region_transport(
+                    self.runtime,
+                    &mut remaining,
+                    native::INVOKE_SCRIPT,
+                )
+            }
+            .map_err(VmError::from);
             let progress = match self.report_operation(result)? {
                 RegionExit::Safepoint | RegionExit::Slice => continue,
                 RegionExit::Call(next) => {
@@ -134,10 +135,9 @@ impl Executor<'_> {
                 InstructionProgress::Continue => {}
                 InstructionProgress::Await => action = None,
                 InstructionProgress::Return(value) => {
-                    let result = self
-                        .stack()
-                        .finish_return(self.runtime, value)
-                        .map_err(VmError::RuntimeError);
+                    let result =
+                        unsafe { self.stack().finish_return_transport(self.runtime, value) }
+                            .map_err(VmError::RuntimeError);
                     match self.report_operation(result)? {
                         ReturnAction::Complete(value) => return Ok(DriveOutcome::Complete(value)),
                         ReturnAction::Continue(next) => action = Some(next),

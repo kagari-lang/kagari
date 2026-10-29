@@ -153,8 +153,8 @@ mod tests {
             catalog::DeclarationCatalog,
             conversion::{FromKagari, KagariType, context::ConversionContext},
             types::Type,
+            value_handle::ScriptValue,
         },
-        value::Value,
     };
     use kagari_source::source::SourceFile;
     use std::{
@@ -181,7 +181,7 @@ mod tests {
         fn from_kagari(
             cx: &mut ConversionContext<'_>,
             ty: &TypeArgument,
-            value: &Value,
+            value: &ScriptValue,
         ) -> NativeResult<Self> {
             assert_eq!(i32::from_kagari(cx, ty, value)?, 42);
             Ok(Self)

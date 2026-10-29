@@ -76,7 +76,10 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
         assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
+            result
+                .return_value
+                .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+                .unwrap(),
             Value::I32(answer)
         );
     }
@@ -227,8 +230,8 @@ fn runtimes_from_one_installation_have_independent_native_state_and_heap_owners(
         42
     );
     assert!(second.load_program(&program, Default::default()).is_err());
-    let value = first.runtime().gc().alloc_string("owned".into()).unwrap();
-    let rooted = first.runtime().root_value(value).unwrap();
-    assert!(rooted.value(second.runtime().gc()).is_none());
-    assert!(rooted.value(first.runtime().gc()).is_some());
+    let value = unsafe { first.runtime().gc().alloc_string_transport("owned".into()) }.unwrap();
+    let rooted = unsafe { first.runtime().gc().root_value_transport(value) }.unwrap();
+    assert!(rooted.inspect(second.runtime(), |_| Ok(())).is_err());
+    assert!(rooted.inspect(first.runtime(), |_| Ok(())).is_ok());
 }

@@ -29,7 +29,7 @@ impl<T: NativeData> Opaque<Managed<T>> {
         cx: &NativeContext<'_>,
         edit: impl for<'data> FnOnce(&'data mut T) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().gc().ensure_no_storage_borrow()?;
         cx.poll()?;
         let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
             return Err(invalid());

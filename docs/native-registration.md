@@ -99,6 +99,16 @@ This is not permission for concurrent access to a script heap.
 
 ## A complete two-owner example
 
+Low-level callbacks use unsafe `NativeBinding::new_transport`. The provider must
+retain captured managed values, protect extracted arguments through callbacks,
+and return live results for immediate publication. Codecs still validate types;
+they do not establish object lifetime. Flat callbacks returning raw `Value` use unsafe
+`native::functions::NativeCallback::new` before `bind`; the direct flat adapter
+accepts only scalar results. Direct low-level adaptation uses unsafe
+`NativeFunction::binding_transport`. Typed adapters and `NativeBinding::declared`
+continue to use protected conversion values and need no raw registration admission.
+
+
 The example below owns `demo::packets::Packet` and `demo::contracts::TextView`.
 The Packet recipe runs first and references a trait member not yet declared.
 It submits complete fluent inherent methods, a checked trait override, a raw enum
@@ -126,16 +136,26 @@ use kagari_runtime::native::{
     types::Type,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::{declaration::{TypeDefKind, VariantDef}, scalar::BuiltinType};
+use kagari_types::{
+    declaration::{TypeDefKind, VariantDef},
+    scalar::BuiltinType,
+};
 
 fn owner(module: &str) -> ModuleIdentity {
-    ModuleIdentity { package: PackageId("demo".into()), path: vec![module.into()] }
+    ModuleIdentity {
+        package: PackageId("demo".into()),
+        path: vec![module.into()],
+    }
 }
 
 fn path(module: &str, kind: DefinitionKind, name: &str) -> DefinitionPath {
     DefinitionPath {
         module: owner(module),
-        path: vec![DefinitionPathSegment { kind, name: name.into(), occurrence: 0 }],
+        path: vec![DefinitionPathSegment {
+            kind,
+            name: name.into(),
+            occurrence: 0,
+        }],
     }
 }
 
@@ -152,14 +172,19 @@ fn contracts(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         Ok(())
     })?;
     let member = module.member(id, DefinitionKind::Method, "text")?;
-    module.document(member, "Return the retained text without changing the receiver.")?;
+    module.document(
+        member,
+        "Return the retained text without changing the receiver.",
+    )?;
     Ok(())
 }
 
 fn packets(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let packet = module.define_type("Packet", TypeDefKind::Enum, 0, |record, _| {
         record.variants.push(VariantDef {
-            name: "Text".into(), payload: vec![string().abi().clone()], reports_failure: false,
+            name: "Text".into(),
+            payload: vec![string().abi().clone()],
+            reports_failure: false,
         });
         Ok(())
     })?;
@@ -179,15 +204,23 @@ fn packets(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                         declaration.records().function.return_type.clone(),
                         declaration.definitions(),
                     )?;
-                    let variant = sealed.catalog()
+                    let variant = sealed
+                        .catalog()
                         .type_reference(&path("packets", DefinitionKind::Enum, "Packet"))?
                         .variant("Text")?;
-                    Ok(NativeBinding::new(
-                        vec![Codec::Exact(string())], Codec::Exact(result),
-                        move |cx| cx.allocate_enum(
-                            &cx.result_type_argument()?, &variant, vec![cx.argument(0)?],
-                        ),
-                    ))
+                    Ok(unsafe {
+                        NativeBinding::new_transport(
+                            vec![Codec::Exact(string())],
+                            Codec::Exact(result),
+                            move |cx| {
+                                cx.allocate_enum_transport(
+                                    &cx.result_type_argument()?,
+                                    &variant,
+                                    vec![cx.argument(0)?],
+                                )
+                            },
+                        )
+                    })
                 }),
         )?;
         methods.define(
@@ -195,14 +228,18 @@ fn packets(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 .produces(concrete.clone())
                 .returns(view.apply([])?)
                 .documentation("Return the same packet through TextView.")
-                .implementation_send(NativeBinding::new(
-                    vec![Codec::Exact(concrete.clone())], Codec::Exact(concrete.clone()),
-                    |cx| cx.argument(0),
-                )),
+                .implementation_send(unsafe {
+                    NativeBinding::new_transport(
+                        vec![Codec::Exact(concrete.clone())],
+                        Codec::Exact(concrete.clone()),
+                        |cx| cx.argument_transport(0),
+                    )
+                }),
         )?;
         methods.define(
             MethodDecl::static_method("byte_len")
-                .parameter("text", string()).returns(Type::u64())
+                .parameter("text", string())
+                .returns(Type::u64())
                 .implementation_send(NativeBinding::primitive(NativePrimitive::StringByteLength)),
         )?;
         methods.define(
@@ -214,22 +251,34 @@ fn packets(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     Ok(())
                 })
                 .documentation("Return the argument unchanged, including object identity.")
-                .implementation_send(NativeBinding::new(
-                    vec![Codec::Value], Codec::Value, |cx| cx.argument(0),
-                )),
+                .implementation_send(unsafe {
+                    NativeBinding::new_transport(vec![Codec::Value], Codec::Value, |cx| {
+                        cx.argument_transport(0)
+                    })
+                }),
         )?;
         Ok(())
     })?;
     let binding = PendingBinding::implementation_with_send(|sealed| {
-        let variant = sealed.catalog()
+        let variant = sealed
+            .catalog()
             .type_reference(&path("packets", DefinitionKind::Enum, "Packet"))?
             .variant("Text")?;
-        Ok(NativeBinding::new(vec![Codec::Value], Codec::Exact(string()),
-            move |cx| cx.enum_argument_field(0, &variant, 0)))
+        Ok(unsafe {
+            NativeBinding::new_transport(vec![Codec::Value], Codec::Exact(string()), move |cx| {
+                cx.enum_argument_field_transport(0, &variant, 0)
+            })
+        })
     });
-    module.trait_implementation_with(0, |_| Ok(TraitImplementation {
-        receiver: concrete, interface: view.apply([])?, bounds: vec![], bindings: vec![],
-    }.with_overrides([TraitOverride::new(text, binding)])))
+    module.trait_implementation_with(0, |_| {
+        Ok(TraitImplementation {
+            receiver: concrete,
+            interface: view.apply([])?,
+            bounds: vec![],
+            bindings: vec![],
+        }
+        .with_overrides([TraitOverride::new(text, binding)]))
+    })
 }
 
 fn collect(providers: &DeclarationCatalog) -> NativeResult<ModuleAssembly> {
@@ -358,7 +407,7 @@ Generic parameters and bounds remain ordinary checked declaration facts.
 For an independently owned factory, prepare `NativeType<P>` through `bind_native_type`
 or, inside a typed constructor, `cx.result_native_type::<P>()?`; create with
 `ty.create(cx, payload, selected_slots)`. For an immediate raw native result, use
-`CallContext::allocate_result_payload(selected_slots, builder)` instead: the builder
+unsafe `CallContext::allocate_result_payload_transport(selected_slots, builder)` instead: the builder
 receives `(&CallContext, &TypeArgument)` and returns `NativeResult<P>` after exact result
 mapping/authority preflight, without an owning descriptor/DataRecord. Selected slots resolve
 after the builder, and allocation revalidates before publication. Return the raw Value

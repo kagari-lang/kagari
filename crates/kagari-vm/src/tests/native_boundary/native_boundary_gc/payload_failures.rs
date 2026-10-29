@@ -80,9 +80,13 @@ fn module(faults: &Arc<Faults>) -> NativeModule {
     builder
         .bind(
             new,
-            NativeBinding::new(Vec::<Codec>::new(), payload.codec(), |cx| {
-                cx.allocate_result()
-            }),
+            // SAFETY: The native argument frame and local working roots protect inputs; results are
+            // decoded, rooted or returned before another callback.
+            unsafe {
+                NativeBinding::new_transport(Vec::<Codec>::new(), payload.codec(), |cx| {
+                    cx.allocate_result_transport()
+                })
+            },
         )
         .unwrap();
     builder.finish().unwrap()
@@ -96,13 +100,15 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
     let (vm, loaded) = compile(source, Some(&native));
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let value = vm
+    let source_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
     vm.reload_program(
         &_loaded_program,
         Some("boundary".into()),
@@ -128,7 +134,10 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
             .all(|member| vm.runtime().modules().loaded(member.key()).is_some())
     );
     assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
-    assert_eq!(root.value(vm.runtime().gc()), Some(value));
+    assert_eq!(
+        unsafe { root.value_transport(vm.runtime().gc()) },
+        Some(value)
+    );
     faults.trace.store(false, Ordering::SeqCst);
     drop(vm);
     assert_eq!(faults.drops.load(Ordering::SeqCst), 1);
@@ -144,12 +153,14 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let values = vm
+    let result = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
+        .return_value;
+    // SAFETY: The live read is retained; after drop, values is used only by the
+    // checked-ID rejection probe, never as live transport.
+    let values = unsafe { result.value_transport(vm.runtime().gc()) }.unwrap();
+    drop(result);
     faults.drop.store(true, Ordering::SeqCst);
     let error = vm.runtime().collect_garbage().unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
@@ -162,7 +173,7 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
     assert_eq!(faults.drops.load(Ordering::SeqCst), 2);
     assert_eq!(vm.runtime().gc().stats().allocated_objects, 0);
     assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
-    assert!(!vm.runtime().gc().validate_value(&values));
+    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&values) });
     assert_eq!(
         vm.runtime().collect_garbage().unwrap_err().kind(),
         RuntimeErrorKind::EngineFault
@@ -233,18 +244,25 @@ fn roots_do_not_keep_heap_payloads_alive_after_teardown() {
         .runtime()
         .begin_execution(&loaded, vm.runtime().execution_options())
         .unwrap();
-    let value = vm
+    let source_root = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
+        .return_value;
+    // SAFETY: The source remains retained until the independent data root is published.
+    let value = unsafe { source_root.value_transport(vm.runtime().gc()) }
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
-    let array = vm
-        .runtime()
-        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-        .unwrap();
-    let array_root = vm.runtime().gc().root_value(Value::Array(array)).unwrap();
+    let root = unsafe { vm.runtime().gc().root_value_transport(value) }.unwrap();
+    drop(source_root);
+    let array = unsafe {
+        vm.runtime().alloc_array_transport(
+            &loaded,
+            Ty::Builtin(BuiltinType::I32),
+            vec![Value::I32(7)],
+        )
+    }
+    .unwrap();
+    let array_root =
+        unsafe { vm.runtime().gc().root_value_transport(Value::Array(array)) }.unwrap();
     assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
     drop(session);
     assert!(vm.runtime().execution_root().is_none());

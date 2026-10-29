@@ -24,10 +24,11 @@ fn range_bound(
     cx: &mut CallContext<'_>,
     upper: bool,
 ) -> NativeResult<Value> {
-    let Value::Range(range) = cx.argument(0)? else {
+    // SAFETY: The call frame retains the range and its bounds through result publication.
+    let Value::Range(range) = unsafe { cx.argument_transport(0) }? else {
         return Err(invalid());
     };
-    let range = cx.heap().range(range).ok_or_else(invalid)?;
+    let range = unsafe { cx.heap().range_transport(range) }.ok_or_else(invalid)?;
     let (member, fields) = match range.bound(
         cx.owner().definitions(),
         cx.argument_type(0)?,

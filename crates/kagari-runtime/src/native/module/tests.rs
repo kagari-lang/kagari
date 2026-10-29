@@ -11,6 +11,7 @@ use crate::{
         builder::ModuleBuilder,
         catalog::{DeclarationCatalog, import::CatalogImports},
         declarations::{FunctionDecl, MethodDecl},
+        host::HostCallback,
         installation::NativeInstallation,
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
@@ -514,7 +515,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
                         .host_policy(policy(HostPassingStyle::UniqueBorrow))
                         .returns(Type::i32()),
                 )?;
-                methods.bind(method, callback)
+                methods.bind(method, unsafe { HostCallback::new(callback) })
             })?;
             group.trait_impl(interface.apply([])?, |methods| {
                 methods.host_policy("hp", policy(HostPassingStyle::SharedBorrow))?;
@@ -530,7 +531,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
                         )
                         .is_err()
                 );
-                methods.bind("hp", callback)?;
+                methods.bind("hp", unsafe { HostCallback::new(callback) })?;
                 assert!(
                     methods
                         .host_policy("hp", policy(HostPassingStyle::UniqueBorrow))
@@ -578,19 +579,19 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
         .unwrap();
     assert!(
         module
-            .bind_path(
-                &path,
-                HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(0)))
-            )
+            .bind_path(&path, unsafe {
+                // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
+                HostPathAdapter::new().with_read_transport(|_, _| Ok(Value::I32(0)))
+            })
             .is_err()
     );
     module
-        .bind_path(
-            &path,
+        .bind_path(&path, unsafe {
+            // SAFETY: Path inputs remain scoped; providers retain escaping edges and publish results immediately.
             HostPathAdapter::new()
-                .with_read(|_, _| Ok(Value::I32(0)))
-                .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
-        )
+                .with_read_transport(|_, _| Ok(Value::I32(0)))
+                .with_prepare_write_transport(|_, _, _| Ok(PreparedHostPathWrite::new(|| {})))
+        })
         .unwrap();
     let module = module.finish().unwrap();
     let installation = NativeInstallation::prepare(slice::from_ref(&module)).unwrap();

@@ -97,7 +97,24 @@ impl Runtime {
 
     /// Admission errors are values; invalid capabilities/captures and terminated
     /// callers remain execution errors. Publication commits before returning Ok.
-    pub fn spawn_task(
+    /// Access backend execution transport through its original semantic owner.
+    ///
+    /// # Safety
+    /// Keep every managed input in this runtime's roots or active traced storage
+    /// until publication. Protect extracted results before collection, callbacks
+    /// or mutation can remove their last owner. Returned loans must end before
+    /// reentry; scoped host resources also require their original host lifetime.
+    /// This entry preserves validation but cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn spawn_task_transport(
+        &self,
+        capability: &Value,
+        factory: &Value,
+    ) -> NativeResult<Result<RootedValue, SpawnError>> {
+        self.spawn_task(capability, factory)
+    }
+
+    pub(crate) fn spawn_task(
         &self,
         capability: &Value,
         factory: &Value,

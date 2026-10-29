@@ -8,7 +8,7 @@ use kagari_common::identity::map::DefinitionContext;
 use kagari_runtime::{
     host::HostCallContext,
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, host::HostCallback, types::Type},
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -36,17 +36,20 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
             ))
             .unwrap();
         builder
-            .bind(values, |context: &HostCallContext<'_>, _: &[Value]| {
-                Ok(Value::Array(
-                    context
-                        .runtime()
-                        .alloc_array(
-                            &context.runtime().execution_root().unwrap(),
-                            Ty::Builtin(BuiltinType::I32),
-                            vec![Value::I32(40)],
-                        )
-                        .unwrap(),
-                ))
+            .bind(values, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(|context: &HostCallContext<'_>, _: &[Value]| {
+                    Ok(Value::Array(
+                        context
+                            .runtime()
+                            .alloc_array_transport(
+                                &context.runtime().execution_root().unwrap(),
+                                Ty::Builtin(BuiltinType::I32),
+                                vec![Value::I32(40)],
+                            )
+                            .unwrap(),
+                    ))
+                })
             })
             .unwrap();
         builder.finish().unwrap()
@@ -90,7 +93,7 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -141,8 +144,9 @@ fn readonly_host_hash_storage_has_exact_read_and_content_protocols() {
             .function(&function, |function| function.produces(input))
             .unwrap();
         builder
-            .bind(function, |_: &HostCallContext<'_>, args: &[Value]| {
-                Ok(args[0])
+            .bind(function, unsafe {
+                // SAFETY: The host frame protects inputs; escaped managed values are retained and results transfer immediately.
+                HostCallback::new(|_: &HostCallContext<'_>, args: &[Value]| Ok(args[0]))
             })
             .unwrap();
     }
@@ -209,7 +213,10 @@ fn main() -> i32 {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
     assert_eq!(
-        result.return_value.value(runtime.runtime().gc()),
+        result
+            .return_value
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+            .ok(),
         Some(Value::I32(42))
     );
     drop(result);

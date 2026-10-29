@@ -10,6 +10,7 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId},
 };
 use kagari_compiler::{bytecode, source::program};
+use kagari_runtime::value::Value;
 use kagari_source::source_database::SourceLayer;
 
 fn main() {
@@ -130,7 +131,7 @@ fn main() {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result"),
         kagari_runtime::value::Value::I32(42)
     );
@@ -146,7 +147,7 @@ fn main() {
             .execute(&second_loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(second.runtime().gc())
+            .inspect(second.runtime(), |view| view.as_i32().map(Value::I32))
             .unwrap(),
         kagari_runtime::value::Value::I32(42)
     );
@@ -155,7 +156,7 @@ fn main() {
         _selected_loaded.members().count(),
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result")
     );
 }

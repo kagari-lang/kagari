@@ -190,13 +190,13 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
         }
 
         impl ::kagari_runtime::native::conversion::IntoKagari for #ident {
-            fn into_kagari(self, cx: &mut ::kagari_runtime::native::conversion::context::ConversionContext<'_>, expected: &::kagari_runtime::frame::types::arguments::TypeArgument) -> ::kagari_runtime::native::binding::NativeResult<::kagari_runtime::value::Value> {
+            fn into_kagari(self, cx: &mut ::kagari_runtime::native::conversion::context::ConversionContext<'_>, expected: &::kagari_runtime::frame::types::arguments::TypeArgument) -> ::kagari_runtime::native::binding::NativeResult<::kagari_runtime::native::value_handle::ScriptValue> {
                 #encode
             }
         }
 
         impl ::kagari_runtime::native::conversion::FromKagari for #ident {
-            fn from_kagari(cx: &mut ::kagari_runtime::native::conversion::context::ConversionContext<'_>, expected: &::kagari_runtime::frame::types::arguments::TypeArgument, value: &::kagari_runtime::value::Value) -> ::kagari_runtime::native::binding::NativeResult<Self> {
+            fn from_kagari(cx: &mut ::kagari_runtime::native::conversion::context::ConversionContext<'_>, expected: &::kagari_runtime::frame::types::arguments::TypeArgument, value: &::kagari_runtime::native::value_handle::ScriptValue) -> ::kagari_runtime::native::binding::NativeResult<Self> {
                 #decode
             }
         }

@@ -23,7 +23,26 @@ pub enum DriveResult {
 }
 
 impl Vm {
-    pub fn start<'a>(
+    /// Admit protected transport at the backend execution boundary.
+    ///
+    /// # Safety
+    /// Keep all managed inputs live until the destination frame or result owner is
+    /// published. Inputs that can be replaced through aliases require independent
+    /// protection across callbacks. Root raw results before collection, reentry or
+    /// source retirement; host capabilities must remain in their original host scope.
+    /// Existing owner/type/generation checks cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn start_transport<'a>(
+        &self,
+        module: &ExecutableModule,
+        entry: impl Into<ProgramEntry<'a>>,
+        arguments: &[Value],
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, VmError> {
+        self.start(module, entry, arguments, options)
+    }
+
+    pub(crate) fn start<'a>(
         &self,
         module: &ExecutableModule,
         entry: impl Into<ProgramEntry<'a>>,
@@ -36,18 +55,36 @@ impl Vm {
             .resolve(module)
             .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
         let (module, function) = self.select_function(&module, function)?;
-        Ok(self
-            .runtime
-            .start_owned_execution(&module, function, arguments, options)?)
+        Ok(unsafe {
+            self.runtime
+                .start_owned_execution_transport(&module, function, arguments, options)
+        }?)
     }
 
     /// Queue a cold Future as a root; drive exactly one layer without flattening.
-    pub fn start_future(
+    /// Admit protected transport at the backend execution boundary.
+    ///
+    /// # Safety
+    /// Keep all managed inputs live until the destination frame or result owner is
+    /// published. Inputs that can be replaced through aliases require independent
+    /// protection across callbacks. Root raw results before collection, reentry or
+    /// source retirement; host capabilities must remain in their original host scope.
+    /// Existing owner/type/generation checks cannot revive expired direct references.
+    #[doc(hidden)]
+    pub unsafe fn start_future_transport(
         &self,
         future: &Value,
         options: ExecutionOptions,
     ) -> Result<OwnedExecution, VmError> {
-        Ok(self.runtime.start_owned_future(future, options)?)
+        self.start_future(future, options)
+    }
+
+    pub(crate) fn start_future(
+        &self,
+        future: &Value,
+        options: ExecutionOptions,
+    ) -> Result<OwnedExecution, VmError> {
+        Ok(unsafe { self.runtime.start_owned_future_transport(future, options) }?)
     }
 
     /// Returns only at a safe interpreter boundary. Native calls are cooperative.
@@ -73,9 +110,11 @@ impl Vm {
         let executor = Executor::resume(&self.runtime, owner)?;
         let mut output = None;
         let outcome = executor.run_slice(slice, |runtime, value| {
-            let root = runtime
-                .root_value(value)
-                .ok_or_else(|| RuntimeError::module_validation("owned execution result root"))?;
+            let root = unsafe {
+                // SAFETY: The terminal callback roots the transferred result before conversion or execution retirement can run.
+                runtime.gc().root_value_transport(value)
+            }
+            .ok_or_else(|| RuntimeError::module_validation("owned execution result root"))?;
             complete(runtime, &root)?;
             output = Some(root);
             Ok(())

@@ -5,7 +5,7 @@ use crate::{
     program::PreparedProgram,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::{gc::inspection::ValueView, module::entry::ProgramEntry};
 use kagari_source::source::SourceFile;
 
 mod boundaries;
@@ -53,20 +53,18 @@ fn execute_checks(checks: Vec<String>) {
     let checks = NumericChecks::new(checks);
     let source = checks.source();
     execute_with(&source, |value| {
-        let Value::I32(marker) = value else {
-            panic!("encoded: expected numeric check marker, got {value:?}\n{source}");
-        };
+        let marker = value.as_i32().unwrap();
         checks.assert_result(marker, "encoded", &source);
     });
 }
 
 fn execute(source: &str) {
     execute_with(source, |value| {
-        assert_eq!(value, Value::Bool(true), "{source}")
+        assert!(value.as_bool().unwrap(), "{source}")
     });
 }
 
-fn execute_with(source: &str, assert_value: impl FnOnce(Value)) {
+fn execute_with(source: &str, assert_value: impl FnOnce(ValueView<'_>)) {
     let program = compile(source);
     let context = context();
     let consumer = engine();
@@ -75,7 +73,13 @@ fn execute_with(source: &str, assert_value: impl FnOnce(Value)) {
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{error:?}\n{source}"));
-    assert_value(result.return_value.value(runtime.runtime().gc()).unwrap());
+    result
+        .return_value
+        .inspect(runtime.runtime(), |view| {
+            assert_value(view);
+            Ok(())
+        })
+        .unwrap();
     drop(result);
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     assert_eq!(

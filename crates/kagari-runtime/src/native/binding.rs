@@ -175,9 +175,9 @@ impl Codec {
 /// use std::rc::Rc;
 /// use kagari_runtime::{native::binding::{Codec, NativeBinding}, value::Value};
 /// let local = Rc::new(1);
-/// let binding = NativeBinding::new(Vec::<Codec>::new(), Codec::Value, move |_| {
+/// let binding = unsafe { NativeBinding::new_transport(Vec::<Codec>::new(), Codec::Value, move |_| {
 ///     Ok(Value::I32(*local))
-/// });
+/// }) };
 /// ```
 #[derive(Clone)]
 pub struct NativeBinding {
@@ -209,7 +209,27 @@ impl fmt::Debug for NativeBinding {
 impl NativeBinding {
     /// Explicit low-level conversion contract. The body remains trusted Rust;
     /// dynamic values are checked at the return boundary.
-    pub fn new(
+    /// Register a low-level provider with an explicit transport contract.
+    ///
+    /// # Safety
+    /// The provider must protect managed arguments, results and captured edges through
+    /// callbacks, collection and publication. A raw captured Value is not a root.
+    /// Return results without an intervening collection before caller publication;
+    /// release storage loans before reentry and preserve scoped host lifetimes.
+    /// Signature codecs and dynamic checks do not establish pointer lifetime.
+    #[doc(hidden)]
+    pub unsafe fn new_transport(
+        arguments: impl Into<Box<[Codec]>>,
+        result: Codec,
+        entry: impl for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self::new(arguments, result, entry)
+    }
+
+    pub(crate) fn new(
         arguments: impl Into<Box<[Codec]>>,
         result: Codec,
         entry: impl for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value>

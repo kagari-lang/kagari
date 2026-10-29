@@ -180,7 +180,7 @@ impl ExecutionRoutes {
         }
         let Value::I32(value) = report
             .return_value
-            .value(self.runtime.runtime().gc())
+            .inspect(self.runtime.runtime(), |view| view.as_i32().map(Value::I32))
             .expect("retained execution result")
         else {
             panic!("expected i32 result")

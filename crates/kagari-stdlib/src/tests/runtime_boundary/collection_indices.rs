@@ -57,20 +57,21 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
     let (runtime, owner, slots) = fixture();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let values = cx.encode(VecValues(vec![1u64 << 32])).unwrap();
-    let value = values.value(runtime.gc()).unwrap();
-    let array = runtime
-        .alloc_array(
+    let value = unsafe { values.value_transport(runtime.gc()) }.unwrap();
+    let array = unsafe {
+        runtime.alloc_array_transport(
             &owner,
             Ty::Builtin(BuiltinType::U64),
             vec![Value::U64(1 << 32)],
         )
-        .unwrap();
-    let array = runtime.root_value(Value::Array(array)).unwrap();
+    }
+    .unwrap();
+    let array = unsafe { runtime.gc().root_value_transport(Value::Array(array)) }.unwrap();
     for index in [1, 1u64 << 32, u64::MAX] {
         for name in ["get", "remove"] {
             let result =
                 invoke(&runtime, &owner, slots[name], &[value, Value::U64(index)]).unwrap();
-            let result = runtime.root_value(result).unwrap();
+            let result = unsafe { runtime.gc().root_value_transport(result) }.unwrap();
             assert_eq!(
                 cx.decode::<Option<u64>>(&result).unwrap(),
                 None,
@@ -81,7 +82,10 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
             &runtime,
             &owner,
             slots["index"],
-            &[array.value(runtime.gc()).unwrap(), Value::U64(index)],
+            &[
+                unsafe { array.value_transport(runtime.gc()) }.unwrap(),
+                Value::U64(index),
+            ],
         )
         .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
@@ -125,7 +129,7 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
         [1u64 << 32, 42, 43]
     );
     let result = invoke(&runtime, &owner, slots["remove"], &[value, Value::U64(0)]).unwrap();
-    let result = runtime.root_value(result).unwrap();
+    let result = unsafe { runtime.gc().root_value_transport(result) }.unwrap();
     assert_eq!(cx.decode::<Option<u64>>(&result).unwrap(), Some(1u64 << 32));
     assert_eq!(cx.decode::<VecValues<u64>>(&values).unwrap().0, [42, 43]);
 }
@@ -135,7 +139,7 @@ fn string_slice_preserves_wide_range_and_utf8_errors() {
     let (runtime, owner, slots) = fixture();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let text = cx.encode("a火".to_owned()).unwrap();
-    let value = text.value(runtime.gc()).unwrap();
+    let value = unsafe { text.value_transport(runtime.gc()) }.unwrap();
     let slot = slots["slice"];
     for (start, end) in [
         (0, 1u64 << 32),
@@ -162,7 +166,7 @@ fn string_slice_preserves_wide_range_and_utf8_errors() {
             &[value, Value::U64(start), Value::U64(end)],
         )
         .unwrap();
-        let result = runtime.root_value(result).unwrap();
+        let result = unsafe { runtime.gc().root_value_transport(result) }.unwrap();
         assert_eq!(cx.decode::<String>(&result).unwrap(), expected);
     }
 }

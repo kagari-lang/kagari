@@ -125,7 +125,10 @@ fn assert_checks(program: &PreparedProgram, route: &str, source: &str, checks: &
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{route}: {error:?}\n{source}"));
-    let value = result.return_value.value(runtime.runtime().gc()).unwrap();
+    let value = result
+        .return_value
+        .inspect(runtime.runtime(), |view| view.as_i32().map(Value::I32))
+        .unwrap();
     let Value::I32(marker) = value else {
         panic!("{route}: expected numeric check marker, got {value:?}\n{source}");
     };
