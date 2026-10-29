@@ -126,19 +126,35 @@ fn scalar_width(ty: BuiltinType) -> Option<usize> {
 /// Width/sign are derived once from the verified semantic scalar domain.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ScalarEncoding {
-    pub(crate) ty: BuiltinType,
-    pub(crate) representation: ValueType,
-    pub(crate) width: usize,
-    pub(crate) signed: bool,
+    ty: BuiltinType,
+    representation: ValueType,
+    width: usize,
+    signed: bool,
 }
 
 impl ScalarEncoding {
-    fn new(ty: BuiltinType) -> Option<Self> {
+    pub(crate) fn new(ty: BuiltinType) -> Option<Self> {
         Some(Self {
             ty,
             representation: builtin_representation(ty),
             width: scalar_width(ty)?,
             signed: ty.integer_layout().is_some_and(|(_, signed)| signed),
         })
+    }
+
+    pub(crate) fn ty(self) -> BuiltinType {
+        self.ty
+    }
+
+    pub(crate) fn representation(self) -> ValueType {
+        self.representation
+    }
+
+    pub(crate) fn width(self) -> usize {
+        self.width
+    }
+
+    pub(crate) fn signed(self) -> bool {
+        self.signed
     }
 }

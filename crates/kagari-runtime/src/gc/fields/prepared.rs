@@ -72,7 +72,7 @@ impl PreparedStructField {
         let StoredField::Scalar { offset, encoding } = self.field else {
             return None;
         };
-        if encoding.ty != ty {
+        if encoding.ty() != ty {
             return None;
         }
         // SAFETY: inherited same-runtime, live-frame and noncollecting contract.

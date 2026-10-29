@@ -78,7 +78,7 @@ impl StructView<'_> {
         let StoredField::Scalar { offset, encoding } = *self.description.fields.get(slot)? else {
             return None;
         };
-        (encoding.ty == expected)
+        (encoding.ty() == expected)
             .then(|| codec::read_scalar(self.bytes, offset, encoding))
             .flatten()
     }
@@ -105,7 +105,7 @@ impl StructViewMut<'_> {
         let StoredField::Scalar { offset, encoding } = *self.description.fields.get(slot)? else {
             return None;
         };
-        if encoding.ty != expected {
+        if encoding.ty() != expected {
             return None;
         }
         codec::write_scalar(self.bytes, offset, encoding, bits)
@@ -128,9 +128,13 @@ impl GcHeap {
         for (slot, (field, value)) in description.fields.iter().zip(&values).enumerate() {
             let admitted = match *field {
                 StoredField::Scalar { encoding, .. } => {
-                    value.has_representation(encoding.representation)
+                    value.has_representation(encoding.representation())
                         && scalar::encode(value).is_some_and(|bits| {
-                            scalar::admits_payload(encoding.representation, Some(encoding.ty), bits)
+                            scalar::admits_payload(
+                                encoding.representation(),
+                                Some(encoding.ty()),
+                                bits,
+                            )
                         })
                 }
                 StoredField::Struct { .. } | StoredField::Managed { .. } => {

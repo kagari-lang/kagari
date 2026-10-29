@@ -4,12 +4,13 @@ use crate::{
     module::layout_storage::{ScalarEncoding, StoredField},
     value::{InterfaceObjectId, Value, scalar},
 };
+use kagari_types::scalar::BuiltinType;
 
 /// Bytes contain initialized, traced runtime fields, including pointer provenance.
 pub(super) unsafe fn read_field(bytes: &[u8], field: StoredField) -> Option<Value> {
     match field {
         StoredField::Scalar { offset, encoding } => scalar::decode(
-            encoding.representation,
+            encoding.representation(),
             read_scalar(bytes, offset, encoding)?,
         ),
         StoredField::Struct { offset } => {
@@ -30,7 +31,7 @@ pub(super) unsafe fn read_field(bytes: &[u8], field: StoredField) -> Option<Valu
 pub(super) fn write_field(bytes: &mut [u8], field: StoredField, value: Value) -> Option<()> {
     match field {
         StoredField::Scalar { offset, encoding } => {
-            if !value.has_representation(encoding.representation) {
+            if !value.has_representation(encoding.representation()) {
                 return None;
             }
             write_scalar(bytes, offset, encoding, scalar::encode(&value)?)
@@ -54,7 +55,7 @@ pub(super) fn write_field(bytes: &mut [u8], field: StoredField, value: Value) ->
 }
 
 pub(super) fn read_scalar(bytes: &[u8], offset: usize, encoding: ScalarEncoding) -> Option<u64> {
-    let width = encoding.width;
+    let width = encoding.width();
     let bytes = bytes.get(offset..offset + width)?;
     let bits = match width {
         0 => 0,
@@ -64,12 +65,19 @@ pub(super) fn read_scalar(bytes: &[u8], offset: usize, encoding: ScalarEncoding)
         8 => u64::from_ne_bytes(bytes.try_into().ok()?),
         _ => return None,
     };
-    let bits = if encoding.signed && width < 8 {
+    let bits = if encoding.signed() && width < 8 {
         ((bits << (64 - width * 8)) as i64 >> (64 - width * 8)) as u64
     } else {
         bits
     };
-    scalar::admits_payload(encoding.representation, Some(encoding.ty), bits).then_some(bits)
+    // Canonical width and extension prove integer domains. Bool and char still
+    // have invalid bit patterns at their storage width and need admission.
+    if matches!(encoding.ty(), BuiltinType::Bool | BuiltinType::Char)
+        && !scalar::admits_payload(encoding.representation(), Some(encoding.ty()), bits)
+    {
+        return None;
+    }
+    Some(bits)
 }
 
 pub(super) fn write_scalar(
@@ -78,10 +86,10 @@ pub(super) fn write_scalar(
     encoding: ScalarEncoding,
     bits: u64,
 ) -> Option<()> {
-    if !scalar::admits_payload(encoding.representation, Some(encoding.ty), bits) {
+    if !scalar::admits_payload(encoding.representation(), Some(encoding.ty()), bits) {
         return None;
     }
-    let width = encoding.width;
+    let width = encoding.width();
     let bytes = bytes.get_mut(offset..offset + width)?;
     match width {
         0 => {}
@@ -148,8 +156,6 @@ pub(super) fn write_managed(bytes: &mut [u8], offset: usize, value: Value) -> Op
 mod tests {
     use super::*;
     use crate::{Runtime, native::storage::NativeStorage, test_support::layouts::allocation_owner};
-    use kagari_abi::representation::ValueType;
-    use kagari_types::scalar::BuiltinType;
     use kagari_types::ty::Ty;
 
     #[test]
@@ -186,12 +192,7 @@ mod tests {
 
     #[test]
     fn char_fields_reject_invalid_scalars_before_reading_or_truncating_writes() {
-        let encoding = ScalarEncoding {
-            ty: BuiltinType::Char,
-            representation: ValueType::Char,
-            width: 4,
-            signed: false,
-        };
+        let encoding = ScalarEncoding::new(BuiltinType::Char).unwrap();
         for bits in [0xd800_u32, 0xdfff, 0x110000, u32::MAX] {
             assert_eq!(read_scalar(&bits.to_ne_bytes(), 0, encoding), None);
         }
@@ -205,5 +206,48 @@ mod tests {
         }
         write_scalar(&mut bytes, 0, encoding, 0x10ffff).unwrap();
         assert_eq!(read_scalar(&bytes, 0, encoding), Some(0x10ffff));
+    }
+
+    #[test]
+    fn bool_fields_reject_noncanonical_bytes_and_writes() {
+        let encoding = ScalarEncoding::new(BuiltinType::Bool).unwrap();
+        for byte in 0..=u8::MAX {
+            assert_eq!(
+                read_scalar(&[byte], 0, encoding),
+                (byte <= 1).then_some(u64::from(byte))
+            );
+        }
+        let mut bytes = [1];
+        for bits in [2, 255, 256, u64::MAX] {
+            assert_eq!(write_scalar(&mut bytes, 0, encoding, bits), None);
+            assert_eq!(bytes, [1]);
+        }
+    }
+
+    #[test]
+    fn packed_integer_writes_reject_truncation_before_mutation() {
+        for ty in [
+            BuiltinType::I8,
+            BuiltinType::I16,
+            BuiltinType::I32,
+            BuiltinType::U8,
+            BuiltinType::U16,
+            BuiltinType::U32,
+        ] {
+            let encoding = ScalarEncoding::new(ty).unwrap();
+            let (min, max) = ty.integer_bounds().unwrap();
+            let mut bytes = [0x5a; 10];
+            for value in [min, 0, max] {
+                write_scalar(&mut bytes, 1, encoding, value as u64).unwrap();
+                assert_eq!(read_scalar(&bytes, 1, encoding), Some(value as u64));
+                assert_eq!(bytes[0], 0x5a);
+                assert!(bytes[1 + encoding.width()..].iter().all(|b| *b == 0x5a));
+            }
+            let saved = bytes;
+            for value in [min - 1, max + 1] {
+                assert_eq!(write_scalar(&mut bytes, 1, encoding, value as u64), None);
+                assert_eq!(bytes, saved);
+            }
+        }
     }
 }

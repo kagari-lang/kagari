@@ -83,8 +83,13 @@ required CI and the Lua refresh. The [repaired-source comparison](#repaired-sour
 on `508db43e` passes 68/68 trial timing and 204/204 memory gates. The
 [remaining historical comparison](#remaining-historical-workloads-phase-4-2026-10-29)
 brings the original 88-row ordinary scope to 85 passing / 3 failing, with main/sort
-explicitly using a reconstructed source baseline. Iterator, mixed-Native release
-and sparse-cycle release remain failed. All 22 observed normal-step gates pass;
+explicitly using a reconstructed source baseline. The
+[retained-source requalification](#retained-source-integrated-requalification-2026-10-29)
+on the 7136e1da implementation closes mixed-Native and sparse-cycle release: all
+68 trial rows and 55/56 original PG00 storage/family rows pass. Only iterator
+remains failed in that refreshed scope. The other 32 original historical rows,
+final memory/normal-step evidence and Lua still need the final implementation.
+All 22 previously observed normal-step gates pass;
 34 rows remain unobserved. All four CI jobs pass on `f9236912`, which contains
 the retained alignment implementation; this does not certify a future final
 measurement revision. The ten downstream failures have focused local repairs
@@ -6435,6 +6440,283 @@ pair to choose a favorable result. Mixed release has a promising diagnostic resu
 iterator and sparse release remain unresolved, and all three still need the final
 historical comparison. Final-revision CI, integrated seven-pair timing/memory/
 normal-step evidence and Lua refresh remain open.
+
+### Native type correction: field/dense attribution (2026-10-29)
+
+Source review excludes direct Native type access from the measured Point read/write
+loops: both run scalar fields on one retained struct. Frozen pre/post images show
+execute_field 544/543 instructions with the same stack reservation, scalar slices
+4142/4142 (unbounded) and 4464/4464 (bounded), but execute_region grows 624 -> 746
+instructions and its frame 432 -> 480 B. These counts include cold/error paths;
+they do not prove which instructions execute or attribute the timing regression.
+The region's managed-copy/publication alternatives changed code generation while
+the source-level scalar field loop did not. Do not invent a Native-kind cache for
+this field result or treat smaller records as proof of faster dense marking.
+
+Select a finite attribution run before implementation: paired source revisions
+48b06282 and 4b5f67a2 with identical disposable profiling harness, two 35-second
+workloads each, sampled once for 30 seconds at 1 ms. Field read repeats the existing
+50000-iteration call after the original Point/FloatPoint/Vec setup; dense collection
+uses the existing 4096-node graph, with construction outside its sampled wrapper,
+fresh graph contents per cycle and full reclamation/root restoration. Reuse a loaded
+Runtime only to obtain enough samples; profile lifecycle counts are not benchmark
+ratios. Inspect samples within the field/dense wrappers, not setup or construction.
+All builds precede sampling, default release/target/parallelism, no concurrent heavy
+work; source/harness bytes must be restored. No ordinary timing retry, new cache,
+inline-hint change or gate adjustment is selected by this audit.
+
+The four profiles completed once, with source/harness bytes restored. Field wrapper
+samples total 22080/22079: scalar execution accounts for 48.78/47.03%, field dispatch
+9.84/20.93%, packed scalar read 8.09/5.83%, and shared scalar admission 7.16/6.64%.
+Inlining changes attribution, so these percentages do not establish elapsed-time
+deltas or explain the entire regression. Dense wrappers contain only 703/709 samples,
+spread across graph scanning, shading, reference resolution and batch preparation;
+this is insufficient to attribute the 12.7% change to one mechanism. No new Native
+metadata traversal appears in the field loop. Disposable evidence lives under
+`target/gc-native-type-codegen`; profile B/C SHA-256 are
+`a0979bda9004b18ca327eb902b653c862933e5c8301462f58322b4a5aae95092` and
+`7d179dd9b415c34a72187c8a9683d9a094c4ec5fc3890d6b00e876db29dccafe`.
+
+**Selected bounded correction:** seal ScalarEncoding at its layout owner, deriving
+representation, width and sign together from one builtin type. An integer read of
+that exact width, followed by its required sign/zero extension, already proves the
+declared integer range; repeating generic integer admission is unnecessary. Keep
+byte bounds, bool/Unicode scalar admission, every write-domain check, prepared-field
+identity and receiver lifetime checks. No field storage size or GC ownership changes.
+This follows typed primitive loads in [OpenJDK 25 AArch64 templates](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/cpu/aarch64/templateTable_aarch64.cpp)
+(e.g. baload/caload after bounds checks); Kagari retains its own checked writes and
+Unicode-scalar char semantics, rather than adopting Java narrowing/UTF-16 semantics.
+Validate existing integer field transfer/overflow and codec provenance contracts,
+add only missing raw-byte/domain boundary coverage, then run one ordinary storage
+and family B/C diagnostic against retained 4b5f67a2. No speedup is assumed; retain
+only with measured benefit/tradeoffs. Full CI and original final gates remain open.
+
+**Implemented and retained:** ScalarEncoding now has private fields and one checked
+constructor; its consumers use read-only accessors. The packed read codec performs
+shared scalar admission only for Bool/Char after canonical byte loading/extension.
+All scalar writes retain the original admission. No unsafe operation, storage size,
+allocation policy, root, barrier, or ABI changed. Manual review found no production
+globs, new re-exports, forwarding surface, deep parent traversal or LOC exception.
+
+Focused local validation passed: runtime `gc::fields::` (9 tests, including existing
+native/managed/direct reference provenance and descriptor lifetime contracts), plus
+VM integer-domain field transfer, overflow side-effect/commit ordering, wrong nominal
+receiver rejection, and caller-generation aggregate fields (4 tests). New codec cases
+cover all invalid Bool bytes and rejection of truncating narrow-integer writes before
+mutation; existing VM fixtures cover all eight integer domains, including 64-bit
+limits. The unchanged pointer operations retain prior strict Miri evidence; Miri was
+not rerun for this safe metadata/branch change. Structure checked 1850 files with zero
+findings; fmt/diff checks and workspace/all-targets Clippy passed (12.02 s). Full tests
+and the complete feature/backend/platform matrix remain CI-only and unrun locally.
+
+One ordinary B-then-C storage pair and one family pair completed, each 3 warmups and
+11 samples per row; all 68 semantic/result/root/reclamation contracts matched. B is
+the retained 4b5f67a2 runtime image, SHA-256
+`86d174647142dcb894fb635aa125e40b80f7d24f16ea825c3374fde552da08d4`;
+C is 4b5f67a2 plus this correction, SHA-256
+`d68dda81f48b6a9b3df2fafd940cf1838d18faae743b22cd1ae4d7c520e9e633`.
+Both use the same ordinary harness (including its unused iterator probe), SHA-256
+`abb5fa1c587d2258649def89e340764c14e15830b2346442723a771337e3a3c6`.
+Builds/tests finished before timing, with no concurrent heavy work. Environment is
+M1 Max/32 GiB/macOS 26.6.2, Rust/Cargo 1.99.1, default release/target/parallelism,
+interpreter, warm build cache and ordinary OS cache, no affinity/power isolation.
+Compilation/setup are separate from the following execution/collection medians.
+Whole process seconds: storage 6.471/6.435; families 18.245/18.241.
+
+| Diagnostic median (us) | Retained B | Candidate C | Change |
+| --- | ---: | ---: | ---: |
+| Scalar loop control | 541.667 | 541.750 | +0.02% |
+| Field read | 1965.667 | 2012.625 | +2.39% |
+| Field write | 2306.875 | 2348.167 | +1.79% |
+| Combined fields | 5106.708 | 4621.750 | -9.50% |
+| Float fields | 5251.834 | 4825.084 | -8.13% |
+| Iterator | 5758.834 | 5735.833 | -0.40% |
+| Mixed Native release | 65.166 | 63.459 | -2.62% |
+| Sparse descriptor release | 35.000 | 34.000 | -2.86% |
+| Dense cyclic collection | 1088.959 | 1073.334 | -1.43% |
+| Reference buffer release | 154.917 | 149.625 | -3.42% |
+
+Retain the coherent canonical-domain model and measured combined/float field benefit,
+while explicitly carrying the standalone read/write regressions. This does not prove
+that removing admission accelerated every field workload, explain all prior codegen
+changes, or close any historical gate. No unchanged favorable retry was performed.
+Allocation shape is unchanged, so do not repeat the diagnostic memory run; final
+integrated memory evidence still must be refreshed. Disposable scripts, logs, image
+hashes and samples are under `target/gc-canonical-scalar-read`; commands are ordinary
+`runtime_storage` and `runtime_storage --families`, with the existing 3/11 defaults.
+
+**Next:** return to the unresolved iterator and sparse-release ownership costs using
+their existing attribution, not more field inlining experiments. Iterator profiling
+already identifies native next/Option construction and validation; audit the exact
+call/type authority boundary before selecting any correction, without Option
+compaction or call-frame redesign. Sparse retirement must preserve quarantine and
+final backing ownership; rejected whole-page transfer is not reopened without new
+evidence. Final seven-pair historical timing, integrated memory/normal-step evidence,
+final-revision CI and Lua refresh remain required. At this checkpoint, 4b5f67a2 CI
+run 40881105117 has successful Windows AOT, structure and editor-tooling jobs; Rust
+workspace tests are still running, so complete CI acceptance is not claimed.
+
+### Builtin descriptor lookup: phase 4 bounded correction (2026-10-29)
+
+The iterator path still allocates an ordinary Option enum per result. Its physical
+descriptor lookup hashes Key::Builtin(PayloadKind::Enum) on every allocation, even
+though builtin representation kinds form a small closed set. The existing profile's
+3.707% exclusive hashing and 2.875% allocation shares are distributed across callers;
+they do not quantify this lookup or promise a gate-closing gain. Native payload TypeId
+and struct-layout keys remain open domains and need their existing dynamic owners.
+The cursor's source-contract clone cannot simply become a nested Vec loan: payload
+loans explicitly exclude competing loans. Conversion checks also straddle arbitrary
+user code and safepoints. Do not remove those boundaries or compact Option here.
+
+Select one finite representation change: keep Descriptors as the sole cache and ID
+admission owner, but represent builtin associations with fixed optional ID slots and
+Native associations with the existing TypeId-keyed map. This replaces the builtin
+hash lookup rather than layering another cache. Registration, weak/strong owner
+transitions, live allocation counts, stale-association comparison, bounded captured
+maintenance and identity reuse remain unchanged. Empty fixed slots own no descriptor
+or heap object. Diagnostics must include their capacity; measure the added inline
+storage and changed hash allocation footprint rather than assuming a memory win.
+
+[Go 1.26 mcache](https://github.com/golang/go/blob/go1.26.0/src/runtime/mcache.go)
+uses a fixed array indexed by the closed span-class domain for allocator lookup.
+Only the dense closed-key mechanism applies: Kagari's runtime-local representation
+directory retains checked descriptor IDs, not Go's per-P spans or concurrent sweep
+generation protocol. No new cache lifetime, unchecked access or persistent pointer
+is introduced. Validate descriptor replacement/failed placement/maintenance and
+representative enum/Native/struct lifecycle contracts, then one ordinary storage and
+family B/C diagnostic against 7136e1da and a separate family memory pair. Preserve
+the original gates and report adverse rows; no unchanged favorable retry is allowed.
+
+**Rejected after measurement:** restore both runtime files exactly to 7136e1da.
+The fixed registry passes seven descriptor/Native lifecycle tests and three VM
+enum identity/reload/iterator-operation contracts. Structure (1850 files, zero
+findings), fmt/diff and workspace all-targets Clippy (18.29 s) pass. No pointer or
+borrow operation changes; prior Miri evidence was not presented as a new run.
+All 68 ordinary row contracts and 60 family-memory bounds pass their consistency
+checks, with 42 zero-net Runtime teardowns. The measured timing tradeoff rejects
+retention despite the simpler lookup and small iterator improvement.
+
+Ordinary B/C SHA-256:
+`d68dda81f48b6a9b3df2fafd940cf1838d18faae743b22cd1ae4d7c520e9e633` /
+`c6004c08ea04a76c815a363bfdc6a5f079faec28a82d8aaa953b31572f0e8d85`.
+Memory B/C SHA-256:
+`a9221bca67162969cca40d515bbe77a00d2a5265a878e07b2c74a7ca723acd08` /
+`79febfc8b7af70254911848a6a5952ea234ef01862a549d7834f9eb100bf5130`.
+Same M1 Max/32 GiB/macOS 26.6.2, Rust/Cargo 1.99.1, default release/target/
+parallelism and interpreter; warm build caches, ordinary OS caches, no affinity.
+All builds/tests precede the serial B/C storage, B/C families, B/C memory schedule.
+Ordinary processes retain 3 warmups/11 samples; memory retains 3 independent warmed
+lifecycles. Compile/setup remain separate from operation medians. Process seconds
+are 6.283/6.076 (storage), 17.366/17.263 (families), 11.282/11.211 (memory).
+
+| Diagnostic median (us) | B | Rejected C | Change |
+| --- | ---: | ---: | ---: |
+| Scalar control | 528.875 | 561.959 | +6.26% |
+| Field read | 1951.167 | 2079.083 | +6.56% |
+| Field write | 2294.667 | 2260.833 | -1.47% |
+| Combined fields | 4504.834 | 4747.167 | +5.38% |
+| Iterator | 5489.917 | 5380.416 | -1.99% |
+| Mixed Native release | 61.042 | 63.208 | +3.55% |
+| Sparse-cycle release | 25.167 | 27.375 | +8.77% |
+| Reference buffer release | 126.333 | 161.083 | +27.51% |
+| Dense cyclic collection | 1155.125 | 1037.833 | -10.15% |
+| Cyclic sparsification | 327.042 | 373.500 | +14.21% |
+
+Other cycle churn rows regress 13.5-13.9%; ordinary point/interface release rows
+regress 13.1-18.8%. No unchanged retry or local inlining search follows. Setup
+requested backing increases 96 B; mixed live backing above setup falls 328 B and
+one allocation request, while other live families generally fall 32 B. These small
+memory changes do not justify the release regressions. Disposable evidence is under
+`target/gc-builtin-descriptors`; no fixed registry, extra production cache, or new
+experimental test remains. Original performance thresholds remain unchanged.
+
+### Retained-source integrated requalification (2026-10-29)
+
+Since the 508db43e formal image, retained admission, physical mark/selection,
+alignment and Native metadata corrections materially changed the runtime. Latest
+single-pair results cannot decide the original historical gates: mixed release is
+near 61 us, sparse release ranges across the saved historical limit, and iterator
+is still near its limit. Freeze the retained 7136e1da implementation (plus this
+documentation checkpoint) for a fresh seven-group storage/family comparison using
+the unchanged original PG00 and phase-2 trial baselines. This is a new implemented
+candidate, not a rerun of either the rejected fixed registry or the unchanged
+508db43e failure. Do not infer gate closure from unpaired saved medians.
+
+Reuse the repaired-source schedule and exact baseline images: B/PG00/C then
+C/PG00/B, seven groups per mode, 3 warmups/11 samples, 180-second process bounds,
+immutable manifests and authenticated images. Default release/target/parallelism;
+build before timing and overlap no local heavy work. Run ordinary timing first.
+If gates still fail, preserve every failure and diagnose that specific retained
+image before another correction. If these gates close, continue remaining original
+historical workloads and integrated memory/normal-step checks on this same source,
+then final CI/Lua refresh. No older memory or CI result becomes final-source evidence
+merely because a diagnostic pair passed. Temporary artifacts use
+`target/gc-retained-requalification`.
+
+**Completed ordinary comparison:** all 42 scheduled processes terminate normally
+with authenticated images and unchanged result/lifecycle assertions. Frozen source
+is f690c0f30ff345e8f825a24a6b95a3e50dbd3ba1 (runtime identical to 7136e1da).
+Candidate ordinary SHA-256:
+`0dfdbe9c3acae5d03f285667fcf44bd5c3925821a4f484de1d1b8faade2af2f0`;
+separate memory image, built but not run in this qualification:
+`a9221bca67162969cca40d515bbe77a00d2a5265a878e07b2c74a7ca723acd08`.
+Trial storage/families pass 29/29 and 39/39; original PG00 storage/families pass
+28/29 and 27/27. Seven PG00 family setup rows remain descriptive, and five newer
+verification rows remain unmatched. Ratios and normalized gates are medians of
+seven paired values, not ratios of aggregate time medians.
+
+| Original PG00 row | PG00 median us | Candidate median us | Paired C/B | C/bound(B) |
+| --- | ---: | ---: | ---: | ---: |
+| Field read | 2696.000 | 1976.459 | 0.733108 | 0.666462 |
+| Field write | 3804.292 | 2304.250 | 0.608558 | 0.553235 |
+| Revision iterator | 5041.667 | 5483.917 | 1.088909 | **1.037056** |
+| Mixed Native release | 57.625 | 60.625 | 1.051295 | 0.876079 |
+| Sparse-cycle release | 17.000 | 25.167 | 1.488889 | 0.935185 |
+| Dense cyclic collection | 1739.542 | 986.208 | 0.566713 | 0.472261 |
+
+Both formerly failing release gates now pass unchanged. Sparse release is still
+slower in absolute terms but meets max(1.20 B, B + 10 us); do not call it a speedup.
+The iterator fails in all seven paired normalized values (1.002954-1.054115), so
+this is not a single adverse sample. No unchanged timing retry follows. The 32
+other original historical rows have not been refreshed on this source; do not
+claim 87/88 final acceptance by combining them with older runtime measurements.
+Final integrated memory, normal-step, full CI and Lua remain open. Stop tuning
+the physical release paths now that their original gates pass.
+
+**Next bounded iterator attribution:** reuse the authenticated 7136e1da diagnostic
+image `d68dda81f48b6a9b3df2fafd940cf1838d18faae743b22cd1ae4d7c520e9e633`,
+which already contains the exact previously used --profile-iterator entrypoint.
+Its production sources match the newly frozen runtime; its profiling harness differs
+from the formal image and cannot replace it for gate timing. One 35-second checked
+run, 30 seconds of 1-ms sampling, 30-second setup/40-second sampler/15-second final
+bounds; retain exact 2000 result, 2003 reclamations and baseline root/live restoration.
+Attribute only the execution wrapper. The prior profile predates Native type-owner
+and scalar corrections; refresh it once before selecting a correction. No baseline
+rerun, cache, unchecked path, Option compaction or call-frame redesign is selected.
+
+The refreshed profile completes once: 5808 checked lifecycles in 35.003 s, each
+returning 2000 and reclaiming 2003 objects with baseline roots/live count restored.
+The lifecycle total includes GC and sampling and is not a throughput comparison.
+There are 21589 execution-wrapper samples. Exclusive leaves include frame-top
+validation 4.06%, SipHash writes 3.71%, frame admission 2.88%, operand publication
+2.74%, execution polling 2.24%, and physical reference resolution 2.04%.
+Unresolved folded symbols account for 4.45% across different callers; do not label
+that entire share as allocation. Caller attribution puts the largest visible hash
+stacks under module-owner resolution and call-route selection, not builtin physical
+descriptor lookup, consistent with rejecting that experiment as a gate fix.
+
+One concrete next review target is symbolic enum-member admission: 380 of 391
+samples in the leading DefinitionSegments equality leaf (1.81% overall) occur under
+PreparedEnumMember::matches_identity during converted Option construction. The
+current path resolves the supplied symbolic member, selects the applied variant by
+name, and compares full module/path identities on every result. This preserves the
+foreign-catalog and exact nominal boundary; do not remove the check. Determine
+whether source and applied DefinitionIds already share a table, or require one-time
+symbolic adoption, before choosing an identity comparison/preparation change.
+Any reuse must be owned by the immutable, generation-pinned applied member and must
+still reject foreign declarations and invalid definition snapshots. No cache or
+production change is selected without that review; no speedup is inferred from
+sample shares. Current profiling artifacts are under `target/gc-retained-iterator`.
 
 ### Final graph acceptance: phase 4 first frozen image (2026-10-29)
 

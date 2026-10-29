@@ -2428,6 +2428,11 @@ before layout preparation and receiver access; reads prepare their layout before
 reading the receiver. Type mismatches preserve VM error categories and trap observation without
 falling back to canonical interpretation. Copying a field value does not allocate, create a root lease or run a
 destructor; the frame and object remain traced at the surrounding safepoints.
+The layout owner seals each scalar encoding's type, representation, width and sign.
+An integer field load of that width, with the corresponding sign or zero extension,
+proves its integer domain without another generic bounds check. Bool and Unicode
+scalar reads still reject invalid bit patterns; every scalar write checks its full
+input domain before changing bytes, so narrow fields cannot silently truncate.
 The scalar loop hands prepared managed operations back to the cursor's object
 handlers without releasing its frame/window access. Keeping those handlers outside
 the scalar loop prevents their storage checks from changing its inlining budget;
