@@ -1,0 +1,57 @@
+struct Point { var x: i32, var y: i32 }
+struct Node { var value: i32, val edges: Vec<Node> }
+
+pub fn points(n: i32) -> Vec<Point> {
+    val values: Vec<Point> = Vec::new();
+    var i = 0;
+    while i < n { values.push(Point { x: i, y: 1 }); i += 1; }
+    values
+}
+
+pub fn nodes(n: i32) -> Vec<Node> {
+    val values: Vec<Node> = Vec::new();
+    var i = 0;
+    while i < n {
+        val node = Node { value: i, edges: Vec::new() };
+        node.edges.push(node);
+        values.push(node);
+        i += 1;
+    }
+    values
+}
+
+pub fn keep_points(values: Vec<Point>) -> Vec<Point> {
+    val kept: Vec<Point> = Vec::new();
+    var i = 0u64;
+    while i < values.len() { kept.push(values[i]); i += 64u64; }
+    kept
+}
+
+pub fn keep_nodes(values: Vec<Node>) -> Vec<Node> {
+    val kept: Vec<Node> = Vec::new();
+    var i = 0u64;
+    while i < values.len() { kept.push(values[i]); i += 64u64; }
+    kept
+}
+
+pub fn check_points(values: Vec<Point>, stride: i32) -> i32 {
+    var i = 0u64;
+    while i < values.len() {
+        if values[i].x != (i as i32) * stride || values[i].y != 1 { return -1; }
+        i += 1u64;
+    }
+    values.len() as i32
+}
+
+pub fn check_nodes(values: Vec<Node>, stride: i32) -> i32 {
+    var i = 0u64;
+    while i < values.len() {
+        val node = values[i];
+        if node.value != (i as i32) * stride || node.edges.len() != 1u64 { return -1; }
+        node.value += 1;
+        if node.edges[0].value != node.value { return -1; }
+        node.value -= 1;
+        i += 1u64;
+    }
+    values.len() as i32
+}

@@ -2655,6 +2655,69 @@ Documentation-only work needs content/link/diff checks, not Rust builds.
 
 ## Progress and error ledger
 
+### Cross-language measurement checkpoint (2026-10-28)
+
+The user requested an external performance reference after the phase-2 gate
+discussion and authorized running/extending the existing Lua comparison. This is
+a bounded measurement task; production runtime source remains `b289797a`, phase 2
+still fails its frozen gates, and phase 3 has not started. Cross-language ratios
+do not replace the `725a4fb5` before/after acceptance boundary.
+
+**Measurement task complete:** the original and source-form interpreter suites were rerun at clean `361d604c`
+on the same M1 Max in seven sequential processes each. All checksums passed.
+The new [matched GC harness](../benchmarks/lua-comparison/examples/gc_comparison/README.md)
+adds 512/8192 two-field records and 4096 self-cyclic records, separate construction,
+live/sparse/released full GC, and 128 automatic-GC batches of 256 records retaining
+eight batches. Timing uses three warmups/eleven lifecycles per process; allocation
+accounting uses three complete lifecycles per process in a separate diagnostic
+image. The driver freezes both images before any timing and alternates engine order.
+Each mode uses seven sequential processes. The new suite completed at clean
+`aa042097`; full methods, hashes, tables and limitations are retained in
+[performance measurements](performance-baseline.md#current-kagarilua-execution-and-gc-macos-2026-10-28).
+
+Measured within-process K/L ratio medians: scalar loops 1.54–1.64, mixed field
+recurrence 5.84, ordinary calls 26.53, array/map algorithms 98.37/85.10. New graph
+construction is 19.66–37.13; full live GC is 15.68–16.84. An 8192-Point live
+collection takes 1539.417 us versus Lua's 97.209 us; sparsifying that graph leaves
+128 Points and the subsequent collection takes 364.875 versus 254.334 us (1.44).
+Automatic 256-record batch p99 is 941.792/129.541 us for Points and
+2702.333/241.167 us for Nodes (Kagari/Lua), with default policies, not equal budgets.
+
+Dense 8192-Point live backing delta is 308,480/983,096 bytes; cyclic 4096-Node
+delta is 2,608,952/786,488. The latter includes a Vec/table per Node. After final
+root release and GC, these Kagari cases retain 30,792/185,368 bytes above setup;
+Lua returns to setup. Kagari setup itself is about 15.79 MB versus Lua's 24 KB,
+with the different shared-program/state-owned-code scopes documented in the report.
+All 210 measured complete runtime/state lifecycles returned allocator net bytes
+to zero. Compact Point storage is a real benefit, not proof of whole-runtime
+memory or execution parity. This run adds an external reference; it does not
+attribute every gap to GC or alter the phase-2 blocker/next-step sequence below.
+
+The ownership boundary is ordinary SDK rooted calls versus mlua rooted tables;
+scripts own construction, traversal and mutation. Values and cyclic alias mutation
+are checked, Kagari exact occupancy is asserted, and complete runtime/state
+allocator teardown must be zero. Empty/singleton graphs run in check mode. Automatic
+latency includes complete allocation calls, not isolated GC pauses. Post-batch
+garbage, live/empty deltas and peaks accompany it. Requested allocator bytes are
+not RSS. Shared Kagari preparation and Lua state-owned chunks have different setup
+owners; graph deltas and setup are reported separately.
+
+Mature reference: PUC Lua 5.4.9 [GC contract](https://www.lua.org/manual/5.4/manual.html#2.5),
+mlua 0.12.2 `state.rs`/`memory.rs`. Lua explicitly uses incremental defaults
+200/100/13; Kagari keeps its ordinary 1024-unit automatic trigger. Both disable
+automatic GC for explicit phases. These policies/representations are not equivalent
+budgets; no LuaJIT, generational-Lua, Go or Java result is claimed. mlua routes Lua
+allocations through Rust `std::alloc`, covered by the existing diagnostic allocator.
+No new cache, runtime mechanism or GC policy is introduced.
+
+Local validation: shared graph/check routines cover normal, empty/singleton, cyclic
+alias and root-release behavior; the driver validates exact result matrices and
+sample counts. Structure, formatting, workspace all-target Clippy, diagnostic
+example Clippy and diff checks pass. Ordinary and diagnostic release smoke checks,
+`uv run python scripts/benchmark_gc.py --check`, all seven-process timing runs and
+all seven-process memory runs passed. Existing runtime correctness evidence is unchanged;
+full-workspace/complete feature/backend/platform acceptance remains CI-only.
+
 ### Phase 2 revised gates: field path recovered, collector and metadata blocked (2026-10-28)
 
 **Decision/status:** candidate `b289797a087fef98b39abbc896f307269ca5e06a`

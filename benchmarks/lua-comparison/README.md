@@ -1,5 +1,10 @@
 # Kagari and Lua comparison
 
+For separately measured object construction, graph collection, automatic-GC batch
+latency and allocator backing, use the [GC comparison](examples/gc_comparison/README.md):
+`uv run python scripts/benchmark_gc.py`. It retains matched point/cyclic graphs,
+separate timing/accounting binaries and checked lifecycle outcomes.
+
 Run from the repository root:
 
 ```text
@@ -32,7 +37,13 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The [current-revision cost attribution](../../docs/performance-baseline.md#current-kagarilua-cost-attribution-windows-2026-10-27)
+The [latest M1 Max comparison](../../docs/performance-baseline.md#current-kagarilua-execution-and-gc-macos-2026-10-28)
+records seven-process original/forms and graph/GC measurements at `361d604c` and
+benchmark-only `aa042097`, with identical production runtime source. Live graph GC
+takes 15.68–16.84x PUC Lua time; memory and automatic batch latency are reported
+separately. These external comparisons do not replace internal GC regression gates.
+
+The [preceding Windows cost attribution](../../docs/performance-baseline.md#bo08-kagarilua-cost-attribution-windows-2026-10-27)
 records 29 original/source-form/numeric rows and independent instruction/lifetime
 observations at `03246d94` on Windows 10 / i7-10700F. The 16 matched non-entry
 workloads take 1.47-100.84x PUC Lua 5.4.9 time. Current native-frame routing and

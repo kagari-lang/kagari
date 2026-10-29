@@ -16,10 +16,268 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
-The latest result is [BO17-BO19 scalar dispatch on the i9-12900K](#bo17-bo19-scalar-dispatch-windows-2026-10-27).
-It includes all 19 original/forms timings and arithmetic machine-code attribution.
-[BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
-improvement. Earlier i7 measurements below remain revision-specific evidence.
+The latest result is [current Kagari/Lua execution and GC on the M1 Max](#current-kagarilua-execution-and-gc-macos-2026-10-28).
+It includes seven-process original/forms timings and matched graph/GC/accounting
+workloads. [BO17-BO19](#bo17-bo19-scalar-dispatch-windows-2026-10-27) retains the
+preceding i9-12900K scalar-dispatch evidence; those are different revision/machine
+measurements, not a before/after comparison with the macOS results.
+
+## Current Kagari/Lua execution and GC, macOS 2026-10-28
+
+**Conclusion:** current scalar loops take about 1.5–1.6x PUC Lua time, the mixed
+field recurrence 5.84x, ordinary calls 26.53x, and the existing array/map algorithms
+98.37x/85.10x. In the newly matched graph workloads, full live collection takes
+15.68–16.84x Lua time and construction 19.66–37.13x. Compact struct payloads alone
+are not sufficient for execution or collector parity. Sparse-graph collection is
+closer (1.44–3.13x), but empty-state retained metadata remains higher. These are
+workload-specific observations, not one overall language speed score or a new
+regression against the historical Windows runs.
+
+### Provenance and reproduction
+
+Original/source-form suites ran at clean `361d604c97f961001dcca9532c616f58d0ef36f7`.
+The new GC suite ran at clean `aa0420974ce42e53ffa1b4832c43c15ed1811161`.
+Production runtime source is unchanged between them: phase-2 candidate `b289797a`.
+The benchmark addition does not repair the five failing live-GC and two failing
+release-memory gates against frozen `725a4fb5`; the
+[active plan](paged-incremental-gc-design.md#progress-and-error-ledger) still owns
+that blocker. No phase-3 migration or runtime optimization is included here.
+
+Machine: Apple M1 Max, 10 logical CPUs, 32 GiB, macOS 26.6.2, aarch64-apple-darwin.
+Toolchain: rustc 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`).
+Workspace release defaults, opt-level 3, default Cargo parallelism/target directory,
+warm Cargo cache, no affinity/priority overrides. Kagari source/native features are
+compiled in; execution uses the interpreter, with no JIT preparation/execution.
+Lua is vendored PUC 5.4.9 via mlua 0.12.2 / lua-src 551.0.2, not LuaJIT.
+Builds, tests, profiling and timing do not overlap; processes are sequential.
+Desktop activity, frequency and temperature are uncontrolled. Close differences
+and individual maxima are not statistical confidence or latency guarantees.
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 7
+uv run python scripts/benchmark_lua.py --source-forms --runs 7
+uv run python scripts/benchmark_gc.py --runs 7
+```
+
+Compilation/loading is outside operation timers. Original/forms compilation is
+recorded separately by the existing driver; warm Cargo build durations were
+2.167/0.104 seconds. The GC ordinary/diagnostic builds took 0.108/0.086 seconds,
+both reused builds; these are not cold compile-time results. GC script preparation
+and initial full collection are outside timers. Both GC binaries were copied and
+hashed before measurement; their hashes remained unchanged afterwards.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Original/forms executable | `2ecd0aba43c9db97fc16661a2996ff4f03480a9630cd21b43e4dbc23b03b39cc` |
+| GC ordinary executable | `7d64a0c4ed268c4c8f5a36bf86044dfe41a959daef46b86bdf2707b3ddff5174` |
+| GC allocator executable | `eec3abd04a847a454387cb099404e46f8a82071cd13c173068e528e5660ba1d6` |
+| Cargo.lock | `220aa5888cf294b291a8216f8400948bb16b8c29873f952ebda6ecd7761d4ad2` |
+| Original workloads | `bb6352f25c43d990540b4590b4d0661173c2caff377ff8ab495790d067dbfa68` |
+| Source-form workloads | `a95831b54a8626f2e9ba4cfc4737c8ec87312eded4d3b75c130a0dfa5d14d8b7` |
+| GC fixture directory plus driver | `dcac06ef145ae0348b5f58278f4b7dedce03c208578753b1b1d1cf2159ce1bbf` |
+
+Each timing suite uses seven processes, three warmups and eleven samples per
+engine/workload, alternating engine/workload order as defined by its harness.
+Tables show the median of seven per-process medians for absolute times and the
+median of the seven within-process Kagari/Lua ratios. The ratio column therefore
+need not equal the quotient of the displayed absolute columns. Pair ranges are
+observed ranges, not confidence intervals. Existing `benchmark_lua.py` console
+ratios use aggregate medians; the tables below recompute paired ratios from its
+per-process output to use the same estimator as the GC driver.
+
+### Existing execution workloads
+
+Units are microseconds per full workload. Entry is per call from 1,000-call batches;
+arithmetic uses 50,000 iterations, branches 30,000, calls 10,000, arrays 2,000, maps
+1,000 and Fibonacci input 20. All source forms use 5,000 iterations. Every timed
+result and warmup passed its existing independent reference checksum.
+
+| Workload | Kagari us | Lua us | Paired K/L | Pair range |
+| --- | ---: | ---: | ---: | ---: |
+| arithmetic | 593.042 | 377.791 | 1.57 | 1.52–1.61 |
+| arrays | 6,760.917 | 68.625 | 98.37 | 96.99–99.24 |
+| branches | 1,314.667 | 805.416 | 1.64 | 1.62–1.68 |
+| calls | 5,942.000 | 223.875 | 26.53 | 26.10–26.80 |
+| entry | 2.068 | 0.030 | 68.30 | 67.06–73.88 |
+| fibonacci | 13,141.542 | 350.542 | 37.50 | 36.53–39.02 |
+| maps | 5,824.917 | 69.625 | 85.10 | 82.90–88.52 |
+
+| Workload | Kagari us | Lua us | Paired K/L | Pair range |
+| --- | ---: | ---: | ---: | ---: |
+| forms_byte_state | 12,768.708 | 113.125 | 112.41 | 106.89–115.64 |
+| forms_capture_cell | 6,100.416 | 144.334 | 42.58 | 40.37–43.95 |
+| forms_concrete_generic | 3,000.750 | 102.041 | 29.20 | 28.82–30.13 |
+| forms_direct | 115.584 | 75.250 | 1.54 | 1.52–1.54 |
+| forms_field | 526.458 | 90.167 | 5.84 | 5.66–6.00 |
+| forms_helper | 2,939.542 | 140.875 | 20.92 | 20.40–21.17 |
+| forms_host_callback | 3,391.125 | 206.834 | 16.35 | 15.97–16.68 |
+| forms_interface | 9,749.458 | 135.583 | 72.25 | 71.13–72.84 |
+| forms_native | 3,398.583 | 140.709 | 24.07 | 23.87–24.35 |
+| forms_shared_generic | 14,749.000 | 107.125 | 138.08 | 134.82–139.29 |
+| forms_string_calls | 7,293.833 | 125.167 | 58.39 | 57.19–59.20 |
+| forms_string_constants | 4,070.791 | 66.875 | 60.99 | 57.15–61.52 |
+
+`forms_field` mixes arithmetic, field reads and field writes; it is not the
+50,000-access `runtime_storage` field gate. Do not multiply its older Lua ratio
+by an internal before/after field improvement. Vec and Map routes preserve
+Kagari's native-library boundaries, checked results and object semantics; Lua uses
+tables. Interface/shared-generic rows match algorithms, not equivalent type
+systems. `forms_native` is diagnostic only (Rust callback versus Lua script
+helper); `forms_host_callback` uses the same Rust helper through both adapters.
+
+### Matched graph collection
+
+The [fixture contract](../benchmarks/lua-comparison/examples/gc_comparison/README.md)
+and [driver](../scripts/benchmark_gc.py) own the method. Both scripts construct the
+same graph through their normal language operations. Point has two integer fields;
+Node has an integer and a growable edge sequence containing itself. Root sequences
+hold 512/8192 Points or 4096 Nodes. Automatic GC is disabled for these phases.
+Each measured lifecycle creates a fresh runtime/state after warming the shared
+prepared Kagari program. Public full-GC calls are timed separately from script calls.
+Checks outside timers verify values, mutation through aliases and Kagari exact
+occupancy. No weak references, finalizers, host resources or resurrection are used.
+
+`live_gc` retains the full graph. `sparsify` constructs a new root sequence keeping
+every 64th record and drops the old root. `sparse_gc` then reclaims the unreachable
+remainder; `release_gc` follows dropping that final sparse root. Thus release is
+collection of the remaining sparse graph, not destruction of the original full
+graph. Root drop happens before the GC timer.
+
+| Graph | Operation / statistic | Kagari us | Lua us | Paired K/L | Pair range |
+| --- | --- | ---: | ---: | ---: | ---: |
+| points_512 | construct | 773.041 | 39.375 | 19.66 | 19.24–19.88 |
+| points_512 | live_gc | 105.167 | 6.708 | 15.68 | 15.23–17.36 |
+| points_512 | sparsify | 33.125 | 0.875 | 37.29 | 27.42–40.12 |
+| points_512 | sparse_gc | 34.667 | 17.708 | 1.95 | 1.81–2.01 |
+| points_512 | release_gc | 9.959 | 1.750 | 5.69 | 5.56–6.00 |
+| points_8192 | construct | 11,526.292 | 568.667 | 20.26 | 20.11–20.65 |
+| points_8192 | live_gc | 1,539.417 | 97.209 | 15.96 | 15.58–16.19 |
+| points_8192 | sparsify | 354.375 | 3.792 | 93.85 | 81.91–101.41 |
+| points_8192 | sparse_gc | 364.875 | 254.334 | 1.44 | 1.41–1.46 |
+| points_8192 | release_gc | 26.250 | 6.917 | 3.86 | 3.74–4.08 |
+| cycles_4096 | construct | 19,859.500 | 534.833 | 37.13 | 36.15–37.60 |
+| cycles_4096 | live_gc | 1,686.375 | 100.375 | 16.84 | 16.49–17.13 |
+| cycles_4096 | sparsify | 192.791 | 2.750 | 68.48 | 64.62–85.68 |
+| cycles_4096 | sparse_gc | 731.208 | 233.375 | 3.13 | 2.99–3.38 |
+| cycles_4096 | release_gc | 32.792 | 6.583 | 5.14 | 4.90–5.43 |
+
+For example, the 8192-Point live graph takes 1.539 ms to collect versus 0.097 ms
+for Lua; allocating that graph takes 11.526 ms versus 0.569 ms. Construction
+includes VM execution, Vec/table operations, checked host entry and rooted result
+conversion, so its ratio is not an isolated allocator or object-header cost.
+The 512-Point collector result (105.167 us) is consistent with the prior candidate's
+roughly 104 us internal gate. This supplies an external comparison without changing
+the existing before/after finding.
+
+### Automatic collection and batch latency
+
+Each workload allocates 128 batches of 256 records, retaining the last eight
+batches. Kagari uses its ordinary 1024-unit trigger. Lua explicitly uses incremental
+pause=200, step multiplier=100, step size=13, following its
+[5.4 collector contract](https://www.lua.org/manual/5.4/manual.html#2.5).
+These policies are not equivalent work budgets. Each process records 1408 measured
+batches per engine/case. `auto_total` sums the 128 batch times within a lifecycle;
+final explicit draining and validation are outside these timers.
+
+These are complete allocation-call latencies, **not isolated GC pauses**. Lua's
+public API has no matching automatic-pause observer. The median/p99/max statistics
+are calculated per process, then their medians/paired ratios across processes are
+shown below. P99 uses nearest rank; batch median uses the upper middle sample.
+The `max` row is the median of seven process maxima, not the largest observed value.
+
+| Graph | Operation / statistic | Kagari us | Lua us | Paired K/L | Pair range |
+| --- | --- | ---: | ---: | ---: | ---: |
+| points | auto_batch / median | 380.833 | 18.417 | 20.64 | 20.35–21.09 |
+| points | auto_batch / p99 | 941.792 | 129.541 | 7.27 | 7.10–8.11 |
+| points | auto_batch / max | 1,048.917 | 147.750 | 7.02 | 6.51–24.90 |
+| points | auto_total / median | 56,210.701 | 3,691.915 | 15.26 | 14.99–15.45 |
+| nodes | auto_batch / median | 1,262.167 | 34.250 | 36.85 | 36.07–38.23 |
+| nodes | auto_batch / p99 | 2,702.333 | 241.167 | 11.24 | 11.01–12.68 |
+| nodes | auto_batch / max | 3,155.333 | 271.291 | 12.37 | 10.19–17.01 |
+| nodes | auto_total / median | 181,806.335 | 6,976.382 | 26.01 | 25.65–27.08 |
+
+The largest observed batches across all seven processes were 4.083 ms/0.164 ms
+(Kagari/Lua Points) and 6.286 ms/0.370 ms (Nodes). No bound or GC-only pause claim
+follows from those samples. The memory observations below include deferred garbage
+before the explicit drain so an engine cannot appear cheaper merely by postponing
+more collection beyond the timed window.
+
+### Allocator backing
+
+The diagnostic global allocator covers both Kagari and mlua's Rust allocator.
+Values below are the median of seven per-process maxima, each over three complete
+lifecycles. All graph deltas/peaks below were identical across processes; setup
+and absolute lifecycle peaks varied slightly. Measurement encloses runtime/state
+creation, script operations, semantic checks and destruction; output and observation
+storage are outside it. Requested bytes exclude allocator overhead, other threads
+and transient backing inside realloc, and are **not RSS**.
+
+Most observations are deltas above each engine's setup. `lifecycle_peak` is absolute
+and includes initial loading peaks. Kagari's compiled/prepared program is shared,
+warmed and excluded; Lua's loaded chunk is state-owned and included. Therefore
+these are actual ownership scopes, not equal compilation/code-storage accounting.
+Explicit-case median setup is 15,785,202 bytes for Kagari versus 24,326 (Points)
+or 24,479 (Nodes) for Lua. Automatic Kagari setup is 15,785,970 bytes. Those fixed
+costs must accompany the graph-only comparison.
+
+| Graph | Observation | Kagari bytes | Lua bytes |
+| --- | --- | ---: | ---: |
+| points_512 | live_gc | 27,200 | 61,496 |
+| points_512 | sparse_gc | 19,168 | 1,016 |
+| points_512 | release_gc | 7,752 | 0 |
+| points_512 | post_setup_peak | 29,976 | 61,696 |
+| points_512 | lifecycle_peak | 15,864,898 | 86,022 |
+| points_8192 | live_gc | 308,480 | 983,096 |
+| points_8192 | sparse_gc | 179,488 | 15,416 |
+| points_8192 | release_gc | 30,792 | 0 |
+| points_8192 | post_setup_peak | 313,176 | 985,216 |
+| points_8192 | lifecycle_peak | 16,098,378 | 1,009,542 |
+| cycles_4096 | live_gc | 2,608,952 | 786,488 |
+| cycles_4096 | sparse_gc | 343,792 | 12,344 |
+| cycles_4096 | release_gc | 185,368 | 0 |
+| cycles_4096 | post_setup_peak | 2,612,624 | 787,584 |
+| cycles_4096 | lifecycle_peak | 18,397,826 | 812,063 |
+| auto_points | after_batches | 182,560 | 430,864 |
+| auto_points | live | 126,664 | 246,208 |
+| auto_points | empty | 19,836 | 48 |
+| auto_points | post_setup_peak | 196,032 | 577,048 |
+| auto_points | lifecycle_peak | 15,982,002 | 601,374 |
+| auto_nodes | after_batches | 2,499,464 | 688,912 |
+| auto_nodes | live | 1,458,728 | 393,664 |
+| auto_nodes | empty | 217,840 | 48 |
+| auto_nodes | post_setup_peak | 2,957,292 | 907,136 |
+| auto_nodes | lifecycle_peak | 18,743,262 | 931,615 |
+
+All 210 measured runtime/state lifecycles (five cases x two engines x three
+repetitions x seven processes) returned the diagnostic allocator to exact zero
+at teardown. Before teardown, Kagari retains metadata/pages after roots are gone;
+Lua returns these explicit graphs to its setup accounting. This is retained backing,
+not a leak established by these rows. Automatic Lua's empty delta is 48 bytes.
+
+Dense 8192-Point graph backing is 308,480 versus 983,096 bytes, about 69% smaller
+for Kagari. The cyclic Node graph reverses that result: 2,608,952 versus 786,488
+bytes, about 3.32x. Each Node adds a Vec/table and a reference edge; the experiment
+does not separately attribute that difference to individual allocator or descriptor
+structures. Sparse/released Kagari backing and large fixed setup remain material
+costs; dense Point payload alone does not establish overall memory superiority.
+
+### Implication and acceptance boundary
+
+The evidence supports retaining compact struct storage while addressing the
+already identified collector traversal/metadata blockers. It does not justify
+claiming the current GC is fast relative to a mature interpreter. Broad execution
+ratios also show that closing those GC gates will not by itself demonstrate language
+parity: script calls, collection-library operations and dispatch remain separate
+measurement/diagnosis work owned by the existing interpreter plan. This run does
+not re-profile those paths or prove a new causal breakdown.
+
+The benchmark addition passes empty/singleton and full lifecycle checks in both
+ordinary and diagnostic builds, matrix/sample-count validation, zero-net teardown,
+structure checking, formatting, workspace all-target Clippy, diagnostic example
+Clippy and diff checks. All seven-process timing/accounting suites completed.
+Production semantics/tests were not changed; exhaustive workspace/backend/platform
+validation remains CI-only and is not claimed here. No Go, Java, LuaJIT,
+generational-Lua, isolated automatic-pause or total-process-memory comparison was run.
 
 ## BO08 Kagari/Lua cost attribution, Windows 2026-10-27
 
