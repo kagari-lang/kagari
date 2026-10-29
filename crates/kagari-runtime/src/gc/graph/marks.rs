@@ -120,6 +120,21 @@ impl PageMarks {
         MarkRef::Page(self, index, group)
     }
 
+    /// Read a slot admitted by its original owner; work-queue identity is not needed.
+    pub(super) fn color(&self, slot: usize, epoch: u64) -> Color {
+        if self.epoch.get() != epoch {
+            return Color::White;
+        }
+        let bit = 1 << (slot % 64);
+        if self.scanned[slot / 64].get() & bit != 0 {
+            Color::Black
+        } else if self.discovered[slot / 64].get() & bit != 0 {
+            Color::Gray
+        } else {
+            Color::White
+        }
+    }
+
     pub(crate) fn next_gray(&self, epoch: u64) -> (Option<usize>, bool) {
         assert!(self.queued.replace(false), "queued mark block");
         if self.epoch.get() != epoch {
@@ -189,19 +204,7 @@ impl MarkRef<'_> {
                     Color::White
                 }
             }
-            Self::Page(page, slot, _) => {
-                if page.epoch.get() != epoch {
-                    return Color::White;
-                }
-                let bit = 1 << (slot % 64);
-                if page.scanned[slot / 64].get() & bit != 0 {
-                    Color::Black
-                } else if page.discovered[slot / 64].get() & bit != 0 {
-                    Color::Gray
-                } else {
-                    Color::White
-                }
-            }
+            Self::Page(page, slot, _) => page.color(slot, epoch),
         }
     }
 

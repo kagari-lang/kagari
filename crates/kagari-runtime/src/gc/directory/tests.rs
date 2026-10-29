@@ -198,11 +198,13 @@ fn inline_native_small_large_overaligned_and_zero_sized_lifecycles() {
         .unwrap()
         .0
         .pad_to_align();
-        // Probe<3> and Zst may use different small classes, but each is slab-backed.
+        assert_eq!(aligned.align(), 64);
+        assert!(aligned.size() <= SLAB_BYTES);
+        // Probe<3> and Zst may share an ordinary class; Aligned needs its own tier.
         let slabs = objects.pages.usage().slabs;
-        assert!(slabs == SLAB_BYTES || slabs == 2 * SLAB_BYTES);
-        assert_eq!(objects.pages.usage().large, large.size() + aligned.size());
-        slabs + large.size() + aligned.size()
+        assert!(slabs == 2 * SLAB_BYTES || slabs == 3 * SLAB_BYTES);
+        assert_eq!(objects.pages.usage().large, large.size());
+        slabs + large.size()
     };
     assert_eq!(
         runtime.gc().stats().current_retained_bytes,

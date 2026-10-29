@@ -46,13 +46,20 @@ impl ObjectStorage {
 
     pub(in crate::gc) fn native_mut(
         &mut self,
-        location: PayloadLocation,
+        reference: GcRef,
+        admit: impl FnOnce(&Self, &ResolvedDirect<'_>) -> Option<()>,
     ) -> Option<&mut NativeObject> {
-        if location.kind != PayloadKind::Native {
+        let resolved = self.resolve_direct(reference)?;
+        admit(self, &resolved)?;
+        if resolved.payload.descriptor.kind != PayloadKind::Native {
             return None;
         }
-        let pointer = self.pages.get(location)?.pointer;
-        // SAFETY: exclusive directory borrow; payload loans separately exclude T access.
+        let pointer = resolved.payload.pointer;
+        // SAFETY: this method owns the exclusive directory borrow. Resolution
+        // validates occupancy, header and descriptor without borrowing the payload;
+        // admission cannot retain its shared views. Their scope ends before this
+        // projection, and no mutation can invalidate the allocator-derived pointer.
+        // Payload loans separately exclude T access.
         Some(unsafe { pointer.cast::<NativeObject>().as_mut() })
     }
 

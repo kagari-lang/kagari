@@ -117,10 +117,9 @@ pub(in crate::native) fn admit_payload_mapping<P: NativePayload>(
 ) -> NativeResult<()> {
     let runtime = cx.runtime();
     runtime.resources().ensure_execution_allowed()?;
-    runtime.validate_executable_module(cx.owner())?;
-    // Availability alone permits diagnostic reads after Faulted; publication is
-    // required even when this context already retains the exact executable owner.
-    runtime.modules().publish_program(cx.owner())?;
+    // Share exact owner/installation admission with publication under one store
+    // borrow. Availability alone still permits diagnostic reads after Faulted.
+    runtime.publish_executable_module(cx.owner())?;
     expected.validate(runtime)?;
     let Ty::NativeObject(nominal) = expected.ty() else {
         return Err(RuntimeError::module_validation(

@@ -103,7 +103,7 @@ impl<T: NativePayload> NativeType<T> {
         let runtime = cx.runtime();
         runtime.gc().ensure_execution_allowed()?;
         let selected = if selected_slots.is_empty() {
-            Arc::from([])
+            Arc::default()
         } else {
             let function = cx.function.ok_or_else(|| {
                 RuntimeError::module_validation(

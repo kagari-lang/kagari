@@ -89,7 +89,10 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
             .unwrap();
         assert_eq!(scanned.location, location);
         assert_eq!(scanned.payload.pointer, payload);
-        assert_eq!(scanned.mark.color(7), Color::Black);
+        assert_eq!(
+            scanned.marks.slot(scanned.location.slot as usize).color(7),
+            Color::Black
+        );
         if size != 0 {
             // SAFETY: both bytes were initialized above and are in the live payload.
             assert_eq!(unsafe { payload.as_ptr().read() }, 0x5a);
@@ -274,7 +277,10 @@ fn direct_page_dispatch_preserves_mixed_kinds_and_rejects_foreign_live_addresses
     for location in [text, record] {
         let slot = pages.sweep_slot().unwrap();
         assert_eq!(slot.location, location);
-        assert_eq!(slot.mark.color(9), Color::Black);
+        assert_eq!(
+            slot.marks.slot(slot.location.slot as usize).color(9),
+            Color::Black
+        );
         pages.advance_sweep();
     }
     assert!(pages.sweep_done());

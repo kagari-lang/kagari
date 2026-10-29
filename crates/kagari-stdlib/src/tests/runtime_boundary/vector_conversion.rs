@@ -154,12 +154,9 @@ fn host_swap_invalidates_traversal_only_after_reordering(
         Ok(())
     });
     if invalidates {
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("structure changed")
-        );
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+        assert_eq!(error.message(), "invalid or structurally modified iterator");
         assert_eq!(visited, [1]);
     } else {
         result.unwrap();

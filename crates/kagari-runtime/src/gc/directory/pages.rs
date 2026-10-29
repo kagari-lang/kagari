@@ -51,7 +51,9 @@ pub(super) const CLASSES: [usize; 24] = [
     768, 896, 1024,
 ];
 
-const GROUPS: usize = CLASSES.len() * 2;
+const ALIGNMENTS: [usize; 2] = [16, 64];
+const GROUPS_PER_ALIGNMENT: usize = CLASSES.len() * 2;
+const GROUPS: usize = GROUPS_PER_ALIGNMENT * ALIGNMENTS.len();
 
 #[derive(Debug)]
 pub(super) struct Pages {
@@ -95,13 +97,26 @@ impl<'a> CheckedPayload<'a> {
         id: DescriptorId,
         descriptor: &'a Descriptor,
     ) -> Option<Self> {
-        if descriptor.kind != location.kind {
-            return None;
-        }
         // SAFETY: occupied slot and retained descriptor prove initialized
         // aligned header storage. Validate dispatch before reading the payload.
         let header = unsafe { ObjectHeader::read(pointer) };
-        if header.descriptor_id != id.get() || header.allocation_id != location.page {
+        Self::from_header(location, pointer, header, id, descriptor)
+    }
+
+    /// Reuse a header read under the same uninterrupted physical-owner borrow.
+    /// The caller has established occupancy and read this exact pointer; the copy
+    /// grants no access independently of that borrow or the admitted descriptor.
+    fn from_header(
+        location: PayloadLocation,
+        pointer: NonNull<u8>,
+        header: ObjectHeader,
+        id: DescriptorId,
+        descriptor: &'a Descriptor,
+    ) -> Option<Self> {
+        if descriptor.kind != location.kind
+            || header.descriptor_id != id.get()
+            || header.allocation_id != location.page
+        {
             return None;
         }
         // SAFETY: the complete payload lies within the descriptor's allocation.
@@ -190,13 +205,16 @@ impl Drop for Retired {
 
 impl Pages {
     pub(super) fn class(layout: Layout, edges: bool) -> Option<usize> {
-        if layout.align() > 16 || layout.size() > 1024 {
+        if layout.size() > SLAB_BYTES {
             return None;
         }
+        let alignment = ALIGNMENTS
+            .iter()
+            .position(|&align| layout.align() <= align)?;
         CLASSES
             .iter()
             .position(|&stride| stride >= layout.size().max(1) && stride % layout.align() == 0)
-            .map(|class| class * 2 + usize::from(edges))
+            .map(|class| alignment * GROUPS_PER_ALIGNMENT + class * 2 + usize::from(edges))
     }
 
     fn small(&self, index: u32) -> &Small {

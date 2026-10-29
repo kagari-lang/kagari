@@ -1853,15 +1853,18 @@ per-object generation table. A common header holds descriptor/allocation indices
 physical occupancy and page marks remain with that allocation owner. Rare
 candidate-initialization ownership is keyed by GcRef outside the common header.
 
-Small allocations share independent 1 KiB, 16-byte-aligned slabs grouped by finite
-stride class and edge capability, not nominal type. The first class fitting the
-combined layout and its alignment is selected; size above 1024 or alignment above
-16 uses an exact-layout large allocation. PG02's measured correction supersedes
+Small allocations share independent 1 KiB slabs grouped by finite stride class,
+edge capability and base alignment, not nominal type. Requests aligned to at most
+16 bytes use 16-byte-aligned slabs; 32/64-byte requests use a separate 64-byte-aligned
+tier. The first stride fitting the combined layout and divisible by its alignment
+is selected. Size above 1024 or alignment above 64 uses an exact-layout large
+allocation. Availability never crosses alignment tiers, even if an ordinary page's
+current address happens to satisfy a stronger alignment. PG02's measured correction supersedes
 initial 4 KiB slabs: these are separately released allocations, not subpages of a
 retained 4 KiB block. Every slab has occupied/retiring bits. All managed families,
 including Native/Array, allocate into direct slabs, retaining dispatch in each
 object's 8-byte header and marks in the page trailer without duplicate per-object
-directory records. One geometry per stride supplies both edge groups; there is no
+directory records. One geometry per stride supplies both edge and alignment groups; there is no
 indexed allocation mode or headerless descriptor. Header dispatch permits different
 payload kinds to share a stride/edge class; the descriptor supplies the aligned
 payload offset. Large records retain page marks and active links in their trailer,

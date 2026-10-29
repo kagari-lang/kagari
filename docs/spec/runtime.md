@@ -257,9 +257,11 @@ The GC must not own Rust host borrows.
 The implemented collector uses precise incremental mark-sweep over nonmoving
 allocations. Mutator execution pauses during each collector slice. Retained GcRef
 values identify common object headers; physical allocation records own slab slots
-and separately tracked large allocations. Small backing uses independent 1 KiB slabs aligned to
-16 bytes, shared by size class and edge capability rather than nominal type.
-Combined layouts above 1024 bytes or aligned above 16 use exact-layout large
+and separately tracked large allocations. Small backing uses independent 1 KiB slabs,
+shared by size class, edge capability and base-alignment tier rather than nominal type.
+Requests aligned to at most 16 bytes use the ordinary 16-byte-aligned tier;
+32/64-byte requests use separate 64-byte-aligned slabs. Combined layouts above
+1024 bytes or aligned above 64 use exact-layout large
 allocations. These are not subdivisions of a retained 4 KiB block. Native allocations
 also begin with the common 8-byte descriptor/allocation header; alignment padding,
 the Native record and actual Rust payload follow in the same allocation. Struct field bytes are inline, not stored

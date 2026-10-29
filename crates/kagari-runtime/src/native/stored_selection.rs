@@ -34,6 +34,9 @@ impl StoredSelection {
         selected: &[LinkedOperation],
         slots: &[usize],
     ) -> NativeResult<Arc<[Self]>> {
+        if slots.is_empty() {
+            return Ok(Arc::default());
+        }
         slots
             .iter()
             .map(|slot| {

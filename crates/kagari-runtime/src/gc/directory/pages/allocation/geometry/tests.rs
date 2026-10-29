@@ -1,9 +1,9 @@
 use super::*;
-use crate::gc::directory::pages::allocation::Small;
+use crate::gc::directory::pages::{GROUPS_PER_ALIGNMENT, allocation::Small};
 use std::ptr;
 
 #[test]
-fn class_geometry_preserves_disjoint_controls_and_is_shared_by_both_scan_groups() {
+fn class_geometry_shares_disjoint_controls_across_scan_and_alignment_groups() {
     for (index, stride) in CLASSES.into_iter().enumerate() {
         let count = SLAB_BYTES / stride;
         let words = count.div_ceil(64) * 2;
@@ -11,10 +11,17 @@ fn class_geometry_preserves_disjoint_controls_and_is_shared_by_both_scan_groups(
             .extend(Layout::array::<u64>(words).unwrap())
             .unwrap();
         let (trailer, marks_offset) = trailer.extend(Layout::new::<PageMarks>()).unwrap();
-        let (expected, header_offset) = PAYLOAD_LAYOUT.extend(trailer).unwrap();
-        for group in [index * 2, index * 2 + 1] {
+        for group in (0..ALIGNMENTS.len()).flat_map(|tier| {
+            [
+                tier * GROUPS_PER_ALIGNMENT + index * 2,
+                tier * GROUPS_PER_ALIGNMENT + index * 2 + 1,
+            ]
+        }) {
+            let payload = PAYLOAD_LAYOUTS[group / GROUPS_PER_ALIGNMENT];
+            let (expected, header_offset) = payload.extend(trailer).unwrap();
             let page = Small::new(group).unwrap();
             let base = page.backing().pointer().as_ptr().addr();
+            assert_eq!(base % payload.align(), 0);
             assert!(ptr::eq(page.geometry(), &GEOMETRIES[index]));
             assert_eq!(page.group(), group);
             assert_eq!(page.stride(), stride);

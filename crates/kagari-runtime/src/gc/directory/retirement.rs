@@ -149,7 +149,7 @@ impl ObjectStorage {
         if self.sweep.as_ref()?.outstanding || batch.has_retirements() || batch.fragments != 0 {
             return None;
         }
-        let graph = graph.sweep_batch().ok()?;
+        let graph = graph.sweep_batch()?;
         let mut prepared = Prepared::new();
         let mut selection = Selection::new();
         let physical = self.pages.prepare_batch(
@@ -159,7 +159,7 @@ impl ObjectStorage {
             |slot, new_fragment, budget| {
                 #[cfg(test)]
                 self.discovery_visits.set(self.discovery_visits.get() + 1);
-                if graph.is_survivor(slot.mark).ok()? {
+                if graph.is_survivor(slot.marks, slot.location.slot as usize)? {
                     return Some(Decision::Survivor);
                 }
                 let reserve = OWNER_RETIRE_WORK
@@ -197,7 +197,7 @@ impl ObjectStorage {
         }
         let status = physical.status();
         if prepared.count != 0 {
-            let credits = graph.prepare_retirement(prepared.count).ok()?;
+            let credits = graph.prepare_retirement(prepared.count)?;
             let proof = prepared.seal();
             batch.fragments = physical.fragments();
             physical.detach();

@@ -1,12 +1,14 @@
 //! Storage-owned progress: unlink repairs the cursor before an index can be reused.
-use super::{Allocation, CheckedPayload, Pages};
+use super::{Allocation, CheckedPayload, Pages, allocation::Small};
 use crate::{
     gc::{
         directory::{PayloadLocation, descriptors::DescriptorId},
-        graph::marks::{Domain, MarkRef, WorkGroup},
+        graph::marks::PageMarks,
+        object_header::ObjectHeader,
     },
     native::storage::scan::ScanBudget,
 };
+use std::ptr::NonNull;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(in crate::gc::directory) struct Cursor {
@@ -28,17 +30,75 @@ pub(in crate::gc::directory) struct SweepSlot<'a> {
     pub(in crate::gc::directory) descriptor: DescriptorId,
     pub(in crate::gc::directory) small: bool,
     pub(in crate::gc::directory) payload: CheckedPayload<'a>,
-    pub(in crate::gc::directory) mark: MarkRef<'a>,
+    pub(in crate::gc::directory) marks: &'a PageMarks,
 }
 
-/// Bitmap evidence lives only within selection's uninterrupted storage borrow.
+/// Geometry and bitmap evidence share the page owner's uninterrupted borrow.
+/// The mark reference retains that borrow; the raw base grants no independent access.
+struct SmallScan<'a> {
+    base: NonNull<u8>,
+    stride: usize,
+    count: usize,
+    marks: &'a PageMarks,
+}
+
+impl<'a> SmallScan<'a> {
+    /// Outer None is malformed storage; inner None is unspent bitmap admission.
+    fn load(
+        page: &'a Small,
+        start: usize,
+        occupied: &mut [u64; 2],
+        budget: &mut ScanBudget,
+    ) -> Option<Option<Self>> {
+        let bits = page.bits();
+        let words = bits.len() / 2;
+        let count = page.slot_count();
+        if start >= count || words > occupied.len() {
+            return None;
+        }
+        if !budget.take(bits.len()) {
+            return Some(None);
+        }
+        // Validate both planes, tails and cardinality before retaining evidence.
+        // Reservation/retirement is neither free nor initialized payload storage.
+        let mut used = 0;
+        for word in 0..words {
+            let initialized = bits[word];
+            let reserved = bits[words + word];
+            let valid = u64::MAX >> (64 - (count - word * 64).min(64));
+            if initialized & reserved != 0 || (initialized | reserved) & !valid != 0 {
+                return None;
+            }
+            used += (initialized | reserved).count_ones() as usize;
+            let passed = start.saturating_sub(word * 64);
+            occupied[word] = if passed >= 64 {
+                0
+            } else {
+                initialized & (u64::MAX << passed)
+            };
+        }
+        if used != count.checked_sub(page.state().free)? {
+            return None;
+        }
+        if words == 1 {
+            occupied[1] = 0;
+        }
+        Some(Some(Self {
+            base: page.pointer(0),
+            stride: page.stride(),
+            count,
+            marks: page.marks(),
+        }))
+    }
+}
+
 /// Only the numeric cursor is published; between slices all evidence is reloaded.
 /// Two words cover the largest class (128 slots), not the heap's live population.
 pub(in crate::gc::directory) struct Scanner<'a> {
     pages: &'a Pages,
     cursor: Cursor,
     occupied: [u64; 2],
-    loaded: bool,
+    small: Option<SmallScan<'a>>,
 }
 
 impl<'a> Scanner<'a> {
@@ -53,7 +113,7 @@ impl<'a> Scanner<'a> {
             .expect("validated active allocation")
             .next();
         self.cursor.slot = 0;
-        self.loaded = false;
+        self.small = None;
     }
 
     /// Outer None is invalid storage; inner None is budget exhaustion or completion.
@@ -63,73 +123,59 @@ impl<'a> Scanner<'a> {
         budget: &mut ScanBudget,
     ) -> Option<Option<SweepSlot<'a>>> {
         while let Some(index) = self.cursor.page {
-            let allocation = self.pages.allocations.get(index as usize)?;
-            let (descriptor, pointer, small) = match allocation {
-                Allocation::Small(page) => {
-                    if !self.loaded {
-                        let bits = page.bits();
-                        let words = bits.len() / 2;
-                        let count = page.slot_count();
-                        if self.cursor.slot as usize >= count || words > self.occupied.len() {
+            let (descriptor, pointer, header, small, marks) = if let Some(page) = &self.small {
+                let word = if self.occupied[0] != 0 { 0 } else { 1 };
+                if self.occupied[word] == 0 {
+                    self.next_page();
+                    continue;
+                }
+                let slot = word * 64 + self.occupied[word].trailing_zeros() as usize;
+                self.cursor.slot = slot as u16;
+                if !budget.take(1) {
+                    return Some(None);
+                }
+                assert!(slot < page.count);
+                // SAFETY: admitted immutable geometry and the checked occupied
+                // bitmap select an initialized slot in the retained allocation.
+                // No payload or trailer mutation can intervene in this Pages borrow.
+                let pointer = unsafe { page.base.add(slot * page.stride) };
+                let header = unsafe { ObjectHeader::read(pointer) };
+                let descriptor = DescriptorId::from_header(header.descriptor_id)?;
+                (descriptor, pointer, header, true, page.marks)
+            } else {
+                match self.pages.allocations.get(index as usize)? {
+                    Allocation::Small(page) => {
+                        let Some(scan) = SmallScan::load(
+                            page,
+                            self.cursor.slot as usize,
+                            &mut self.occupied,
+                            budget,
+                        )?
+                        else {
+                            return Some(None);
+                        };
+                        self.small = Some(scan);
+                        continue;
+                    }
+                    Allocation::Large(large) => {
+                        if self.cursor.slot != 0 {
                             return None;
                         }
-                        // Inspect both planes before using occupied bits as authoritative.
-                        // Reservation/retirement is not a free or initialized slot. Tail
-                        // and cardinality checks reject a missing publication bit too.
-                        if !budget.take(bits.len()) {
+                        if !budget.take(1) {
                             return Some(None);
                         }
-                        let mut used = 0;
-                        for word in 0..words {
-                            let occupied = bits[word];
-                            let reserved = bits[words + word];
-                            let valid = u64::MAX >> (64 - (count - word * 64).min(64));
-                            if occupied & reserved != 0 || (occupied | reserved) & !valid != 0 {
-                                return None;
-                            }
-                            used += (occupied | reserved).count_ones() as usize;
-                            let passed = (self.cursor.slot as usize).saturating_sub(word * 64);
-                            self.occupied[word] = if passed >= 64 {
-                                0
-                            } else {
-                                occupied & (u64::MAX << passed)
-                            };
-                        }
-                        if used != count.checked_sub(page.state().free)? {
-                            return None;
-                        }
-                        if words == 1 {
-                            self.occupied[1] = 0;
-                        }
-                        self.loaded = true;
+                        let Some(descriptor) = large.header().descriptor else {
+                            self.next_page();
+                            continue;
+                        };
+                        let pointer = large.backing().pointer();
+                        // SAFETY: the published large descriptor proves initialized
+                        // header storage under the same retained allocation borrow.
+                        let header = unsafe { ObjectHeader::read(pointer) };
+                        (descriptor, pointer, header, false, large.marks())
                     }
-                    let word = if self.occupied[0] != 0 { 0 } else { 1 };
-                    if self.occupied[word] == 0 {
-                        self.next_page();
-                        continue;
-                    }
-                    self.cursor.slot =
-                        (word * 64 + self.occupied[word].trailing_zeros() as usize) as u16;
-                    if !budget.take(1) {
-                        return Some(None);
-                    }
-                    let descriptor = page.descriptor(self.cursor.slot as usize)?;
-                    (descriptor, page.pointer(self.cursor.slot as usize), true)
+                    Allocation::Vacant(_) => return None,
                 }
-                Allocation::Large(large) => {
-                    if self.cursor.slot != 0 {
-                        return None;
-                    }
-                    if !budget.take(1) {
-                        return Some(None);
-                    }
-                    let Some(descriptor) = large.header().descriptor else {
-                        self.next_page();
-                        continue;
-                    };
-                    (descriptor, large.backing().pointer(), false)
-                }
-                Allocation::Vacant(_) => return None,
             };
             let description = self.pages.descriptors.get(descriptor)?;
             let location = PayloadLocation {
@@ -137,20 +183,15 @@ impl<'a> Scanner<'a> {
                 page: index,
                 slot: self.cursor.slot,
             };
-            let payload = CheckedPayload::new(location, pointer, descriptor, description)?;
-            let mark = allocation.marks()?.group_slot(
-                WorkGroup {
-                    domain: Domain::Direct,
-                    block: index as usize,
-                },
-                location.slot as usize,
-            );
+            let payload =
+                CheckedPayload::from_header(location, pointer, header, descriptor, description)?;
+            assert!(location.slot < 128, "bounded slot block marks");
             return Some(Some(SweepSlot {
                 location,
                 descriptor,
                 small,
                 payload,
-                mark,
+                marks,
             }));
         }
         Some(None)
@@ -158,7 +199,7 @@ impl<'a> Scanner<'a> {
 
     /// Consume exactly the previously inspected owner, never an unreserved candidate.
     pub(in crate::gc::directory) fn advance(&mut self) {
-        if self.loaded {
+        if self.small.is_some() {
             let slot = self.cursor.slot as usize;
             self.occupied[slot / 64] &= !(1 << (slot % 64));
             self.cursor.slot += 1;
@@ -184,7 +225,7 @@ impl Pages {
             pages: self,
             cursor: self.sweep,
             occupied: [0; 2],
-            loaded: false,
+            small: None,
         }
     }
 

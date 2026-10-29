@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     Runtime,
+    error::RuntimeError,
     gc::{
         GcHeap,
         directory::{
@@ -302,7 +303,8 @@ fn native_take_between_slices_keeps_physical_tombstones_and_newborn_marks() {
     assert_eq!(heap.take_native::<Takeable>(old).unwrap().0, 17);
     let newborn = allocate(23);
     let new_location = heap.objects.borrow().direct_location(newborn).unwrap();
-    assert_ne!(old_location.page, new_location.page);
+    assert_eq!(old_location.page, new_location.page);
+    assert_ne!(old_location.slot, new_location.slot);
     assert_ne!(old, newborn);
     assert!(heap.take_native::<Takeable>(old).is_err());
     loop {
@@ -499,7 +501,11 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
                 &mut retired.disposal,
                 &mut ScanBudget::new(usize::MAX),
                 |slot, _, _| {
-                    assert!(!graph.is_survivor(slot.mark).unwrap());
+                    assert!(
+                        !graph
+                            .is_survivor(slot.marks, slot.location.slot as usize)
+                            .unwrap()
+                    );
                     let charge = slot
                         .payload
                         .view(&heap.interfaces)?
@@ -595,7 +601,14 @@ fn bounded_transaction_rejects_late_credit_underflow_before_detachment() {
         .iter()
         .map(|id| heap.objects.borrow().direct_location(*id).unwrap())
         .collect();
-    assert!(try_batch(heap, &mut ScanBudget::new(1024)).is_none());
+    let error = heap
+        .retire_physical_batch(&mut ScanBudget::new(1024))
+        .err()
+        .expect("late credit underflow rejects the transaction");
+    assert_eq!(
+        error,
+        RuntimeError::module_validation("invalid physical retirement transaction")
+    );
     {
         let mut graph = heap.graph.lock();
         // Failure consumed neither the remaining nine credits nor any of the ten

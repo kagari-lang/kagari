@@ -6,13 +6,14 @@ use super::Fragment;
 use crate::gc::directory::retirement::RETIRE_LIMIT;
 
 // Compute at compile time: admission only reads two entries. Include full scratch
-// initialization, every merge output, worst-case key comparisons and adjacency.
+// initialization, every merge output, worst-case key comparisons, adjacency and
+// an unsuccessful linear run check before the fallback proof.
 const WORK: [usize; RETIRE_LIMIT + 1] = {
     assert!(RETIRE_LIMIT == 32);
     let mut work = [0; RETIRE_LIMIT + 1];
     let mut count = 2;
     while count <= RETIRE_LIMIT {
-        let mut total = 2 * RETIRE_LIMIT + count - 1;
+        let mut total = 2 * RETIRE_LIMIT + 2 * (count - 1);
         let mut width = 1;
         while width < count {
             total += count;
@@ -32,7 +33,7 @@ const WORK: [usize; RETIRE_LIMIT + 1] = {
         assert!(work[count] >= work[count - 1]);
         count += 1;
     }
-    assert!(work[32] == 384);
+    assert!(work[32] == 415);
     work
 };
 
@@ -42,7 +43,33 @@ pub(in crate::gc::directory) fn ordering_work(count: usize) -> usize {
 }
 
 pub(super) fn disjoint(fragments: &[Option<Fragment>]) -> bool {
-    fragments.len() < 2 || disjoint_sorted(fragments)
+    fragments.len() < 2 || disjoint_run(fragments) || disjoint_sorted(fragments)
+}
+
+/// Physical discovery visits ascending slots within each page. Fresh pages also
+/// form a descending page-index run, but reused indices need not. Verify either
+/// page direction and every same-page interval; never assume allocation order.
+/// Strict page order excludes revisits, so adjacency then proves disjointness.
+fn disjoint_run(fragments: &[Option<Fragment>]) -> bool {
+    let mut ascending = None;
+    for adjacent in fragments.windows(2) {
+        #[cfg(test)]
+        tests::record(4, 1);
+        let previous = adjacent[0].expect("validated physical interval");
+        let next = adjacent[1].expect("validated physical interval");
+        if previous.start.page == next.start.page {
+            if previous.start.slot as usize + previous.count > next.start.slot as usize {
+                return false;
+            }
+        } else {
+            let direction = previous.start.page < next.start.page;
+            if ascending.is_some_and(|ascending| ascending != direction) {
+                return false;
+            }
+            ascending = Some(direction);
+        }
+    }
+    true
 }
 
 /// The separate frame keeps scratch initialization out of zero/one-fragment work.

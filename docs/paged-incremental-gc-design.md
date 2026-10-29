@@ -85,9 +85,10 @@ on `508db43e` passes 68/68 trial timing and 204/204 memory gates. The
 brings the original 88-row ordinary scope to 85 passing / 3 failing, with main/sort
 explicitly using a reconstructed source baseline. Iterator, mixed-Native release
 and sparse-cycle release remain failed. All 22 observed normal-step gates pass;
-34 rows remain unobserved. Structure, editor and Windows CI pass; Linux full
-integration remains pending; the ten downstream failures have focused local
-repairs recorded below. Older joint obligations
+34 rows remain unobserved. All four CI jobs pass on `f9236912`, which contains
+the retained alignment implementation; this does not certify a future final
+measurement revision. The ten downstream failures have focused local repairs
+and subsequent CI evidence recorded below. Older joint obligations
 are not closed by this selected comparison.
 This section owns the proposed change to reference representation and the finite
 trial below; the remainder describes the implemented handle-based migration until
@@ -4825,6 +4826,1506 @@ intervening explicit collection and total loop counts are not iterator throughpu
 or a formal gate. Record both inclusive regions and exclusive leaves, retaining
 inlining/sample uncertainty. No unchanged ordinary timing gate is rerun, and
 Lua remains scheduled for the final runtime revision.
+
+**Attribution completed:** both fixed processes succeed, returning 2000 per call,
+reclaiming exactly 2003 objects and restoring live/root baselines. PG00 performs
+6402 loops and current 5803, including intervening explicit collection; these are
+not throughput ratios. Current probe SHA-256 is
+`65e509b939911edb9c04dceaa73285fb398396cba2cb244be1afafce1a2cf771`, built
+from `edfedcc8` (documentation-only successor to `00b3ebd5`). Workload/entrypoint
+hashes match the predeclaration; source is restored clean. Same toolchain, machine,
+release/default build settings, warm cache and serial sample qualifications as
+the previous iterator attribution. Main execution samples are 21736 PG00 and
+21578 current. Inclusive native entry shares are 36.888% / 46.042%; next-entry
+shares 17.823% / 30.272%; current storage-contract admission 2.595%, Native
+argument admission 1.525%, argument publication 2.007%. Exclusive current physical
+reference resolution is 472 samples (2.187%). These regions overlap and include
+inlining differences; shares do not predict removable elapsed time.
+
+**Selected local correction:** Native loan creation still uses the mutable
+`GcHeap::native_mut` path: direct-reference resolution and graph/initialization
+admission produce a location, then ObjectStorage resolves that same location again
+to obtain the Native pointer. The immutable-read correction did not alter this
+path. Move resolution and the existing admission callback into the exclusive
+ObjectStorage Native projection. The original mutable borrow owns the entire
+operation; validation never creates a payload reference, the callback cannot
+retain shared views, and the allocator-derived pointer is projected mutably only
+after admission. Preserve graph-before-kind and initialization-owner ordering,
+descriptor/occupied/header checks, payload TypeId checks, loan flags, cancellation,
+operation guards and cleanup. Generic object/struct mutation remains unchanged.
+This extends the already documented original-owner scoped-evidence principle,
+not a pointer cache, shared-to-mutable cast or alternate Native loan implementation.
+
+Validate existing immediate-access, Native protocol and direct-header cases, then
+strict-provenance Miri on representative phase/order, competing-loan/unwind and
+completed-edit/extraction boundaries. No new duplicate test suite is needed.
+Before a new formal gate, run one bounded B/C ordinary diagnostic with the same
+injected harness and unchanged no-argument storage/revision workloads: B is the
+just-built pre-correction current probe, C contains this correction. Use three
+warmups/eleven samples, hash checks, 180-second per-process bounds and no local
+build/test overlap. This one pair is diagnostic only, retains every row, and
+cannot close a seven-pair historical gate or justify an unchanged retry.
+
+**Local correction validation:** 18 existing runtime cases pass across immediate
+payload reads, Native protocol rules and direct-header validation. The existing SDK
+iterator revision/GC/failure case passes. Strict-provenance Miri on nightly
+2026-07-27 passes the four selected cases in 493.38 seconds: completed edits on
+error/unwind, retained extraction/publication type-owner checks, phase/source-error
+priority, and read error/panic/reentry exclusion. Workspace all-target Clippy,
+structure (1850 files, no violations/exceptions), formatting and diff checks pass.
+No full workspace tests run locally. Manual review confirms the callback's borrowed
+inputs cannot escape and no shared payload reference is promoted to mutable access;
+the mutable projection remains owned by the original exclusive ObjectStorage borrow.
+There are no new public APIs, re-exports, dependencies or persistent proof records.
+
+```sh
+cargo test -p kagari-runtime --lib --no-fail-fast -- native::typed::payload::tests gc::native::protocol_tests gc::directory::pages::header_tests
+cargo test -p kagari --lib native_iterators_validate_revisions_and_survive_gc_and_failure
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib -- scoped_payload_read_preserves_phase_admission_and_source_error_precedence scoped_payload_read_restores_loan_after_error_and_panic_and_excludes_reentry general_edits_reconcile_completed_changes_on_error_and_unwind retained_extraction_survives_replacement_and_checks_publication_type_and_owner
+```
+
+Emitted ARM64 code confirms the previous loan_native call to Pages::get is gone;
+the new Native projection calls direct-reference resolution once. This establishes
+the intended code shape, not a speedup. The diagnostic B image is the prior current
+iterator probe `65e509b9...a2cf771`; C is
+`fddce7031b226c0ec49f2c0d0cb9584ebb860355b8ffa2299cf744cd9fe3338c`,
+built from `edfedcc8` plus the recorded Native mutable-admission source diff. Both
+share harness `abb5fa1c...e3a3c6` and the same workload/entrypoint hashes above.
+Temporary source injection is restored; all local tests/builds finish before the
+two ordinary diagnostic processes begin.
+
+**Bounded diagnostic completed:** B and C both finish normally (6.25 s / 5.98 s
+including setup). Strict parsing retains all 29 rows and eleven raw samples per
+row, checks row identities, operations/object counts, sample contracts and reported
+medians, and verifies image hashes. Revision iteration is 5584.792 -> 5505.666 us
+(C/B 0.985832); growth 1766.875 -> 1776.125 (1.005235), callback 7329.084 ->
+7314.000 (0.997942), field read 1787.709 -> 1790.291 (1.001444), field write
+2178.750 -> 2171.709 (0.996768). All 29 ratios range from 0.958325 to 1.023152.
+This one pair neither isolates causal savings from code layout/noise nor passes
+any historical gate; the iteration result remains above the previously measured
+PG00 limit as a descriptive comparison. Retain the simpler single-resolution
+ownership path, but do not represent it as a solution to all three misses.
+No physical release mechanism, memory layout, workload or bound changed. The next
+correction still needs concrete remaining-boundary evidence before another formal
+comparison; unchanged diagnostic retries are not authorized.
+
+### Verified interval runs: phase 4 (2026-10-29)
+
+The release review at `e0ed2237` retains the 85/88 historical result and all
+three open failures. Native ownership fields/empty selection ownership also exist
+in PG00; this inspection does not attribute the new gap to those old costs.
+The current interval sort contributes 7.46% of sampled release work. Selection
+already emits increasing slots within each page; fresh allocations also yield a
+descending page-index sequence. Index reuse can break that order, so it cannot be
+assumed or become cached authority.
+
+**Bounded correction:** verify monotone page indices (either direction) and
+nonoverlapping increasing intervals within each page before invoking the existing
+bounded merge proof. Strict page direction excludes a later revisit; adjacent
+interval checks then cover every same-page overlap. An unsuccessful run check
+falls back to the complete original proof. Physical header/bitmap/descriptor
+validation, all-fragment preflight, destructor order and the 32-owner bound remain
+unchanged. No new unsafe projection, persistent state or alternate collector is
+introduced. Precharge the failed linear check as well as the complete fallback:
+worst-case 32-fragment work increases from 384 to 415 units. Do not silently omit
+this cost from normal-step budgeting.
+
+The reference mechanism is Rust 1.90.0's
+[find_existing_run](https://github.com/rust-lang/rust/blob/1.90.0/library/core/src/slice/sort/shared/mod.rs):
+verify existing order before general sorting. Kagari cannot reverse payloads or
+fragments because their destruction order is retained; its run predicate is over
+page order plus increasing disjoint slot intervals. The original fallback handles
+arbitrary reuse order. This is a bounded proof optimization, not an inferred speed
+claim or an expectation that sorting alone closes the mixed-release gap.
+
+**Predeclared validation/diagnostic:** reuse physical corruption/overlap and
+transaction budget/unwind cases, extend the existing proof tests with independent
+pairwise overlap checks across page permutations/revisits, and run required local
+quality checks. Run one B/C ordinary `--families` diagnostic only after builds and
+tests finish, three warmups/eleven samples, 180-second bounds, unchanged fresh-runtime
+workloads and exact image/sample/row checks. B is authenticated current image
+`fddce703...fe3338c` (production of `e0ed2237`); C uses the same injected harness
+with this source change. Retain every family phase including setup. This one pair
+cannot close the seven-pair gates. No unchanged retry, Lua refresh or memory-layout
+acceptance is implied. Latest CI `40843888651` has passing lint/format/structure/
+editor checks; Rust tests and Windows AOT were still active at this checkpoint.
+
+**Validation completed:** the nine selected proof/physical/transaction tests pass,
+plus the directly affected automatic-budget/reporting contract (ten total).
+Strict-provenance Miri on nightly 2026-07-27 passes physical late-corruption/overlap
+and multi-token unwind cleanup (two cases, 28.67 seconds). Workspace all-target
+Clippy, structure (1850 files, zero violations/exceptions), formatting and diff
+checks pass. No full local workspace tests run. Manual review finds no new unsafe
+code, public surface, re-exports or persistent proof state. The independent
+pairwise predicate checks both page directions, arbitrary reused-page permutations
+and nonadjacent overlapping revisits; all prefix work remains within reservation.
+
+```sh
+cargo test -p kagari-runtime --lib --no-fail-fast -- gc::directory::pages::batch::order::tests gc::directory::pages::tests::multi_fragment_preflight_rejects_late_corruption_and_overlap_before_any_detach gc::directory::retirement::transaction_tests
+cargo test -p kagari-runtime --lib automatic_budget_spans_mark_sweep_and_disposal_and_reports_only_new_retirements
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib -- gc::directory::pages::tests::multi_fragment_preflight_rejects_late_corruption_and_overlap_before_any_detach gc::directory::retirement::transaction_tests::multi_token_unwind_cleanup_runs_after_borrows_and_contains_each_payload_panic
+```
+
+**One-pair diagnostic completed:** B SHA-256
+`fddce7031b226c0ec49f2c0d0cb9584ebb860355b8ffa2299cf744cd9fe3338c`, C
+`15fa782e38c64c6c90d893f277d69ae67f1090671e6cb81188e6d27ad623dda9`.
+C is built from `e0ed2237` plus this recorded source diff. Main harness hash remains
+`abb5fa1c...e3a3c6`; inspected family, observation, Native-layout and retained-reload
+sources match B's source. The same M1 Max/32 GiB, macOS 26.6.2, Rust/Cargo 1.99.1,
+LLVM 23.1.1, aarch64 default release/source-native settings and default target/
+parallelism apply; dependencies/OS cache are warm without CPU or power isolation.
+Builds and all selected tests finish before either timed process. Temporary harness
+injection is restored. Both `--families` processes complete with the unchanged
+semantic checks (18.28 / 18.41 seconds including compilation/setup, not throughput).
+
+The parser initially expected 34 historical phase rows and failed its row count.
+Source review confirms the current harness also emits five `verified` rows: all
+39 rows are now checked against an explicit source-derived inventory. The same
+logs are reparsed without another timing run, exclusion or altered measurement.
+All eleven raw samples, medians, min/max, three-warmup contracts, objects and image
+hashes check out. Mixed Native release is 94.708 -> 84.333 us (C/B 0.890453),
+sparse-cycle release 30.167 -> 29.125 (0.965459), sparse-type release
+36.625 -> 33.292 (0.908997). Controls include mixed live 128.417 -> 128.292,
+reference release 151.458 -> 150.333 and dense cycles 1043.542 -> 1045.333 us.
+Not every row improves: sparse live rises 27.625 -> 28.792 and script-key live
+71.917 -> 75.334 us. All 39 ratios range from 0.890453 to 1.047513.
+
+Retain the verified-run proof as a bounded, measured candidate improvement. A
+single pair cannot isolate layout/noise effects, establish general speedups or
+close a formal gate. Both release values remain above their saved PG00 limits as
+a descriptive comparison, and iterator execution was not remeasured here. The
+historical 85/88 qualification therefore remains unchanged. No layout changed;
+the newly increased conservative work reservation does require normal-step evidence
+on the final candidate. Final seven-pair acceptance, three remaining misses, complete
+CI and the final-revision Lua refresh remain open. Further changes still require
+concrete ownership evidence; do not rerun unchanged pairs hoping for a pass.
+
+### Empty Native selection ownership: phase 4 (2026-10-29)
+
+Review at `562711d2` identifies a concrete allocation with no executable edges:
+NativeStorage::object creates `Arc::from([])` for every Native record, NativeType's
+empty-selection path creates another, and StoredSelection::slots collects an empty
+iterator into a new Arc. Publication can replace the first empty allocation with
+the second; final disposal must free the retained empty allocation. PG00 also had
+this representation, so this is an avoidable current lifecycle cost, not an
+explanation of when the regression began. The current release profile contains
+allocator/Native-drop cost but does not isolate this allocation's elapsed share.
+
+The selected correction uses the existing
+[Rust Arc slice default](https://doc.rust-lang.org/src/alloc/sync.rs.html), reviewed
+against installed Rust 1.99.1 (`58cf8f9c3`, alloc/src/sync.rs lines 3866-3888).
+That implementation shares a static empty owner for element alignment at most 16;
+Arc::from(array) instead allocates. Replace the two explicit empty constructions
+with Arc::default and return that same empty representation before collecting zero
+selected slots. The public contract permits shared or separate allocation, so
+correctness must not depend on pointer identity or this optimization on other
+toolchains. Existing Arc<[StoredSelection]> types, clones, immutable slices,
+metadata publication/traversal and nonempty slot validation remain unchanged.
+No custom cache, optional wrapper, root lease, ABI/layout change or script Option
+representation change is introduced. Builder-before-selection error ordering and
+reload-pinned nonempty call authority retain their current owners.
+
+**Predeclared validation:** existing Native context contracts cover empty builders,
+invalid slots, completed effects and stored callback/reload behavior. Add the
+existing SDK iterator GC/failure case and VM collecting hash callback sentinel as
+small dependent controls. Run local quality checks; no new unsafe kernel or
+semantic rule needs a duplicate Miri suite. Freeze B diagnostic memory on clean
+`562711d2`; build C memory and ordinary images after this correction, with the same
+release/default target/parallelism. Ordinary B is the previous authenticated
+`15fa782e...23dda9` image, sharing the existing injected harness. After all local
+builds/tests end, run one B/C ordinary `--families` pair (three warmups/eleven
+samples) and one B/C diagnostics `--families` pair (three fresh Runtime lifecycles
+per family). Bound each process at 180 seconds; retain all 39 ordinary rows and
+all memory/peak/teardown records. Verify binaries, sample contracts and teardown
+balances. Report retained bytes and request counts separately from elapsed time.
+This is finite diagnostic evidence, not new seven-pair acceptance or a changed
+historical baseline; no unchanged retry is authorized.
+
+**Allocation correction validation:** all six Native context tests and the SDK
+iterator/GC/failure and VM collecting Hash/Eq callback cases pass (eight total).
+Workspace all-target Clippy, structure (1850 files, zero findings/exceptions),
+formatting and diff checks pass before the independent CI fixture follow-up below.
+No unsafe code, imports, re-exports, new public APIs or layout declarations changed;
+existing nonempty selection publication/trace and checked invocation still own
+all executable edges. No local full-workspace tests run.
+
+**Fixed diagnostic completed:** ordinary B is
+`15fa782e38c64c6c90d893f277d69ae67f1090671e6cb81188e6d27ad623dda9`, C is
+`85f3a081e0c8219dbc2c2eb94a7522cd69a8c24a8c336cb37c4de143a4656bfc`;
+memory B is `77218bd998642937a57757712c53e6381ac17de97e7e9ae64508003ebca4184f`,
+memory C is `d6d220d8a20adcc9d15ca92e6340f7b458e1993d0a5b68bf205d4246c54f7827`.
+C is built from `562711d2` plus the recorded three-file selection-construction
+change. Ordinary harness remains `abb5fa1c...e3a3c6`; memory uses the unchanged
+uninjected diagnostic harness. The same M1 Max/32 GiB/macOS 26.6.2, Rust/Cargo
+1.99.1/LLVM 23.1.1, aarch64, default release/target/parallelism, warm dependencies
+and ordinary OS cache apply. No CPU/power isolation or concurrent local build/test
+load. All four processes exit normally, in 18.53/18.44 seconds ordinary and
+11.17/11.17 seconds memory, including source compilation/setup outside timed phases.
+The exact image hashes, 39 ordinary phase identities, eleven samples/min/max/median,
+three warmups, object counts, 39 repeated memory rows and seven peak families per
+process validate. All 42 Runtime teardowns (21 per memory process) return zero.
+
+Mixed Native construction is 1081.458 -> 1018.208 us (C/B 0.941514), release
+84.250 -> 78.041 (0.926303). Sparse-cycle release is 30.041 -> 28.667 (0.954263);
+its churn slices are 475.709-483.292 -> 437.542-440.958 us. Controls are mixed live
+128.708 -> 129.667, reference release 150.875 -> 153.833 and dense cycles
+1057.417 -> 1046.333 us. All 39 ratios span 0.905337-1.059626; the upper ratio is
+the reference verification workload, so this is not an all-row speedup claim.
+No iteration throughput or formal historical pass is inferred from these processes.
+
+Memory evidence isolates the allocation effect: mixed construction loses 770
+requests/12,320 requested bytes; its live retained delta loses 12,304 bytes,
+exactly 769 empty 16-byte owners. Sparse-cycle construction loses 8,194 requests
+and 65,552 retained bytes; cumulative requests through final release fall 32,778.
+Scalar/reference/sparse-type containers each lose two requests and 16 live bytes;
+script-key selected callbacks retain their nonempty edge backing, with only one
+transient empty request removed. Fresh Runtime setup is 384 bytes higher in C in
+these measured processes; therefore mixed absolute live net bytes fall 11,920,
+not 12,304. Both absolute/setup and relative deltas are retained; the setup change
+is not attributed to a specific mechanism. Final released deltas are unchanged.
+Peak samples and all other phase records remain in the diagnostic report.
+
+Keep this local construction correction. Standard-library shared empty ownership
+still uses atomics; this serial experiment does not establish cross-runtime thread
+scalability or a portable allocation guarantee. It does not change selected GC
+architecture or introduce a custom global cache. Both measured release cases remain
+above saved PG00 limits descriptively. Historical 85/88, final paired memory/pause
+and timing acceptance, complete CI and final Lua refresh remain outstanding.
+
+**CI follow-up discovered:** run `40841154332` (`00b3ebd5`) has terminated. Its sole
+reported failed test is stdlib
+`host_swap_invalidates_traversal_only_after_reordering::case_1`, whose assertion
+still expects the old `structure changed` text. The Vec revision owner now emits
+ScriptTrap with `invalid or structurally modified iterator`, intentionally unified
+by the earlier provider integration correction. Existing visited-element and final
+ordering assertions stay intact; replace the obsolete substring with exact error
+kind/message and rerun all three reorder/same-index/out-of-bounds variants. All
+other reported tests in this run pass, including the ten prior integration repairs;
+subsequent workflow steps were skipped after the failing workspace test step and
+are not accepted. This fixture repair is independent of the frozen allocation images.
+
+**CI fixture repaired locally:** all three variants of
+`cargo test -p kagari-stdlib --lib host_swap_invalidates_traversal_only_after_reordering`
+pass. A real reorder traps before visiting the second element and preserves the
+completed swap; same-index and out-of-bounds operations do not invalidate traversal.
+The updated assertion checks both ScriptTrap and the exact provider-owned message,
+not a weakened success/error predicate. Final workspace Clippy, structure (1850
+files, zero findings/exceptions), formatting and diff checks pass with the fixture
+included. No known selected local failure remains. Latest full CI still needs to
+run on this correction; this does not mark the skipped feature/example steps passed.
+
+### Sweep-local header evidence: phase 4 (2026-10-29)
+
+At `19893364`, review of current authenticated ordinary image `85f3a081...656bfc`
+confirms a repeated physical admission in the collector. Scanner::peek first checks
+both bitmap planes, cardinality/tail bounds and the occupied slot, then calls
+Small::descriptor, which checks slot bounds/occupancy again and reads the header.
+It next calls Small::pointer and CheckedPayload::new, reading the same header
+again. ARM64 prepare_batch contains both out-of-line Small calls and a subsequent
+header pair load. In contrast, the current resolve_reference machine code already
+coalesces its header reads; that mutator path is deliberately unchanged.
+
+**Selected correction:** derive the scanner's descriptor ID from one header read
+at the occupied pointer. Pass that same header copy to the existing checked
+payload construction through a private from_header helper. Generic callers still
+read their own header through new. All kind, descriptor-ID and allocation-ID checks
+remain in the shared constructor; large allocations retain their independent
+published descriptor check. The original Pages borrow excludes bitmap/header
+mutation throughout selection, so no evidence can persist across a yield. Numeric
+cursors still reload both bitmap planes each slice. No payload is projected before
+header validation, no reference originates from an integer, and no mark/liveness
+or batch-overlap check moves or disappears. Work reservations remain conservative
+and unchanged. This is the existing owner-borrow evidence rule, not a new cache,
+collector model or generic unchecked access path.
+
+**Predeclared evidence:** run existing physical page, direct-header and retirement
+transaction tests. Strict-provenance Miri covers bitmap work/boundaries, reload
+across take/newborns, corrupt publication planes, late batch corruption/overlap,
+and mixed-kind/foreign-live direct dispatch. Run local quality checks and inspect
+candidate machine code for removal of the scanner's generic descriptor call.
+Then run one B/C no-argument storage diagnostic and one B/C `--families` diagnostic
+(three warmups/eleven samples each, 180-second process bounds), with all builds,
+tests and Miri finished first. B is `85f3a081...656bfc`; C uses the identical injected
+harness, workload and release/default build settings with this two-file correction.
+Keep all 29 storage and 39 family rows, exact image/sample/contract checks, and
+report positive and negative changes. These four bounded processes are not formal
+seven-pair acceptance or permission to retry unchanged code. No layout changed;
+the final candidate still owns the pending integrated memory/normal-step gates.
+
+**Scoped-header validation completed:** 23 selected physical-page/header and
+retirement transaction tests pass. Strict-provenance Miri on nightly 2026-07-27
+passes all five selected bitmap/corruption/foreign-live cases (55.16 seconds).
+Workspace all-target Clippy, structure (1850 files, zero findings/exceptions),
+formatting and diff checks pass. No new tests duplicate existing contracts and no
+full-workspace tests run locally. Manual review confirms both header reads are
+protected by the same retained Pages borrow; the helper does not grant authority
+to a detached header copy. No re-export, widened visibility or persistent cache
+is introduced. Large descriptor publication and all batch failure/cleanup rules
+retain their prior owners.
+
+```sh
+cargo test -p kagari-runtime --lib --no-fail-fast -- gc::directory::pages::tests gc::directory::pages::header_tests gc::directory::retirement::transaction_tests
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib -- gc::directory::pages::tests::bitmap_sweep_ gc::directory::pages::tests::multi_fragment_preflight_rejects_late_corruption_and_overlap_before_any_detach gc::directory::pages::header_tests::direct_page_dispatch_preserves_mixed_kinds_and_rejects_foreign_live_addresses
+```
+
+ARM64 inspection confirms prepare_batch no longer calls Small::descriptor; it
+still calls the bounds-checking Small::pointer. resolve_reference retains its
+94-line instruction listing with no new calls. This verifies the intended scoped
+reuse, not a throughput guarantee. Candidate ordinary image SHA-256 is
+`d4773f44cfb649f426fe014651eb56e4791d790d3a25d52fcce4338a1665d898`,
+built from `19893364` plus the two-file source change. B is
+`85f3a081e0c8219dbc2c2eb94a7522cd69a8c24a8c336cb37c4de143a4656bfc`;
+both main harness hashes remain `abb5fa1c...e3a3c6` and revision-workload hashes
+`66a86193...f64d`. Temporary source injection is restored. The same M1 Max/32 GiB,
+macOS 26.6.2, Rust/Cargo 1.99.1, LLVM 23.1.1, aarch64, default release/source-native
+features, target and parallelism, warm dependency/OS caches, no affinity/power
+isolation apply. Build/test/Miri/assembly inspection all finish before timing.
+
+**Bounded diagnostic completed:** all four processes exit normally. Storage B/C
+take 6.07/6.04 seconds and family B/C 17.33/17.29 seconds including untimed setup;
+these totals are not throughput ratios. Strict parsing checks all 29 storage and
+39 family row identities, object/operation contracts, three warmups, eleven raw
+samples and reported min/max/median; image hashes match. Field read is
+1820.625 -> 1797.209 us, write 2154.666 -> 2151.959, revision iterator
+5492.292 -> 5460.625 and callback 7300.458 -> 7290.166. Storage ratios range
+0.943141-1.044876, including increases on some construction/live-GC rows.
+
+Family reference release is 151.417 -> 141.750 us (C/B 0.936156), reference live
+313.000 -> 300.625 (0.960463). Dense cycles are 1038.917 -> 1028.750; churn
+436.833-438.583 -> 424.083-426.625. Mixed Native release is effectively unchanged
+78.292 -> 78.459 (1.002133); sparse-cycle release 28.333 -> 27.958 (0.986765).
+Family ratios span 0.802393-1.140182; the upper row is mixed verification
+11.000 -> 12.542 us, retained as measured rather than excluded. These single pairs
+cannot isolate causal savings from layout/noise or establish final performance.
+Keep the simpler scoped proof, but no failing historical gate is closed: iterator,
+mixed release and sparse release remain above their saved limits descriptively.
+No unchanged retry is authorized. Further release diagnosis should examine the
+large-allocation/control ownership path; shortening small-page admission did not
+resolve the mixed case. Complete CI, integrated final paired memory/pause/timing
+acceptance and the final-revision Lua refresh remain open.
+
+### Rejected single-allocation physical backing: phase 4 (2026-10-29)
+
+**Decision:** reject the candidate after the predeclared comparison. Restore the
+five runtime source files and runtime specification exactly to `1c7fe787`; retain
+the existing Arc-backed physical-region owner. The experiment passes selected
+correctness checks and reduces allocation requests, but does not improve its
+mixed-Native release target and substantially worsens other GC samples. No custom
+strong counter, alternate backing implementation or experimental test remains in
+production. The completed experiment is not permission to retry unchanged timing.
+
+Review at `1c7fe787` finds a physical ownership cost distinct from object reachability:
+Backing::new allocates payload plus page trailer, then allocates Arc<Backing> to
+retain that region. Each large object owns such a pair, and detached tokens clone
+that separate Arc until payload destruction and graph/page retirement finish.
+The existing allocation test confirms exactly two requests for every small/large
+region. The ordinary mixed family includes 384 large Native allocations, making
+this extra allocation/free concrete; prior release samples contain allocator cost,
+but do not isolate its share or establish the potential saving.
+
+**Selected bounded ownership change:** append a strong-only ownership record after
+the existing payload/page trailer, in one checked composite allocation. A private
+Backing handle points to that tail; cloning retains bytes and final release frees
+the complete layout. The tail contains the base pointer with original provenance,
+immutable payload/trailer layout and payload charge, plus the atomic strong count.
+Typed Small/Large owners still exclusively expose page controls; detached tokens
+still own destruction and retain bytes/descriptor provenance across unlocked Drop.
+No managed reference/root, generation, mark, descriptor identity or sweeping rule
+changes. Slabs stay 1024 bytes, large payloads retain exact dynamic size/alignment,
+addresses remain stable, and collection remains single-driver incremental.
+
+Reference mechanisms: installed Rust 1.99.1 (`58cf8f9c3`)
+[Arc clone/drop](https://doc.rust-lang.org/src/alloc/sync.rs.html) uses relaxed
+strong retention and release decrement with acquire synchronization before final
+reclamation; retain that ordering and an overflow abort. No weak owner, upgrade,
+user destructor or mutable shared metadata is needed for backing bytes.
+[triomphe 0.1.17 ThinArc](https://docs.rs/triomphe/0.1.17/triomphe/struct.ThinArc.html)
+provides a mature single-allocation header/slice mechanism, but its H/T element
+alignment is compile-time. This allocator accepts arbitrary runtime Layout from
+erased Native storage and must preserve separate mutable trailer regions. Stock
+Arc slice constructors likewise do not accept this runtime composite alignment.
+The private strong-only tail supplies that missing layout ownership; it does not
+reconstruct or depend on std Arc's private allocation ABI, add a dependency or
+introduce reference-counted script-object reachability.
+
+The original payload/trailer Layout remains available for page geometry. A separate
+allocation_layout calculation includes the tail and its padding for deallocation
+and requested-byte diagnostics. Runtime heap charging stays payload-only as before;
+allocator reports account for payload, page controls, bitmap, ownership and padding
+exactly once. Replace all Arc<Backing> callers directly. Update the existing exact
+allocation/accounting test from two requests to one without weakening retained-byte,
+zero-net release or geometry assertions; include a 4096-aligned large case and
+failure where the ownership tail alone would overflow. Add one ownership boundary
+case for concurrent cloned handles retaining initialized atomic bytes after the
+original owner drops. No generic cache, forwarding API or second storage model.
+
+**Validation/measurement contract:** existing physical-page/header/geometry and
+retirement transaction tests, focused allocation-instrumented accounting and new
+strong-owner case, strict-provenance Miri on trailer/payload nonaliasing, range and
+individual token survival after owner teardown, destructor unwind, corrupted batch
+preflight and concurrent strong lifetime. Finish required local quality checks
+before measuring. Freeze memory B on clean `1c7fe787` and ordinary B as authenticated
+`d4773f44...65d898`; C uses the same harness and workload. After all builds/tests
+finish, run one B/C ordinary storage pair and one B/C family pair (3 warmups/11
+samples, 180-second bounds), plus one B/C allocation-instrumented family pair (3
+fresh lifecycles/family). Retain every row, request/backing/peak diagnostic and
+zero-net teardown. No formal seven-pair gate or unchanged retry is implied.
+This change affects backing layout, so final memory acceptance must be refreshed
+on the integrated candidate; correctness and memory limits remain mandatory even
+if timing improves. Full feature/backend/platform testing remains CI-owned.
+
+**Local correctness:** 24 selected physical-page/header/geometry and retirement
+transaction tests pass. Four allocation-instrumented cases pass, covering one
+allocation with complete byte accounting (including 4096-byte alignment), immediate
+release, tail-only overflow/nonaliasing and concurrent strong-owner lifetime. Eight
+strict-provenance Miri cases pass in 399.21 seconds on nightly-2026-07-27: concurrent
+ownership; builtin/struct header and failed initialization; individual and range
+token survival after owner teardown; trailer nonaliasing/overflow; corrupted or
+overlapping batch preflight; and multi-token destructor-panic cleanup. Earlier
+Miri/Clippy process handles were unavailable after context continuation and had no
+recoverable terminal result; the recorded results come from completed reruns, not
+an inferred pass. Workspace all-target Clippy, formatting, structure (1850 files,
+zero findings/exceptions) and diff checks pass. Manual review confirms private
+ownership, disjoint tail references, exact deallocation layout, original payload
+provenance and unchanged non-Clone page-control authority. No new re-export,
+dependency, unchecked public access or structural exception is introduced.
+
+At this checkpoint, preceding source `1c7fe787` CI
+[40852009048](https://github.com/kagari-lang/kagari/actions/runs/40852009048) passes
+Windows AOT/compiler-free deployment, editor and structure jobs; Linux Rust tests
+are still running, with subsequent feature/example steps pending. The same status
+holds for `19893364` run 40850311022. These are prior-source results, not acceptance
+of this uncommitted ownership change.
+
+**Completed measurement:** six processes finish normally, with source/workload and
+binary hash checks, all workload assertions, 29 storage timing rows, 39 family
+timing rows, 39 family-memory phase rows and seven peak families per side. There
+are 42 zero-net teardowns across the two memory processes. The ordinary B hash is
+`d4773f44cfb649f426fe014651eb56e4791d790d3a25d52fcce4338a1665d898`,
+candidate C is `e4e7dca2b1104922aebac29313a97c7a88d89bd904f021a30dac45448870f142`.
+Memory B is `259469f15a80ceef67e06f3548d2974ebd8c9c16a73d1f5fba233c2fdaaa9307`,
+memory C is `a8e21bd6be27040c4b20b88ccc034e477400f900e21c78d06da2cde56d1be409`.
+Both ordinary images use the identical previously recorded iterator probe and
+`revisions.kgr`; ordinary runs use the original no-argument/--families paths, not
+the sampling entrypoint. Each side uses three warmups and eleven samples, B then
+C, once per suite. Memory uses three fresh lifecycles per family. M1 Max/32 GiB,
+macOS 26.6.2 (25G83), Rust/Cargo 1.99.1/LLVM 23.1.1, aarch64, default workspace
+release/target/parallelism, source-native ordinary features; diagnostics enabled
+only for memory. Dependencies and OS cache are warm; no CPU/power isolation. All
+local builds/tests finish before measurement and no processes overlap. Compilation
+is excluded. One pair supports candidate rejection, not formal seven-pair closure
+or an isolated causal speed estimate. Medians in microseconds:
+
+| Workload / phase | B | C | C / B |
+| --- | ---: | ---: | ---: |
+| Revision iterator | 5472.542 | 5479.917 | 1.001348 |
+| Field read | 1825.250 | 1771.750 | 0.970689 |
+| Field write | 2152.833 | 2153.042 | 1.000097 |
+| Points / release GC | 17.541 | 20.500 | 1.168690 |
+| Mixed Native / live GC | 128.792 | 136.709 | 1.061471 |
+| Mixed Native / release GC | 77.667 | 78.458 | 1.010185 |
+| References / live GC | 300.416 | 338.666 | 1.127323 |
+| References / release GC | 142.958 | 182.667 | 1.277767 |
+| Sparse cycles / dense GC | 1027.708 | 1074.084 | 1.045126 |
+| Sparse cycles / release GC | 28.708 | 27.041 | 0.941933 |
+
+All 29 storage ratios range 0.948394-1.168690; all 39 family ratios range
+0.941933-1.277767. Retain the unfavorable samples: interface release variants
+rise 13.36%-14.65%, and mixed verification rises 13.76%. Sparse-release improvement
+and field-read movement do not outweigh the target miss or prove attribution.
+
+Memory confirms the intended mechanism, without establishing a performance win:
+mixed construction/live phases use 475 fewer requests, 2264 fewer requested bytes
+and 2264 fewer retained bytes relative to setup. Setup is 192 bytes larger, so
+absolute live retention falls only 2072 bytes. References use 129 fewer requests
+and 1032 fewer relative retained bytes. Sparse-cycle construction uses 1464 fewer
+requests and 11712 fewer relative retained bytes; cumulative requests through
+release fall 5541 with 44328 fewer requested bytes. Release relative retention is
+unchanged in these families, and the larger setup remains in absolute totals.
+All object counts agree. These are allocator-request measurements, not RSS or
+formal refreshed memory gates.
+
+**Implication and next boundary:** allocator-call count alone is not a sound proxy
+for collector cost. This experiment also moves frequently read ownership metadata
+to the payload tail and changes generated retain/release/access code; cache locality
+and code generation are possible explanations for the broad GC slowdown, not proven
+root causes. Do not keep the custom lifetime kernel on the strength of its request
+count. Return to the existing ownership model and attribute the current bounded
+physical retirement/Native callback path before selecting another change. Do not
+expand into Option compaction, a call-frame redesign, different page geometry or
+weaker admission/destruction guarantees. Original formal acceptance stays 85/88
+with three failures on the last frozen image; final timing/memory/normal-step CI
+and Lua obligations remain open. Reverting this experiment requires no new runtime
+test sweep: the runtime is byte-for-byte the previously validated source; only this
+decision ledger is committed.
+
+### Current retirement attribution after rejected backing trial (2026-10-29)
+
+The preceding turn made progress by rejecting the single-allocation candidate
+with actual negative performance evidence and restoring production. Runtime source
+remains `1c7fe787` at ledger commit `b7dbc41d`. No blocker or unchanged retry is
+declared. The previous release profile predates the monotone interval proof,
+shared empty Native selections and occupied-header reuse, so it cannot quantify
+their remaining costs. Reuse its exact temporary release entrypoint on current
+source: three checked warm lifecycles, 35 seconds of mixed-Native construction and
+release, with `sample PID 30 1` and existing 40-second sampler/15-second completion
+bounds. Attribute only the noninlined release-collection subtree; exclude source
+preparation, construction and verification. Assert 897 reclaimed objects, baseline
+live/root restoration and warm check_mixed=128. Freeze/hash the ordinary image and
+restore harness sources before running. One current process, after all builds;
+do not repeat PG00 or older-current samples, infer gate ratios from throughput, or
+combine historical sample percentages into an exact regression decomposition.
+Review current retirement owners and emitted code against this evidence before
+selecting another change. Full ordinary gates and final Lua remain separate.
+
+**Current sample:** image
+`981e8f8baf5175c6c386b22cbe23c1b666ccb4429687794a89b9918cbe0a46df`
+completes 31222 checked lifecycles in 35 seconds; this includes construction and
+is not a gate ratio. The 1514 release-wrapper samples contain exclusive shares
+15.46% prepare_batch, 6.21% its retirement-selection callback, 6.01% retirement_slice,
+4.89% NativeObject destruction, 4.62% detach, 3.96% finish_sweep_disposal and 3.90%
+release_allocation. Allocator _xzm_free/_free account for 11.69%/3.30%. Compilation
+and preparation are outside the wrapper. The harness and workload hashes remain
+`9d4eb4044bfd245a5d902346b9fe11fd6e2c1411c251d55a6ce1136dc0df124e`
+and `a0f4518bf819b784c0c1291c344ca88ccf74d6715e2c038db6cf358e74e2607f`.
+Same M1 Max/macOS 26.6.2/Rust 1.99.1/default release/target/parallelism, warm caches,
+no CPU/power isolation or concurrent local work. This is current attribution, not
+evidence that any specific percentage is removable.
+
+**Bounded local code-generation correction selected:** ordinary assembly retains
+an out-of-line Small::pointer call for each small occupied sweep slot. The 585-line
+prepare function spills/reloads its output, budget, selection and callback state
+around this call, then separately reloads the same small-page backing/geometry to
+locate marks. The helper itself only loads immutable geometry, checks the slot
+bound and computes base+stride*slot. Its ownership boundary is sound: the exclusive
+Pages selection borrow prevents mutation, the initialized bitmap proves a live
+slot, and the existing slot-bound assertion must stay. Add a normal #[inline]
+hint to this small helper so the optimizer can see it at callers and eliminate
+call/spill overhead and combine loads where valid. Do not duplicate arithmetic in
+the scanner, add a cached pointer/proof type, remove any assertion, change the
+physical layout or alter retirement's three ownership stages. The larger selection
+callback and all runtime/header/bitmap/descriptor checks stay intact.
+
+Validate existing page/header/geometry and retirement-transaction contracts plus
+required local quality checks; no new semantic test is needed for a code-generation
+hint. Freeze B as authenticated ordinary `d4773f44...65d898` and C with the identical
+harness. Inspect emitted code for the intended call elimination, then run one B/C
+storage and one B/C family pair (3 warmups/11 samples, fixed 180-second bounds,
+all 68 rows retained), after builds/tests complete. No layout/allocation/accounting
+change is selected; this does not refresh or close final integrated memory/normal-
+step requirements. Reject if the expected code change is absent or broader results
+do not justify retention. Do not rerun unchanged samples or claim formal closure.
+
+**Inline-only result, rejected:** 24 selected contracts, workspace all-target
+Clippy, structure (1850 files, zero findings/exceptions), formatting and diff pass.
+The first formatting attempt overlapped temporary probe injection and therefore
+reported only that unformatted entrypoint; byte-exact harness restoration followed
+by formatting/diff checks passes. Do not overlap source checks with harness edits.
+Candidate `b6a73f60ac5bb7e41484906a83c3638468f257ab492d9df88901ac718b7d2bc8`
+removes the Small::pointer call (one to zero) from emitted prepare_batch; all four
+ordinary processes and 68 row contracts pass. One-pair medians in us: mixed release
+78.875 -> 77.209 (0.978878), reference release 144.583 -> 137.208 (0.948991),
+sparse-cycle release 29.792 -> 27.416 (0.920247), but field read 1840.750 -> 2056.667
+(1.117298), write 2186.959 -> 2332.209 (1.066416), scalar 537.959 -> 560.458
+(1.041823) and iterator 5588.625 -> 5650.958 (1.011154). All storage ratios range
+0.952441-1.117298; families 0.795845-1.037547. Same predeclared machine/profile and
+warm-cache method, no concurrent builds/tests and no timing retries. Sampling/code
+layout and system variability prevent precise causal attribution, but broad results
+do not justify retaining a global hint. Remove it; no production change from this
+attempt remains. This is not a formal gate refresh.
+
+**Next bounded ownership correction:** extend the scanner's existing borrow-local
+occupied bitmap with small-page base, stride, slot count and a borrowed mark region.
+Load these together once after validating that page's bitmap/free cardinality;
+reuse only until advancing to another page or dropping this Scanner. No state
+survives a batch, heap mutation, destructor or mutator interval. Continue checking
+each object's physical header/descriptor and slot bound. Large pages keep their
+existing direct path. Numeric cursor publication and budget reservations remain
+unchanged; failed previews never publish progress. This removes repeated small-page
+directory/geometry/mark-address lookup inside the same immutable-owner interval,
+without changing ordinary mutator access or relying on a global inlining hint.
+
+Mature reference: Go 1.26.0
+[sweepLocked and span sweeping](https://github.com/golang/go/blob/go1.26.0/src/runtime/mgcsweep.go)
+keep an acquired physical span's metadata with the sweep operation. Apply only
+owner-scoped traversal; Kagari uses an exclusive Rust page borrow, finite batches
+and synchronous host destructor/reentry rules, not Go's concurrent sweep ownership,
+whole-span reclamation or scheduler. This adds no persistent cache, allocator model,
+object-header field or cross-runtime capability. Existing sparse cursor/budget,
+interleaved resume, corrupted bitmap/header, multi-fragment preflight and unwind
+contracts own validation, with selected strict-provenance Miri for borrowed scan
+and teardown. Measure a new frozen candidate against the same authenticated B,
+one storage/family pair with every row retained after checks; do not reuse the
+inline candidate as a new acceptance baseline.
+
+**Retained page-view correction:** the final source keeps the two bitmap words in
+the original caller-reserved Scanner workspace, initialized once, not as a fresh
+array on each page admission. SmallScan adds only borrow-local base/geometry/marks;
+the page load still reserves its original plane work before inspection, and each
+occupied owner retains its one-unit admission and slot assertion. No heap allocation,
+object/page layout, charge rule, frontier or destructor ordering changes. Manual
+review checks disjoint raw payload address arithmetic, mark-reference lifetime,
+invalidation on every page transition, numeric-only publication, and reloading
+after every storage mutation. No new public surface or structural exception.
+
+Final source passes 24 physical page/header/geometry and retirement transaction
+tests plus three directly affected mark-reuse/tombstone/newborn cases. Five
+strict-provenance Miri cases on nightly-2026-07-27 pass in 141.56 seconds: bitmap
+budget/holes, corrupt planes/cardinality/header, resumed words/take/newborns,
+multi-fragment corruption/overlap preflight, and multi-token panic cleanup. Required
+workspace all-target Clippy, formatting, structure (1850 files, zero findings and
+exceptions) and diff checks pass. Full workspace/platform/features remain CI-only.
+Earlier `1c7fe787` run 40852009048 is still authoritatively in progress in Linux
+Run tests; Windows, structure and editor jobs pass. The live log fetch returns
+BlobNotFound, not a failure, completion or reason to restart/cancel the job.
+
+The final ordinary candidate hash is
+`69afa2565307dc13ede85bd6ea67896313df909c0f011c27cb531f306df9287f`,
+B remains `d4773f44cfb649f426fe014651eb56e4791d790d3a25d52fcce4338a1665d898`.
+All four processes complete with hash/workload/semantic checks and all 68 rows
+retained. Same fixed B/C storage then B/C family order, 3 warmups/11 samples,
+180-second process bounds, machine/toolchain/profile/features/cache conditions as
+above; no concurrent builds/tests/profiling. No unchanged retries. Emitted prepare
+code no longer calls Small::pointer for each occupied slot. Its frame grows from
+240 to 304 bytes and assembly from 585 to 673 instruction/label lines, so code
+size/stack growth is a real tradeoff, not an instruction-count win. Medians in us:
+
+| Workload / phase | B | C | C / B |
+| --- | ---: | ---: | ---: |
+| Field read | 1816.167 | 1799.917 | 0.991053 |
+| Field write | 2162.084 | 2133.083 | 0.986587 |
+| Revision iterator | 5578.542 | 5529.875 | 0.991276 |
+| Mixed Native / release GC | 77.500 | 76.750 | 0.990323 |
+| References / release GC | 140.541 | 134.209 | 0.954946 |
+| Sparse cycles / release GC | 27.875 | 28.417 | 1.019444 |
+| Scalar / live GC | 11.000 | 12.375 | 1.125000 |
+| Scalar / release GC | 14.791 | 19.542 | 1.321209 |
+| Scalar / verified | 95854.250 | 100478.917 | 1.048247 |
+| References / verified | 18565.792 | 19443.167 | 1.047258 |
+
+All storage ratios range 0.964453-1.024350 and families 0.881377-1.321209. Retain
+the scalar GC/verification regressions as well as release gains; small absolute GC
+times have the existing +10 us allowance, not a newly relaxed bound. One pair and
+unisolated machine state cannot establish a universal speedup. Retain the coherent
+borrow-local ownership correction and measured reference-release improvement; mixed
+release movement is small and sparse release does not improve. No original formal
+gate is relabeled: the last frozen result remains 85/88 with three failures, and
+final paired timing/memory/normal-step, complete CI and Lua refresh remain open.
+
+Next source review can stay within the sampled selection callback: its closed-graph
+is_survivor path constructs RuntimeError on gray then immediately discards it with
+ok(), while the transaction owner creates the externally visible invalid-retirement
+error. Inspect whether a small private failure result can preserve gray rejection
+and existing diagnostics while avoiding discarded diagnostic construction and its
+emitted cold/unwind branches. This is an identified boundary to review, not a
+selected unchecked path or a claimed future speedup; iterator attribution remains
+independent and Option/call-frame work remains deferred.
+
+### Physical-retirement rejection ownership (2026-10-29)
+
+The preceding turn made progress at `c6c0138a`: borrow-local small-page geometry
+is implemented and validated; the remaining three historical gates stay open.
+Current source review confirms that all three private SweepGraph admission methods
+construct RuntimeError strings only for ObjectStorage::sweep_batch to discard them
+with ok(). GcHeap::retire_physical_batch already owns the observable diagnostic,
+`module validation failed: invalid physical retirement transaction`. GraphMarker's
+invalid helper only constructs that error; it does not poison the graph, alter
+credits or perform another semantic action. General graph-owner operations have
+different callers and retain their existing detailed Result errors.
+
+Change only the physical batch authority methods (sweep_batch, is_survivor and
+prepare_retirement) to Option results and propagate their rejection directly.
+Keep phase/gray/batch-size/credit checks, assertion order, borrowed authority,
+prepared-credit commit and the transaction diagnostic unchanged. This removes
+discarded diagnostic construction and cold/unwind code from the sampled selection
+callback; it does not weaken admission or cache validity. The architecture is sound
+apart from this local mismatch between internal validation and diagnostic ownership;
+no new runtime mechanism or comparative architecture study is needed.
+
+Reuse existing graph-sweep and physical-retirement tests. Strengthen the existing
+late-credit-underflow case to assert the exact transaction-boundary RuntimeError
+while retaining all no-detachment, charge and remaining-credit assertions. No new
+test suite, unsafe code, object layout or resource-accounting rule is introduced.
+Run the focused graph/retirement set and required local quality checks, then freeze
+C against authenticated ordinary B `69afa256...df9287f` (runtime `c6c0138a`). Use
+the identical harness and inspect emitted selection code for the expected removal
+of error construction before running one B/C storage and family pair (3 warmups,
+11 samples, 180-second bounds, all 68 rows). No overlapping source mutation/checks
+or local builds/tests/profiling during timing; no unchanged retry or formal gate
+claim. Final integrated correctness/performance/memory/normal-step CI and Lua
+obligations remain separate.
+
+**Retained correction and diagnostic outcome:** 19 selected graph/physical
+retirement cases pass, including exact transaction error and unchanged late-failure
+storage/credit/charge assertions. Workspace all-target Clippy, formatting, structure
+(1850 files, zero findings/exceptions) and diff checks pass. Unsafe representation
+and borrow lifetimes are unchanged; prior focused Miri evidence is not relabeled
+as a new run. The current candidate hash is
+`6696a0c2081676cf987e941da6c23d84cd3e3b954070caad0ce079bb5f206e8c`;
+B is `69afa2565307dc13ede85bd6ea67896313df909c0f011c27cb531f306df9287f`.
+Both use the identical ordinary harness/workload. Emitted selection callback loses
+its discarded RuntimeError constructor call, shrinks from 231 to 182 instruction/
+label lines, and its stack frame falls from 144 to 16 bytes. The callback remains
+out-of-line; prepare_batch stays 673 lines/304 bytes. An initial symbol selector
+also matched the enclosing monomorphization; narrowing to the closure symbol fixes
+the inspection, without a source or workload change.
+
+All four timing processes and 68 row contracts finish normally, in the declared
+B/C storage then B/C family order, three warmups/eleven samples, with hash checks
+and no overlapping local builds/tests/profiling or unchanged retry. Same M1 Max,
+macOS 26.6.2, Rust/Cargo 1.99.1/LLVM 23.1.1, ordinary source-native default release,
+target and parallelism, warm dependency/OS caches and no CPU/power isolation.
+Medians in us: reference release 135.250 -> 129.584 (0.958107), mixed release
+77.083 -> 78.500 (1.018383), sparse-cycle release 28.333 -> 28.250 (0.997071),
+iterator 5502.917 -> 5528.083 (1.004573), field read 1774.458 -> 1823.792
+(1.027802), write 2149.250 -> 2175.958 (1.012427). Mixed verification
+10.542 -> 11.375 (1.079017) and scalar live GC 10.000 -> 10.917 (1.091700)
+remain in the record. Retain the simpler diagnostic ownership and observed
+reference-release movement, not a claim of a universal speedup or closure of
+mixed/sparse/iterator gates. Original formal results remain 85/88 on the last
+frozen integrated image. Runtime/page/charge layout and successful-path allocations
+are unchanged; final memory, normal-step, complete CI and Lua remain open.
+
+**Independent iterator attribution next:** use this already frozen current image's
+identical --profile-iterator entrypoint, with three checked warm executions and
+one 35-second run, sample PID 30 1, 40-second sampler/15-second completion bounds.
+Retain the exact 2000 result, 2003 reclaimed objects and baseline live/root counts.
+Attribute only the noninlined execution wrapper, excluding setup and intervening
+collections. No rebuild or old-PG00 rerun is needed. The previous iterator profile
+predates mutable Native projection and later ownership corrections; its shares
+cannot quantify the current boundary. Source review identifies repeated Option
+child-argument derivation before and after cursor advancement in the three Vec/
+Map/Set callbacks. Check current attribution and lifetime/error-order constraints
+before selecting any change; Option representation and call-frame redesign remain
+deferred. Throughput or sample percentages are not formal timing gates.
+
+**Current iterator attribution completed:** the authenticated 6696a0c2 image
+finishes 5847 checked lifecycles in 35.003 seconds, including intervening GC.
+The exact 2000 return value, 2003 reclamations and baseline live/root restoration
+hold throughout; this lifecycle count is not an execution throughput ratio. The
+sample contains 21528 execution-wrapper observations. Inclusive region unions
+are native entry 45.211%, Vec next 29.069%, converted_option 14.692%, cursor next
+11.037% and CallContext enum allocation 8.004%. They overlap and must not be
+added. Exclusive leaves include validate_top 4.102%, SipHasher::write 3.707%,
+allocate_published 2.875% and physical reference resolution 2.016%.
+
+The visible TypeArgument::parameter and ConversionContext::parameter regions are
+only 0.395% and 0.200%; inlining prevents treating them as exact total costs, but
+the profile does not establish repeated child derivation as the dominant cause.
+Source confirms that TypeArgument already caches children in its immutable,
+pinned owner scope. Do not add another cache or infer a gate-closing speedup.
+The three callbacks retain their pre-advancement mapping check and post-advancement
+conversion checks. The general conversion path can collect/reenter and keeps the
+escaping item rooted; returning raw payload transport or bypassing conversion
+checks is not selected. Option compaction and unrelated call-frame changes remain
+deferred. Continue investigating the measured physical retirement failures rather
+than repeatedly timing this unchanged iterator.
+
+CI update: run 40852009048 (1c7fe787) passes the complete workspace test step,
+formatter grammar inventory and host-driven async example; standalone SDK feature
+consumers are still running and CLI native validation remains pending. Its other
+three jobs pass. Run 40858302663 (c6c0138a) passes structure/editor tooling and
+workspace Clippy, with Rust tests and Windows AOT validation still active. These
+are actual step results, not complete final-source CI acceptance.
+
+### Native payload admission shares resolved executable ownership (2026-10-29)
+
+The current iterator sample and source review identify a concrete repeated owner
+resolution in admit_payload_mapping: validate_executable_module checks runtime,
+exact executable availability and installation, then publish_program immediately
+resolves the same owner again. No callback, collection or state change intervenes.
+The existing Runtime::publish_executable_module already performs exactly these
+checks followed by publish_resolved_program under one module-store borrow. This
+is the established original-owner evidence model used by Native payload builders;
+no new cache, unchecked path, public API or lifetime extension is necessary.
+
+Route the payload mapping admission through that existing operation. Keep the
+initial execution check, source contract/publication order, installation validation,
+Faulted graph publication, concrete type and Rust mapping checks unchanged. The
+subsequent payload loan, root retention, poll and mutation/revision semantics stay
+at their current owners. General ConversionContext preparation has an intervening
+scope-authority check and is outside this local substitution.
+
+Validation selection: the existing five immediate scoped-payload tests cover
+identity/mapping rejection, source-error precedence, Faulted/poisoned/sweep/candidate/
+closed admission, cancellation, alias/loan exclusion, panic cleanup and root/lease
+counts. Reuse executable-owner rejection tests for foreign/uninstalled descriptors
+and store borrows; retain the existing Vec traversal/invalidation integration case.
+Run required local quality checks, inspect the emitted mapping-admission call sites,
+then freeze one candidate against ordinary B 6696a0c2 from 29060dc2's runtime source.
+Use the identical ordinary injected harness, one B/C storage then B/C family pair,
+three warmups/eleven samples, 180-second process bounds and all 68 contracts. Restore
+harness bytes before source checks; no builds/tests/profiling overlap with timing.
+No unchanged retry, formal gate claim, Option representation or call-frame change.
+Unsafe kernels and ownership lifetimes are unchanged; reuse their prior Miri evidence.
+
+**Validated outcome:** seven runtime owner/scoped-payload cases and the one
+stdlib traversal/invalidation case pass; workspace all-target Clippy, formatting,
+structure (1850 files, no findings/exceptions) and diff checks pass. No unsafe code,
+new import/reexport, widened visibility or representation changes are introduced.
+The prior current sample attributes 543/21528 execution samples (2.522%) to mapping
+admission, including 277 validate_executable samples (1.287%) and 194 publish_program
+samples (0.901%); these are overlapping regions, not removable-time predictions.
+Emitted VecStorage admission in B has one validate_executable_module and one
+publish_program call. C has neither, and one publish_executable_module call.
+
+Frozen ordinary C is
+`ff0afc3aed4c86e2900613e436d7e09c79d80875530580dc92835353e8129576`,
+from 29060dc2 plus this recorded correction; B remains 6696a0c2. Harness/workload
+hashes match the preceding trial. All four declared processes complete once and
+all 68 row contracts/hashes agree, with three warmups and eleven measured samples.
+Use the same M1 Max 32-GiB machine, macOS 26.6.2, Rust/Cargo 1.99.1/LLVM 23.1.1,
+aarch64 ordinary source-native default release/target/parallelism, warm dependency/
+OS caches, no CPU/power isolation and no overlapping builds/tests/profiling.
+Iterator median 5550.583 -> 5503.125 us (0.991450); field read
+1806.541 -> 1825.084 (1.010264), write 2174.584 -> 2195.500 (1.009618).
+Mixed release 76.250 -> 76.292 (1.000551), sparse-cycle release
+28.250 -> 28.125 (0.995575), references release 129.083 -> 129.750 (1.005167).
+Retain adverse small-duration controls: scalar live 10.333 -> 12.334 (1.193651),
+scalar release 13.125 -> 16.125 (1.228571), retained-reload GC
+95.959 -> 100.917 (1.051668). The scalar release increase is 3 us, within the
+existing 10-us absolute allowance; no gate is redefined. The storage ratio range
+is 0.975460-1.092729, family range 0.956920-1.228571. Retain the shared owner
+resolution and modest observed iterator improvement; the original three historical
+gates, final memory/normal-step/full CI and Lua obligations are still open.
+
+Further emitted-code inspection shows that physical selection already fuses
+CheckedPayload::view and HeapObject::charge into one descriptor-kind switch;
+there is no separate view/units call or temporary HeapObject reconstruction left
+in that callback. Do not introduce another representation-specific accounting
+path or a global inline hint to solve a cost the emitted code already removes.
+
+**CI checkpoint closed on 1c7fe787:** run
+[40852009048](https://github.com/kagari-lang/kagari/actions/runs/40852009048)
+is now completed/success for all four jobs. Rust includes the complete workspace
+tests, formatter inventory, async example, standalone SDK feature consumers and CLI
+native validation; Windows includes independent compiler-free deployment. This
+establishes the earlier integrated source's CI correctness, not the later page,
+transaction-diagnostic or Native-admission corrections. Runs 40858302663,
+40860544651 and 40861619912 remain active for their respective newer commits.
+
+**Next bounded release attribution:** the prior current release sample uses 1c7fe787
+runtime code, before borrow-local page geometry and transaction-diagnostic ownership.
+Freeze one new diagnostic image on e466737c with the identical existing mixed-Native
+profile entrypoint and workload. Run it once: three checked warm lifecycles, 35-second
+execution, sample PID 30 1, 30-second setup/40-second sampler/15-second completion
+bounds. Preserve exact 897 reclaimed owners per lifecycle, warm content, live and
+root restoration assertions. No PG00 resampling or ordinary timing retry. Analyze
+only profile_release_collect; construction and lifecycle counts are not GC throughput
+ratios. Build before sampling, restore all harness bytes, use default release/target/
+parallelism and no overlapping local builds/tests/profiling. Reassess physical
+selection, detachment, finalization and allocation leaves before selecting a further
+ownership correction; no new workspace container or backing ownership change is
+selected merely from source-level operation counts.
+
+**Release attribution completed:** diagnostic C
+`6863d5004ab1d209dcb588c91c18bf7b33effc9c0668e5f4d3764b5a82a5d19d`
+uses e466737c, identical profile snippet db4d1c80...a35969c1b, harness
+9d4eb404...df124e and workload a0f4518b...e2607f. The one declared process
+finishes 31102 lifecycles in 35.000 seconds with all content/reclamation/live/root
+assertions intact; setup and intervening construction are outside the sampled
+collector region. Source harness bytes are restored. Same previously recorded
+machine/toolchain/profile/cache/isolation conditions, no overlapping local heavy
+work, no PG00 rerun and no ordinary timing repeated.
+
+There are 1532 collector-wrapper samples. Exclusive leaves: prepare_batch 226
+(14.75%), selection callback 83 (5.42%), retirement_slice 99 (6.46%), checked
+batch detach 73 (4.77%), detach_checked_range 51 (3.33%), finish_sweep_disposal
+58 (3.79%), release_allocation 55 (3.59%), NativeObject drop glue 67 (4.37%),
+_xzm_free 188 (12.27%), free 47 (3.07%), platform_memset 46 (3.00%), and
+release_retired_group 24 (1.57%). Samples remain distributed across traversal,
+transaction bookkeeping, native destruction and physical allocation; neither
+sample percentages nor lifecycle totals establish per-operation speedups.
+
+Next source audit stays at those measured owners: distinguish mandatory
+all-fragment/credit/unwind checks from avoidable workspace or finalization work.
+The emitted current retirement_slice has an approximately 8-KiB bounded stack
+frame, but frame size alone is not memory traffic or proof that an uninitialized
+container would improve the gate. Likewise NativeObject currently retains both
+owned Ty and optional scoped TypeArgument; removing either requires proving
+fallback ownership and all consumers, not merely shrinking the struct. No ArrayVec,
+MaybeUninit workspace, Native metadata layout, page geometry or last-backing-owner
+transfer is selected yet. Preserve original acceptance and explain a concrete
+ownership model before the next implementation or measurement.
+
+### Physical selection carries page marks, not generic graph work (2026-10-29)
+
+Source and emitted callback review identify a local ownership mismatch: Scanner
+already owns a validated physical page/slot, yet constructs the general MarkRef
+(Page/Owner, duplicate slot, WorkGroup domain/index) for physical selection. The
+selection callback then dispatches the unused singleton alternative and repeatedly
+walks its borrowed GraphMarker guard to read the unchanged epoch. Physical sweep
+cannot contain singleton/static marks, enqueue work or change epoch during this
+exclusive, noncallback batch.
+
+Pass the existing borrowed PageMarks and PayloadLocation slot to SweepGraph instead.
+Capture epoch once in the closed-phase SweepGraph authority; its exclusive marker
+borrow prevents phase/epoch changes until consumption. Move the existing page-color
+calculation to PageMarks and delegate general MarkRef page reads to the same method,
+so there is no second color algorithm. Preserve the scanner's explicit <128 bound,
+all header/descriptor/occupied checks, old-epoch white behavior, gray rejection,
+work reservations and exact prepared credit commit. The general graph work identity,
+publication and singleton paths remain unchanged. No new cache or payload/page layout,
+new unsafe operation, callback-spanning proof or collector mechanism is introduced;
+this narrows the established original-owner borrow model rather than adding a new one.
+
+Reuse graph phase/page-epoch tests and existing physical sweep transaction/mark tests,
+including gray, late preflight failure, mixed kinds, budget stops and newborn page
+reuse. Required local quality checks follow; prior unsafe-kernel Miri evidence is
+unchanged. Freeze ordinary C against authenticated B ff0afc3a (e466737c runtime),
+using the identical harness. Inspect removal of generic mark dispatch and epoch
+pointer chasing before one B/C storage then B/C family diagnostic pair, 3 warmups,
+11 samples, 180-second process bounds and all 68 contracts. Build and restore harness
+before timing; no overlapping builds/tests/profiling or unchanged retry. None of
+this predicts closure of the three original historical gates or final acceptance.
+
+**Validated implementation:** 33 selected graph/physical-transaction/header cases
+and three bitmap budget/corruption/resumption cases pass. Initial test compilation
+reports obsolete SweepSlot.mark consumers (E0609/E0061); the first repair missed
+a differently named scanned variable, then all three old-field uses are updated.
+The final selected scope runs completely; no failed build is counted as a test pass
+and no assertion is removed. Workspace all-target Clippy, structure (1850 files,
+zero findings/exceptions), formatting and diff checks pass. Manual import/lifetime
+review finds no new unsafe operation, global/reexport, widened owner access or
+structural exception. General MarkRef::color delegates to the unchanged page rule;
+physical scanner bounds and original-owner page borrows remain explicit.
+
+C ordinary hash is
+`014bf3ab225e5ccc86cbe2691f07bcdb6e002605b843169c4a84679fa091b5fd`,
+from 78439ad8 plus this correction; B is ff0afc3a. Identical harness/workload hashes
+and byte-for-byte source restoration hold. The emitted selection callback loses
+the Owner/Page dispatch and two epoch-chain loads, shrinking from 181 to 166 actual
+instructions with the same 16-byte frame. prepare_batch shrinks from 672 to 664
+instructions and 304 to 288 stack bytes. Neither count predicts elapsed-time gains.
+
+All four processes and 68 contracts complete once in the declared order. Same
+M1 Max 32 GiB/macOS 26.6.2/Rust-Cargo 1.99.1 LLVM 23.1.1/default source-native
+release, target and parallelism; warm dependency/OS caches, no CPU/power isolation,
+no concurrent builds/tests/profiling, three warmups and eleven samples. Medians us:
+references release 131.583 -> 126.041 (0.957882), mixed release
+76.458 -> 76.042 (0.994559), sparse-cycle release 28.208 -> 28.042 (0.994115),
+iterator 5500.375 -> 5473.375 (0.995091), field read 1803.125 -> 1772.875
+(0.983224), write 2172.625 -> 2169.042 (0.998351). Preserve the adverse
+mixed verified row 10.584 -> 12.917 (1.220427) and node release
+59.334 -> 61.125 (1.030185); scalar release 14.625 -> 13.750 (0.940171).
+Storage ratios span 0.936517-1.030185; families 0.923077-1.220427. Retain the
+narrowed ownership interface and observed reference-release improvement, not a
+universal win or final-gate claim. Formal historical acceptance remains 85/88 on
+its earlier frozen image, with all three original misses still open for this source.
+
+The current release sample's 46 memset leaves mostly belong to the allocator:
+35 descend through xzm_free under final Retired/RetiredRange/backing release, one
+under payload destruction, and only ten directly under retirement_slice (0.653%
+of collector samples). This does not support a new uninitialized workspace container.
+A separate source-level allocation issue merits bounded inspection: Pages::class
+rejects every alignment above 16, including the mixed workload's 128 A64 payloads.
+Determine the complete Native/header layout and current allocation counts before
+selecting an alignment policy; do not equate the 64-byte user payload with the whole
+object or assume a slab-placement speedup. Existing size classes, 1024-byte payload
+pages, independent backing/descriptor Arc ownership and final-owner rules remain
+unchanged in this checkpoint.
+
+### Bounded Native alignment-policy diagnosis (2026-10-29)
+
+A disposable compile-target layout probe on 95d4f38c confirms NativeObject is
+160 bytes on the current aarch64 toolchain. After Native payload composition,
+ObjectHeader placement and required padding, the six benchmark representations are:
+
+| User payload size/alignment | Complete allocation size/alignment | Current placement |
+| --- | --- | --- |
+| 8/8 | 176/8 | 192-byte slab class |
+| 24/8 | 192/8 | 192-byte slab class |
+| 48/16 | 224/16 | 224-byte slab class |
+| 1024/16 | 1200/16 | Separate large allocation |
+| 1056/16 | 1232/16 | Separate large allocation |
+| 64/64 | 320/64 | Separate solely because alignment exceeds 16 |
+
+The temporary test completed and its file was restored byte-for-byte; no persistent
+test or instrumentation is added. In the exact 128x6 family, the 128 A64 values
+therefore account for 128 separate allocations and their 128 Arc backing controls.
+A 1024-byte page with 64-byte base alignment and the existing 320-byte stride fits
+three complete objects while retaining their required alignment. For this otherwise
+unchanged population, 43 such pages would replace those 128 large regions: a
+**prediction** of 85 fewer regions and 170 fewer raw-plus-Arc requests, not measured
+CPU savings. The 1200/1232-byte cases remain large. Sparse-cycle/iterator failures
+have different causes and must not be claimed fixed by this diagnosis.
+
+Mature reference: Go 1.26.0's [allocator](https://github.com/golang/go/blob/go1.26.0/src/runtime/malloc.go)
+uses page runs with fixed size classes and free bitmaps; its
+[span class](https://github.com/golang/go/blob/go1.26.0/src/runtime/mheap.go)
+separates size and scan policy. Its 8-KiB heap pages, concurrent allocation,
+retained spans and Go type-alignment assumptions differ from Kagari's 1-KiB
+immediate-empty-release allocator and arbitrary Rust provider layouts. Reuse the
+principle that a reusable allocation group must encode its actual representation
+constraints; do not copy Go's pooling/lifetime policy or infer equal performance.
+An additional bounded alignment group is needed here specifically for admitted
+Rust providers whose alignment exceeds the existing page base alignment.
+
+**Next finite phase-4 trial:** preserve 1024-byte payload pages and all 24 existing
+strides, adding a separate 64-byte-base-aligned group tier for requests aligned to
+32/64 bytes. Ordinary <=16-byte requests keep their original tier and allocation
+layout. Key availability by alignment tier, stride and edge policy; a high-alignment
+request cannot consume an ordinary page even when its current address happens to
+be aligned. Both tiers share the same original-owner geometry/bitmap/mark controls,
+32-owner transaction, full preflight, immediate empty release and independent
+Arc backing/descriptor ownership. Larger or more-aligned values keep the existing
+large path. This is an explicit extension of alignment admission beyond checkpoint
+1's then-frozen 16-byte rule, not a backing-owner transfer or page-size change.
+
+Before implementation, freeze the ordinary current image and a separate current
+memory/occupancy diagnostic image. Reuse the original allocation/alignment/failure/
+reuse tests and extend their existing matrix with both tiers and >64-byte fallback;
+verify cross-tier nonreuse, exact Layout deallocation, partial pages, pointer stability
+and physical retirement. Run focused strict-provenance Miri for the changed allocation
+kernel and required local quality checks. Then one serial ordinary B/C storage and
+family pair plus separate three-lifecycle memory/occupancy diagnostics must test the
+predicted request reduction, empty-runtime teardown and setup/retained/peak costs.
+The larger availability array is real memory overhead; do not omit it or raise the
+existing gates. No overlapping timing/build/test/profiling, no unchanged retry.
+Retain the trial only if its measured tradeoff justifies it; otherwise restore the
+prior alignment model and record the result. Final seven-pair historical gates,
+normal-step evidence, complete final-source CI and Lua refresh remain outstanding.
+
+**Alignment trial outcome (2026-10-29).** Retain the separate 16/64-byte tiers for
+the measured reduction in allocation requests and requested memory, not as a fix
+for release throughput. The 24 compile-target geometries remain shared; both
+payload layouts prove the same disjoint trailer offsets at compile time. Availability
+has 96 groups instead of 48, with ordinary group indices unchanged. No new owner,
+cache, unsafe primitive, size class, page capacity or GC budget is introduced.
+
+The selected native tests total 38 distinct passing cases: 26 allocation/geometry/
+header/transaction/mark tests, the inline Native lifecycle case and 11 retirement
+tests. Two first-run failures were obsolete placement expectations, not suppressed
+semantic checks: zero-sized align-64 storage is now slab-backed (retain an align-128
+large fallback case), and a taken align-64 Native plus newborn now occupy different
+slots of the same page. The latter still verifies tombstone retention, old-reference
+rejection, newborn liveness and zero final backing. Both failing cases passed after
+their placement assertions were updated. Eight selected strict-provenance Miri cases
+passed on nightly-2026-07-27: class/alignment/reuse, shared geometry, partial
+initialization unwind, aligned header destruction, inline Native lifecycle,
+small/large mark reuse, newborn partial disposal and taken/newborn same-page
+retirement. The first seven completed in 214.17 s; the last test in 34.38 s.
+Structure (1850 files, no exceptions/findings), formatting, workspace all-target
+Clippy and diff checks pass. No local full-workspace tests were run.
+
+Reproduction uses the preceding trial commands and the unchanged runtime-storage
+harness. Ordinary B SHA-256 is
+`014bf3ab225e5ccc86cbe2691f07bcdb6e002605b843169c4a84679fa091b5fd`
+(95d4f38c production source); C is
+`40d52807e19bca4d85313a1e58f77eb1c509a7f2c23da330d5ffcc4956720514`
+(113df717 plus this implementation). The temporary, identical iterator profile
+entrypoint was restored byte-for-byte before checks; ordinary runs do not select it.
+The frozen diagnostics images are B
+`09d018f6d10ae18f6df6a3125006d0f37d21fe582cad2a7e631454c4b0216fc3`
+and C `5b1db36945a8ec0621d834fe02d54040b90c418f0c412ed5a1fa4439864ad403`.
+Source diffs, workload/harness hashes and raw samples are disposable evidence under
+`target/gc-aligned-pages`; conclusions here do not depend on retaining that directory.
+
+Same M1 Max/32 GiB, macOS 26.6.2, Rust/Cargo 1.99.1 and LLVM 23.1.1;
+default release/target/parallelism, ordinary source/native features and separate
+diagnostics builds. Dependency and ordinary OS caches are warm; CPU/power are not
+isolated. One serial B/C storage pair followed by one B/C family pair completes all
+68 contracts, with three warmups and eleven samples each, without concurrent
+builds/tests/profiling. Medians in microseconds:
+
+| Operation | B | C | C/B |
+| --- | ---: | ---: | ---: |
+| Mixed Native construction | 1070.125 | 1046.583 | 0.978001 |
+| Mixed Native release | 75.875 | 76.458 | 1.007684 |
+| Sparse-cycle release | 28.041 | 27.708 | 0.988125 |
+| Iterator | 5629.791 | 5487.000 | 0.974637 |
+| Field read | 1770.333 | 1834.125 | 1.036034 |
+| Field write | 2123.083 | 2131.375 | 1.003906 |
+| Scalar execution | 528.541 | 561.208 | 1.061806 |
+| Reference release | 124.709 | 130.083 | 1.043092 |
+| Mixed verified | 11.042 | 12.167 | 1.101884 |
+
+Preserve the adverse scalar/read/reference/verified controls. Storage ratios span
+0.945457–1.061806; family ratios 0.857838–1.101884. One pair cannot establish
+a general speedup or prove those changes are noise. In particular, fewer allocations
+did **not** improve the targeted mixed release row, so do not repeat this unchanged
+trial or extend the alignment policy to chase that gate.
+
+Separate three-lifecycle memory runs validate 39 phase rows and seven peak families
+per image, with all 42 Runtime teardowns zero. Mixed construction/live retention and
+post-setup peak each fall by 4216 B; construction requests fall by exactly 170,
+matching the predicted 85 fewer raw-plus-Arc region pairs. Setup requested retention
+rises by 96 B in every family. This measured heap balance is not the in-memory size
+of the enlarged inline availability array and excludes stack/allocator overhead.
+Other post-setup retained deltas are unchanged. Mixed post-setup peak is
+556912 -> 552696 B; setup peak 19923061 -> 19923157 B. All 60 diagnostic
+setup/backing/peak bounds pass using the original formulas (setup 1.10 B, others
+B + max(10% B, 4096)); these are one-pair controls, not final historical acceptance.
+
+Full CI also completed successfully for c6c0138a (run 40858302663) and 29060dc2
+(40860544651). Later runs remain in progress and cannot establish this revision's
+acceptance. Formal historical performance remains 85/88 on the previously frozen
+image; iterator, mixed release and sparse release remain open. Before another
+optimization, refresh attribution of the now-small sparse release population on
+this retained source and distinguish collector transaction setup, page inspection,
+per-object disposal and final-owner allocator costs. Preserve the exact 129-object
+release contract and normal-step budget. Do not assume the mixed release profile
+explains sparse release, add an unmeasured fast path, or enlarge the owner limit.
+Final seven-pair historical gates, normal-step evidence, complete final-source CI
+and Lua refresh remain outstanding.
+
+**Exact sparse-release observation on 861d903a (2026-10-29).** A disposable
+harness copies the existing sparse lifecycle unchanged: construct 4096 nodes,
+dense collection, retain every 64th node, three complete 4096-node churn rounds
+with alias/mutation checks, sparse-live collection, then drop the retained vector.
+After three unobserved warm lifecycles, eleven fresh lifecycles enable the existing
+bounded observation API only around the final explicit collection. No runtime
+instrumentation or production change is added; the harness is restored byte-for-byte.
+Image `30ee9c1b9c5b35e966b833331caf8b5ab9006731ea13b14d3ad5f66674c00a97`
+uses the same ordinary build/environment as the alignment trial. The process
+completes once in 4.83 s with compilation outside the runtime measurements; raw
+provenance resides under `target/gc-sparse-release-observation`.
+
+All eleven windows reclaim exactly 129 objects, leave zero live objects/active
+roots, and contain one fresh explicit cycle/slice with 9024 charged work units,
+no carried cycle, no automatic call/pressure assist and no failure. Counts are
+identical: 65 payload destructors, 134 backing-release observations (five batch
+control releases plus 129 final token releases), one retired root entry, two
+descriptor weak-state drops, one graph queue compaction and one cycle cleanup.
+There are zero provider scans, metadata drops, weak-token drops or empty-map
+releases. The preceding memory probe establishes 129 active physical pages,
+132096 B slab payload capacity and 110992 B unused capacity after sparsification
+and every churn round. This is live sparse fragmentation, not a sweep over the
+historical 1464-page dense population.
+
+Observed explicit duration spans 34.875–44.375 us (median 36.541), versus the
+separate unobserved trial's 27.708 us. Nested payload-drop sums have median
+4.665 us and backing-release sums 10.084 us; graph queue compaction is 0.334 us.
+Per-operation clock/accounting overhead is material, these samples are nested,
+and medians cannot be subtracted to manufacture exclusive ordinary percentages.
+They establish operation counts and ownership, not a new speed result or proof
+that allocator work alone explains the gap. Explicit collection supplies an
+unbounded structural allowance to the same engine; its five physical batches
+come from the 32-owner limit, not repeated normal 1024-work budget exhaustion.
+Consequently increasing the normal-step budget cannot fix this explicit row.
+Continue the finite attribution by inspecting preparation/commit and final release
+under their existing exclusive ownership; no new fast path is justified yet.
+
+**Next bounded release-boundary trial.** Inspection finds that
+`finish_sweep_disposal` reconstructs a generic `MarkRef` (slot plus WorkGroup and
+owner/page discriminant) even though `release_retired_group` accepts only page
+marks and ignores the slot and work-group identity. The only production caller
+already owns the exact physical allocation under the exclusive Pages borrow.
+Narrow this internal interface to `&PageMarks`, move the unchanged empty-page
+unregistration algorithm to that owner, and obtain it only for a page proven empty.
+Preserve the existing bounded-slot assertion and all closed-phase, active/queued,
+gray-bit and credit checks, including error behavior. No owner transfer, new cache,
+new unsafe operation, bulk credit subtraction or budget change is allowed. This
+reuses the already reviewed page-owned mark model (Go 1.26.0 span/bitmap ownership)
+with Kagari's existing single-driver and immediate-release rules. It is a local
+boundary correction; the prior sparse observation does not quantify its savings.
+Use existing graph/retirement/mark-reuse tests, local quality checks, compiled-path
+inspection and one serial current B/C storage/families diagnostic pair. Freeze B
+as the alignment trial's ordinary C; no changed workload or repeated unchanged run.
+Keep or reject using the actual result, with original acceptance gates unchanged.
+
+**Release-boundary trial rejected (2026-10-29).** The implementation and its
+test-adapter changes are restored to f9236912; no runtime change remains. Twenty-eight
+selected graph/physical retirement/mark/transaction tests and structure, formatting,
+workspace all-target Clippy and diff checks passed on the trial. Existing allocation
+Miri evidence was not rerun: the trial added no unsafe operations or storage/lifetime
+changes. Compiled ARM64 release_retired_group shrank from 104 to 100 instructions,
+with its 112-byte frame unchanged, but finish_sweep_disposal grew from 327 to 334
+instructions while its frame shrank from 176 to 144 bytes. Smaller transport and a
+smaller frame did not establish an end-to-end benefit.
+
+Authenticated ordinary B is the previous alignment C
+`40d52807e19bca4d85313a1e58f77eb1c509a7f2c23da330d5ffcc4956720514`;
+trial C is `038ab949bead445aae49dd1e51352adfba3613b856851b02648d79a26091ac56`
+(f9236912 plus the restored diff). One B/C storage then B/C families pair completed
+all 68 contracts with three warmups/eleven samples, on the same M1 Max/macOS/Rust
+configuration and default ordinary release settings, without concurrent local
+builds/tests/profiles or unchanged retries. Temporary harness changes were restored
+before execution. Disposable sources, hashes, disassembly and raw results are under
+`target/gc-page-mark-release`. Medians in microseconds:
+
+| Operation | B | Trial C | C/B |
+| --- | ---: | ---: | ---: |
+| Mixed Native release | 78.292 | 76.250 | 0.973918 |
+| Sparse-cycle release | 29.875 | 34.250 | 1.146444 |
+| Reference release | 133.375 | 144.125 | 1.080600 |
+| Script-key Map release | 44.125 | 63.959 | 1.449496 |
+| Iterator | 5563.792 | 5576.292 | 1.002247 |
+| Field read | 1810.000 | 1815.000 | 1.002762 |
+| Field write | 2149.750 | 2184.709 | 1.016262 |
+| Scalar execution | 528.250 | 530.667 | 1.004575 |
+
+Storage ratios span 0.960699–1.057510; families 0.729277–1.449496. Scalar
+release is 32.750 -> 33.708 us, substantially above this identical B image's
+earlier 13.583 us diagnostic. A post-run host snapshot reports load averages
+10.12/10.89/8.50, but there is no in-run isolation evidence that assigns the changes
+to scheduling or to the patch. Do not call the adverse rows noise, infer a universal
+regression, or rerun unchanged until favorable. Reject for lack of sufficient
+benefit and retain the existing general mark boundary. This result cannot change
+the last formal 85/88 result or close any current gate. Continue attribution of
+whole physical prepare/commit versus disposal before selecting another local change;
+Option compaction, call-frame redesign and owner-transfer changes remain deferred.
+
+**Sparse physical phase attribution (2026-10-29).** The next disposable image
+uses the exact eleven fresh sparse lifecycles and three warmups above, with ordinary
+collector observations disabled. A thread-local diagnostic switch brackets only
+the final release. Two nonoverlapping spans per physical batch cover (1) workspace
+initialization, storage/graph borrowing, selection, preflight, detach and commit;
+(2) dispose_sweep_batch, including payload Drop, physical finish, final token Drop
+and resource publication. Timestamps and fixed counters add no allocations inside
+the window. They still perturb code generation/timing and are not ordinary gate
+evidence. All four touched files were restored byte-for-byte and the temporary
+module removed after the successful build; no diagnostic code is committed.
+
+Image `11ed86bdc6ddb4eee33a829146a5fc4f1750a35c769a192f785a2d2a3411a670`
+is f9236912 plus that instrumentation. Same default ordinary release environment;
+one bounded process completes in 4.56 s, with no concurrent builds/tests/profiling.
+The exact workload hash is
+`a0f4518bf819b784c0c1291c344ca88ccf74d6715e2c038db6cf358e74e2607f`.
+All eleven samples reclaim 129 objects, leave zero live objects/roots and record
+five preparation plus five disposal spans. Diagnostic microseconds (min/median/max):
+caller 27.041/27.583/29.000; collection report 26.959/27.500/28.958;
+preparation sums 6.248/6.332/6.626; disposal sums 12.375/12.711/13.875.
+Each sample's report minus its two disjoint span sums is nonnegative; these
+per-sample residuals are 8.252/8.538/8.747 us. That residual includes other collector
+phases, timer publication and caller-boundary differences, not a separately measured
+function or removable overhead. Do not subtract independent medians or use these
+perturbed values to declare the original sparse gate passed.
+
+Raw evidence is disposable under `target/gc-sparse-release-phases`. The default
+release executable is currently this diagnostic image; any subsequent ordinary
+candidate must be rebuilt from restored sources, or use an already authenticated
+frozen ordinary image. Next split only the identified disposal span into payload
+destruction, physical-control finishing and final-token/backing release, using
+batch-level clocks rather than the materially more expensive per-object observation
+mode. This is finite attribution of the existing failed gate, not a new optimization
+queue or a reason to change the 32-owner bound. CI run 40869808775 on f9236912 has
+successful structure/editor jobs; Rust is still in Run tests and Windows is still
+running its formatter contract step. Neither final CI nor the goal is complete.
+
+**Disposal subphase attribution (2026-10-29).** A second temporary diagnostic
+adds three batch-level, nonoverlapping spans inside disposal, with no opt-in
+per-object observer. The unchanged sparse lifecycle runs three warmups and eleven
+fresh repetitions once (4.83 s). Each reclaims 129 objects, leaves no live objects
+or roots and records five instances of every span. Image
+`60e18de6d3206861123cf5e6da7b1b4d2a2609bf1c2def9ac6aff9b587df4511`
+uses 32e82dfc plus the temporary probe, same toolchain/machine/default ordinary
+release settings as above, no overlapping build/test/profile. Microseconds
+(min/median/max): report 27.875/28.083/34.375; preparation 6.166/6.334/6.500;
+whole disposal 13.084/13.290/14.333; payload destruction 3.582/3.667/3.917;
+physical control finishing 2.167/2.208/2.252; final token release
+6.623/6.752/7.582. Subspans are nested in disposal and cannot be added to it.
+The per-sample subspan sum is checked below its enclosing disposal span. These
+perturbed measurements select further inspection, not a final performance result.
+All probe sources were restored and its module removed. Raw hashes/source/results
+are under `target/gc-sparse-disposal-phases`; default target output is diagnostic.
+
+**Next finite finalizer trial.** Source and ARM64 inspection show an avoidable
+transport step in the dominant final-token region: the batch takes each Option
+token by value, then RetiredRange::release copies its 56-byte payload into a new
+112-byte stack frame before calling Drop. Payload destruction and physical finish
+have already completed. Keep the existing Arc backing/descriptor ownership and
+Drop implementations, but release the token in its existing Option slot under
+catch_unwind. An assignment of None lets ordinary Rust drop glue destroy the
+old initialized token in place; no raw drop_in_place, manual refcount, owner
+transfer, uninitialized storage or new heap allocation is proposed. Apply the
+same slot-release boundary to abandoned-batch cleanup. Preserve all quarantine,
+remaining-payload cleanup, outside-borrow destruction and per-kind observation.
+
+The reviewed reference is Rust 1.99.1's [assignment semantics](https://doc.rust-lang.org/reference/expressions/operator-expr.html#assignment-expressions)
+and [catch_unwind contract](https://doc.rust-lang.org/std/panic/fn.catch_unwind.html):
+the compiler owns drop/move and unwind cleanup; catch_unwind catches unwinding
+panics, not aborts. Verify the empty-slot/exactly-once outcome after a panicking
+Drop with a disposable primitive probe and focused physical cleanup/Miri contracts.
+This replaces an internal by-value finalizer, not script Option representation.
+No speedup follows merely from seeing the copy. Freeze the retained alignment
+ordinary image as B, inspect generated code, then run one B/C storage/family pair
+after checks; reject if the total tradeoff is adverse. Original gates stay fixed.
+
+**In-place finalizer rejected (2026-10-29).** Restore all three runtime/test files
+to 32e82dfc. The safe assignment probe confirms that a panicking owner and its
+fields are dropped once, the Option slot becomes None, and later owners still
+drop once. Thirty-three selected page/retirement/transaction/mark tests pass;
+four strict-provenance Miri cases pass in 68.20 s (multi-token unwind,
+bounded-range destructor panic, range teardown fallback, newborn partial disposal).
+Structure, formatting, workspace all-target Clippy and restored-source diff checks
+pass. No layout, heap-allocation or owner-count policy changed. The source cleanup
+removed the now-unused by-value range release method and kept standalone token
+tests' panic assertions; those test adaptations are also reverted with the trial.
+
+Ordinary B remains `40d52807e19bca4d85313a1e58f77eb1c509a7f2c23da330d5ffcc4956720514`;
+trial C is `38314ca90e1dca881de5287a1b36c4027ae0d311ced00da52b9faca1956996f0`.
+Same default release settings, machine/toolchain/cache treatment and identical
+harness; one serial B/C storage then B/C family pair, three warmups/eleven samples,
+no concurrent builds/tests/profiles, all 68 contracts complete. The slot finalizer
+has a 48-byte frame and no 56-byte range copy, compared with the former 112-byte
+frame. It writes None on both normal and unwind paths. However, the enclosing
+retirement_slice expands from 9457 to 9732 ARM64 instructions. This does not by
+itself identify an instruction-cache cause, and a smaller helper cannot stand in
+for end-to-end evidence. Diagnostic medians (us):
+
+| Operation | B | Trial C | C/B |
+| --- | ---: | ---: | ---: |
+| Sparse release | 27.667 | 27.458 | 0.992446 |
+| Mixed Native release | 74.625 | 77.958 | 1.044663 |
+| Reference release | 127.500 | 164.542 | 1.290525 |
+| Interface release | 34.875 | 39.750 | 1.139785 |
+| Generic-interface release | 35.083 | 40.125 | 1.143716 |
+| Iterator | 5518.833 | 5507.334 | 0.997916 |
+| Field read | 1803.292 | 1791.708 | 0.993576 |
+| Field write | 2145.250 | 2180.958 | 1.016645 |
+
+Storage ratios span 0.966582–1.143716; families 0.827863–1.290525. Dense cycle
+is 1010.000 -> 1041.250 us and three churn rows regress 8.4–9.0%. Reject the
+total tradeoff; do not rerun unchanged or retain the helper on its assembly alone.
+Evidence is under `target/gc-inplace-retired-release`; lasting conclusions here
+survive cleanup. All prior final-gate obligations remain open. Before another
+token/mark micro-change, inspect why the phase coordinator absorbs such a large
+physical retirement implementation and whether its existing logical boundary
+actually survives code generation. A code-size observation is not proof of a
+performance root cause; validate a bounded boundary correction against controls.
+
+**Finite physical-kernel boundary trial.** On the retained ordinary image, neither
+retire_physical_batch nor dispose_sweep_batch survives as a callable symbol:
+retirement_slice absorbs them alongside metadata retirement stages. Its 9457
+ARM64 instructions occupy about 37 KiB, and entry reserves 7984 stack bytes
+(96 + 4096 + 3792), including physical token workspaces even when service resumes
+in a later stage. The previous experiments changed this coordinator's generated
+body despite only altering narrow helpers. This establishes compiler-boundary
+coupling, not a measured cache-miss cause.
+
+Trial one local `inline(never)` on the already cohesive retire_physical_batch
+boundary, keeping the original by-value token release and all algorithmic code.
+Its stack-owned batch still covers prepare, detach, disposal and resource publication;
+only the small result crosses back to phase orchestration. Rust's
+[inline attribute documentation](https://doc.rust-lang.org/reference/attributes/codegen.html#the-inline-attribute)
+(1.99.1 toolchain) warns that this is a hint and can hurt performance. Inspect the
+actual generated caller/callee, including nested stack costs, and keep only if one
+serial unchanged B/C storage/family pair supports the tradeoff. No blanket hints,
+new cache, altered work bounds, separate explicit-GC algorithm or workload changes.
+Reuse the original physical owner/budget/unwind tests and required quality checks;
+prior Miri remains applicable because no data flow, unsafe code or drop order changes.
+
+**Physical-kernel boundary rejected (2026-10-29).** Restore the single attribute
+and its comment. Six focused full/normal owner-bound, workspace-budget, range-cut,
+unwind and mark/newborn reuse tests pass, as do structure, formatting, workspace
+all-target Clippy and diff checks. No new Miri run is needed for a codegen hint.
+The intended compiled boundary exists: retirement_slice shrinks from 9457 to
+8407 instructions and its own frame from 7984 to 5328 bytes; the new physical
+callee has 936 instructions and a 3312-byte frame. The two nested frames total
+8640 bytes (656 more than the old coordinator), before other callees. Do not
+advertise the coordinator reduction as a peak-stack win.
+
+Ordinary trial C is
+`305ad14210e75857e07cfd0589e1d6207f4a510eeb3e1e0de033dea34a4832d5`;
+B remains the retained alignment image 40d52807. One serial B/C storage/families
+pair completes all 68 contracts, three warmups/eleven samples, same default
+ordinary release/environment and no concurrent build/test/profile. Medians us:
+mixed release 74.375 -> 75.209 (1.011213), sparse release 27.375 -> 30.458
+(1.112621), reference release 126.459 -> 128.458 (1.015807), scalar release
+13.500 -> 20.750 (1.537037), iterator 5528.917 -> 5484.042 (0.991884),
+field read 1802.417 -> 1754.958 (0.973669), write 2143.250 -> 2149.542
+(1.002936). Storage ratios span 0.973077–1.053236 and families
+0.981447–1.537037. Dense cycles are 1014.458 -> 1010.041 us, while churn
+rows regress 2.2–3.3%. The targeted tradeoff does not justify retention; no
+unchanged retry or broader inline-hint search follows. Raw evidence is under
+`target/gc-physical-kernel-boundary`. All runtime/test files now match 32e82dfc.
+
+**Next architecture audit, before implementation:** the dominant final-token span
+retains an Arc backing clone even when its original physical page will become
+empty in this batch. Determine whether the original page owner can instead move
+into a bounded retirement owner when a single checked fragment covers that whole
+page, with the existing shared path for partial/multiple-fragment pages. This is
+an explicit review of the earlier frozen ownership model, not authorization to
+silently bypass it: first specify page-index reuse, mark-credit retirement,
+live/retiring byte accounting, failure/unwind cleanup and descriptor lifetimes,
+and check synchronous destructor reentry and diagnostics. Moving an owner must
+not allocate, free its marks early, expose raw borrowed control storage, weaken
+the 32-owner/work bounds, retain empty pages or move live payloads. Preserve
+independent descriptor ownership. Compare mature sweep/finalization ownership
+mechanisms before selecting a concrete change; the previous coallocated-refcount
+trial and its adverse results remain evidence against simply removing Arc
+allocations. No owner-transfer implementation is selected by these timing results
+alone. Iterator, mixed/sparse historical gates and all final acceptance obligations
+remain open; current production is still the retained alignment implementation.
+
+### Whole-page retirement ownership audit (2026-10-29)
+
+**Decision:** do not implement the proposed whole-page transfer from the preceding
+checkpoint. The current evidence does not justify its additional ownership state.
+This closes that audit, not the remaining performance gates. Production still
+matches the retained alignment implementation; no runtime experiment or timing
+retry accompanies this decision.
+
+The existing path clones the backing owner when detaching a fragment, drops the
+directory's owner at physical finish, and drops the final token outside heap/graph
+borrows. Transferring the original owner could remove one strong increment and one
+nonfinal decrement for an eligible page. It would **not** remove either of the two
+allocation releases (raw backing and Arc control), descriptor ownership, payload
+Drop or the final strong decrement. Consequently the measured 6.752-us median
+final-token region is not an estimate of recoverable transfer cost. The proposed
+savings principally concern prepare/control finish, not removal of that region.
+
+The source audit identifies the responsibilities a future alternative must retain:
+
+- A single checked fragment may transfer only when its count plus the page's free
+  count equals the slot count. Reserved slots and separately retiring fragments
+  count against eligibility. Small/large controls and marks must remain owned until
+  `release_retired_group` succeeds; the physical index cannot become reusable early.
+- Active/nonfull list removal must precede any destructor reentry, without publishing
+  released bytes. `Scanner::advance` already advances past an exhausted page, but
+  both the stored cursor and the checked batch's preview cursor must remain valid
+  when multiple pages are removed. Moving `Allocation` is insufficient by itself.
+- `storage_usage` currently accepts calls outside conflicting loans/borrows,
+  including during detached disposal and after quarantine. It enumerates physical
+  backing and embedded marks through the directory. A unit `Retiring` sentinel
+  would omit still-owned memory. Copying usage into persistent counters would become
+  stale if an abandoned token freed its backing without finishing the transaction.
+  The existing abandoned-batch contract deliberately quarantines without publishing
+  successful accounting settlement; the original directory owner still retains
+  backing until teardown. A transfer therefore also changes failure retention.
+- Token Drop must still dispose each initialized payload exactly once after the
+  storage/graph borrows end, even after an earlier payload panics. Descriptor
+  provenance needs an independent owner through final release. No borrowed raw
+  page control can replace that ownership or cross a callback.
+
+Mature reference comparison: [Go 1.26.0 sweeping](https://github.com/golang/go/blob/go1.26.0/src/runtime/mgcsweep.go)
+assigns span sweep ownership and returns an empty span to the runtime heap after
+sweeping; its span reclamation is separate from ordinary object reclamation. This
+supports explicit page ownership, but does not supply Kagari's Rust unwind,
+immediate system-allocation release or fallible host-diagnostic contract.
+[Lua 5.4.9 collection](https://www.lua.org/source/5.4/lgc.c.html) unlinks dead objects
+before freeing them and separately moves finalizable objects between managed lists.
+Its finalization/resurrection rules do not justify moving Kagari's page controls
+out of their diagnostic and failure-cleanup owner. Neither implementation proves
+that a backing transfer will improve this workload.
+
+**Independent CI evidence:** [run 40869808775](https://github.com/kagari-lang/kagari/actions/runs/40869808775)
+for `f9236912` now reports successful Rust, structure, editor-tooling and Windows
+AOT jobs. Rust includes workspace tests, formatter inventory, host async example,
+standalone SDK feature consumers and CLI native tests. The older alignment run
+40868996716 has passed workspace tests and is still completing feature consumers;
+32e82dfc's run 40872108428 still has Rust tests running, with its other three jobs
+successful. These are observed run states, not claims about unfinished jobs. No
+local full-workspace test sweep was run.
+
+**Next bounded source review:** the measured Native payload/metadata destruction
+remains another concrete owner to inspect. Trace every consumer and producer of
+`NativeObject.ty`, its optional closed `TypeArgument`, lexical executable owner and
+selected operations before deciding whether any ownership is actually duplicated.
+In particular, native naming, array/iterator classification and Future contract
+extraction still read `ty`; closed arguments carry a separate definition table and
+origin. Equal-looking type spellings do not prove interchangeable owner scopes.
+Do not select a new metadata cache, delete either provenance owner or expand into
+Option compaction/call-frame redesign from layout size alone. A proposed change
+needs a finite model, relevant primary-runtime precedent and integrated measured
+benefit; otherwise retain the current representation and report the unresolved
+performance tradeoff.
+
+This is source/CI review only. Documentation diff/link checks apply; previous
+focused tests, Miri and Clippy remain evidence for unchanged code. The three
+historical timing failures, final integrated timing/memory/normal-step evidence
+and final-revision Lua comparison remain open.
 
 ### Final graph acceptance: phase 4 first frozen image (2026-10-29)
 

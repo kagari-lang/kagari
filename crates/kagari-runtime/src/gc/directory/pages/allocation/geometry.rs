@@ -1,22 +1,31 @@
-//! Compile-target layout facts shared by both edge groups of each small class.
+//! Compile-target geometry shared across edge and base-alignment groups.
 #[cfg(test)]
 mod tests;
 
 use super::SmallHeader;
 use crate::gc::{
-    directory::pages::{CLASSES, SLAB_BYTES},
+    directory::pages::{ALIGNMENTS, CLASSES, SLAB_BYTES},
     graph::marks::PageMarks,
 };
 use std::alloc::Layout;
 
-pub(super) const PAYLOAD_LAYOUT: Layout = match Layout::from_size_align(SLAB_BYTES, 16) {
-    Ok(layout) => layout,
-    Err(_) => panic!("invalid slab payload layout"),
+pub(super) const PAYLOAD_LAYOUTS: [Layout; ALIGNMENTS.len()] = {
+    let mut layouts = [Layout::new::<()>(); ALIGNMENTS.len()];
+    let mut index = 0;
+    while index < layouts.len() {
+        layouts[index] = match Layout::from_size_align(SLAB_BYTES, ALIGNMENTS[index]) {
+            Ok(layout) => layout,
+            Err(_) => panic!("invalid slab payload layout"),
+        };
+        index += 1;
+    }
+    layouts
 };
-pub(super) const HEADER_OFFSET: usize = match PAYLOAD_LAYOUT.extend(Layout::new::<SmallHeader>()) {
-    Ok((_, offset)) => offset,
-    Err(_) => panic!("invalid slab header layout"),
-};
+pub(super) const HEADER_OFFSET: usize =
+    match PAYLOAD_LAYOUTS[0].extend(Layout::new::<SmallHeader>()) {
+        Ok((_, offset)) => offset,
+        Err(_) => panic!("invalid slab header layout"),
+    };
 pub(super) static GEOMETRIES: [ClassGeometry; CLASSES.len()] = {
     let mut entries = [ClassGeometry::new(CLASSES[0]); CLASSES.len()];
     let mut index = 0;
@@ -55,19 +64,23 @@ impl ClassGeometry {
             Ok(layout) => layout,
             Err(_) => panic!("invalid slab mark trailer"),
         };
-        let (layout, header_offset) = match PAYLOAD_LAYOUT.extend(trailer) {
-            Ok(layout) => layout,
-            Err(_) => panic!("invalid slab composite layout"),
-        };
-        assert!(header_offset == HEADER_OFFSET);
-        // Keep Layout::extend's exact size, without trailing pad_to_align.
-        assert!(layout.size() == header_offset + trailer.size());
+        let mut index = 0;
+        while index < PAYLOAD_LAYOUTS.len() {
+            let (layout, header_offset) = match PAYLOAD_LAYOUTS[index].extend(trailer) {
+                Ok(layout) => layout,
+                Err(_) => panic!("invalid slab composite layout"),
+            };
+            assert!(header_offset == HEADER_OFFSET);
+            // Keep Layout::extend's exact size, without trailing pad_to_align.
+            assert!(layout.size() == header_offset + trailer.size());
+            index += 1;
+        }
         Self {
             stride,
             slot_count,
             bitmap_words,
-            bits_offset: header_offset + bits_offset,
-            marks_offset: header_offset + marks_offset,
+            bits_offset: HEADER_OFFSET + bits_offset,
+            marks_offset: HEADER_OFFSET + marks_offset,
             trailer,
         }
     }

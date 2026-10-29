@@ -817,8 +817,9 @@ impl GcHeap {
         objects: &'a mut ObjectStorage,
         id: GcRef,
     ) -> Option<&'a mut NativeObject> {
-        let location = self.readable_identity_location(objects, id)?;
-        objects.native_mut(location)
+        objects.native_mut(id, |objects, resolved| {
+            self.admit_identity(objects, id, || resolved.mark)
+        })
     }
 
     fn value_identity(&self, objects: &ObjectStorage, value: &Value) -> Option<GcRef> {
@@ -840,8 +841,8 @@ impl GcHeap {
     }
 
     /// Read admission retains the physical evidence until its typed view ends.
-    /// Mutable access instead consumes its numeric location before borrowing the
-    /// payload exclusively; both paths share graph and initialization policy.
+    /// Native mutable access scopes resolution/admission inside its exclusive
+    /// directory borrow; all paths share graph and initialization policy.
     fn readable_direct<'a>(
         &self,
         objects: &'a ObjectStorage,

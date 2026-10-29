@@ -55,19 +55,21 @@ fn release(pages: &mut Pages, location: PayloadLocation) {
 
 #[test]
 fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
-    for align in [1, 2, 4, 8, 16, 32, 64] {
+    for align in [1, 2, 4, 8, 16, 32, 64, 128, 256] {
         for size in 0..=1050 {
             let layout = Layout::from_size_align(size, align).unwrap();
             let class = Pages::class(layout, false);
-            if size > 1024 || align > 16 {
+            if size > 1024 || align > 64 {
                 assert!(class.is_none());
             } else {
                 let group = class.unwrap();
-                let stride = CLASSES[group / 2];
+                let class = (group % GROUPS_PER_ALIGNMENT) / 2;
+                let stride = CLASSES[class];
+                assert_eq!(group / GROUPS_PER_ALIGNMENT, usize::from(align > 16));
                 assert!(stride >= size.max(1));
                 assert_eq!(stride % align, 0);
                 assert!(
-                    CLASSES[..group / 2]
+                    CLASSES[..class]
                         .iter()
                         .all(|&prior| prior < size.max(1) || prior % align != 0)
                 );
@@ -92,6 +94,30 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
             (backing.layout().size() + Backing::control_bytes()) as i128
         );
         drop(backing);
+    }
+    // Equal strides with different base-alignment guarantees cannot share a page.
+    for (first_align, second_align) in [(16, 64), (64, 16)] {
+        let mut pages = Pages::default();
+        let first = insert(&mut pages, bytes(320, first_align, true));
+        let second = insert(&mut pages, bytes(320, second_align, true));
+        assert_ne!(first.page, second.page);
+        for (location, align) in [(first, first_align), (second, second_align)] {
+            let before = pages.get(location).unwrap().pointer;
+            assert_eq!(before.as_ptr().addr() % align, 0);
+            let descriptor = bytes(320, align, true);
+            let neighbor = insert(&mut pages, descriptor);
+            assert_eq!(location.page, neighbor.page);
+            assert_eq!(
+                pages.get(neighbor).unwrap().pointer.as_ptr().addr() % align,
+                0
+            );
+            release(&mut pages, neighbor);
+            assert_eq!(pages.get(location).unwrap().pointer, before);
+        }
+        release(&mut pages, first);
+        release(&mut pages, second);
+        assert_eq!(pages.backing_bytes, 0);
+        assert!(pages.available.iter().all(Option::is_none));
     }
     assert!(
         size_of::<LargeHeader>() + Backing::control_bytes() + size_of::<Allocation>() <= 96,
@@ -235,7 +261,7 @@ fn trailer_layout_rejects_overflow_and_mutation_does_not_borrow_payload() {
 
 #[test]
 fn failed_partial_byte_initialization_restores_occupancy_and_nonfull_links() {
-    for (size, align, keep_survivor) in [(32, 16), (1025, 1), (17, 64)]
+    for (size, align, keep_survivor) in [(32, 16), (1025, 1), (17, 64), (17, 128)]
         .into_iter()
         .flat_map(|(size, align)| [false, true].map(|keep| (size, align, keep)))
     {
@@ -305,13 +331,17 @@ fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_to
 
 #[test]
 fn detached_token_retains_exact_layout_and_descriptor_after_page_owner_drops() {
-    for (size, align) in [(0, 64), (1025, 1), (1200, 256)] {
+    for (size, align, expected_backing) in [
+        (0, 64, SLAB_BYTES),
+        (0, 128, 128),
+        (1025, 1, 1025),
+        (1200, 256, 1200),
+    ] {
         let mut pages = Pages::default();
         let descriptor = bytes(size, align, false);
         let weak = Arc::downgrade(&descriptor);
-        let extent = descriptor.layout.size();
         let location = insert(&mut pages, descriptor);
-        assert_eq!(pages.backing_bytes, extent);
+        assert_eq!(pages.backing_bytes, expected_backing);
         let mut retired = pages.detach(location).unwrap();
         assert!(pages.get(location).is_none());
         assert_eq!(retired.pointer().as_ptr().addr() % align, 0);

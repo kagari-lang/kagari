@@ -1,8 +1,8 @@
 //! Typed trailer ownership; references cover controls only, never payload bytes.
 mod geometry;
 
-use self::geometry::{ClassGeometry, GEOMETRIES, HEADER_OFFSET, PAYLOAD_LAYOUT};
-use super::backing::Backing;
+use self::geometry::{ClassGeometry, GEOMETRIES, HEADER_OFFSET, PAYLOAD_LAYOUTS};
+use super::{GROUPS_PER_ALIGNMENT, backing::Backing};
 use crate::{
     gc::{
         directory::descriptors::DescriptorId, graph::marks::PageMarks, object_header::ObjectHeader,
@@ -71,12 +71,13 @@ impl Small {
     }
 
     pub(super) fn new(group: usize) -> NativeResult<Self> {
-        let geometry = &GEOMETRIES[group / 2];
+        let geometry = &GEOMETRIES[(group % GROUPS_PER_ALIGNMENT) / 2];
+        let payload = PAYLOAD_LAYOUTS[group / GROUPS_PER_ALIGNMENT];
         const {
             assert!(!needs_drop::<SmallHeader>());
             assert!(!needs_drop::<PageMarks>());
         }
-        let (backing, offset) = Backing::new(PAYLOAD_LAYOUT, geometry.trailer)?;
+        let (backing, offset) = Backing::new(payload, geometry.trailer)?;
         assert_eq!(offset, HEADER_OFFSET);
         // SAFETY: checked composite layout, unique allocation, and disjoint trailing
         // regions. All control values are initialized before this owner is returned.

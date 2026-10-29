@@ -405,7 +405,7 @@ impl NativeStorage {
             ty: ty.clone(),
             _owner: owner.clone(),
             scope: None,
-            selected: Arc::from([]),
+            selected: Arc::default(),
             revision: 0,
         })
     }

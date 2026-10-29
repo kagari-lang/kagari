@@ -1,16 +1,15 @@
 //! Closed-phase authority for one exclusive, noncallback physical retirement batch.
-use crate::{
-    error::RuntimeError,
-    gc::graph::{
-        GraphMarker, MarkPhase,
-        marks::{Color, MarkRef},
-    },
+use crate::gc::graph::{
+    GraphMarker, MarkPhase,
+    marks::{Color, PageMarks},
 };
 
 /// Borrows the graph lock exclusively; no phase change or admission can intervene.
 /// Original storage owners still validate full identities, locations and charges.
 pub(in crate::gc) struct SweepGraph<'batch, 'graph> {
     marker: &'batch mut GraphMarker<'graph>,
+    // The uninterrupted marker borrow keeps this snapshot authoritative.
+    epoch: u64,
 }
 
 /// Aggregate credit subtraction prepared before irreversible storage detachment.
@@ -24,20 +23,25 @@ pub(in crate::gc) struct PreparedRetirement<'batch, 'graph> {
 }
 
 impl<'graph> GraphMarker<'graph> {
-    pub(in crate::gc) fn sweep_batch(&mut self) -> Result<SweepGraph<'_, 'graph>, RuntimeError> {
+    /// Reject an unclosed graph; the physical transaction owns error reporting.
+    pub(in crate::gc) fn sweep_batch(&mut self) -> Option<SweepGraph<'_, 'graph>> {
         if self.phase() != MarkPhase::Sweep {
-            return Err(Self::invalid("marks are not authoritative"));
+            return None;
         }
-        Ok(SweepGraph { marker: self })
+        Some(SweepGraph {
+            epoch: self.epoch,
+            marker: self,
+        })
     }
 }
 
 impl<'batch, 'graph> SweepGraph<'batch, 'graph> {
-    pub(in crate::gc) fn is_survivor(&self, mark: MarkRef<'_>) -> Result<bool, RuntimeError> {
-        match mark.color(self.marker.epoch) {
-            Color::White => Ok(false),
-            Color::Black => Ok(true),
-            Color::Gray => Err(GraphMarker::invalid("unfinished closed graph owner")),
+    /// Gray is invalid in this closed phase; never treat unfinished work as dead.
+    pub(in crate::gc) fn is_survivor(&self, marks: &PageMarks, slot: usize) -> Option<bool> {
+        match marks.color(slot, self.epoch) {
+            Color::White => Some(false),
+            Color::Black => Some(true),
+            Color::Gray => None,
         }
     }
 
@@ -46,17 +50,13 @@ impl<'batch, 'graph> SweepGraph<'batch, 'graph> {
     pub(in crate::gc) fn prepare_retirement(
         self,
         count: usize,
-    ) -> Result<PreparedRetirement<'batch, 'graph>, RuntimeError> {
+    ) -> Option<PreparedRetirement<'batch, 'graph>> {
         if count > 32 {
-            return Err(GraphMarker::invalid(
-                "physical retirement batch exceeds bound",
-            ));
+            return None;
         }
-        let credits = self.marker.credits.checked_sub(count).ok_or_else(|| {
-            GraphMarker::invalid("physical retirement exceeds admitted graph credits")
-        })?;
+        let credits = self.marker.credits.checked_sub(count)?;
         self.marker.check_credits();
-        Ok(PreparedRetirement {
+        Some(PreparedRetirement {
             marker: self.marker,
             credits,
             count,
@@ -81,23 +81,26 @@ impl PreparedRetirement<'_, '_> {
 mod tests {
     use super::*;
     use crate::execution_metadata::scan_records::{NativeApplicationScanId, ScanRecordId};
-    use crate::gc::graph::{
-        GraphIdentity, GraphState,
-        marks::{Domain, MarkBlocks},
-    };
+    use crate::gc::graph::{GraphIdentity, GraphState};
 
     #[test]
     fn batch_authority_rejects_unclosed_faulted_and_overdrawn_retirement() {
         let state = GraphState::default();
         let mut graph = state.lock();
-        assert!(graph.sweep_batch().is_err());
+        assert!(graph.sweep_batch().is_none());
         graph.begin_cycle().unwrap();
-        assert!(graph.sweep_batch().is_err());
+        assert!(graph.sweep_batch().is_none());
         graph.finish_roots().unwrap();
-        assert!(graph.sweep_batch().is_err());
+        assert!(graph.sweep_batch().is_none());
         graph.close_mark().unwrap();
-        assert!(graph.sweep_batch().unwrap().prepare_retirement(1).is_err());
-        assert!(graph.sweep_batch().unwrap().prepare_retirement(33).is_err());
+        assert!(graph.sweep_batch().unwrap().prepare_retirement(1).is_none());
+        assert!(
+            graph
+                .sweep_batch()
+                .unwrap()
+                .prepare_retirement(33)
+                .is_none()
+        );
         graph
             .sweep_batch()
             .unwrap()
@@ -106,20 +109,19 @@ mod tests {
             .commit();
         assert_eq!(graph.credits, 0);
         graph.fault();
-        assert!(graph.sweep_batch().is_err());
+        assert!(graph.sweep_batch().is_none());
     }
 
     #[test]
     fn prepared_batch_commits_exact_credits_without_changing_group_capacity() {
         let state = GraphState::default();
         let mut graph = state.lock();
-        let mut marks = MarkBlocks::default();
-        marks.prepare(32).unwrap();
+        let marks = PageMarks::default();
         for slot in 0..33 {
             graph.prepare_identity().unwrap();
             graph.admit_prepared(
                 GraphIdentity::NativeApplication(NativeApplicationScanId::from_parts(1, slot, 0)),
-                marks.slot(Domain::NativeApplication, slot),
+                marks.slot(slot),
             );
         }
         graph.begin_cycle().unwrap();
@@ -129,11 +131,7 @@ mod tests {
         let work_credits = graph.work_credits;
         {
             let batch = graph.sweep_batch().unwrap();
-            assert!(
-                !batch
-                    .is_survivor(marks.slot(Domain::NativeApplication, 0))
-                    .unwrap()
-            );
+            assert!(!batch.is_survivor(&marks, 0).unwrap());
             let _uncommitted = batch.prepare_retirement(32).unwrap();
         }
         assert_eq!(graph.credits, 33);
@@ -146,12 +144,24 @@ mod tests {
         assert_eq!(graph.credits, 1);
         assert_eq!(graph.work_credits, work_credits);
         assert_eq!(graph.pending.capacity(), capacity);
-        assert!(graph.sweep_batch().unwrap().prepare_retirement(2).is_err());
-        let mark = marks.slot(Domain::NativeApplication, 32);
+        assert!(graph.sweep_batch().unwrap().prepare_retirement(2).is_none());
+        let mark = marks.slot(32);
         mark.set(graph.epoch, Color::Black);
-        assert!(graph.sweep_batch().unwrap().is_survivor(mark).unwrap());
+        assert!(
+            graph
+                .sweep_batch()
+                .unwrap()
+                .is_survivor(&marks, 32)
+                .unwrap()
+        );
         mark.set(graph.epoch, Color::Gray);
-        assert!(graph.sweep_batch().unwrap().is_survivor(mark).is_err());
+        assert!(
+            graph
+                .sweep_batch()
+                .unwrap()
+                .is_survivor(&marks, 32)
+                .is_none()
+        );
         mark.set(graph.epoch, Color::White);
         graph
             .sweep_batch()

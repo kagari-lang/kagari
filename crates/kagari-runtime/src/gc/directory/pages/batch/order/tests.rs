@@ -6,7 +6,7 @@ use crate::gc::directory::{
 use std::{alloc::Layout, cell::Cell, sync::Arc};
 
 thread_local! {
-    static OPERATIONS: Cell<[usize; 4]> = const { Cell::new([0; 4]) };
+    static OPERATIONS: Cell<[usize; 5]> = const { Cell::new([0; 5]) };
 }
 
 pub(super) fn record(category: usize, amount: usize) {
@@ -18,7 +18,7 @@ pub(super) fn record(category: usize, amount: usize) {
 }
 
 #[test]
-fn every_prefix_reserves_all_actual_sort_work_without_reordering_fragments() {
+fn every_prefix_reserves_disjointness_work_without_reordering_fragments() {
     let descriptor = Descriptors::default()
         .admit(Arc::new(Descriptor::new(
             PayloadKind::String,
@@ -46,13 +46,13 @@ fn every_prefix_reserves_all_actual_sort_work_without_reordering_fragments() {
                 });
             }
             let before = fragments;
-            OPERATIONS.set([0; 4]);
+            OPERATIONS.set([0; 5]);
             assert!(disjoint(&fragments[..count]));
             let counts = OPERATIONS.get();
             assert!(counts.iter().sum::<usize>() <= ordering_work(count));
             if count < 2 {
-                assert_eq!(counts, [0; 4]);
-            } else {
+                assert_eq!(counts, [0; 5]);
+            } else if counts[0] != 0 {
                 let passes = usize::BITS - (count - 1).leading_zeros();
                 assert_eq!(counts[0], 64);
                 assert_eq!(counts[2], count * passes as usize);
@@ -60,6 +60,9 @@ fn every_prefix_reserves_all_actual_sort_work_without_reordering_fragments() {
                 if count == 32 {
                     assert!(counts[1] <= 129);
                 }
+                assert!((1..count).contains(&counts[4]));
+            } else {
+                assert_eq!(counts, [0, 0, 0, 0, count - 1]);
             }
             for (actual, original) in fragments.iter().zip(before) {
                 assert_eq!(
@@ -72,7 +75,65 @@ fn every_prefix_reserves_all_actual_sort_work_without_reordering_fragments() {
             assert!(ordering_work(count) >= ordering_work(count - 1));
         }
     }
-    assert_eq!(ordering_work(2), 68);
-    assert_eq!(ordering_work(17), 230);
-    assert_eq!(ordering_work(32), 384);
+    assert_eq!(ordering_work(2), 69);
+    assert_eq!(ordering_work(17), 246);
+    assert_eq!(ordering_work(32), 415);
+}
+
+#[test]
+fn page_runs_and_reused_indices_preserve_pairwise_overlap_rejection() {
+    let descriptor = Descriptors::default()
+        .admit(Arc::new(Descriptor::new(
+            PayloadKind::String,
+            Layout::new::<u64>(),
+            size_of::<u64>(),
+            false,
+            |_| {},
+        )))
+        .unwrap();
+    for count in 2..=RETIRE_LIMIT {
+        for multiplier in (1..32).step_by(2) {
+            for descending in [false, true] {
+                let mut fragments = [None; RETIRE_LIMIT];
+                for (index, fragment) in fragments[..count].iter_mut().enumerate() {
+                    let ordinal = (index * multiplier) % RETIRE_LIMIT;
+                    let page = (ordinal / 4) as u32;
+                    *fragment = Some(Fragment {
+                        start: PayloadLocation {
+                            kind: PayloadKind::String,
+                            page: if descending { 7 - page } else { page },
+                            slot: (ordinal % 4 * 3) as u16,
+                        },
+                        descriptor,
+                        count: 2,
+                        small: true,
+                    });
+                }
+                for corrupt in [false, true] {
+                    if corrupt {
+                        // A nonadjacent revisit can overlap even though every
+                        // neighboring pair describes disjoint physical pages.
+                        let mut overlap = fragments[0].unwrap();
+                        overlap.start.slot += 1;
+                        fragments[count - 1] = Some(overlap);
+                    }
+                    let intervals = &fragments[..count];
+                    let expected = intervals.iter().enumerate().all(|(index, left)| {
+                        let left = left.unwrap();
+                        intervals[index + 1..].iter().all(|right| {
+                            let right = right.unwrap();
+                            left.start.page != right.start.page
+                                || left.start.slot as usize + left.count
+                                    <= right.start.slot as usize
+                                || right.start.slot as usize + right.count
+                                    <= left.start.slot as usize
+                        })
+                    });
+                    OPERATIONS.set([0; 5]);
+                    assert_eq!(disjoint(intervals), expected);
+                    assert!(OPERATIONS.get().iter().sum::<usize>() <= ordering_work(count));
+                }
+            }
+        }
+    }
 }
