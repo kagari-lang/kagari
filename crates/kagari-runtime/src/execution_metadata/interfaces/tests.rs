@@ -965,14 +965,14 @@ fn metadata_only_root_retains_the_heap_receiver_without_retaining_the_wrapper() 
     let result = runtime.collect_garbage().unwrap();
     assert_eq!(result.reclaimed_objects, 1);
     assert_eq!(result.reclaimed_interface_snapshots, 0);
-    assert!(!runtime.gc.validate_value(&wrapper));
+    assert_eq!(result.live_objects, 1);
     assert!(runtime.gc.validate_value(&receiver));
     assert_eq!(runtime.gc.interface_metadata(id).unwrap().data, receiver);
     drop(root);
     let result = runtime.collect_garbage().unwrap();
     assert_eq!(result.reclaimed_objects, 1);
     assert_eq!(result.reclaimed_interface_snapshots, 1);
-    assert!(!runtime.gc.validate_value(&receiver));
+    assert_eq!(result.live_objects, 0);
 }
 
 #[test]
@@ -983,7 +983,7 @@ fn independent_heap_aliases_keep_their_snapshot_after_wrapper_reuse() {
         .root_metadata(vec![MetadataRoot::Interface(id)])
         .unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-    assert!(!runtime.gc.validate_value(&old));
+    assert_eq!(runtime.gc.allocated_objects(), 0);
 
     let temporary = runtime.gc.alloc_string("reuse".into()).unwrap();
     let first = Value::Interface(runtime.gc.alloc_interface(id).unwrap());
@@ -995,7 +995,7 @@ fn independent_heap_aliases_keep_their_snapshot_after_wrapper_reuse() {
     assert_eq!(identity(&runtime, &first), id);
     assert_eq!(identity(&runtime, &second), id);
     assert!(runtime.gc.validate_value(&temporary));
-    assert!(!runtime.gc.validate_value(&old));
+    assert_eq!(runtime.gc.allocated_objects(), 3);
     let first_root = runtime.gc.root_value(first).unwrap();
     let second_root = runtime.gc.root_value(second).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
@@ -1003,7 +1003,7 @@ fn independent_heap_aliases_keep_their_snapshot_after_wrapper_reuse() {
     drop(metadata);
     drop(first_root);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-    assert!(!runtime.gc.validate_value(&first));
+    assert_eq!(runtime.gc.allocated_objects(), 1);
     assert!(runtime.gc.validate_value(&second));
     assert!(runtime.gc.interface_metadata(id).is_some());
     drop(second_root);
@@ -1038,13 +1038,15 @@ fn invalid_interface_inspection_preserves_declaration_and_slot_error_kinds() {
         .unwrap();
     assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
     runtime.collect_garbage().unwrap();
+    let (foreign, _foreign_program, _foreign_owner, _foreign_table, foreign_value) = fixture();
+    let _foreign_root = foreign.root_value(foreign_value).unwrap();
     let error = runtime
-        .resolve_interface_method(&value, &method)
+        .resolve_interface_method(&foreign_value, &method)
         .err()
         .unwrap();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     let error = runtime
-        .resolve_interface_method_slot(&value, &target, 0, &[])
+        .resolve_interface_method_slot(&foreign_value, &target, 0, &[])
         .err()
         .unwrap();
     assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);

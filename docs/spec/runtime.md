@@ -179,8 +179,10 @@ or scalar representation checks. Named `StructValueField` records exist only in
 diagnostic snapshots, not heap storage or allocation APIs.
 
 Internal values are compact tagged copies; owned payloads live outside the value
-slot. The implementation uses 16-byte `Value` in release and debug builds, with
-12-byte checked heap identities containing owner, slot and allocation generation.
+slot. The implementation uses 16-byte `Value` in release and debug builds. Builtin
+objects carry nonowning direct references to stable allocation headers; Native/Array
+aliases temporarily retain 12-byte checked identities containing owner, slot and
+allocation generation until the extraction protocol supports traced tombstones.
 Copying a value does not retain its referent or allocate/copy payload bytes.
 The implemented categories are:
 
@@ -194,17 +196,20 @@ Value {
   U64(u64),
   F32(f32),
   F64(f64),
-  Str(HeapObjectId),
-  Tuple(HeapObjectId),
-  Range(HeapObjectId),
-  Array/Map/Set/Enum/Struct/GcHandle/Closure/Cell(HeapObjectId),
-  Interface(InterfaceObjectId),
-  HostRoot(HeapObjectId),
-  HostPathView(HeapObjectId),
-  Ephemeral(HeapObjectId),
+  Str/Tuple/Range/Enum/Struct/Closure/Cell(GcRef),
+  Array/GcHandle(HeapObjectId), // Native-backed collections use these tags.
+  Interface(InterfaceObjectId), // GcRef to a wrapper tracing checked metadata.
+  HostRoot/HostPathView/Ephemeral(GcRef),
   RuntimeEphemeral(EphemeralValueId)
 }
 ```
+
+Direct references require a live frame, root or traced owner through every runtime
+query, including validation. They cannot be queried after reclamation. Host code
+retains `RootedValue` or typed handles; cloning retention does not copy script objects.
+Packed managed fields preserve pointer provenance using typed unaligned access.
+Their current 13-byte tagged extent accommodates both direct references and Native
+checked identities; the Native migration owns removal of that intermediate layout.
 
 Strings and tuple membership are immutable. Updating a tuple creates replacement
 membership, sharing referenced children; mutation of an aliased mutable child
@@ -662,6 +667,9 @@ InterfaceSnapshotId edges. A metadata root reaches its receiver even when no hea
 wrapper remains; parent caches retain their exact executable dependencies. Repeated
 upcasts reuse the parent record while retaining separate wrapper identities.
 Snapshot reads are scoped borrows; snapshot occupancy contributes to automatic GC.
+Heap wrappers use the common nonmoving allocator and bounded physical retirement.
+Their pages may be released while an independent metadata root retains the snapshot;
+that snapshot never implicitly retains a wrapper identity.
 A prepared method carries copied receiver/type data and checked metadata identities,
 so it does not keep an interface record alive after runtime teardown.
 

@@ -69,7 +69,7 @@ fn generic_operation_environment_does_not_root_its_callback_cycle() {
     drop(root);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.live_objects, 0);
-    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&closure) });
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
     assert_reclaimed(
         vm.runtime(),
         &old,
@@ -228,7 +228,7 @@ fn old_callback_cycle_is_retained_only_by_external_roots() {
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.reclaimed_objects, 2);
     assert_eq!(collected.live_objects, 0);
-    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&closure) });
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
     assert_reclaimed(
         vm.runtime(),
         &old,

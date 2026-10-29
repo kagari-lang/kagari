@@ -43,9 +43,9 @@ fn foreign_executable_edges_abort_collection_before_any_storage_is_detached() {
     );
     assert_eq!(runtime.resources().counters(), before);
     assert_eq!(runtime.gc().stats(), stats);
-    assert_eq!(runtime.gc().object_kind(dead), Some(GcObjectKind::Array));
+    assert_eq!(runtime.gc().identity_kind(dead), Some(GcObjectKind::Array));
     assert_eq!(
-        runtime.gc().object_kind(closure),
+        runtime.gc().identity_kind(closure),
         Some(GcObjectKind::Closure)
     );
 }
@@ -107,9 +107,9 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     runtime.publish_staged_reload(staged).unwrap();
     assert_ne!(runtime.select_program(&program).unwrap().key(), old);
     runtime.collect_garbage().unwrap();
-    assert_eq!(runtime.gc().object_kind(array), Some(GcObjectKind::Array));
+    assert_eq!(runtime.gc().identity_kind(array), Some(GcObjectKind::Array));
     assert_eq!(
-        runtime.gc().object_kind(id.0),
+        runtime.gc().identity_kind(id.0),
         Some(GcObjectKind::Interface)
     );
     assert!(
@@ -122,7 +122,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
 
     drop(root);
     let collected = runtime.collect_garbage().unwrap();
-    assert!(!runtime.gc().validate_value(&interface));
+    assert_eq!(collected.live_objects, 0);
     assert_eq!(runtime.modules().retention_counts(old).runtime_values, 0);
     assert!(collected.reclaimed_modules.contains(&old));
     assert!(runtime.modules().loaded(old).is_none());
@@ -258,34 +258,45 @@ fn rejects_non_storable_heap_mutations() {
 
 #[test]
 fn exhausted_object_generation_retires_storage_without_aliasing_old_values() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
-    let first = heap.alloc_cell(ValueType::I32, Value::I32(7)).unwrap();
+    let allocate = |value| {
+        let object = NativeStorage::takeable::<i32>()
+            .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), value, &owner)
+            .unwrap();
+        heap.alloc_native(object).unwrap()
+    };
+    let first = allocate(7);
     // Advance the existing allocation to its final reusable generation without
     // billions of collections. No stale handle is admitted as a root.
     heap.objects.borrow_mut().slots[first.index()].generation = u32::MAX - 1;
     let penultimate = HeapObjectId::new(heap.owner, first.index(), u32::MAX - 1);
-    let root = heap.root_value(Value::Cell(penultimate)).unwrap();
-    assert!(!heap.validate_value(&Value::Cell(first)));
+    let root = heap.root_value(Value::GcHandle(penultimate)).unwrap();
+    assert!(!heap.validate_value(&Value::GcHandle(first)));
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
 
-    let last = heap.alloc_cell(ValueType::I32, Value::I32(8)).unwrap();
+    let last = allocate(8);
     assert_eq!(last.index(), first.index());
     assert_eq!(last.generation(), u32::MAX);
-    assert!(!heap.validate_value(&Value::Cell(penultimate)));
-    let root = heap.root_value(Value::Cell(last)).unwrap();
+    assert!(!heap.validate_value(&Value::GcHandle(penultimate)));
+    let root = heap.root_value(Value::GcHandle(last)).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
 
-    let next = heap.alloc_cell(ValueType::I32, Value::I32(9)).unwrap();
+    let next = allocate(9);
     assert_ne!(next.index(), last.index());
-    assert!(!heap.validate_value(&Value::Cell(first)));
-    assert!(!heap.validate_value(&Value::Cell(last)));
-    assert!(heap.root_value(Value::Cell(last)).is_none());
-    assert_eq!(heap.cell_get(next, ValueType::I32).unwrap(), Value::I32(9));
+    assert!(!heap.validate_value(&Value::GcHandle(first)));
+    assert!(!heap.validate_value(&Value::GcHandle(last)));
+    assert!(heap.root_value(Value::GcHandle(last)).is_none());
+    assert_eq!(
+        heap.with_native::<i32, _>(next, |value| Ok(*value))
+            .unwrap(),
+        9
+    );
     assert_eq!(heap.stats().allocated_objects, 1);
 }
 
@@ -332,11 +343,13 @@ fn sparse_collection_preserves_aliases_and_mutation_without_relocating_payloads(
             Value::I32(*expected + 1)
         );
     }
-    let stale = retained[0].2;
     drop(retained);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    heap.alloc_cell(ValueType::I32, Value::I32(1)).unwrap();
-    assert!(!heap.validate_value(&Value::Cell(stale)));
+    let newborn = heap.alloc_cell(ValueType::I32, Value::I32(1)).unwrap();
+    assert_eq!(
+        heap.cell_get(newborn, ValueType::I32).unwrap(),
+        Value::I32(1)
+    );
 }
 
 fn reset_discovery_visits(heap: &GcHeap) {
@@ -387,7 +400,7 @@ fn occupied_discovery_follows_live_payloads_not_directory_peak() {
                 );
             }
         }
-        let stale = heap.objects.borrow().struct_location(roots[1].2).unwrap();
+        let stale = heap.objects.borrow().direct_location(roots[1].2).unwrap();
         drop(roots);
         reset_discovery_visits(heap);
         assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 8);
@@ -427,7 +440,7 @@ fn interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history() {
         reset_discovery_visits(heap);
         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
         assert_eq!(discovery_visits(heap), peak + 1);
-        assert!(!heap.validate_value(&original));
+        assert_eq!(heap.stats().allocated_objects, 2);
         reset_discovery_visits(heap);
         assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
         assert_eq!(discovery_visits(heap), 2);
@@ -444,15 +457,24 @@ fn interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history() {
         runtime.collect_garbage().unwrap();
         assert_eq!(discovery_visits(heap), 0);
         assert!(heap.interface_metadata(snapshot).is_some());
+        assert_eq!(heap.objects.borrow().backing_bytes(), 0);
+        #[cfg(feature = "execution-diagnostics")]
+        {
+            let usage = heap.storage_usage().unwrap();
+            assert_eq!(usage.slab_bytes + usage.large_bytes, 0);
+            assert_eq!(usage.initialized_payload_bytes, 0);
+            assert_eq!(usage.object_header_bytes, 0);
+        }
         let replacement = Value::Interface(heap.alloc_interface(snapshot).unwrap());
-        assert!(!heap.validate_value(&original));
+        assert!(heap.validate_value(&replacement));
+        assert_eq!(heap.stats().allocated_objects, 1);
         drop(metadata);
         reset_discovery_visits(heap);
         let collected = runtime.collect_garbage().unwrap();
         assert_eq!(discovery_visits(heap), 1);
         assert_eq!(collected.reclaimed_objects, 1);
         assert_eq!(collected.reclaimed_interface_snapshots, 1);
-        assert!(!heap.validate_value(&replacement));
+        assert_eq!(heap.objects.borrow().backing_bytes(), 0);
         assert_eq!(heap.stats().current_heap_units, 0);
         eprintln!(
             "interface peak={}: visits=2/2/1/0/1, metadata-only snapshot retained",
@@ -478,10 +500,13 @@ fn occupied_discovery_excludes_taken_native_identity_after_slot_reuse() {
     let taken = roots[0].1;
     assert_eq!(heap.take_native::<i32>(taken).unwrap(), 7);
     assert!(!heap.validate_value(&Value::GcHandle(taken)));
-    let replacement = heap.alloc_cell(ValueType::I32, Value::I32(42)).unwrap();
+    let object = storage
+        .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), 42, &owner)
+        .unwrap();
+    let replacement = heap.alloc_native(object).unwrap();
     assert_eq!(replacement.index(), taken.index());
     assert_ne!(replacement.generation(), taken.generation());
-    let replacement_root = heap.root_value(Value::Cell(replacement)).unwrap();
+    let replacement_root = heap.root_value(Value::GcHandle(replacement)).unwrap();
     reset_discovery_visits(heap);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     assert_eq!(discovery_visits(heap), 2);
@@ -528,13 +553,13 @@ fn roots_are_explicit_storable_slots() {
     );
     assert_eq!(heap.active_roots(), 1);
 
-    let bare_copy = root.value(heap).unwrap();
+    assert!(root.value(heap).is_some());
     let retained = root.clone();
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     drop(retained);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
-    assert!(!heap.validate_value(&bare_copy));
+    assert_eq!(heap.active_roots(), 0);
 }
 
 #[test]
@@ -607,7 +632,7 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
         Some(Value::I32(7))
     );
     // Simulate a broken engine invariant rather than a script type error.
-    let identity = heap.objects.borrow().struct_location(object).unwrap();
+    let identity = heap.objects.borrow().direct_location(object).unwrap();
     heap.objects
         .borrow_mut()
         .corrupt_structure_for_test(identity);

@@ -2,7 +2,7 @@
 use super::{Allocation, CheckedPayload, Pages};
 use crate::{
     gc::{
-        directory::{PayloadKind, PayloadLocation, descriptors::DescriptorId},
+        directory::{PayloadLocation, descriptors::DescriptorId},
         graph::marks::{Domain, MarkRef, WorkGroup},
     },
     native::storage::scan::ScanBudget,
@@ -149,10 +149,10 @@ impl<'a> Scanner<'a> {
                 slot: self.cursor.slot,
             };
             let payload = CheckedPayload::new(location, pointer, descriptor, description)?;
-            let mark = if location.kind == PayloadKind::Struct {
+            let mark = if directory == u32::MAX {
                 Some(allocation.marks()?.group_slot(
                     WorkGroup {
-                        domain: Domain::Struct,
+                        domain: Domain::Direct,
                         block: index as usize,
                     },
                     location.slot as usize,

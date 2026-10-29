@@ -36,7 +36,7 @@ impl PreparedClosure {
         let Value::Closure(id) = self.value else {
             return Err(RuntimeError::module_validation("native callback handle"));
         };
-        if runtime.gc().object_kind(id) != Some(GcObjectKind::Closure) {
+        if runtime.gc().identity_kind(id) != Some(GcObjectKind::Closure) {
             return Err(RuntimeError::module_validation(
                 "native callback generation",
             ));

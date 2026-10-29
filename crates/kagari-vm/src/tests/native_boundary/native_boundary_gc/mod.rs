@@ -349,8 +349,7 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         .unwrap();
     // Only the original enum, tuple and identity object die; both cached strings remain.
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
-    assert!(!unsafe { runtime.gc().validate_value_transport(&key) });
-    assert!(unsafe { runtime.gc().struct_layout_transport(object) }.is_none());
+    assert_eq!(runtime.gc().stats().allocated_objects, 5);
     drop(root);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);

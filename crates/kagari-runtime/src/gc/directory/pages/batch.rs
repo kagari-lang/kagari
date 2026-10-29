@@ -122,7 +122,7 @@ impl CheckedBatch<'_> {
         // Acquire both owners before mutation. Construct initialized ownership only
         // after clearing publication, so no early unwind can destroy a live payload.
         *large.descriptor_mut() = None;
-        Retired::Payload {
+        Retired {
             location: fragment.start,
             backing,
             descriptor,

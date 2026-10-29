@@ -112,9 +112,9 @@ impl RootedValue {
     /// another traced owner. Cloning this mutable root alone does not protect an
     /// old copy against replacement through an alias. Terminal backend handoffs
     /// must not collect between releasing this lease and destination publication.
-    /// With the current checked-ID representation, detached copies may be used
-    /// only for identity/expiry rejection probes that cannot dereference reclaimed
-    /// storage. Such probes are not live backend inputs.
+    /// Detached copies of direct references cannot be used for expiry probes.
+    /// Check the root token or retain a live wrong-kind/foreign input instead;
+    /// validation cannot safely inspect an already reclaimed address.
     #[doc(hidden)]
     pub unsafe fn value_transport(&self, heap: &GcHeap) -> Option<Value> {
         self.value(heap)

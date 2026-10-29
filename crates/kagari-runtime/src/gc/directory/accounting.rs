@@ -45,15 +45,11 @@ impl ObjectStorage {
         let (struct_identity_bytes, struct_identities) =
             self.pages.descriptors.struct_identity_usage();
         StorageUsage {
-            buffers: [
-                BufferUsage::new("directory", &self.slots),
-                BufferUsage::new("interface_wrappers", &self.interface_directories),
-                graph_pending,
-            ],
+            buffers: [BufferUsage::new("directory", &self.slots), graph_pending],
             graph_credits,
             graph_work_credits: 0,
-            struct_mark_pages: usage.mark_pages,
-            struct_mark_bytes: usage.mark_bytes,
+            direct_mark_pages: usage.mark_pages,
+            direct_mark_bytes: usage.mark_bytes,
             retirement: Default::default(),
             slab_bytes: usage.slabs,
             large_bytes: usage.large,

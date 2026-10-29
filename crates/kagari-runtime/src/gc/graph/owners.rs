@@ -43,13 +43,13 @@ impl GcHeap {
                 );
                 (id.map(GraphIdentity::Object), more)
             }
-            Domain::Struct => {
+            Domain::Direct => {
                 let (reference, more) = self
                     .objects
                     .try_borrow()
                     .map_err(|_| invalid())?
-                    .next_gray_struct(group.block, epoch);
-                (reference.map(GraphIdentity::Struct), more)
+                    .next_gray_direct(group.block, epoch);
+                (reference.map(GraphIdentity::Direct), more)
             }
             Domain::Moved => typed!(moved, Moved),
             Domain::Environment => metadata!(environments),
@@ -124,10 +124,10 @@ impl GcHeap {
                 self.object_location(&objects, id).ok_or_else(invalid)?;
                 action(objects.mark_for_directory(id.index()))
             }
-            GraphIdentity::Struct(reference) => {
+            GraphIdentity::Direct(reference) => {
                 let objects = self.objects.try_borrow().map_err(|_| invalid())?;
                 let location = self
-                    .identity_location(&objects, HeapObjectIdentity::Struct(reference))
+                    .identity_location(&objects, HeapObjectIdentity::Direct(reference))
                     .ok_or_else(invalid)?;
                 action(objects.mark(location).ok_or_else(invalid)?)
             }

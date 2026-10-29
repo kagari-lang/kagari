@@ -244,7 +244,7 @@ fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
             .reclaimed_modules
             .contains(&old.key())
     );
-    assert!(!runtime.gc().validate_value(&closure));
+    assert_eq!(runtime.gc().allocated_objects(), 1);
     let root = runtime.root_value(replacement).unwrap();
     // Loading the same label preserves the previous installation. Explicit
     // retirement removes its current root; the retained value still owns the cycle.
@@ -266,7 +266,7 @@ fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
             .reclaimed_modules
             .contains(&current.key())
     );
-    assert!(!runtime.gc().validate_value(&replacement));
+    assert_eq!(runtime.gc().allocated_objects(), 0);
     assert_eq!(runtime.modules.inner.borrow().cells.len(), 1);
     assert!(matches!(
         runtime

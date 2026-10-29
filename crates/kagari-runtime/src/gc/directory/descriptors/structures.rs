@@ -15,7 +15,10 @@ use crate::{
     },
     native::binding::NativeResult,
 };
-use std::sync::{Arc, OnceLock};
+use std::{
+    alloc::Layout,
+    sync::{Arc, OnceLock},
+};
 
 /// Shared exact identity and bounds, without field or reference scanning tables.
 /// The descriptor directory cannot recycle this ID while any preparation or
@@ -47,7 +50,9 @@ impl Descriptor {
         description: StructStorageLayout,
         identity: Arc<StructIdentity>,
     ) -> NativeResult<Arc<Self>> {
-        let layout = ObjectHeader::struct_layout(description.size)
+        let (layout, offset) = Layout::from_size_align(description.size, 1)
+            .ok()
+            .and_then(ObjectHeader::layout)
             .ok_or_else(|| RuntimeError::resource_limit("struct inline layout"))?;
         let mut descriptor = Self::new(
             PayloadKind::Struct,
@@ -56,6 +61,7 @@ impl Descriptor {
             |_| {},
         );
         descriptor.identity = Some(identity);
+        descriptor.payload_offset = offset;
         descriptor.structure = Some(Arc::new(description));
         // Packed fields have no Rust-owned values to destroy.
         descriptor.destroy = None;

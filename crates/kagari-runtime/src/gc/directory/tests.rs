@@ -289,9 +289,9 @@ fn inline_struct_bytes_do_not_move_and_release_the_last_sparse_page() {
                 .unwrap(),
         );
     }
-    let stale = heap.objects.borrow().struct_location(ids[0]).unwrap();
+    let stale = heap.objects.borrow().direct_location(ids[0]).unwrap();
     let id = ids[17];
-    let identity = heap.objects.borrow().struct_location(id).unwrap();
+    let identity = heap.objects.borrow().direct_location(id).unwrap();
     let root = runtime.root_value(Value::Struct(id)).unwrap();
     let address = {
         let objects = heap.objects.borrow();

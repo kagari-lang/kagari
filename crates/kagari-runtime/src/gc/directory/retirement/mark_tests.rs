@@ -36,7 +36,7 @@ fn physical_marks_retire_before_small_and_large_page_reuse() {
             .alloc_struct(shape.clone(), vec![Value::I64(1); fields.len()])
             .unwrap();
         // Keep the inert index only; old is never dereferenced after retirement.
-        let old_page = heap.objects.borrow().struct_location(old).unwrap().page;
+        let old_page = heap.objects.borrow().direct_location(old).unwrap().page;
         begin(heap);
         finish_payloads(heap);
         assert_eq!(heap.objects.borrow().pages.usage().mark_bytes, 0);
@@ -46,14 +46,14 @@ fn physical_marks_retire_before_small_and_large_page_reuse() {
             .alloc_struct(shape.clone(), vec![Value::I64(2); fields.len()])
             .unwrap();
         assert_eq!(
-            heap.objects.borrow().struct_location(newborn).unwrap().page,
+            heap.objects.borrow().direct_location(newborn).unwrap().page,
             old_page
         );
         assert_eq!(heap.objects.borrow().pages.usage().mark_pages, 1);
         #[cfg(feature = "execution-diagnostics")]
         assert_eq!(heap.graph.lock().storage_usage().2, work_before + 1);
         assert!(
-            heap.graph_survivor(runtime.modules(), GraphIdentity::Struct(newborn))
+            heap.graph_survivor(runtime.modules(), GraphIdentity::Direct(newborn))
                 .unwrap()
         );
         assert_eq!(
@@ -98,7 +98,7 @@ fn partial_disposal_retains_marks_for_newborn_in_same_page() {
     finish_payloads(heap);
     assert_eq!(heap.objects.borrow().pages.usage().mark_pages, 1);
     assert!(
-        heap.graph_survivor(runtime.modules(), GraphIdentity::Struct(newborn))
+        heap.graph_survivor(runtime.modules(), GraphIdentity::Direct(newborn))
             .unwrap()
     );
     assert_eq!(

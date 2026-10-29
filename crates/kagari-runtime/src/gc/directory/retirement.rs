@@ -9,7 +9,7 @@ mod transaction_tests;
 
 use self::disposal::SweepBatch;
 use super::{
-    ObjectStorage, PayloadKind, PayloadLocation,
+    ObjectStorage, PayloadLocation,
     descriptors::DescriptorId,
     pages::{
         CheckedPayload,
@@ -47,7 +47,6 @@ enum PreparedOwner {
 
 #[derive(Debug)]
 pub(super) struct Sweep {
-    pub(super) wrapper: usize,
     outstanding: bool,
     max_units: usize,
     max_bytes: u128,
@@ -65,8 +64,8 @@ pub(in crate::gc) struct SweepTotals {
 struct Candidate<'a> {
     index: usize,
     location: PayloadLocation,
-    physical: Option<(DescriptorId, bool)>,
-    payload: Option<CheckedPayload<'a>>,
+    physical: (DescriptorId, bool),
+    payload: CheckedPayload<'a>,
     mark: Option<MarkRef<'a>>,
 }
 
@@ -103,12 +102,11 @@ impl Prepared {
     }
 
     fn extends(&self, candidate: &Candidate<'_>) -> bool {
-        candidate.physical.is_some_and(|(descriptor, small)| {
-            small
-                && self.fragment_count != 0
-                && self.fragments[self.fragment_count - 1]
-                    .is_some_and(|fragment| fragment.extends(candidate.location, descriptor))
-        })
+        let (descriptor, small) = candidate.physical;
+        small
+            && self.fragment_count != 0
+            && self.fragments[self.fragment_count - 1]
+                .is_some_and(|fragment| fragment.extends(candidate.location, descriptor))
     }
 
     fn push(
@@ -120,18 +118,17 @@ impl Prepared {
     ) -> Option<()> {
         self.units = self.units.checked_add(units)?;
         self.bytes = self.bytes.checked_add(bytes as u128)?;
-        if let Some((descriptor, small)) = candidate.physical {
-            if self.extends(candidate) {
-                self.fragments[self.fragment_count - 1].as_mut()?.count += 1;
-            } else {
-                self.fragments[self.fragment_count] = Some(Fragment {
-                    start: candidate.location,
-                    descriptor,
-                    count: 1,
-                    small,
-                });
-                self.fragment_count += 1;
-            }
+        let (descriptor, small) = candidate.physical;
+        if self.extends(candidate) {
+            self.fragments[self.fragment_count - 1].as_mut()?.count += 1;
+        } else {
+            self.fragments[self.fragment_count] = Some(Fragment {
+                start: candidate.location,
+                descriptor,
+                count: 1,
+                small,
+            });
+            self.fragment_count += 1;
         }
         self.identities[self.count] = Some(identity);
         self.count += 1;
@@ -163,12 +160,6 @@ impl Commit<'_> {
             let HeapObjectIdentity::Indexed(id) = identity else {
                 continue;
             };
-            let location = objects.slots[id.index()]
-                .location()
-                .expect("prepared occupied identity");
-            if location.kind == PayloadKind::Interface {
-                objects.remove_wrapper_prepared(location.page as usize);
-            }
             objects.slots[id.index()].retire(id.index() as u32, &mut free);
         }
         objects.free_identity = free;
@@ -185,8 +176,8 @@ impl Commit<'_> {
 }
 
 impl ObjectStorage {
-    /// Capture the old page suffix and wrapper extent once. Admissions during
-    /// Sweep are black; new pages/wrappers are outside these captured extents.
+    /// Capture the old page suffix once. Admissions during Sweep are black;
+    /// prepended pages remain outside that captured suffix.
     pub(in crate::gc) fn begin_physical_sweep(
         &mut self,
         graph: &GraphMarker<'_>,
@@ -199,7 +190,6 @@ impl ObjectStorage {
         let max_bytes = retained_bytes.checked_sub(self.backing_bytes() as u128)?;
         self.pages.begin_sweep();
         self.sweep = Some(Sweep {
-            wrapper: self.interface_directories.len(),
             outstanding: false,
             max_units,
             max_bytes,
@@ -216,7 +206,7 @@ impl ObjectStorage {
         prepared: &mut Prepared,
         budget: &mut ScanBudget,
     ) -> Option<PreparedOwner> {
-        let identity = if candidate.location.kind == PayloadKind::Struct {
+        let identity = if candidate.mark.is_some() {
             None
         } else {
             let slot = self.slots.get(candidate.index)?;
@@ -233,7 +223,7 @@ impl ObjectStorage {
         if graph.is_survivor(mark).ok()? {
             return Some(PreparedOwner::Survivor);
         }
-        let new_fragment = candidate.physical.is_some() && !prepared.extends(candidate);
+        let new_fragment = !prepared.extends(candidate);
         let reserve = OWNER_RETIRE_WORK
             + if prepared.count == 0 {
                 BATCH_FINISH_WORK
@@ -253,14 +243,11 @@ impl ObjectStorage {
         }
         // Physical validation and mark selection share the scanner's storage borrow.
         // Survivors never reconstruct an object view or perform retirement charging.
-        let object = match &candidate.payload {
-            Some(payload) => payload.view()?,
-            None => self.get(candidate.location, interfaces)?,
-        };
+        let object = candidate.payload.view(interfaces)?;
         let charge = object.charge(interfaces)?;
         let identity = match identity {
             Some(identity) => identity,
-            None => HeapObjectIdentity::Struct(candidate.payload.as_ref()?.struct_reference()?),
+            None => HeapObjectIdentity::Direct(candidate.payload.direct_reference()?),
         };
         prepared.push(
             candidate,
@@ -288,7 +275,6 @@ impl ObjectStorage {
         let graph = graph.sweep_batch().ok()?;
         let mut prepared = Prepared::new(owner);
         let mut scanner = self.pages.scanner();
-        let mut wrapper = self.sweep.as_ref()?.wrapper;
         while prepared.count < RETIRE_LIMIT {
             let Some(slot) = scanner.peek(budget)? else {
                 break;
@@ -296,8 +282,8 @@ impl ObjectStorage {
             let candidate = Candidate {
                 index: slot.directory as usize,
                 location: slot.location,
-                physical: Some((slot.descriptor, slot.small)),
-                payload: Some(slot.payload),
+                physical: (slot.descriptor, slot.small),
+                payload: slot.payload,
                 mark: slot.mark,
             };
             if matches!(
@@ -309,30 +295,6 @@ impl ObjectStorage {
             scanner.advance();
         }
         let cursor = scanner.cursor();
-        // Never mix page payloads with wrapper swap-removal in a transaction.
-        if prepared.count == 0 && cursor.page.is_none() {
-            while wrapper != 0 && prepared.count < RETIRE_LIMIT && budget.take(1) {
-                let ordinal = wrapper - 1;
-                let candidate = Candidate {
-                    index: self.interface_directories[ordinal].directory as usize,
-                    location: PayloadLocation {
-                        kind: PayloadKind::Interface,
-                        page: ordinal as u32,
-                        slot: 0,
-                    },
-                    physical: None,
-                    payload: None,
-                    mark: None,
-                };
-                if matches!(
-                    self.prepare_owner(&candidate, interfaces, &graph, &mut prepared, budget)?,
-                    PreparedOwner::Pending
-                ) {
-                    break;
-                }
-                wrapper -= 1;
-            }
-        }
         let sweep = self.sweep.as_ref()?;
         let totals = SweepTotals {
             objects: sweep.totals.objects.checked_add(prepared.count)?,
@@ -343,15 +305,12 @@ impl ObjectStorage {
         if totals.units > sweep.max_units || totals.bytes > sweep.max_bytes {
             return None;
         }
-        let status = if cursor.page.is_none() && wrapper == 0 {
+        let status = if cursor.page.is_none() {
             ScanStatus::Complete
         } else {
             ScanStatus::Pending
         };
         if prepared.count != 0 {
-            if prepared.fragment_count == 0 {
-                self.prepare_wrapper_removal(prepared.count)?;
-            }
             let credits = graph.prepare_retirement(prepared.count).ok()?;
             let proof = prepared.seal();
             let physical = self
@@ -360,12 +319,10 @@ impl ObjectStorage {
             batch.fragments = proof.fragments.len();
             physical.detach();
             self.pages.publish_sweep(cursor);
-            self.sweep.as_mut()?.wrapper = wrapper;
             proof.commit(self, batch, totals);
             credits.commit();
         } else {
             self.pages.publish_sweep(cursor);
-            self.sweep.as_mut()?.wrapper = wrapper;
         }
         batch.status = status;
         Some(())
@@ -373,7 +330,7 @@ impl ObjectStorage {
 
     pub(in crate::gc) fn finish_physical_sweep(&mut self) -> Option<SweepTotals> {
         let sweep = self.sweep.as_ref()?;
-        if sweep.outstanding || !self.pages.sweep_done() || sweep.wrapper != 0 {
+        if sweep.outstanding || !self.pages.sweep_done() {
             return None;
         }
         let mut totals = self.sweep.take()?.totals;

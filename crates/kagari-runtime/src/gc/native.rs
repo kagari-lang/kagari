@@ -13,6 +13,7 @@ use crate::{
     gc::{
         GcHeap, HeapObjectId,
         leases::{BorrowedLease, StorageBorrow},
+        reference::HeapObjectIdentity,
         storage::HeapObject,
     },
     module::ExecutableModule,
@@ -176,7 +177,11 @@ impl GcHeap {
         // A copied payload can originate from an already mutated receiver.
         // Allocation creates a new identity; replacement does not pass here.
         object.revision = 0;
-        self.alloc_object(HeapObject::Native(object))
+        let HeapObjectIdentity::Indexed(id) = self.alloc_managed(HeapObject::Native(object))?
+        else {
+            unreachable!("Native allocation identity")
+        };
+        Ok(id)
     }
 
     pub(crate) fn check_native_payload_argument<P: 'static>(

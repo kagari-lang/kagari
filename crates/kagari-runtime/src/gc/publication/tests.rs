@@ -9,7 +9,7 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
-fn exact_target_borrow_preserves_owner_generation_kind_and_idle_publication() {
+fn exact_target_borrow_preserves_owner_kind_and_idle_publication() {
     fn assert_send<T: Send>() {}
     assert_send::<Runtime>();
     let runtime = Runtime::default();
@@ -17,15 +17,12 @@ fn exact_target_borrow_preserves_owner_generation_kind_and_idle_publication() {
     let heap = runtime.gc();
     let value = heap.alloc_string("checked".into()).unwrap();
     let other = foreign.gc().alloc_string("foreign".into()).unwrap();
-    let id = value.checked_id().unwrap();
-    let stale = HeapObjectId::new(u64::from(id.owner), id.index(), id.generation + 1);
+    let id = value.direct_reference().unwrap();
     let roots = heap.active_roots();
     let guard = heap.graph.lock();
     for invalid in [
         other,
-        Value::GcHandle(other.checked_id().unwrap()),
-        Value::Str(stale),
-        Value::GcHandle(stale),
+        Value::Tuple(other.direct_reference().unwrap()),
         Value::Tuple(id),
     ] {
         assert!(heap.checked_target(invalid).is_none());
@@ -37,7 +34,7 @@ fn exact_target_borrow_preserves_owner_generation_kind_and_idle_publication() {
     assert!(heap.objects.try_borrow_mut().is_ok());
     drop(guard);
     runtime.collect_garbage().unwrap();
-    assert!(heap.checked_target(value).is_none());
+    assert_eq!(heap.stats().allocated_objects, 0);
 }
 
 #[test]
@@ -59,10 +56,15 @@ fn generic_targets_do_not_erase_specialized_array_kind_requirements() {
         assert!(heap.validate_value(&value));
         heap.checked_target(value).unwrap().publish().unwrap();
     }
+    let stale = HeapObjectId::new(
+        u64::from(native.owner),
+        native.index(),
+        native.generation + 1,
+    );
     for value in [
         Value::Array(native),
-        Value::Tuple(native),
-        Value::Tuple(array),
+        Value::Array(stale),
+        Value::GcHandle(stale),
     ] {
         assert!(!heap.validate_value(&value));
         assert!(heap.checked_target(value).is_none());
@@ -90,10 +92,7 @@ fn root_slice_rejects_all_publication_if_any_identity_is_invalid() {
     heap.graph.lock().close_mark().unwrap();
     assert!(
         !heap
-            .graph_survivor(
-                runtime.modules(),
-                GraphIdentity::Object(valid.checked_id().unwrap()),
-            )
+            .graph_survivor(runtime.modules(), valid.heap_identity().unwrap().graph(),)
             .unwrap()
     );
     heap.graph.lock().finish_sweep().unwrap();
@@ -167,7 +166,7 @@ fn admitted_struct_copies_preserve_active_barriers_and_sticky_faults() {
         heap.drain_graph_work(runtime.modules()).unwrap();
         heap.graph.lock().close_mark().unwrap();
         assert!(
-            heap.graph_survivor(runtime.modules(), GraphIdentity::Struct(reference))
+            heap.graph_survivor(runtime.modules(), GraphIdentity::Direct(reference))
                 .unwrap()
         );
         heap.graph.lock().finish_sweep().unwrap();

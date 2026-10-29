@@ -47,13 +47,13 @@ pub(super) const CLASSES: [usize; 24] = [
     768, 896, 1024,
 ];
 
-const STRUCT_GROUP_START: usize = CLASSES.len() * 2;
+const DIRECT_GROUP_START: usize = CLASSES.len() * 2;
 
 #[derive(Debug)]
 pub(super) struct Pages {
     allocations: Vec<Allocation>,
     free: Option<u32>,
-    available: [Option<u32>; STRUCT_GROUP_START * 2],
+    available: [Option<u32>; DIRECT_GROUP_START * 2],
     first_active: Option<u32>,
     sweep: Cursor,
     pub(super) descriptors: Descriptors,
@@ -66,7 +66,7 @@ impl Default for Pages {
         Self {
             allocations: Vec::new(),
             free: None,
-            available: [None; STRUCT_GROUP_START * 2],
+            available: [None; DIRECT_GROUP_START * 2],
             first_active: None,
             sweep: Cursor::default(),
             descriptors: Descriptors::default(),
@@ -94,7 +94,7 @@ impl<'a> CheckedPayload<'a> {
         if descriptor.kind != location.kind {
             return None;
         }
-        if descriptor.structure.is_some() {
+        if descriptor.payload_offset() != 0 {
             // SAFETY: occupied slot and retained descriptor prove initialized
             // aligned header storage. Validate dispatch before reading the payload.
             let header = unsafe { ObjectHeader::read(pointer) };
@@ -109,64 +109,53 @@ impl<'a> CheckedPayload<'a> {
         })
     }
 
-    pub(super) fn struct_reference(&self) -> Option<GcRef> {
-        self.descriptor.structure.as_ref()?;
+    pub(super) fn direct_reference(&self) -> Option<GcRef> {
+        let offset = self.descriptor.payload_offset();
+        if offset == 0 {
+            return None;
+        }
         // SAFETY: validation retained the initialized header and original allocation.
-        Some(unsafe { GcRef::from_allocation(self.pointer.sub(ObjectHeader::SIZE)) })
+        Some(unsafe { GcRef::from_allocation(self.pointer.sub(offset)) })
     }
 }
 
 /// Detached payloads retain dispatch and backing independently of the live owner.
-/// Interface wrappers have no allocation or destructor, but use the same retirement.
 #[derive(Debug)]
-pub(in crate::gc) enum Retired {
-    Interface,
-    Payload {
-        location: PayloadLocation,
-        backing: Arc<Backing>,
-        descriptor: Arc<Descriptor>,
-        descriptor_id: DescriptorId,
-        offset: usize,
-        initialized: bool,
-    },
+pub(in crate::gc) struct Retired {
+    location: PayloadLocation,
+    backing: Arc<Backing>,
+    descriptor: Arc<Descriptor>,
+    descriptor_id: DescriptorId,
+    offset: usize,
+    initialized: bool,
 }
 
 impl Retired {
+    pub(in crate::gc::directory) fn drop_attribution(&self) -> Option<(&'static str, usize)> {
+        self.descriptor.destroy.map(|_| {
+            (
+                self.descriptor.kind.observation_owner(),
+                self.descriptor.layout.size(),
+            )
+        })
+    }
+
     pub(super) fn is_disposed(&self) -> bool {
-        matches!(
-            self,
-            Self::Interface
-                | Self::Payload {
-                    initialized: false,
-                    ..
-                }
-        )
+        !self.initialized
     }
 
     pub(super) fn pointer(&self) -> NonNull<u8> {
-        let Self::Payload {
-            backing,
-            offset,
-            descriptor,
-            ..
-        } = self
-        else {
-            unreachable!("physical payload")
-        };
         // SAFETY: checked offset and backing retained through disposal.
-        unsafe { backing.pointer().add(*offset + descriptor.payload_offset()) }
+        unsafe {
+            self.backing
+                .pointer()
+                .add(self.offset + self.descriptor.payload_offset())
+        }
     }
 
     pub(in crate::gc) fn take_native<T: NativeTake>(&mut self) -> T {
-        let Self::Payload {
-            descriptor,
-            initialized: true,
-            ..
-        } = self
-        else {
-            unreachable!("live native take")
-        };
-        assert_eq!(descriptor.kind, PayloadKind::Native);
+        assert!(self.initialized, "live native take");
+        assert_eq!(self.descriptor.kind, PayloadKind::Native);
         // SAFETY: exclusively owned initialized Native header, checked TypeId inside take.
         unsafe {
             self.pointer()
@@ -183,16 +172,13 @@ impl Retired {
     }
 
     pub(in crate::gc) fn dispose(&mut self) -> bool {
-        let Self::Payload {
+        let Self {
             descriptor,
             initialized,
             backing,
             offset,
             ..
-        } = self
-        else {
-            return false;
-        };
+        } = self;
         if !*initialized {
             return false;
         }
@@ -333,9 +319,11 @@ impl Pages {
         descriptor: Arc<Descriptor>,
         initialize: impl FnOnce(NonNull<u8>) -> NativeResult<()>,
     ) -> NativeResult<PayloadLocation> {
-        if (directory == u32::MAX) != descriptor.structure.is_some() {
+        if (directory == u32::MAX && descriptor.payload_offset() == 0)
+            || (directory != u32::MAX && descriptor.structure.is_some())
+        {
             return Err(RuntimeError::module_validation(
-                "struct pages require direct identity; other pages require indexed identity",
+                "direct pages require a managed header; structs require direct identity",
             ));
         }
         let id = self.descriptors.admit(descriptor.clone())?;
@@ -366,7 +354,7 @@ impl Pages {
             if let Some(class) = Self::class(descriptor.layout, descriptor.edges) {
                 let group = class
                     + if directory == u32::MAX {
-                        STRUCT_GROUP_START
+                        DIRECT_GROUP_START
                     } else {
                         0
                     };
@@ -409,7 +397,7 @@ impl Pages {
                 resume_unwind(error);
             }
         }
-        if descriptor.structure.is_some() {
+        if descriptor.payload_offset() != 0 {
             // SAFETY: initialization succeeded in an exclusively reserved slot.
             // Occupancy is published below; descriptor and allocation IDs remain
             // admitted through detach/disposal/finish, including unwinding Drop.
@@ -450,57 +438,64 @@ impl Pages {
     }
 
     /// Resolve physical mark ownership under the same validated storage borrow.
-    pub(super) fn struct_mark(&self, location: PayloadLocation) -> MarkRef<'_> {
+    pub(super) fn direct_mark(&self, location: PayloadLocation) -> Option<MarkRef<'_>> {
         self.allocations[location.page as usize]
             .marks()
-            .expect("struct page marks")
-            .group_slot(
-                WorkGroup {
-                    domain: Domain::Struct,
-                    block: location.page as usize,
-                },
-                location.slot as usize,
-            )
+            .map(|marks| {
+                marks.group_slot(
+                    WorkGroup {
+                        domain: Domain::Direct,
+                        block: location.page as usize,
+                    },
+                    location.slot as usize,
+                )
+            })
     }
 
-    pub(super) fn struct_reference(&self, location: PayloadLocation) -> Option<GcRef> {
-        self.get(location)?.struct_reference()
+    pub(super) fn direct_reference(&self, location: PayloadLocation) -> Option<GcRef> {
+        self.get(location)?.direct_reference()
     }
 
-    pub(super) fn next_gray_struct(&self, block: usize, epoch: u64) -> (Option<GcRef>, bool) {
+    pub(super) fn next_gray_direct(&self, block: usize, epoch: u64) -> (Option<GcRef>, bool) {
         let (index, more) = self.allocations[block]
             .marks()
-            .expect("queued struct page")
+            .expect("queued direct page")
             .next_gray(epoch);
         let reference = index.map(|index| {
-            self.struct_reference(PayloadLocation {
-                kind: PayloadKind::Struct,
-                page: block as u32,
-                slot: index as u16,
-            })
-            .expect("gray struct retains its physical allocation")
+            let pointer = match &self.allocations[block] {
+                Allocation::Small(page) => page.pointer(index),
+                Allocation::Large(large) => large.backing().pointer(),
+                Allocation::Vacant(_) => unreachable!("queued direct allocation"),
+            };
+            // SAFETY: a gray page slot remains initialized until mark closure.
+            // Resolve its header through the same owner proof as ordinary access.
+            let reference = unsafe { GcRef::from_allocation(pointer) };
+            self.resolve_reference(reference)
+                .expect("gray owner retains its physical allocation");
+            reference
         });
         (reference, more)
     }
 
     /// Resolve a retained reference to its original physical allocation.
-    /// The caller retains the referenced struct; checking an ID cannot revive it.
-    pub(super) fn struct_location(&self, reference: GcRef) -> Option<PayloadLocation> {
-        self.resolve_struct(reference)
+    /// The caller retains the referenced object; checking an ID cannot revive it.
+    pub(super) fn direct_location(&self, reference: GcRef) -> Option<PayloadLocation> {
+        self.resolve_reference(reference)
             .map(|(location, _, _)| location)
     }
 
     /// Resolve location, initialized payload and descriptor under one owner borrow.
-    /// The retained reference has the same liveness obligation as struct_location.
-    pub(super) fn resolve_struct(
+    /// The retained reference has the same liveness obligation as direct_location.
+    pub(super) fn resolve_reference(
         &self,
         reference: GcRef,
     ) -> Option<(PayloadLocation, NonNull<u8>, &Descriptor)> {
         // SAFETY: internal transport is protected by its source frame/root/edge.
         // A foreign live allocation is readable, but cannot match this owner's base.
         let header = unsafe { ObjectHeader::read(reference.pointer()) };
-        let slot = match self.allocations.get(header.allocation_id as usize)? {
+        let (slot, id) = match self.allocations.get(header.allocation_id as usize)? {
             Allocation::Small(page) => {
+                page.marks()?;
                 let offset = reference
                     .pointer()
                     .as_ptr()
@@ -509,24 +504,29 @@ impl Pages {
                 if offset % page.stride() != 0 || offset / page.stride() >= page.slot_count() {
                     return None;
                 }
-                offset / page.stride()
+                let slot = offset / page.stride();
+                if page.bits()[slot / 64] & (1 << (slot % 64)) == 0 {
+                    return None;
+                }
+                (slot, DescriptorId::from_header(header.descriptor_id)?)
             }
-            Allocation::Large(large) if large.backing().pointer() == reference.pointer() => 0,
+            Allocation::Large(large) if large.backing().pointer() == reference.pointer() => {
+                large.marks()?;
+                (0, large.header().descriptor?)
+            }
             _ => return None,
         };
+        let descriptor = self.descriptors.get(id)?;
         let location = PayloadLocation {
-            kind: PayloadKind::Struct,
+            kind: descriptor.kind,
             page: header.allocation_id,
             slot: u16::try_from(slot).ok()?,
         };
-        let CheckedPayload {
-            pointer: payload,
-            descriptor,
-        } = self.get(location)?;
-        descriptor.structure.as_ref()?;
-        // SAFETY: published header occupies the first eight bytes of this allocation.
-        (payload == unsafe { reference.pointer().add(ObjectHeader::SIZE) })
-            .then_some((location, payload, descriptor))
+        if descriptor.payload_offset() == 0 {
+            return None;
+        }
+        let payload = CheckedPayload::new(location, reference.pointer(), id, descriptor)?;
+        Some((location, payload.pointer, descriptor))
     }
 
     pub(super) fn get(&self, location: PayloadLocation) -> Option<CheckedPayload<'_>> {
@@ -607,7 +607,7 @@ impl Pages {
             }
             Allocation::Vacant(_) => unreachable!(),
         };
-        Some(Retired::Payload {
+        Some(Retired {
             location,
             backing,
             descriptor: self.descriptors.get(id)?.clone(),
@@ -624,15 +624,7 @@ impl Pages {
 
     pub(in crate::gc::directory) fn finish_payload(&mut self, retired: &Retired) -> usize {
         assert!(retired.is_disposed());
-        let Retired::Payload {
-            location,
-            descriptor_id,
-            ..
-        } = retired
-        else {
-            return 0;
-        };
-        let (location, descriptor_id) = (*location, *descriptor_id);
+        let (location, descriptor_id) = (retired.location, retired.descriptor_id);
         let before = self.backing_bytes;
         self.finish_slot(location);
         self.descriptors.release(descriptor_id);

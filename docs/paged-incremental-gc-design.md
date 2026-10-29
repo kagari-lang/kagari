@@ -68,8 +68,12 @@ Phase 2B's local correction and selected timing gates are closed. Phase 2C's
 corrected three-lifecycle/interval memory sampling at `f464e792` passes 144/144
 metrics with 672 zero-net teardowns. Default/pressure measurements pass all 22
 observed original-PG00 normal-step gates; 34 rows remain unobserved, not passes.
-Phase 2 is locally complete. Next is phase 3's ordered managed/execution, Native
-provider and bridge-removal migration. Older joint obligations and CI remain open.
+Phase 2 is locally complete. Phase 3.1 integrates common physical headers and
+direct transport for every non-Native builtin, including interface wrappers and
+execution/root/metadata graph consumers. Its selected local integration evidence
+is recorded below. Phase 3.2 owns Native StoredValue providers and traced extraction
+tombstones; phase 3.3 owns the complete lifecycle audit and bridge removal. Older
+joint performance obligations and CI remain open.
 This section owns the proposed change to reference representation and the finite
 trial below; the remainder describes the implemented handle-based migration until
 replaced by a corresponding checkpoint. PG05/NC05 and PG06/NC06 remain open. Do not
@@ -398,7 +402,7 @@ checkpoint is not automatically a completed phase.
 | --- | --- | --- |
 | 1. Close host/backend value boundaries | Locally complete | One safe retained/scoped public boundary, with all raw consumers classified and migrated |
 | 2. Prove an integrated struct path | Locally complete: 68 timing, 204 memory and 22 observed normal-step gates pass; 34 normal rows unobserved | Working direct-reference struct graph with correctness and bounded performance evidence |
-| 3. Migrate the complete runtime graph | Next: ordered representation migration | All managed values use the selected representation; temporary bridges removed |
+| 3. Migrate the complete runtime graph | In progress: builtin physical header integration; transport/graph conversion pending | All managed values use the selected representation; temporary bridges removed |
 | 4. Joint acceptance and cleanup | Not started | Required local gates and designated CI pass, final contracts documented |
 
 Already completed: source snapshot `725a4fb5`, single-process baseline observations
@@ -2851,6 +2855,225 @@ Full-workspace tests and the complete feature/backend/platform matrix remain CI-
 Documentation-only work needs content/link/diff checks, not Rust builds.
 
 ## Progress and error ledger
+
+### Remaining managed owners: phase 3.1 (2026-10-29)
+
+Phase 2's accepted images stay frozen; subsequent migration checkpoints do not
+inherit their performance pass. Begin with the common physical header already
+selected in the trial. The descriptor now owns the complete allocation layout and
+payload offset. `ObjectHeader::layout` uses checked Rust `Layout::extend` to retain
+payload alignment and reject overflow. Builtin String, Tuple, Range, Enum, Closure,
+Cell and host wrapper payloads receive the same initialized 8-byte header as
+structs. Publication writes it after successful payload initialization and before
+occupancy; ordinary access and physical sweep validate it through `CheckedPayload`.
+Detached disposal uses that same descriptor offset, preserving exact typed Drop
+and backing/descriptor retention. Packed struct offsets are unchanged. No second
+allocator, pointer map, tag semantics or collector is introduced.
+
+This is the first buildable part of checkpoint 3.1, not its completion. Builtin
+transport still uses checked identities and existing directory marks. Native
+physical storage/extraction remains unchanged until checkpoint 3.2, where traced
+tombstones must preserve taken aliases without address-reuse confusion. The next
+3.1 work converts the remaining builtin/interface producers and consumers, frame/
+parked/root/metadata edges and supported backend helpers together. Existing Native
+providers may carry the changed internal values until their ordered StoredValue
+API switch; no permanent per-element roots or additional compatibility API is added.
+
+The first `cargo test -p kagari-runtime --lib gc::directory` run passes 43 of 46
+selected tests and exposes three fixture geometry assumptions. On this 64-bit
+host, a String's occupied representation grows from 24 to 32 bytes, so one 1 KiB
+page holds 32 rather than 42 objects. The tests incorrectly assumed the first
+32 allocation identities were also the first swept identities and that no page
+could be released by the first batch. No collector invariant failure was found.
+Update their shared fixture to keep identities in the established newest-page/
+ascending-slot sweep order, and derive initial backing while retaining exact
+32-owner/10-survivor, byte balance, exhausted-generation, newborn-page pinning
+and late-credit all-or-nothing assertions. The focused 12-test retirement target
+then passes; unaffected preceding results remain evidence, giving 46 distinct
+selected directory tests passing. No failure is carried from these tests.
+
+The new source-free header case exercises over-aligned typed payload placement,
+ordinary/scanner rejection of corrupt dispatch, detached ownership after allocator
+teardown and exactly-once destruction. It uses an allocator-only fixture and never
+constructs a false tuple view. Existing struct cases retain zero/small/large payload,
+initialization failure/unwind, header corruption and page reuse coverage. Structural
+review finds only test-scoped globs, no new re-exports/visibility exceptions and no
+size-limit findings. Structure (1,850 files), formatting, workspace all-target
+Clippy and diff checks pass. Both header cases pass
+`MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test
+-p kagari-runtime --lib gc::directory::pages::header_tests` (207.48 s), without
+source parsing or relaxed provenance checks. No new performance run or full
+workspace/CI acceptance is claimed. There are no carried build/test failures.
+
+**Interface physical integration.** Interface wrappers now occupy the same paged
+allocator as other builtins: the 8-byte header precedes a compact u32 snapshot
+locator (12 initialized bytes, a 16-byte slab class on this host). The independent
+wrapper vector, swap-removal repair, sweep cursor and compaction stage are removed.
+Physical candidates and detached retirement always carry a real allocation;
+`Retired` is a single physical ownership token. Complete batch preflight, outstanding
+transaction exclusion, 32-owner limits and out-of-borrow disposal are unchanged.
+The full metadata owner/slot/generation token remains authoritative; a live wrapper
+traces the snapshot before metadata retirement. A metadata root may outlive every
+wrapper without retaining wrapper pages. No new metadata root or receiver copy is
+introduced. `StorageUsage.buffers` changes from three entries to two because the
+wrapper buffer no longer exists; occupied wrapper bytes instead use the common
+header/payload/slack accounting. This is an unpublished diagnostic API change.
+
+The selected `interface_` tests pass (13), covering admission, retained reload,
+borrow/foreign/stale metadata checks and wrapper occupancy. The directory selection
+passes 45/46 initially; its sole failure is the maintenance fixture expecting the
+removed third stage. Updating that fixture to the actual two-stage protocol retains
+its exact tiny-budget and survivor-capacity assertions; the focused retry passes.
+Two initial compilation errors were stale retirement enum/optional-candidate
+consumers and are repaired. No production failure or skipped selected test remains.
+The diagnostics-feature occupancy case also passes with explicit zero page,
+initialized-payload and header bytes while a metadata-only root remains alive.
+
+Strict-provenance source-free Miri passes the interface page cursor case (43.49 s)
+and aligned builtin/detached destruction case (24.28 s). The former retains exact
+one-owner slices, newborn reuse behind the cursor, surviving roots and metadata;
+the latter verifies retained backing and exactly-once typed destruction after owner
+teardown. Previous process handles expired without recoverable terminal output;
+after confirming no process remained, only those unconfirmed cases were retried.
+Structure (1,849 files, no findings), formatting, workspace all-target Clippy and
+diff checks pass; subsequent edits only extend the selected test assertions and
+documentation. No performance acceptance is inherited from phase 2. The next work
+generalizes physical reference/mark ownership and converts builtin transport and
+its graph/execution consumers; Native extraction remains checkpoint 3.2.
+
+**Common direct-page kernel.** Following interface integration at `d5a1b883`, the
+physical resolver and page mark domain no longer assume every direct occupant is
+a struct. Dispatch comes from the admitted header, with occupancy and original
+allocation ownership checked under the same borrow. The descriptor supplies the
+payload offset, including over-aligned large allocations. Gray-page reconstruction
+uses this same resolver, without a second pointer registry or cached kind. Sweep
+and final-page mark retirement select physical ownership rather than struct kind.
+Struct views still require a struct descriptor, and `Value::Struct` admission
+explicitly checks kind after general reference resolution. Indexed payloads cannot
+be admitted to direct pages without a managed header.
+
+`HeapObjectIdentity::Direct` replaces its struct-specific variant, and diagnostics
+rename `struct_mark_pages`/`struct_mark_bytes` to `direct_mark_pages`/
+`direct_mark_bytes`; no compatibility aliases are retained. These are unpublished
+internal-transport/diagnostic API changes. Production allocation still publishes
+direct identities only for structs: remaining builtin value producers, graph scan
+dispatch and execution consumers must switch together next. In particular, the
+graph driver's current Direct branch still owns the struct scan path. This kernel
+checkpoint does not claim that builtin transport or checkpoint 3.1 is complete.
+
+The source-free mixed-page case places a real String and packed scalar struct in
+one stride/edge class, checks typed dispatch and gray work for both, rejects a
+foreign live allocation, then releases all backing. Its first run correctly trips
+the queue assertion because the fixture set gray bits without enqueuing the group;
+the fixture now performs the required queue operation, with no production assertion
+relaxed. Existing header cases additionally reject corrupt dispatch through the
+general resolver and check direct over-aligned payload offsets and detached Drop.
+All 47 directory contracts and two struct scan/mutation contracts pass. All three
+header cases pass strict-provenance Miri (224.74 s). Final structure (1,849 files,
+no findings), formatting, workspace all-target Clippy and diff checks pass.
+No build/test error is carried. No timing or CI acceptance is claimed.
+
+The next integration is the actual builtin transport switch: `Value`, allocation/
+access, packed managed-field pointer codecs, closure/cell/interface wrappers and
+their frame/root/metadata consumers, followed by generic Direct scan dispatch
+while preserving the existing one-borrow struct scan. Existing Native/Array checked
+transport and taken identities remain owned by checkpoint 3.2. Raw stale-ID tests
+for converted families must become retained wrong-kind/foreign-owner and rooted
+lifetime tests; no test may dereference a reclaimed direct address.
+
+**Builtin transport and execution integration.** Following `0e0406c4`, every
+non-Native builtin now allocates directly into the common header/page domain.
+String, Tuple, Range, Enum, Closure, Cell and host descriptors use `GcRef` in
+`Value`; `InterfaceObjectId` wraps that same reference and traces its checked
+metadata snapshot. Builtins no longer publish heap-directory generations or
+indexed mark slots. Native/Array retain their indexed identity and extraction
+protocol until 3.2. `Value` remains 16 bytes on the measured target, and copying
+it still acquires neither a root nor payload ownership. This is an unpublished
+breaking internal transport/API change, without compatibility aliases or an ABI
+version bump. Portable artifacts continue to contain checked indices, not pointers.
+
+Allocation, kind/owner admission, ordinary reads, mutation, graph dispatch and
+field codecs switch together. A single identity resolver replaces duplicate
+indexed/direct read helpers; live protection and candidate-initialization isolation
+remain mandatory. The graph driver resolves generic direct owners, retaining the
+one-borrow struct scan and existing numeric builtin continuations. Native provider
+callbacks and drop-capable host-path scanning still release graph/storage control
+before entry. Frames, parked/waiting execution, Future/Task results, explicit roots,
+statics and module/type edges carry the changed `Value` through their existing
+publication owners. Supported codegen helpers compile against the same typed Rust
+runtime boundary; no alternative executor, artifact format or collector is added.
+
+Packed builtin fields use typed unaligned `GcRef` loads/stores, preserving allocation
+provenance. Their existing **13-byte tagged extent is an explicit migration bridge**:
+it still accommodates Native's 12-byte checked identity. Checkpoint 3.2 owns its
+removal after Native transport conversion; no Option/enum compaction is included.
+The new source-free packed-field case puts String/Tuple edges after a one-byte
+scalar, retains them through collection, replaces both edges, then proves old-graph
+reclamation and final zero retained backing. Strict-provenance Miri passes this
+case (38.70 s) and the interface page/reuse/metadata cursor (24.95 s), using
+`MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-07-27 miri test
+-p kagari-runtime --lib <case>`. No parser execution or relaxed flags are involved.
+The common physical-kernel Miri evidence above remains applicable.
+
+Lifetime fixtures no longer query reclaimed builtin addresses. Retained wrong-kind
+and foreign allocations establish rejection; roots, exact reclamation/live counts,
+physical occupancy and full teardown establish lifetime. Native and metadata/root
+IDs retain generation/reuse checks. This includes inert prepared closures, packed
+children, module constants, interface-only metadata roots, host unwind, captured
+futures, partial Native scans and VM container/reload cycles. Tests that inspect a
+physically detached but not yet disposed allocation retain that explicit retirement
+owner through the query. No stale direct address is promoted into a new root.
+
+**Resolved integration failures and selected evidence.** Initial compilation found
+mixed Native/direct identity arrays in a VM fixture and obsolete private raw-value
+access in the source-disabled SDK artifact target. The former uses explicit mixed
+identity conversions; the latter uses owning `inspect`. The missing disposable
+artifact was regenerated with `cargo run -p kagari --no-default-features --features
+source --example regenerate_feature_artifact`; the source-disabled native-binding
+artifact test then passes. No tracked artifact or format identifier changes.
+Two initially misfiltered native-body invocations selected zero tests and are not
+accepted evidence. The corrected execution-diagnostics invocation executes one
+installed native body, two ABI polls and two normal automatic steps at 1024 work
+each, with an intervening root mutation/allocation and zero pressure assists.
+
+The tuple work-counter fixture now accounts for four lazy bitmap-word resets per
+physical child page, preserving its exact one-control-borrow assertion. The parked
+frame fixture stalled on repeated one-unit budgets; a first reference to a new page
+requires four reset words plus its inspected edge. It now uses the existing
+`EDGE_SCAN_WORK = 5` contract and a bounded loop. Production normal scheduling
+continues to use 1024, and no budget limit is relaxed. Future capture cleanup counts
+both emptied Native wrappers and their two children (four objects); the claim test
+checks exact captured-Vec backing transfer while shared page backing remains until
+sweep. The old payload-size-only expectation predated physical Native pages. A
+wrong-kind rejection fixture now allocates its valid test source before taking the
+unchanged-accounting snapshot. All these selected failures are repaired.
+
+Local selections pass: directory contracts (47), struct scan/mutation (2), initial
+interface selection (13), packed builtin field provenance (1), tuple scan work (1),
+joint object/metadata/module/static graph (1), installed native-body interleaving (1),
+then 15 targeted lifetime contracts after the two Future corrections, 13 additional
+publication/ownership/callable contracts after their accounting-fixture correction,
+one metadata-only receiver/wrapper contract, and 12 frame publication/waiting/Task
+contracts. VM mixed Native/direct root scanning passes (1), as do six selected
+interface reload, container graph and obsolete-program cycle contracts. The SDK
+source-disabled native-binding artifact case passes (1). These selections target
+changed ownership and direct dependents; they are not an exhaustive runtime or
+workspace test sweep. Source-free invalid-artifact/ABI matrices and all remaining
+feature/backend/platform combinations stay in CI scope.
+
+Structural review finds no new re-export, visibility or size exceptions and retains
+only test-scoped globs. Structure checks 1,849 Rust files with zero findings;
+workspace all-target Clippy, formatting and diff checks pass. Three final VM
+follow-ups also pass: generic closure signatures distinguish nominal generations,
+stored key protocols retain metadata through reload, and host reentry retains
+outer frames/results/borrow scopes. No selected failure remains. No performance run
+is performed here, and phase 2's frozen passes are not acceptance of this changed
+allocation graph. Checkpoint 3.1's representation integration is locally complete;
+3.2 is next, followed by 3.3's whole-lifecycle/removal audit and phase 4's joint
+historical performance, CI and refreshed Lua comparison. No new architecture
+research is needed for this application of the already selected common-header,
+precise-root and nonmoving-page mechanisms; their source references and differing
+ownership assumptions remain above.
 
 ### Scalar attribution and typed Native admission: phase 2B (2026-10-29)
 

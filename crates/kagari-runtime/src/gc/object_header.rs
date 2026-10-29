@@ -1,4 +1,4 @@
-//! Allocation metadata precedes the initialized packed struct payload.
+//! Allocation metadata precedes initialized managed payloads.
 use std::{alloc::Layout, ptr::NonNull};
 
 /// IDs belong to the existing descriptor and physical allocation directories.
@@ -13,8 +13,9 @@ pub(super) struct ObjectHeader {
 impl ObjectHeader {
     pub(super) const SIZE: usize = size_of::<Self>();
 
-    pub(super) fn struct_layout(payload_size: usize) -> Option<Layout> {
-        Layout::from_size_align(Self::SIZE.checked_add(payload_size)?, align_of::<Self>()).ok()
+    /// Reserve the common header and preserve the payload's own alignment.
+    pub(super) fn layout(payload: Layout) -> Option<(Layout, usize)> {
+        Layout::new::<Self>().extend(payload).ok()
     }
 
     /// Initialize the header after the payload is complete, before publication.

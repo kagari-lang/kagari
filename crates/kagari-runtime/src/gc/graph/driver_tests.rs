@@ -1,4 +1,4 @@
-use super::{GraphIdentity, GraphState, MarkPhase, objects::ScanEdge};
+use super::{GraphIdentity, GraphState, MarkPhase, marks::MarkRef, objects::ScanEdge};
 use crate::{
     Runtime,
     execution_metadata::MetadataEdge,
@@ -50,6 +50,21 @@ fn internal_tuple_scan_control_acquisitions_and_work() {
             .map(|index| runtime.gc.alloc_string(index.to_string()).unwrap())
             .collect();
         let parent = runtime.gc.alloc_tuple(children.clone()).unwrap();
+        let mut child_pages: Vec<_> = children
+            .iter()
+            .map(|value| {
+                let objects = runtime.gc.objects.borrow();
+                let location = objects
+                    .direct_location(value.direct_reference().unwrap())
+                    .unwrap();
+                let MarkRef::Page(_, _, group) = objects.mark(location).unwrap() else {
+                    panic!("direct payload page marks");
+                };
+                group.block
+            })
+            .collect();
+        child_pages.sort_unstable();
+        child_pages.dedup();
         runtime.gc.graph.lock().begin_cycle().unwrap();
         runtime.gc.publish_value(parent).unwrap();
         runtime.gc.graph.lock().finish_roots().unwrap();
@@ -57,18 +72,15 @@ fn internal_tuple_scan_control_acquisitions_and_work() {
         assert_eq!(acquisitions, 1, "one control borrow across all pure owners");
         assert_eq!(
             work,
-            count * 4 + 2,
-            "selection, begin, fields and leaf scans"
+            count * 4 + 2 + child_pages.len() * 4,
+            "selection, begin, fields, leaf scans and four-word resets of separate child pages"
         );
         runtime.gc.graph.lock().close_mark().unwrap();
         for value in children.into_iter().chain([parent]) {
             assert!(
                 runtime
                     .gc
-                    .graph_survivor(
-                        runtime.modules(),
-                        GraphIdentity::Object(value.checked_id().unwrap())
-                    )
+                    .graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
                     .unwrap()
             );
         }
@@ -194,10 +206,7 @@ fn provider_boundaries_release_control_and_unwind_faults_without_poison() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(
-                    runtime.modules(),
-                    GraphIdentity::Object(child.checked_id().unwrap())
-                )
+                .graph_survivor(runtime.modules(), child.heap_identity().unwrap().graph())
                 .unwrap()
         );
         runtime.gc.graph.lock().finish_sweep().unwrap();

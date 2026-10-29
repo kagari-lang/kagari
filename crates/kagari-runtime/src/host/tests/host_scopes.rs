@@ -166,8 +166,8 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
             .borrow_unique(HostObjectId(9), TypeId::new(0))
             .unwrap();
         drop(next);
-        runtime.collect_garbage().unwrap();
-        assert!(!runtime.gc().validate_value(&value));
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+        assert_eq!(runtime.gc().allocated_objects(), 0);
         assert!(!runtime.is_quarantined());
     }
 }
@@ -246,9 +246,8 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
             .kind(),
         RuntimeErrorKind::ExpiredHostBorrow
     );
-    runtime.collect_garbage().unwrap();
-    assert!(!runtime.gc().validate_value(&a));
-    assert!(!runtime.gc().validate_value(&b));
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    assert_eq!(runtime.gc().allocated_objects(), 0);
     assert!(!runtime.is_quarantined());
 }
 

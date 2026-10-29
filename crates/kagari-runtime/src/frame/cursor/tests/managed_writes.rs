@@ -3,7 +3,6 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::cursor::kernel::{RegionError, RegionExit},
-    gc::graph::GraphIdentity,
     module::ExecutableModule,
     native::context::ScriptInvoker,
     test_support::native::program::ProgramFixture,
@@ -190,10 +189,7 @@ fn cached_constant_and_copies_publish_after_initial_roots() {
     assert!(
         runtime
             .gc
-            .graph_survivor(
-                &runtime.modules,
-                GraphIdentity::Object(constant.checked_id().unwrap())
-            )
+            .graph_survivor(&runtime.modules, constant.heap_identity().unwrap().graph())
             .unwrap()
     );
     runtime.gc.graph.lock().finish_sweep().unwrap();

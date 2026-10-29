@@ -45,15 +45,15 @@ pub struct RetirementUsage {
 /// Logical GC units are not allocator bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StorageUsage {
-    pub buffers: [BufferUsage; 3],
+    pub buffers: [BufferUsage; 2],
     /// Admitted identities represented by owner-local marks, including active work.
     pub graph_credits: usize,
     /// Registered slot blocks plus singleton owners covered by pending capacity.
     pub graph_work_credits: usize,
-    /// Allocated struct pages and their embedded mark bytes. Mark bytes are a
+    /// Allocated direct-reference pages and their embedded mark bytes. Mark bytes are a
     /// subset of page/large metadata, not an additional backing allocation.
-    pub struct_mark_pages: usize,
-    pub struct_mark_bytes: usize,
+    pub direct_mark_pages: usize,
+    pub direct_mark_bytes: usize,
     pub retirement: RetirementUsage,
     pub slab_bytes: usize,
     pub large_bytes: usize,

@@ -1,4 +1,4 @@
-//! Indexed heap-owner slices; direct structs use their scoped physical scan owner.
+//! Resumable heap-owner slices; packed structs use their scoped physical scan owner.
 use crate::{
     error::RuntimeError,
     execution_metadata::MetadataEdge,
@@ -24,9 +24,9 @@ pub(crate) type EdgeVisitor<'a> =
 pub(crate) type ScanVisitor<'a> =
     dyn for<'edge> FnMut(ScanEdge<'edge>, &mut ScanBudget) -> Result<ScanStatus, RuntimeError> + 'a;
 
-/// Numeric extents for mutable indexed payloads. The optional host-path Arc pins
+/// Numeric extents for mutable payloads. The optional host-path Arc pins
 /// immutable backing while walking its chain, never serves as graph identity and
-/// never owns a heap/root lease. No address or borrowed iterator is retained.
+/// never owns a heap/root lease. The active collector retains the nonowning identity; no payload loan or borrowed iterator survives a yield.
 #[derive(Debug)]
 pub(crate) struct ObjectCursor {
     id: HeapObjectIdentity,

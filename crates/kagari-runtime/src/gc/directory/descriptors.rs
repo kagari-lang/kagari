@@ -33,6 +33,7 @@ pub(in crate::gc) struct Descriptor {
     identity: Option<Arc<StructIdentity>>,
     pub(super) kind: PayloadKind,
     pub(super) layout: Layout,
+    payload_offset: usize,
     pub(super) edges: bool,
     pub(in crate::gc) structure: Option<Arc<StructStorageLayout>>,
     pub(super) destroy: Option<unsafe fn(NonNull<u8>)>,
@@ -50,6 +51,7 @@ impl Descriptor {
             identity: None,
             kind,
             layout,
+            payload_offset: 0,
             edges,
             structure: None,
             destroy: Some(destroy),
@@ -63,11 +65,7 @@ impl Descriptor {
     }
 
     pub(super) fn payload_offset(&self) -> usize {
-        if self.structure.is_some() {
-            ObjectHeader::SIZE
-        } else {
-            0
-        }
+        self.payload_offset
     }
 }
 
@@ -185,8 +183,11 @@ impl Descriptors {
         kind: PayloadKind,
         edges: bool,
     ) -> NativeResult<Arc<Descriptor>> {
+        let (layout, offset) = ObjectHeader::layout(Layout::new::<T>())
+            .ok_or_else(|| RuntimeError::resource_limit("managed payload layout"))?;
         self.intern(Key::Builtin(kind), || {
-            let mut descriptor = Descriptor::new(kind, Layout::new::<T>(), edges, destroy::<T>);
+            let mut descriptor = Descriptor::new(kind, layout, edges, destroy::<T>);
+            descriptor.payload_offset = offset;
             descriptor.destroy = needs_drop::<T>().then_some(destroy::<T>);
             descriptor
         })

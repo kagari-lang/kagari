@@ -3,7 +3,7 @@ use super::{TestFrameMetadata, module};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::{FrameDispatch, FrameEntry, arguments::FrameArguments, types::EnvironmentRecord},
-    gc::graph::{GraphIdentity, MarkPhase},
+    gc::graph::MarkPhase,
     module::execution::{OperandSlot, layout::Location},
     native::storage::NativeStorage,
     value::Value,
@@ -147,10 +147,7 @@ fn early_argument_shading_is_retained_on_success_and_later_arity_failure() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(
-                    &runtime.modules,
-                    GraphIdentity::Object(child.checked_id().unwrap()),
-                )
+                .graph_survivor(&runtime.modules, child.heap_identity().unwrap().graph(),)
                 .unwrap()
         );
         runtime.gc.graph.lock().finish_sweep().unwrap();

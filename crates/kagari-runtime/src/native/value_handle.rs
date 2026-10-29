@@ -134,9 +134,9 @@ impl ScriptValue {
     ///
     /// # Safety
     /// Keep the referent protected through every use or destination publication.
-    /// With the current checked-ID representation, detached copies may be used
-    /// only for identity/expiry rejection probes that cannot dereference reclaimed
-    /// storage. Such probes are not live backend inputs.
+    /// Detached copies of direct references cannot be used for expiry probes.
+    /// Check the root token or retain a live wrong-kind/foreign input instead;
+    /// validation cannot safely inspect an already reclaimed address.
     /// Root aliases may replace the source; retain an independent snapshot before
     /// arbitrary callbacks can do so. A terminal backend handoff must publish before
     /// any collection after this handle is released. Ordinary host code uses

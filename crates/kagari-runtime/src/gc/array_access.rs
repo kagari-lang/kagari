@@ -9,7 +9,8 @@ use std::{ops::Bound, sync::Arc};
 
 impl GcHeap {
     fn ensure_array(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
-        if self.object_kind(id) == Some(GcObjectKind::Array) && self.buffer_contract(id).is_some() {
+        if self.identity_kind(id) == Some(GcObjectKind::Array) && self.buffer_contract(id).is_some()
+        {
             Ok(())
         } else {
             Err(RuntimeError::new(
@@ -24,9 +25,9 @@ impl GcHeap {
     /// # Safety
     /// Keep managed inputs live through this query. Type/owner validation cannot
     /// establish the lifetime of an expired direct reference.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn array_len_transport(&self, id: HeapObjectId) -> Option<usize> {
         self.array_len(id)
@@ -43,9 +44,9 @@ impl GcHeap {
     /// Keep source objects live through the read. Protect copied managed edges
     /// or identities before callbacks, collection or source mutation can remove
     /// their last traced owner. A returned snapshot is not a root.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn array_snapshot_transport(&self, id: HeapObjectId) -> Option<Vec<Value>> {
         self.array_snapshot(id)
@@ -62,9 +63,9 @@ impl GcHeap {
     /// Keep source objects live through the read. Protect copied managed edges
     /// or identities before callbacks, collection or source mutation can remove
     /// their last traced owner. A returned snapshot is not a root.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn array_get_transport(
         &self,
@@ -85,9 +86,9 @@ impl GcHeap {
     /// Keep source objects live through the read. Protect copied managed edges
     /// or identities before callbacks, collection or source mutation can remove
     /// their last traced owner. A returned snapshot is not a root.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn array_element_transport(
         &self,
@@ -112,9 +113,9 @@ impl GcHeap {
     /// Keep the target and every managed input live through checked publication
     /// and commit. Preserve source protection across preparation; an unrooted copy
     /// cannot be used after callbacks or mutation remove its last traced owner.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn array_set_transport(
         &self,
@@ -146,9 +147,9 @@ impl GcHeap {
     /// Keep the target and every managed input live through checked publication
     /// and commit. Preserve source protection across preparation; an unrooted copy
     /// cannot be used after callbacks or mutation remove its last traced owner.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn array_fill_transport(
         &self,
@@ -169,9 +170,9 @@ impl GcHeap {
     /// Keep the target and every managed input live through checked publication
     /// and commit. Preserve source protection across preparation; an unrooted copy
     /// cannot be used after callbacks or mutation remove its last traced owner.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn array_copy_from_transport(
         &self,
@@ -197,9 +198,9 @@ impl GcHeap {
     /// Keep the target and every managed input live through checked publication
     /// and commit. Preserve source protection across preparation; an unrooted copy
     /// cannot be used after callbacks or mutation remove its last traced owner.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn array_copy_within_transport(
         &self,

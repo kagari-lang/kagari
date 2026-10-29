@@ -94,7 +94,8 @@ impl StructStorageLayout {
                 }
                 _ => {
                     references.push(slot);
-                    // Representation discriminator plus checked owner/slot/generation.
+                    // Tagged direct references or Native checked identities.
+                    // Native conversion owns removal of this 13-byte migration extent.
                     (StoredField::Managed { offset: size }, 13)
                 }
             };

@@ -6,7 +6,7 @@ use crate::{
         ExecutionStack,
         owned::tests::{module, set_frame},
     },
-    gc::{HeapObjectId, retention_probe::replace_cell},
+    gc::{reference::GcRef, retention_probe::replace_cell},
     native::{binding::NativeResult, future::PendingNative},
     value::{EphemeralValueId, Value},
 };
@@ -23,7 +23,7 @@ use std::{
 
 #[derive(Debug)]
 struct MutatingPoll {
-    cell: HeapObjectId,
+    cell: GcRef,
     cancelled: Arc<AtomicUsize>,
 }
 

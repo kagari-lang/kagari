@@ -6,6 +6,7 @@ use crate::{
     error::RuntimeError,
     gc::{
         GcHeap,
+        directory::ResolvedDirect,
         graph::{GraphIdentity, GraphMarker, driver::ActiveScan, objects::ScanEdge},
         reference::GcRef,
     },
@@ -21,12 +22,11 @@ impl GcHeap {
         &self,
         modules: &ModuleStore,
         reference: GcRef,
+        view: ResolvedDirect<'_>,
         active: &mut Option<ActiveScan>,
         budget: &mut ScanBudget,
         graph: &mut GraphMarker<'_>,
     ) -> Result<ScanStatus, RuntimeError> {
-        let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-        let view = objects.resolve_struct(reference).ok_or_else(invalid)?;
         if active.is_none() {
             if !budget.take(1) {
                 return Ok(ScanStatus::Pending);
@@ -36,7 +36,7 @@ impl GcHeap {
         let Some(ActiveScan::Struct { next_field }) = active else {
             return Err(invalid());
         };
-        let fields = view.fields;
+        let fields = view.fields.ok_or_else(invalid)?;
         while let Some(slot) = fields.description.references.get(*next_field) {
             if !budget.take(1) {
                 return Ok(ScanStatus::Pending);
@@ -49,7 +49,7 @@ impl GcHeap {
             }
             *next_field += 1;
         }
-        graph.finish_owner(GraphIdentity::Struct(reference), view.mark)?;
+        graph.finish_owner(GraphIdentity::Direct(reference), view.mark)?;
         *active = None;
         Ok(ScanStatus::Complete)
     }

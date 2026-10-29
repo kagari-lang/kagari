@@ -1,13 +1,10 @@
-use crate::native::storage::scan::{NativeScanKind, ScanBudget, ScanStatus};
+use crate::native::storage::scan::{EDGE_SCAN_WORK, NativeScanKind, ScanBudget, ScanStatus};
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
     frame::{ExecutionStack, NativeEntryState},
-    gc::{
-        graph::GraphIdentity,
-        retention_probe::{measure, replace_cell},
-    },
+    gc::retention_probe::{measure, replace_cell},
     module::{
         ExecutableModule,
         execution::{OperandSlot, layout::Location},
@@ -201,21 +198,27 @@ fn parked_frames_keep_replacements_published_after_initial_root_enumeration() {
         .gc
         .begin_initial_roots(runtime.modules(), runtime.host())
         .unwrap();
-    loop {
+    let mut complete = false;
+    for _ in 0..10000 {
         if runtime
             .gc
             .scan_initial_root_slice(
                 runtime.modules(),
                 runtime.host(),
                 &mut roots,
-                &mut ScanBudget::new(1),
+                &mut ScanBudget::new(EDGE_SCAN_WORK),
             )
             .unwrap()
             == ScanStatus::Complete
         {
+            complete = true;
             break;
         }
     }
+    assert!(
+        complete,
+        "initial root scanning must finish with an edge-sized budget"
+    );
     runtime.gc.drain_graph_work(runtime.modules()).unwrap();
     slots
         .set_location(&runtime.gc, location, replacement)
@@ -229,17 +232,14 @@ fn parked_frames_keep_replacements_published_after_initial_root_enumeration() {
             .gc
             .graph_survivor(
                 runtime.modules(),
-                GraphIdentity::Object(replacement.checked_id().unwrap())
+                replacement.heap_identity().unwrap().graph()
             )
             .unwrap()
     );
     assert!(
         !runtime
             .gc
-            .graph_survivor(
-                runtime.modules(),
-                GraphIdentity::Object(dead.checked_id().unwrap())
-            )
+            .graph_survivor(runtime.modules(), dead.heap_identity().unwrap().graph())
             .unwrap()
     );
     let resumed = runtime.resume_owned_execution(&owner).unwrap();
@@ -256,8 +256,8 @@ fn parked_frames_keep_replacements_published_after_initial_root_enumeration() {
     runtime.gc.graph.lock().finish_sweep().unwrap();
     drop(resumed);
     runtime.finish_owned_execution(&owner).unwrap();
-    runtime.collect_garbage().unwrap();
-    assert!(!runtime.gc.validate_value(&replacement));
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
+    assert_eq!(runtime.gc.allocated_objects(), 0);
 }
 
 #[test]

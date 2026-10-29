@@ -271,14 +271,7 @@ fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_to
     let mut pages = Pages::default();
     let first = insert(&mut pages, 0, bytes(8, 8, false));
     let mut retired = pages.detach(first).unwrap();
-    let Retired::Payload {
-        descriptor_id: first_id,
-        ..
-    } = &retired
-    else {
-        unreachable!()
-    };
-    let first_id = *first_id;
+    let first_id = retired.descriptor_id;
     maintain_descriptors(&mut pages);
     assert!(pages.descriptors.get(first_id).is_some());
     let mut foreign = Pages::default();

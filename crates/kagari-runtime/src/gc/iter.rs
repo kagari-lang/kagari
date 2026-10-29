@@ -109,7 +109,7 @@ impl GcHeap {
             Value::Array(id) => {
                 self.check_native_operation(*id, None, false).ok()?;
                 let objects = self.objects.borrow();
-                let HeapObject::Native(object) = self.readable_object(&objects, *id)? else {
+                let HeapObject::Native(object) = self.readable_identity(&objects, *id)? else {
                     return None;
                 };
 
@@ -121,7 +121,7 @@ impl GcHeap {
 
     pub(crate) fn matches_iter_type(&self, id: HeapObjectId, element: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
-        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_view(element)))
+        matches!(self.readable_identity(&objects, id), Some(HeapObject::Native(object)) if matches!(object.ty, Ty::Iter(_)) && object.payload::<NativeIter>().is_ok_and(|iter| iter.item_contract.matches_view(element)))
     }
 
     pub(crate) fn new_iter(
@@ -148,7 +148,9 @@ impl GcHeap {
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         let valid = match (source, ty) {
-            (Value::Array(id), Ty::Array(_)) => self.object_kind(*id) == Some(GcObjectKind::Array),
+            (Value::Array(id), Ty::Array(_)) => {
+                self.identity_kind(*id) == Some(GcObjectKind::Array)
+            }
 
             (Value::Range(range), Ty::Range(_, kind)) => {
                 kind.has_start() && self.range(*range).is_some_and(|range| range.matches(ty))

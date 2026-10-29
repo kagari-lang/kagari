@@ -172,8 +172,7 @@ HostCallback::new(move |context, args| {
             assert!(unsafe { vm.runtime().gc().validate_value_transport(&raw) });
             assert!(!unsafe { Runtime::default().gc().validate_value_transport(&raw) });
             retained.lock().unwrap().take();
-            vm.runtime().collect_garbage().unwrap();
-            assert!(!unsafe { vm.runtime().gc().validate_value_transport(&raw) });
+            assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 1);
             assert_eq!(vm.runtime().gc().active_roots(), 0);
         }
     }

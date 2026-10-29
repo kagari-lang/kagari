@@ -15,7 +15,7 @@ pub(crate) fn initialized_words() -> usize {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Domain {
     Object,
-    Struct,
+    Direct,
     Moved,
     Environment,
     Group,

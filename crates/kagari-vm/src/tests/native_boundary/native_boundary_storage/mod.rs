@@ -591,7 +591,13 @@ fn root_scanning_traces_only_gc_managed_boundaries() {
     assert_eq!(traced[0], tuple.into());
     assert_eq!(
         traced[2..],
-        [map, leaf, map_key, set, set_key].map(Into::into)
+        [
+            map.into(),
+            leaf.into(),
+            map_key.into(),
+            set.into(),
+            set_key.into()
+        ]
     );
     assert_eq!(
         unsafe { heap.object_kind_transport(traced[1]) },

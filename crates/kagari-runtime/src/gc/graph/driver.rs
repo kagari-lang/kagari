@@ -72,19 +72,22 @@ impl GcHeap {
         action: impl FnOnce(GraphIdentity, MarkRef<'_>, ScanKind) -> Result<R, RuntimeError>,
     ) -> Result<Option<R>, RuntimeError> {
         let reference = match edge {
-            ScanEdge::Identity(GraphIdentity::Struct(reference))
+            ScanEdge::Identity(GraphIdentity::Direct(reference))
             | ScanEdge::Value(Value::Struct(reference)) => Some(reference),
             _ => None,
         };
         if let Some(reference) = reference {
             let objects = self.objects.try_borrow().map_err(|_| invalid())?;
-            let view = objects.resolve_struct(reference).ok_or_else(invalid)?;
-            let kind = if view.fields.description.references.is_empty() {
-                ScanKind::Leaf
-            } else {
+            let view = objects.resolve_direct(reference).ok_or_else(invalid)?;
+            if matches!(edge, ScanEdge::Value(Value::Struct(_))) && view.fields.is_none() {
+                return Err(invalid());
+            }
+            let kind = if view.edges {
                 ScanKind::Edges
+            } else {
+                ScanKind::Leaf
             };
-            return action(GraphIdentity::Struct(reference), view.mark, kind).map(Some);
+            return action(GraphIdentity::Direct(reference), view.mark, kind).map(Some);
         }
         let id = match edge {
             ScanEdge::Identity(id) => id,
@@ -193,13 +196,25 @@ impl GcHeap {
                 *active = Some(ActiveScan::Moved);
                 id = moved;
             }
-            if let GraphIdentity::Struct(reference) = id {
-                let status =
-                    self.scan_struct_owner(modules, reference, &mut active, budget, &mut graph)?;
-                if status == ScanStatus::Pending {
-                    return Ok(status);
+            if let GraphIdentity::Direct(reference) = id
+                && !matches!(*active, Some(ActiveScan::Object(_)))
+            {
+                let objects = self.objects.try_borrow().map_err(|_| invalid())?;
+                let view = objects.resolve_direct(reference).ok_or_else(invalid)?;
+                if view.fields.is_some() {
+                    let status = self.scan_struct_owner(
+                        modules,
+                        reference,
+                        view,
+                        &mut active,
+                        budget,
+                        &mut graph,
+                    )?;
+                    if status == ScanStatus::Pending {
+                        return Ok(status);
+                    }
+                    continue;
                 }
-                continue;
             }
             if active.is_none() {
                 if !budget.take(1) {
@@ -209,7 +224,9 @@ impl GcHeap {
                     GraphIdentity::Object(id) => {
                         ActiveScan::Object(self.begin_object_scan(id.into())?)
                     }
-                    GraphIdentity::Struct(_) => unreachable!("struct owner handled above"),
+                    GraphIdentity::Direct(reference) => {
+                        ActiveScan::Object(self.begin_object_scan(reference.into())?)
+                    }
                     GraphIdentity::Program(id) => {
                         ActiveScan::Module(modules.begin_module_scan(id)?)
                     }
@@ -290,7 +307,7 @@ fn invalid() -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Runtime, gc::HeapObjectId};
+    use crate::Runtime;
 
     #[test]
     fn borrowed_control_keeps_edge_validation_and_bitmap_precharge() {
@@ -298,11 +315,10 @@ mod tests {
         let foreign = Runtime::default();
         let value = runtime.gc.alloc_string("local".into()).unwrap();
         let other = foreign.gc.alloc_string("foreign".into()).unwrap();
-        let id = value.checked_id().unwrap();
-        let stale = HeapObjectId::new(u64::from(id.owner), id.index(), id.generation + 1);
+        let id = value.direct_reference().unwrap();
         let mut graph = runtime.gc.graph.lock();
         graph.begin_cycle().unwrap();
-        for invalid in [other, Value::Str(stale), Value::Tuple(id)] {
+        for invalid in [other, Value::Tuple(id)] {
             let mut budget = ScanBudget::new(4);
             assert!(
                 runtime

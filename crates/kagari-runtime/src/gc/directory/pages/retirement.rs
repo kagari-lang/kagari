@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     gc::{
         directory::{
-            PayloadKind, PayloadLocation,
+            PayloadLocation,
             descriptors::{Descriptor, DescriptorId},
             retirement::RETIRE_LIMIT,
         },
@@ -99,7 +99,7 @@ impl Pages {
         graph: &mut GraphMarker<'_>,
     ) -> Result<usize, RuntimeError> {
         let (location, count) = match disposal {
-            Disposal::Payload(Retired::Payload {
+            Disposal::Payload(Retired {
                 location,
                 initialized,
                 ..
@@ -107,20 +107,19 @@ impl Pages {
                 assert!(!initialized);
                 (*location, 1)
             }
-            Disposal::Payload(Retired::Interface) => return Ok(0),
             Disposal::Range(range) => {
                 assert_eq!(range.remaining, 0);
                 (range.start, range.count)
             }
         };
-        if location.kind == PayloadKind::Struct {
+        if let Some(mark) = self.direct_mark(location) {
             let empty = match &self.allocations[location.page as usize] {
                 Allocation::Small(page) => page.state().free + count == page.slot_count(),
                 Allocation::Large(_) => true,
-                Allocation::Vacant(_) => unreachable!("retiring struct allocation"),
+                Allocation::Vacant(_) => unreachable!("retiring direct allocation"),
             };
             if empty {
-                graph.release_retired_group(self.struct_mark(location))?;
+                graph.release_retired_group(mark)?;
             }
         }
         Ok(match disposal {

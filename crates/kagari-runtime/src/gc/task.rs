@@ -90,8 +90,8 @@ impl GcHeap {
 mod tests {
     use super::*;
     use crate::{
-        Runtime, error::RuntimeErrorKind, gc::graph::GraphIdentity, native::storage::NativeStorage,
-        task::store::Identity, test_support::layouts::allocation_owner,
+        Runtime, error::RuntimeErrorKind, native::storage::NativeStorage, task::store::Identity,
+        test_support::layouts::allocation_owner,
     };
     use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -131,10 +131,7 @@ mod tests {
         assert!(
             runtime
                 .gc
-                .graph_survivor(
-                    runtime.modules(),
-                    GraphIdentity::Object(result.checked_id().unwrap())
-                )
+                .graph_survivor(runtime.modules(), result.heap_identity().unwrap().graph())
                 .unwrap()
         );
         let newborn = allocate();

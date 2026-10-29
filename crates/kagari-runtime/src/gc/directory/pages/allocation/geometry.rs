@@ -27,7 +27,7 @@ pub(super) static GEOMETRIES: [ClassGeometry; CLASSES.len()] = {
     entries
 };
 
-pub(super) static STRUCT_GEOMETRIES: [ClassGeometry; CLASSES.len()] = {
+pub(super) static DIRECT_GEOMETRIES: [ClassGeometry; CLASSES.len()] = {
     let mut entries = [ClassGeometry::with_metadata(CLASSES[0], false); CLASSES.len()];
     let mut index = 0;
     while index < CLASSES.len() {

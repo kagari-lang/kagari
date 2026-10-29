@@ -99,10 +99,10 @@ impl ObjectStorage {
                 };
             }
         }
-        while cursor.compact < 3 && budget.take(1) {
+        while cursor.compact < 2 && budget.take(1) {
             let compact = cursor.compact;
             cursor.compact += 1;
-            if compact == 2 {
+            if compact == 1 {
                 // Empty release has no survivor inspection or rehashing. Retain
                 // nonempty capacity rather than migrate owners beyond this budget.
                 if self.initialization_owners.is_empty()
@@ -125,42 +125,22 @@ impl ObjectStorage {
                 }
                 continue;
             }
-            let work = match compact {
-                0 if self.slots.capacity() > self.slots.len()
-                    && self.slots.len() > self.occupied.saturating_mul(4).max(16) =>
-                {
-                    self.slots.len()
-                }
-                1 if self.interface_directories.capacity()
-                    > self.interface_directories.len().saturating_mul(4).max(16) =>
-                {
-                    self.interface_directories.len().max(1)
-                }
-
-                _ => 0,
+            let work = if self.slots.capacity() > self.slots.len()
+                && self.slots.len() > self.occupied.saturating_mul(4).max(16)
+            {
+                self.slots.len()
+            } else {
+                0
             };
             if work != 0 {
                 budget.charge(work);
                 let started = observation.as_ref().and_then(|state| state.clock.start());
-                match compact {
-                    0 => self.slots.shrink_to_fit(),
-                    1 => self.interface_directories.shrink_to_fit(),
-
-                    _ => unreachable!(),
-                }
-                let (owner, items, bytes) = if compact == 0 {
-                    (
-                        "object directory",
-                        self.slots.len(),
-                        size_of_val(self.slots.as_slice()),
-                    )
-                } else {
-                    (
-                        "interface directory",
-                        self.interface_directories.len(),
-                        size_of_val(self.interface_directories.as_slice()),
-                    )
-                };
+                self.slots.shrink_to_fit();
+                let (owner, items, bytes) = (
+                    "object directory",
+                    self.slots.len(),
+                    size_of_val(self.slots.as_slice()),
+                );
                 if let (Some(started), Some(state)) = (started, observation.as_mut()) {
                     state.allocation = Some((
                         IndivisibleKind::DirectoryCompaction,
@@ -171,7 +151,7 @@ impl ObjectStorage {
             }
         }
         MaintenanceStep {
-            status: if cursor.compact == 3 {
+            status: if cursor.compact == 2 {
                 ScanStatus::Complete
             } else {
                 ScanStatus::Pending
@@ -221,7 +201,7 @@ mod tests {
             ScanStatus::Pending
         );
         assert_eq!(zero.spent(), 0);
-        for stage in 0..3 {
+        for stage in 0..2 {
             let mut budget = ScanBudget::new(1);
             let step = objects.maintenance_slice(&mut cursor, &mut budget, Some(&mut observation));
             assert_eq!(
@@ -231,7 +211,7 @@ mod tests {
             );
             assert_eq!(
                 step.status,
-                if stage == 2 {
+                if stage == 1 {
                     ScanStatus::Complete
                 } else {
                     ScanStatus::Pending
@@ -255,7 +235,7 @@ mod tests {
         let empty_capacity = objects.initialization_owners.capacity();
         assert!(empty_capacity > 0);
         let mut cursor = objects.begin_maintenance();
-        for stage in 0..3 {
+        for stage in 0..2 {
             let mut budget = ScanBudget::new(1);
             let step = objects.maintenance_slice(&mut cursor, &mut budget, None);
             assert_eq!(
@@ -265,7 +245,7 @@ mod tests {
             );
             assert_eq!(
                 step.status,
-                if stage == 2 {
+                if stage == 1 {
                     ScanStatus::Complete
                 } else {
                     ScanStatus::Pending
@@ -273,7 +253,7 @@ mod tests {
             );
             assert_eq!(
                 objects.initialization_owners.capacity(),
-                if stage == 2 { 0 } else { empty_capacity }
+                if stage == 1 { 0 } else { empty_capacity }
             );
         }
     }

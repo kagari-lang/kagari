@@ -342,8 +342,8 @@ fn interface_method_selects_current_implementation_after_reload() {
         Value::I32(9)
     );
     drop(old_root);
-    vm.runtime().collect_garbage().unwrap();
-    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&old_value) });
+    assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 2);
+    assert_eq!(vm.runtime().gc().stats().allocated_objects, 0);
 }
 
 #[test]
@@ -1200,8 +1200,8 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         );
     }
     drop((receiver_root, current_receiver_root, closure_root));
-    runtime.collect_garbage().unwrap();
-    assert!(!unsafe { runtime.gc().validate_value_transport(&closure) });
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]

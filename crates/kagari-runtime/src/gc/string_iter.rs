@@ -261,9 +261,8 @@ mod tests {
                 assert_eq!(heap.advance_iter_with(&cursor, &ty, Ok).unwrap(), None);
             }
             drop(root);
-            runtime.collect_garbage().unwrap();
-            assert!(!heap.validate_value(&cursor));
-            assert!(!heap.validate_value(&text));
+            assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+            assert_eq!(heap.allocated_objects(), 0);
             assert_eq!(heap.active_roots(), 0);
         }
     }

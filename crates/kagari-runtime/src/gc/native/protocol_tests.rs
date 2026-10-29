@@ -2,11 +2,7 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    gc::{
-        HeapObjectId,
-        graph::{GraphIdentity, objects::ScanEdge},
-        metrics::IndivisibleKind,
-    },
+    gc::{HeapObjectId, graph::objects::ScanEdge, metrics::IndivisibleKind},
     native::{
         conversion::context::ConversionContext,
         payload::read::ReadReceiver,
@@ -405,11 +401,8 @@ fn partial_native_cursor_keeps_an_edge_moved_behind_it_without_restart() {
     heap.drain_graph_work(&runtime.modules).unwrap();
     heap.graph.lock().close_mark().unwrap();
     assert!(
-        heap.graph_survivor(
-            &runtime.modules,
-            GraphIdentity::Object(child.checked_id().unwrap())
-        )
-        .unwrap()
+        heap.graph_survivor(&runtime.modules, child.heap_identity().unwrap().graph())
+            .unwrap()
     );
     assert_eq!(
         heap.with_native::<Slots, _>(id, |payload| Ok(payload.0.clone()))
@@ -417,8 +410,8 @@ fn partial_native_cursor_keeps_an_edge_moved_behind_it_without_restart() {
         [child, Value::Unit]
     );
     heap.graph.lock().finish_sweep().unwrap();
-    runtime.collect_garbage().unwrap();
-    assert!(!heap.validate_value(&child));
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    assert_eq!(heap.allocated_objects(), 0);
 }
 
 #[test]
@@ -595,8 +588,8 @@ fn retained_extraction_survives_replacement_and_checks_publication_type_and_owne
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().validate_value(&value));
     drop(root);
-    runtime.collect_garbage().unwrap();
-    assert!(!runtime.gc().validate_value(&value));
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    assert_eq!(runtime.gc().allocated_objects(), 0);
 }
 
 #[rstest::rstest]

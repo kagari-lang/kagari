@@ -4,7 +4,7 @@ use crate::{
     closure::{ClosureTarget, ClosureValueSnapshot},
     execution_metadata::{MetadataEdge, applications::MethodApplication},
     frame::types::{EnvironmentRecord, construction::ConstructionScope},
-    gc::{HeapObjectId, interfaces::InterfaceResultBinding},
+    gc::interfaces::InterfaceResultBinding,
     module::state::tests::{program, ready},
     native::storage::{
         NativePayload, NativeStorage,
@@ -131,7 +131,7 @@ fn object_metadata_module_and_static_owners_close_one_joint_graph_in_tiny_slices
     runtime.gc.graph.lock().close_mark().unwrap();
     for id in [
         GraphIdentity::Object(array),
-        GraphIdentity::Object(closure),
+        GraphIdentity::Direct(closure),
         GraphIdentity::Interface(snapshot_id),
         GraphIdentity::InterfaceDescription(description_id),
         GraphIdentity::Application(application),
@@ -147,10 +147,7 @@ fn object_metadata_module_and_static_owners_close_one_joint_graph_in_tiny_slices
     assert!(
         !runtime
             .gc
-            .graph_survivor(
-                runtime.modules(),
-                GraphIdentity::Object(garbage.checked_id().unwrap())
-            )
+            .graph_survivor(runtime.modules(), garbage.heap_identity().unwrap().graph())
             .unwrap()
     );
     let static_id = runtime
@@ -309,10 +306,7 @@ fn newborn_work_and_larger_payload_admission_preserve_the_active_object_job() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(
-                    runtime.modules(),
-                    GraphIdentity::Object(value.checked_id().unwrap())
-                )
+                .graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
                 .unwrap()
         );
     }
@@ -352,10 +346,7 @@ fn failed_admission_preserves_the_active_owner_and_publishes_no_credit_or_record
     {
         let graph = runtime.gc.graph.lock();
         assert_eq!(graph.credits, count);
-        assert_eq!(
-            graph.active,
-            Some(GraphIdentity::Object(child.checked_id().unwrap()))
-        );
+        assert_eq!(graph.active, Some(child.heap_identity().unwrap().graph()));
     }
     // Resource-limit errors may terminate execution admission, but the already
     // admitted graph still has intact storage and reserved completion capacity.
@@ -370,22 +361,20 @@ fn idle_publication_checks_original_identity_and_kind_without_locking_work() {
     let foreign = Runtime::default();
     let value = runtime.gc.alloc_string("local".into()).unwrap();
     let other = foreign.gc.alloc_string("foreign".into()).unwrap();
-    let id = value.checked_id().unwrap();
-    let stale = HeapObjectId::new(u64::from(id.owner), id.index(), id.generation + 1);
+    let id = value.direct_reference().unwrap();
     let guard = runtime.gc.graph.lock();
     runtime.gc.publish_value(value).unwrap();
     assert!(
         runtime
             .gc
-            .heap_identity_accessible(GraphIdentity::Object(id))
+            .heap_identity_accessible(GraphIdentity::Direct(id))
     );
     assert!(runtime.gc.publish_value(other).is_err());
-    assert!(runtime.gc.publish_value(Value::Str(stale)).is_err());
     assert!(runtime.gc.publish_value(Value::Tuple(id)).is_err());
     assert!(
         !runtime
             .gc
-            .heap_identity_accessible(GraphIdentity::Object(stale))
+            .heap_identity_accessible(GraphIdentity::Direct(other.direct_reference().unwrap()))
     );
     assert_eq!(guard.phase(), MarkPhase::Idle);
 }
@@ -419,7 +408,7 @@ fn poisoned_graph_control_returns_a_trace_fault_without_panicking_during_cleanup
         assert!(
             !runtime
                 .gc
-                .heap_identity_accessible(GraphIdentity::Object(value.checked_id().unwrap()))
+                .heap_identity_accessible(value.heap_identity().unwrap().graph())
         );
         assert!(
             runtime

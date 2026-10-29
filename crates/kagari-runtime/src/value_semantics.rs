@@ -36,11 +36,11 @@ pub unsafe fn identity_equal_transport(
 pub(crate) fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
     let object = |value: &Value| match value {
         Value::Struct(reference) => {
-            Some((HeapObjectIdentity::Struct(*reference), GcObjectKind::Struct))
+            Some((HeapObjectIdentity::Direct(*reference), GcObjectKind::Struct))
         }
         Value::Array(id) => Some((HeapObjectIdentity::Indexed(*id), GcObjectKind::Array)),
 
-        Value::GcHandle(id) if gc.object_kind(*id) == Some(GcObjectKind::Native) => {
+        Value::GcHandle(id) if gc.identity_kind(*id) == Some(GcObjectKind::Native) => {
             Some((HeapObjectIdentity::Indexed(*id), GcObjectKind::Native))
         }
         _ => None,

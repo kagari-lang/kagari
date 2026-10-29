@@ -250,7 +250,7 @@ impl GraphState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum GraphIdentity {
     Object(HeapObjectId),
-    Struct(GcRef),
+    Direct(GcRef),
     Moved(HeapObjectId),
     Environment(EnvironmentId),
     Group(OperationGroupId),
@@ -267,7 +267,7 @@ impl HeapObjectIdentity {
     pub(crate) fn graph(self) -> GraphIdentity {
         match self {
             Self::Indexed(id) => GraphIdentity::Object(id),
-            Self::Struct(reference) => GraphIdentity::Struct(reference),
+            Self::Direct(reference) => GraphIdentity::Direct(reference),
         }
     }
 }
@@ -409,7 +409,7 @@ impl GraphMarker<'_> {
         self.credits += 1;
         if !matches!(
             id,
-            GraphIdentity::Object(_) | GraphIdentity::Struct(_) | GraphIdentity::Moved(_)
+            GraphIdentity::Object(_) | GraphIdentity::Direct(_) | GraphIdentity::Moved(_)
         ) {
             self.metadata_pressure += 1;
         }

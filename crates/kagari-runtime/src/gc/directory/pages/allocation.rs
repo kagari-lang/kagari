@@ -1,8 +1,8 @@
 //! Typed trailer ownership; references cover controls only, never payload bytes.
 mod geometry;
 
-use self::geometry::{ClassGeometry, GEOMETRIES, HEADER_OFFSET, PAYLOAD_LAYOUT, STRUCT_GEOMETRIES};
-use super::{STRUCT_GROUP_START, backing::Backing};
+use self::geometry::{ClassGeometry, DIRECT_GEOMETRIES, GEOMETRIES, HEADER_OFFSET, PAYLOAD_LAYOUT};
+use super::{DIRECT_GROUP_START, backing::Backing};
 use crate::{
     gc::{
         directory::descriptors::DescriptorId, graph::marks::PageMarks, object_header::ObjectHeader,
@@ -78,10 +78,10 @@ impl Small {
     }
 
     pub(super) fn new(group: usize) -> NativeResult<Self> {
-        let geometry = if group < STRUCT_GROUP_START {
+        let geometry = if group < DIRECT_GROUP_START {
             &GEOMETRIES[group / 2]
         } else {
-            &STRUCT_GEOMETRIES[(group - STRUCT_GROUP_START) / 2]
+            &DIRECT_GEOMETRIES[(group - DIRECT_GROUP_START) / 2]
         };
         const {
             assert!(!needs_drop::<SmallHeader>());
@@ -200,16 +200,16 @@ impl Small {
         self.geometry().slot_count
     }
 
-    /// Struct slabs have no duplicate per-slot directory or descriptor records.
+    /// Direct slabs have no duplicate per-slot directory or descriptor records.
     /// Occupancy proves header initialization before reconstructing dispatch facts.
     pub(super) fn slot(&self, index: usize) -> Option<Slot> {
-        if self.group() < STRUCT_GROUP_START {
+        if self.group() < DIRECT_GROUP_START {
             return self.slots().get(index).copied();
         }
         if index >= self.slot_count() || self.bits()[index / 64] & (1 << (index % 64)) == 0 {
             return None;
         }
-        // SAFETY: occupied direct-struct slot, initialized under this sole owner.
+        // SAFETY: occupied direct slot, initialized under this sole owner.
         let header = unsafe { ObjectHeader::read(self.pointer(index)) };
         Some(Slot {
             directory: u32::MAX,

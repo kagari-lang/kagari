@@ -423,7 +423,7 @@ fn stored_key_protocol_selects_current_code_and_keeps_metadata_until_last_value_
     let collected = vm.runtime().collect_garbage().unwrap();
     assert!(collected.reclaimed_modules.contains(&old.key()));
     assert_eq!(collected.live_objects, 0);
-    assert!(!unsafe { vm.runtime().gc().validate_value_transport(&value) });
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
     assert!(vm.runtime().modules().loaded(new.key()).is_some());
 }
 

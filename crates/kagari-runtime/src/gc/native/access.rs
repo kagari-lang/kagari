@@ -285,7 +285,7 @@ impl GcHeap {
 
     pub(crate) fn prepare_native_recovery(&self, id: HeapObjectId) -> NativeResult<()> {
         let objects = self.objects.borrow();
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+        let Some(HeapObject::Native(object)) = self.readable_identity(&objects, id) else {
             return Err(RuntimeError::module_validation(
                 "invalid native recovery receiver",
             ));

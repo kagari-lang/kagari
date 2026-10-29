@@ -141,13 +141,7 @@ impl GcHeap {
     }
 
     fn dispose_observed_payload(&self, payload: &mut Retired, clock: ObservationClock) {
-        let attribution = match payload {
-            Retired::Payload { descriptor, .. } if descriptor.destroy.is_some() => Some((
-                descriptor.kind.observation_owner(),
-                descriptor.layout.size(),
-            )),
-            _ => None,
-        };
+        let attribution = payload.drop_attribution();
         let started = attribution.and_then(|_| clock.start());
         let panicked = payload.dispose();
         if let (Some((owner, bytes)), Some(started)) = (attribution, started) {

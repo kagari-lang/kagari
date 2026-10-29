@@ -141,7 +141,7 @@ impl Runtime {
         &self,
         tag: value::EnumTag,
         fields: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.alloc_enum(tag, fields)
     }
 
@@ -149,7 +149,7 @@ impl Runtime {
         &self,
         tag: value::EnumTag,
         fields: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.validate_heap_payloads(&fields)?;
         if let EnumTag::Declared(layout) = &tag
             && !layout.module().belongs_to(self.host.owner())

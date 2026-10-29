@@ -1,7 +1,10 @@
 pub(crate) mod scalar;
 
 use crate::{
-    gc::{GcHeap, HeapObjectId, reference::GcRef},
+    gc::{
+        GcHeap, HeapObjectId,
+        reference::{GcRef, HeapObjectIdentity},
+    },
     host::{FrameHostBorrowToken, scoped::ScopedHostView},
     module::EnumVariantRef,
 };
@@ -58,7 +61,7 @@ impl EnumTag {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InterfaceObjectId(pub(crate) HeapObjectId);
+pub struct InterfaceObjectId(pub(crate) GcRef);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EphemeralValueId(pub u64);
@@ -84,7 +87,8 @@ pub enum EphemeralValue {
 
 /// Compact unrooted transport. Heap-backed payloads are accessed only through
 /// their owning heap; copying a value never copies text or establishes a root.
-/// Structs carry direct references; other managed families still carry checked IDs.
+/// Builtins carry direct references; Native/Array aliases retain checked IDs until
+/// their extraction protocol gains traced tombstones.
 /// Rust equality compares transport tags and identities. Use `value_semantics::script_equal_transport`
 /// for language equality, including string contents and tuple members.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -97,52 +101,56 @@ pub enum Value {
     U64(u64),
     F32(f32),
     F64(f64),
-    Str(HeapObjectId),
-    Tuple(HeapObjectId),
-    Range(HeapObjectId),
+    Str(GcRef),
+    Tuple(GcRef),
+    Range(GcRef),
     Array(HeapObjectId),
-    Enum(HeapObjectId),
+    Enum(GcRef),
     Struct(GcRef),
     GcHandle(HeapObjectId),
     Interface(InterfaceObjectId),
-    Closure(HeapObjectId),
-    Cell(HeapObjectId),
-    HostRoot(HeapObjectId),
-    HostPathView(HeapObjectId),
-    Ephemeral(HeapObjectId),
+    Closure(GcRef),
+    Cell(GcRef),
+    HostRoot(GcRef),
+    HostPathView(GcRef),
+    Ephemeral(GcRef),
     RuntimeEphemeral(EphemeralValueId),
 }
 
 impl Value {
     pub(crate) fn is_managed(&self) -> bool {
-        matches!(self, Self::Struct(_)) || self.checked_id().is_some()
+        self.heap_identity().is_some()
     }
 
-    /// Remaining checked-ID families; structs resolve through the owning heap bridge.
+    /// Nonowning identity only; querying it neither validates nor retains storage.
+    pub(crate) fn heap_identity(&self) -> Option<HeapObjectIdentity> {
+        self.direct_reference()
+            .map(HeapObjectIdentity::Direct)
+            .or_else(|| self.checked_id().map(HeapObjectIdentity::Indexed))
+    }
+
+    /// Native aliases retain checked identities until extraction gains tombstones.
     pub(crate) fn checked_id(&self) -> Option<HeapObjectId> {
         match self {
-            Self::Unit
-            | Self::Bool(_)
-            | Self::Char(_)
-            | Self::I32(_)
-            | Self::I64(_)
-            | Self::U64(_)
-            | Self::F32(_)
-            | Self::F64(_)
-            | Self::RuntimeEphemeral(_)
-            | Self::Struct(_) => None,
+            Self::Array(id) | Self::GcHandle(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn direct_reference(&self) -> Option<GcRef> {
+        match self {
             Self::Interface(id) => Some(id.0),
-            Self::Str(id)
-            | Self::Tuple(id)
-            | Self::Range(id)
-            | Self::Array(id)
-            | Self::Enum(id)
-            | Self::GcHandle(id)
-            | Self::Closure(id)
-            | Self::Cell(id)
-            | Self::HostRoot(id)
-            | Self::HostPathView(id)
-            | Self::Ephemeral(id) => Some(*id),
+            Self::Str(reference)
+            | Self::Tuple(reference)
+            | Self::Range(reference)
+            | Self::Enum(reference)
+            | Self::Struct(reference)
+            | Self::Closure(reference)
+            | Self::Cell(reference)
+            | Self::HostRoot(reference)
+            | Self::HostPathView(reference)
+            | Self::Ephemeral(reference) => Some(*reference),
+            _ => None,
         }
     }
 

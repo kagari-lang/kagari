@@ -175,7 +175,7 @@ fn workspace_and_fragment_reservations_precede_any_detachment() {
     let (_, disposal) = heap.retire_physical_batch(&mut enough).unwrap().unwrap();
     assert_eq!(disposal.objects, 1);
     assert_eq!(enough.spent(), exact);
-    assert!(!heap.validate_value(&value));
+    assert_eq!(heap.objects.borrow().pages.occupied().count(), 0);
     assert_eq!(heap.resources.counters().current_retained_bytes, 0);
 }
 

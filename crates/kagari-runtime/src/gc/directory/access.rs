@@ -5,7 +5,7 @@ use crate::{
     execution_metadata::interfaces::InterfaceStore,
     gc::{
         directory::{
-            ObjectStorage, PayloadKind, PayloadLocation, ResolvedStruct, pages::CheckedPayload,
+            ObjectStorage, PayloadKind, PayloadLocation, ResolvedDirect, pages::CheckedPayload,
         },
         fields::{StructView, StructViewMut},
         reference::GcRef,
@@ -24,15 +24,17 @@ type EnumPayload = (EnumValueSnapshot, Option<Arc<ErrorTrace>>);
 type CellPayload = (ValueType, Value);
 
 impl ObjectStorage {
-    pub(in crate::gc) fn resolve_struct(&self, reference: GcRef) -> Option<ResolvedStruct<'_>> {
-        let (location, pointer, descriptor) = self.pages.resolve_struct(reference)?;
-        let description = descriptor.structure.as_deref()?;
-        // SAFETY: physical resolution validated occupancy, owner, immutable header
-        // and descriptor; this same borrow retains initialized bytes and metadata.
-        let bytes = unsafe { slice::from_raw_parts(pointer.as_ptr(), description.size) };
-        Some(ResolvedStruct {
-            fields: StructView { description, bytes },
-            mark: self.pages.struct_mark(location),
+    pub(in crate::gc) fn resolve_direct(&self, reference: GcRef) -> Option<ResolvedDirect<'_>> {
+        let (location, pointer, descriptor) = self.pages.resolve_reference(reference)?;
+        let fields = descriptor.structure.as_deref().map(|description| {
+            // SAFETY: resolution retained initialized packed fields and their layout.
+            let bytes = unsafe { slice::from_raw_parts(pointer.as_ptr(), description.size) };
+            StructView { description, bytes }
+        });
+        Some(ResolvedDirect {
+            fields,
+            mark: self.pages.direct_mark(location)?,
+            edges: descriptor.edges,
         })
     }
 
@@ -80,15 +82,7 @@ impl ObjectStorage {
         location: PayloadLocation,
         interfaces: &RefCell<InterfaceStore>,
     ) -> Option<HeapObject<Shared<'_>>> {
-        if location.kind == PayloadKind::Interface {
-            return Some(HeapObject::Interface {
-                snapshot: interfaces
-                    .try_borrow()
-                    .ok()?
-                    .directory_binding(self.snapshot_index(location)?)?,
-            });
-        }
-        self.pages.get(location)?.view()
+        self.pages.get(location)?.view(interfaces)
     }
 
     pub(in crate::gc) fn get_mut(
@@ -101,7 +95,7 @@ impl ObjectStorage {
                 snapshot: interfaces
                     .try_borrow()
                     .ok()?
-                    .directory_binding(self.snapshot_index(location)?)?,
+                    .directory_binding(self.pages.get(location)?.interface_snapshot_index()?)?,
             });
         }
         if location.kind == PayloadKind::Struct {
@@ -150,6 +144,14 @@ impl ObjectStorage {
 }
 
 impl<'a> CheckedPayload<'a> {
+    fn interface_snapshot_index(&self) -> Option<u32> {
+        if self.descriptor.kind != PayloadKind::Interface {
+            return None;
+        }
+        // SAFETY: the occupied sealed interface representation contains one u32.
+        Some(unsafe { self.pointer.cast::<u32>().as_ptr().read() })
+    }
+
     pub(super) fn structure(&self) -> Option<StructView<'a>> {
         let description = self.descriptor.structure.as_deref()?;
         // SAFETY: the checked descriptor and initialized bytes share the owner borrow.
@@ -157,7 +159,10 @@ impl<'a> CheckedPayload<'a> {
         Some(StructView { description, bytes })
     }
 
-    pub(super) fn view(&self) -> Option<HeapObject<Shared<'a>>> {
+    pub(super) fn view(
+        &self,
+        interfaces: &RefCell<InterfaceStore>,
+    ) -> Option<HeapObject<Shared<'a>>> {
         let pointer = self.pointer;
         // SAFETY: each private placement arm pairs its kind with precisely the type
         // below. Occupancy is checked and every returned reference is owner-borrowed.
@@ -183,9 +188,13 @@ impl<'a> CheckedPayload<'a> {
                 PayloadKind::Struct => HeapObject::Struct {
                     storage: self.structure()?,
                 },
-                PayloadKind::Interface | PayloadKind::Vacant => {
-                    unreachable!("checked physical descriptor")
-                }
+                PayloadKind::Interface => HeapObject::Interface {
+                    snapshot: interfaces
+                        .try_borrow()
+                        .ok()?
+                        .directory_binding(self.interface_snapshot_index()?)?,
+                },
+                PayloadKind::Vacant => unreachable!("checked physical descriptor"),
                 PayloadKind::Closure => HeapObject::Closure {
                     snapshot: pointer.cast::<ClosureValueSnapshot>().as_ref(),
                 },

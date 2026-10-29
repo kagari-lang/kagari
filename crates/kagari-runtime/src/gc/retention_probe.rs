@@ -1,5 +1,9 @@
 //! Test-only, heap-filtered accounting for one explicitly scoped retention probe.
-use crate::gc::{GcHeap, HeapObjectId, reference::HeapObjectIdentity, storage::HeapObject};
+use crate::gc::{
+    GcHeap,
+    reference::{GcRef, HeapObjectIdentity},
+    storage::HeapObject,
+};
 use crate::value::Value;
 use std::{cell::RefCell, collections::HashSet};
 
@@ -76,7 +80,7 @@ pub(crate) fn measure<T>(heap: &GcHeap, run: impl FnOnce() -> T) -> (T, Counts) 
 }
 
 /// Inject a hidden edge for graph-safety tests without weakening mutation admission.
-pub(crate) fn replace_cell(heap: &GcHeap, cell: HeapObjectId, value: Value) {
+pub(crate) fn replace_cell(heap: &GcHeap, cell: GcRef, value: Value) {
     let mut objects = heap.objects.borrow_mut();
     let Some(HeapObject::Cell { value: stored, .. }) = heap.object_mut(&mut objects, cell) else {
         panic!("cell fixture")

@@ -12,7 +12,7 @@ use crate::{
         types::EnvironmentRecord,
         values::{ExecutionValues, FrameMetadata, scanning::FrameCursor},
     },
-    gc::graph::{GraphIdentity, MarkPhase, objects::ScanEdge},
+    gc::graph::{MarkPhase, objects::ScanEdge},
     module::{
         ExecutableModule, Program,
         execution::{OperandSlot, fields::FieldAccess},
@@ -122,7 +122,7 @@ fn managed_writes_reject_foreign_kind_and_representation_before_publication() {
     runtime.gc.graph.lock().finish_roots().unwrap();
     for rejected in [
         foreign_string,
-        Value::Str(tuple.checked_id().unwrap()),
+        Value::Str(tuple.direct_reference().unwrap()),
         tuple,
         Value::I32(9),
     ] {
@@ -140,10 +140,7 @@ fn managed_writes_reject_foreign_kind_and_representation_before_publication() {
     assert!(
         !runtime
             .gc
-            .graph_survivor(
-                &runtime.modules,
-                GraphIdentity::Object(tuple.checked_id().unwrap())
-            )
+            .graph_survivor(&runtime.modules, tuple.heap_identity().unwrap().graph())
             .unwrap()
     );
     assert_eq!(values.with_value(slots, 3, |value| *value), Some(original));
@@ -218,10 +215,7 @@ fn admitted_frame_publication_observes_phase_and_preserves_uncommitted_banks() {
             assert!(
                 runtime
                     .gc
-                    .graph_survivor(
-                        &runtime.modules,
-                        GraphIdentity::Object(child.checked_id().unwrap())
-                    )
+                    .graph_survivor(&runtime.modules, child.heap_identity().unwrap().graph())
                     .unwrap()
             );
         } else {
@@ -367,10 +361,7 @@ fn root_cursor_survives_compaction_reuse_and_direct_operand_publication() {
         assert!(
             runtime
                 .gc
-                .graph_survivor(
-                    &runtime.modules,
-                    GraphIdentity::Object(value.checked_id().unwrap())
-                )
+                .graph_survivor(&runtime.modules, value.heap_identity().unwrap().graph())
                 .unwrap()
         );
     }
@@ -410,10 +401,7 @@ fn close_frame_cycle(runtime: &Runtime, cursor: &mut FrameCursor, retained: Valu
     assert!(
         runtime
             .gc
-            .graph_survivor(
-                &runtime.modules,
-                GraphIdentity::Object(retained.checked_id().unwrap())
-            )
+            .graph_survivor(&runtime.modules, retained.heap_identity().unwrap().graph())
             .unwrap(),
         "published frame value must survive"
     );

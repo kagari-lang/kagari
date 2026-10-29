@@ -59,10 +59,7 @@ fn work(runtime: &Runtime) {
 fn survivor(runtime: &Runtime, value: Value) -> bool {
     runtime
         .gc
-        .graph_survivor(
-            &runtime.modules,
-            GraphIdentity::Object(value.checked_id().unwrap()),
-        )
+        .graph_survivor(&runtime.modules, value.heap_identity().unwrap().graph())
         .unwrap()
 }
 
@@ -135,7 +132,7 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     runtime.gc.publish_value(parent).unwrap();
     let mut cursor = runtime
         .gc
-        .begin_object_scan(parent.checked_id().unwrap().into())
+        .begin_object_scan(parent.direct_reference().unwrap().into())
         .unwrap();
     let mut visit = |edge: ScanEdge<'_>, budget: &mut ScanBudget| {
         runtime
@@ -169,7 +166,7 @@ fn object_edge_cursor_does_not_advance_when_its_bitmap_reset_cannot_fit() {
     for value in &targets {
         runtime
             .gc
-            .with_heap_mark(GraphIdentity::Object(value.checked_id().unwrap()), |mark| {
+            .with_heap_mark(value.heap_identity().unwrap().graph(), |mark| {
                 assert_eq!(
                     mark.color(runtime.gc.graph.lock().epoch),
                     Color::Gray,
@@ -341,10 +338,10 @@ fn native_take_transfers_pending_and_active_work_without_aliasing_the_reused_dir
             ScanStatus::Pending
         );
         assert_eq!(runtime.gc.take_native::<i32>(id).unwrap(), 7);
-        let replacement = runtime
-            .gc
-            .alloc_cell(ValueType::I32, Value::I32(9))
+        let payload = NativeStorage::takeable::<i32>()
+            .prepare_payload(&runtime.gc, &Ty::Builtin(BuiltinType::I32), 9, &owner)
             .unwrap();
+        let replacement = runtime.gc.alloc_native(payload).unwrap();
         assert_eq!(id.index(), replacement.index());
         assert_ne!(id.generation(), replacement.generation());
         work(&runtime);

@@ -18,7 +18,7 @@ fn leaf_shading_reserves_reset_and_preserves_already_queued_work() {
     );
     let heap = runtime.gc();
     let point = heap.alloc_struct(shape, vec![Value::I32(7)]).unwrap();
-    let id = GraphIdentity::Struct(point);
+    let id = GraphIdentity::Direct(point);
     // Exercise both a fresh white target and gray work previously published by
     // a mutator. A leaf shortcut must not invalidate an already queued owner.
     for published in [false, true] {
@@ -113,16 +113,13 @@ fn suspended_struct_scan_retries_unshaded_field_and_observes_mutation() {
     heap.graph.lock().close_mark().unwrap();
     for (value, retained) in [(first, false), (second, true), (replacement, true)] {
         assert_eq!(
-            heap.graph_survivor(
-                runtime.modules(),
-                GraphIdentity::Object(value.checked_id().unwrap())
-            )
-            .unwrap(),
+            heap.graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
+                .unwrap(),
             retained
         );
     }
     assert!(
-        heap.graph_survivor(runtime.modules(), GraphIdentity::Struct(pair))
+        heap.graph_survivor(runtime.modules(), GraphIdentity::Direct(pair))
             .unwrap()
     );
     heap.graph.lock().finish_sweep().unwrap();

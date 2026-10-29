@@ -587,7 +587,11 @@ obligations are closed. Phase 2C's symmetric three-lifecycle/interval memory rep
 at `f464e792` passes 144/144 metrics and 672 zero-net teardowns. Default/pressure
 measurements pass all 22 observed original-PG00 normal-step gates; 34 rows remain
 unobserved. Phase 2 is locally complete. The active goal proceeds to phase 3's
-managed/execution owners, Native providers and bridge removal. The
+managed/execution owners, Native providers and bridge removal. Common physical
+headers, physical interface-wrapper storage, generic direct-page marks and builtin
+transport/graph conversion are locally integrated. Native StoredValue providers and
+traced extraction tombstones are next, followed by the complete lifecycle audit and
+bridge removal. The
 [ordered closure sequence](paged-incremental-gc-design.md#ordered-closure-after-expanded-gates-2026-10-29)
 records runtime references, while the
 [next goal execution contract](paged-incremental-gc-design.md#execution-contract-for-the-next-goal-2026-10-29)

@@ -341,7 +341,7 @@ impl GcHeap {
     ) -> Result<GcRef, RuntimeError> {
         self.ensure_execution_allowed()?;
         let storage = self.prepare_struct_storage(layout, fields)?;
-        let HeapObjectIdentity::Struct(reference) =
+        let HeapObjectIdentity::Direct(reference) =
             self.alloc_managed(HeapObject::Struct { storage })?
         else {
             unreachable!("struct allocation identity")
@@ -353,7 +353,7 @@ impl GcHeap {
         &self,
         tag: EnumTag,
         fields: Vec<Value>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         let failure = matches!(&tag, EnumTag::Declared(layout) if layout.variant().reports_failure);
         self.alloc_enum_origin(tag, fields, || {
             failure.then(|| ErrorTrace::capture(&self.resources))
@@ -366,7 +366,7 @@ impl GcHeap {
         tag: EnumTag,
         fields: Vec<Value>,
         origin: impl FnOnce() -> Option<Arc<ErrorTrace>>,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !tag.accepts_representations(&fields)
             || !fields.iter().all(|value| self.valid_payload(value))
@@ -388,9 +388,9 @@ impl GcHeap {
     /// # Safety
     /// Keep managed inputs live through this query. Type/owner validation cannot
     /// establish the lifetime of an expired direct reference.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn result_error_trace_transport(&self, value: &Value) -> Option<Arc<ErrorTrace>> {
         self.result_error_trace(value)
@@ -401,7 +401,7 @@ impl GcHeap {
             return None;
         };
         let objects = self.objects.borrow();
-        match self.object_ref(&objects, *id)? {
+        match self.identity_ref(&objects, *id)? {
             HeapObject::Enum(snapshot, trace) if matches!(&snapshot.tag, EnumTag::Declared(layout) if layout.variant().reports_failure) => {
                 trace.clone()
             }
@@ -413,17 +413,17 @@ impl GcHeap {
         &self,
         original: &Value,
         value: &Value,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.ensure_execution_allowed()?;
         let (Value::Enum(original), Value::Enum(value)) = (original, value) else {
             return Err(RuntimeError::module_validation("enum origin carriers"));
         };
         let (snapshot, trace) = {
             let objects = self.objects.borrow();
-            let Some(HeapObject::Enum(_, trace)) = self.object_ref(&objects, *original) else {
+            let Some(HeapObject::Enum(_, trace)) = self.identity_ref(&objects, *original) else {
                 return Err(RuntimeError::module_validation("origin carrier handle"));
             };
-            let Some(HeapObject::Enum(snapshot, _)) = self.object_ref(&objects, *value) else {
+            let Some(HeapObject::Enum(snapshot, _)) = self.identity_ref(&objects, *value) else {
                 return Err(RuntimeError::module_validation("enum value handle"));
             };
             (snapshot.clone(), trace.clone())
@@ -436,7 +436,7 @@ impl GcHeap {
         Ok(())
     }
 
-    pub(crate) fn enum_layout(&self, id: HeapObjectId) -> Option<EnumVariantRef> {
+    pub(crate) fn enum_layout(&self, id: GcRef) -> Option<EnumVariantRef> {
         self.with_enum(id, |snapshot| {
             let EnumTag::Declared(layout) = &snapshot.tag;
             layout.clone()
@@ -452,15 +452,15 @@ impl GcHeap {
     /// Keep source objects live through the read. Protect copied managed edges
     /// or identities before callbacks, collection or source mutation can remove
     /// their last traced owner. A returned snapshot is not a root.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
-    pub unsafe fn enum_snapshot_transport(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
+    pub unsafe fn enum_snapshot_transport(&self, id: GcRef) -> Option<EnumValueSnapshot> {
         self.enum_snapshot(id)
     }
 
-    pub(crate) fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
+    pub(crate) fn enum_snapshot(&self, id: GcRef) -> Option<EnumValueSnapshot> {
         self.enum_view(id).map(|view| (*view).clone())
     }
 
@@ -469,22 +469,16 @@ impl GcHeap {
     /// # Safety
     /// Keep managed inputs live through this query. Type/owner validation cannot
     /// establish the lifetime of an expired direct reference.
-    /// Indexed identities retain generation checks. Struct identities require the
+    /// Indexed identities retain generation checks. Direct identities require the
     /// original root/traced owner; never query a struct identity after reclamation.
     #[doc(hidden)]
     pub unsafe fn object_kind_transport(&self, id: HeapObjectIdentity) -> Option<GcObjectKind> {
         self.identity_kind(id)
     }
 
-    pub(crate) fn identity_kind(&self, id: HeapObjectIdentity) -> Option<GcObjectKind> {
+    pub(crate) fn identity_kind(&self, id: impl Into<HeapObjectIdentity>) -> Option<GcObjectKind> {
         let objects = self.objects.try_borrow().ok()?;
-        Self::object_kind_at(&objects, self.identity_location(&objects, id)?)
-    }
-
-    pub(crate) fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
-        let objects = self.objects.try_borrow().ok()?;
-        let location = self.object_location(&objects, id)?;
-        Self::object_kind_at(&objects, location)
+        Self::object_kind_at(&objects, self.identity_location(&objects, id.into())?)
     }
 
     fn object_kind_at(objects: &ObjectStorage, location: PayloadLocation) -> Option<GcObjectKind> {
@@ -542,7 +536,7 @@ impl GcHeap {
         &self,
         modules: &ModuleStore,
         snapshot: ClosureValueSnapshot,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    ) -> Result<GcRef, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !snapshot
             .captures
@@ -558,11 +552,7 @@ impl GcHeap {
         self.alloc_object(HeapObject::Closure { snapshot })
     }
 
-    pub(crate) fn alloc_cell(
-        &self,
-        ty: ValueType,
-        value: Value,
-    ) -> Result<HeapObjectId, RuntimeError> {
+    pub(crate) fn alloc_cell(&self, ty: ValueType, value: Value) -> Result<GcRef, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) || !value.has_representation(ty) {
             return Err(RuntimeError::new(
@@ -573,9 +563,9 @@ impl GcHeap {
         self.alloc_object(HeapObject::Cell { ty, value })
     }
 
-    pub(crate) fn cell_get(&self, id: HeapObjectId, ty: ValueType) -> Result<Value, RuntimeError> {
+    pub(crate) fn cell_get(&self, id: GcRef, ty: ValueType) -> Result<Value, RuntimeError> {
         let objects = self.objects.borrow();
-        match self.readable_object(&objects, id) {
+        match self.readable_identity(&objects, id) {
             Some(HeapObject::Cell { ty: actual, value }) if *actual == ty => Ok(*value),
             _ => Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -584,9 +574,9 @@ impl GcHeap {
         }
     }
 
-    pub(crate) fn captured_cell_value(&self, id: HeapObjectId) -> Option<Value> {
+    pub(crate) fn captured_cell_value(&self, id: GcRef) -> Option<Value> {
         let objects = self.objects.borrow();
-        match self.readable_object(&objects, id)? {
+        match self.readable_identity(&objects, id)? {
             HeapObject::Cell { ty, value } if value.has_representation(*ty) => Some(*value),
             _ => None,
         }
@@ -594,7 +584,7 @@ impl GcHeap {
 
     pub(crate) fn cell_set(
         &self,
-        id: HeapObjectId,
+        id: GcRef,
         ty: ValueType,
         value: Value,
     ) -> Result<(), RuntimeError> {
@@ -622,12 +612,9 @@ impl GcHeap {
         }
     }
 
-    pub(crate) fn closure_snapshot(
-        &self,
-        id: HeapObjectId,
-    ) -> Option<Ref<'_, ClosureValueSnapshot>> {
+    pub(crate) fn closure_snapshot(&self, id: GcRef) -> Option<Ref<'_, ClosureValueSnapshot>> {
         Ref::filter_map(self.objects.try_borrow().ok()?, |objects| {
-            match self.readable_object(objects, id)? {
+            match self.readable_identity(objects, id)? {
                 HeapObject::Closure { snapshot } => Some(snapshot),
                 _ => None,
             }
@@ -640,7 +627,7 @@ impl GcHeap {
         id: InterfaceObjectId,
     ) -> Option<InterfaceSnapshotId> {
         let objects = self.objects.try_borrow().ok()?;
-        match self.readable_object(&objects, id.0)? {
+        match self.readable_identity(&objects, id.0)? {
             HeapObject::Interface { snapshot, .. } => Some(snapshot),
             _ => None,
         }
@@ -659,7 +646,7 @@ impl GcHeap {
     /// Keep source objects live through the read. Protect copied managed edges
     /// or identities before callbacks, collection or source mutation can remove
     /// their last traced owner. A returned snapshot is not a root.
-    /// Indexed identities retain generation checks. Struct identities require the
+    /// Indexed identities retain generation checks. Direct identities require the
     /// original root/traced owner; never query a struct identity after reclamation.
     #[doc(hidden)]
     pub unsafe fn trace_roots_transport(&self) -> Option<Vec<HeapObjectIdentity>> {
@@ -698,9 +685,9 @@ impl GcHeap {
     /// # Safety
     /// Keep managed inputs live through this query. Type/owner validation cannot
     /// establish the lifetime of an expired direct reference.
-    /// With the current checked-ID representation, invalid-ID rejection probes
-    /// must remain non-dereferencing; replace them with inert identity or retained
-    /// wrapper checks before converting these paths to direct references.
+    /// Direct references require live retention even for rejection probes. Use a
+    /// retained wrong-kind/foreign value or a checked root token to test rejection;
+    /// never inspect a reclaimed direct address.
     #[doc(hidden)]
     pub unsafe fn validate_value_transport(&self, value: &Value) -> bool {
         self.validate_value(value)
@@ -723,18 +710,13 @@ impl GcHeap {
         objects: &ObjectStorage,
         value: &Value,
     ) -> Option<HeapObjectIdentity> {
-        if let Value::Struct(reference) = value {
-            self.identity_location(objects, HeapObjectIdentity::Struct(*reference))?;
-            return Some(HeapObjectIdentity::Struct(*reference));
-        }
-        let id = value.checked_id()?;
-        let slot = self.object_slot(objects, id)?;
-        let kind = slot.kind();
-        // Occupied directory kinds are installed only after payload initialization
-        // and retired before disposal. Generic handles impose no narrower kind;
-        // only Array needs nominal information beyond that original-owner record.
+        let identity = value.heap_identity()?;
+        let location = self.identity_location(objects, identity)?;
+        let kind = location.kind;
+        // Occupied kinds are installed only after payload initialization and retired
+        // before disposal. Array additionally requires its Native nominal type.
         let matches = match value {
-            Value::GcHandle(_) => true,
+            Value::GcHandle(_) => kind == PayloadKind::Native,
             Value::Str(_) => kind == PayloadKind::String,
             Value::Tuple(_) => kind == PayloadKind::Tuple,
             Value::Range(_) => kind == PayloadKind::Range,
@@ -742,8 +724,7 @@ impl GcHeap {
             Value::HostPathView(_) => kind == PayloadKind::HostPath,
             Value::Ephemeral(_) => kind == PayloadKind::Ephemeral,
             Value::Array(_) => {
-                kind == PayloadKind::Native
-                    && matches!(objects.native(slot.location()?)?.ty, Ty::Array(..))
+                kind == PayloadKind::Native && matches!(objects.native(location)?.ty, Ty::Array(..))
             }
             Value::Enum(_) => kind == PayloadKind::Enum,
             Value::Struct(_) => kind == PayloadKind::Struct,
@@ -760,7 +741,7 @@ impl GcHeap {
             | Value::F64(_)
             | Value::RuntimeEphemeral(_) => return None,
         };
-        matches.then_some(HeapObjectIdentity::Indexed(id))
+        matches.then_some(identity)
     }
 
     pub(crate) fn validate_candidate_value(&self, value: &Value) -> bool {
@@ -808,15 +789,15 @@ impl GcHeap {
             .map_err(|_| RuntimeError::module_validation("heap storage is borrowed"))
     }
 
-    fn alloc_object(&self, object: HeapObject) -> Result<HeapObjectId, RuntimeError> {
+    fn alloc_object(&self, object: HeapObject) -> Result<GcRef, RuntimeError> {
         assert!(
-            !matches!(object, HeapObject::Struct { .. }),
-            "struct allocation uses direct identity"
+            !matches!(object, HeapObject::Native(_)),
+            "Native allocation uses checked identity"
         );
-        let HeapObjectIdentity::Indexed(id) = self.alloc_managed(object)? else {
-            unreachable!("indexed allocation identity")
+        let HeapObjectIdentity::Direct(reference) = self.alloc_managed(object)? else {
+            unreachable!("direct allocation identity")
         };
-        Ok(id)
+        Ok(reference)
     }
 
     fn alloc_managed(&self, object: HeapObject) -> Result<HeapObjectIdentity, RuntimeError> {
@@ -873,7 +854,7 @@ impl GcHeap {
             .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
             .map(|session| session.root.program_root().key());
         let mut objects = self.objects_mut()?;
-        let direct = matches!(object, HeapObject::Struct { .. });
+        let direct = !matches!(object, HeapObject::Native(_));
         let index = objects.next_directory();
         let directory = if direct {
             u32::MAX
@@ -912,11 +893,11 @@ impl GcHeap {
             .with_shallow_bytes(objects.backing_bytes() - before_backing)
             .expect("preflighted payload backing charge");
         let id = if direct {
-            objects.publish_struct();
-            HeapObjectIdentity::Struct(
+            objects.publish_direct();
+            HeapObjectIdentity::Direct(
                 objects
-                    .struct_reference(location)
-                    .expect("initialized struct"),
+                    .direct_reference(location)
+                    .expect("initialized managed header"),
             )
         } else {
             objects.publish(index, location);
@@ -976,29 +957,12 @@ impl GcHeap {
         Some(location)
     }
 
-    fn object_ref<'a>(
-        &self,
-        objects: &'a ObjectStorage,
-        id: HeapObjectId,
-    ) -> Option<HeapObject<Shared<'a>>> {
-        objects.get(self.object_location(objects, id)?, &self.interfaces)
-    }
-
-    // Script-visible reads are isolated; collector traversal uses object_ref directly.
-    fn readable_object<'a>(
-        &self,
-        objects: &'a ObjectStorage,
-        id: HeapObjectId,
-    ) -> Option<HeapObject<Shared<'a>>> {
-        objects.get(self.readable_location(objects, id)?, &self.interfaces)
-    }
-
     fn object_mut<'a>(
         &self,
         objects: &'a mut ObjectStorage,
-        id: HeapObjectId,
+        id: impl Into<HeapObjectIdentity>,
     ) -> Option<HeapObject<Exclusive<'a>>> {
-        let location = self.readable_location(objects, id)?;
+        let location = self.readable_identity_location(objects, id.into())?;
         objects.get_mut(location, &self.interfaces)
     }
 
@@ -1020,10 +984,7 @@ impl GcHeap {
     }
 
     fn value_identity(&self, objects: &ObjectStorage, value: &Value) -> Option<HeapObjectIdentity> {
-        let identity = match value {
-            Value::Struct(reference) => HeapObjectIdentity::Struct(*reference),
-            _ => HeapObjectIdentity::Indexed(value.checked_id()?),
-        };
+        let identity = value.heap_identity()?;
         self.identity_location(objects, identity)?;
         Some(identity)
     }
@@ -1035,7 +996,7 @@ impl GcHeap {
     ) -> Option<PayloadLocation> {
         match identity {
             HeapObjectIdentity::Indexed(id) => self.object_location(objects, id),
-            HeapObjectIdentity::Struct(reference) => objects.struct_location(reference),
+            HeapObjectIdentity::Direct(reference) => objects.direct_location(reference),
         }
     }
 
@@ -1050,7 +1011,7 @@ impl GcHeap {
         let location = self.identity_location(objects, identity)?;
         if !self
             .graph
-            .with_access(|| objects.mark(location).expect("occupied struct mark"))
+            .with_access(|| objects.mark(location).expect("occupied direct mark"))
             .ok()?
         {
             return None;
@@ -1070,18 +1031,21 @@ impl GcHeap {
     fn identity_ref<'a>(
         &self,
         objects: &'a ObjectStorage,
-        identity: HeapObjectIdentity,
+        identity: impl Into<HeapObjectIdentity>,
     ) -> Option<HeapObject<Shared<'a>>> {
-        objects.get(self.identity_location(objects, identity)?, &self.interfaces)
+        objects.get(
+            self.identity_location(objects, identity.into())?,
+            &self.interfaces,
+        )
     }
 
     fn readable_identity<'a>(
         &self,
         objects: &'a ObjectStorage,
-        identity: HeapObjectIdentity,
+        identity: impl Into<HeapObjectIdentity>,
     ) -> Option<HeapObject<Shared<'a>>> {
         objects.get(
-            self.readable_identity_location(objects, identity)?,
+            self.readable_identity_location(objects, identity.into())?,
             &self.interfaces,
         )
     }
@@ -1089,7 +1053,7 @@ impl GcHeap {
     fn with_struct<R>(&self, reference: GcRef, f: impl FnOnce(StructView<'_>) -> R) -> Option<R> {
         let objects = self.objects.borrow();
         let location =
-            self.readable_identity_location(&objects, HeapObjectIdentity::Struct(reference))?;
+            self.readable_identity_location(&objects, HeapObjectIdentity::Direct(reference))?;
         Some(f(objects.structure(location)?))
     }
 
@@ -1100,7 +1064,7 @@ impl GcHeap {
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
         let location =
-            self.readable_identity_location(&objects, HeapObjectIdentity::Struct(reference))?;
+            self.readable_identity_location(&objects, HeapObjectIdentity::Direct(reference))?;
         Some(f(objects.structure_mut(location)?))
     }
 }

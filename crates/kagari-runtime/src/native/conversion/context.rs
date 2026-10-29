@@ -653,11 +653,10 @@ impl<'runtime> ConversionContext<'runtime> {
 
 fn identity(value: &Value) -> Option<HeapObjectIdentity> {
     match value {
-        Value::Array(id)
-        | Value::Enum(id)
-        | Value::GcHandle(id)
-        | Value::Closure(id)
-        | Value::Cell(id) => Some((*id).into()),
+        Value::Array(id) | Value::GcHandle(id) => Some((*id).into()),
+        Value::Enum(reference) | Value::Closure(reference) | Value::Cell(reference) => {
+            Some((*reference).into())
+        }
         Value::Interface(id) => Some(id.0.into()),
         Value::Struct(reference) => Some((*reference).into()),
         _ => None,

@@ -66,6 +66,12 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
         .unwrap();
     let _own_root = first.root_value(Value::Struct(own_struct)).unwrap();
     let _foreign_root = second.root_value(Value::Struct(foreign_struct)).unwrap();
+    let wrong_kind = first
+        .gc()
+        .alloc_string("wrong enum".into())
+        .unwrap()
+        .direct_reference()
+        .unwrap();
     let before = first.gc().stats();
     assert!(first.root_value(Value::Struct(foreign_struct)).is_none());
     assert!(
@@ -113,7 +119,7 @@ fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounti
             .is_err()
     );
     assert!(first.root_value(Value::Array(foreign)).is_none());
-    assert!(first.root_value(Value::Enum(own)).is_none());
+    assert!(first.root_value(Value::Enum(wrong_kind)).is_none());
 
     assert_eq!(
         first
@@ -193,9 +199,9 @@ fn rooted_clones_keep_values_alive_and_reused_slots_reject_stale_handles() {
         let collected = runtime.collect_garbage().unwrap();
         assert_eq!(collected.reclaimed_objects, if nested { 2 } else { 1 });
         assert_eq!(collected.reclaimed_units, if nested { 10 } else { 7 });
-        assert!(runtime.gc().string(text_id).is_none());
-        assert!(runtime.root_value(raw_copy).is_none());
-        assert!(script_equal(runtime.gc(), &raw_copy, &raw_copy).is_err());
+        // Direct copies have no post-reclamation query authority.
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.gc().stats().allocated_objects, 0);
     }
 }
 

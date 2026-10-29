@@ -257,7 +257,7 @@ impl NativeStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{gc::graph::GraphIdentity, test_support::layouts::allocation_owner};
+    use crate::test_support::layouts::allocation_owner;
     use kagari_types::{scalar::BuiltinType, ty::Ty};
 
     #[derive(Debug)]
@@ -320,19 +320,14 @@ mod tests {
             assert!(
                 runtime
                     .gc
-                    .graph_survivor(
-                        runtime.modules(),
-                        GraphIdentity::Object(child.checked_id().unwrap())
-                    )
+                    .graph_survivor(runtime.modules(), child.heap_identity().unwrap().graph())
                     .unwrap()
             );
         }
         runtime.gc.graph.lock().finish_sweep().unwrap();
         drop(roots);
-        runtime.collect_garbage().unwrap();
-        for child in children {
-            assert!(!runtime.gc.validate_value(&child));
-        }
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 4);
+        assert_eq!(runtime.gc.allocated_objects(), 0);
     }
 
     #[test]
@@ -367,16 +362,16 @@ mod tests {
         // This synthetic producer has no binding identity. Observation neither
         // invents one nor starts/claims the producer (Unstarted would panic).
         assert_eq!(runtime.observe_callable_value(&root).unwrap(), None);
-        assert_eq!(
-            runtime.gc().stats().current_retained_bytes,
-            (backing + size_of::<FuturePayload>()) as u128
-        );
+        let before_claim = runtime.gc().stats().current_retained_bytes;
+        // Claim transfers captured Vec backing; occupied shared pages stay charged
+        // until sweep. Their size is independent of FuturePayload itself.
+        assert!(before_claim >= (backing + size_of::<FuturePayload>()) as u128);
         let cold = runtime.gc().take_cold_future(id).unwrap();
         assert_eq!(runtime.observe_callable_value(&root).unwrap(), None);
         assert_eq!(runtime.gc().stats().current_heap_units, 1);
         assert_eq!(
             runtime.gc().stats().current_retained_bytes,
-            size_of::<FuturePayload>() as u128
+            before_claim - backing as u128
         );
         assert!(runtime.gc().take_cold_future(id).is_err());
         drop(root);

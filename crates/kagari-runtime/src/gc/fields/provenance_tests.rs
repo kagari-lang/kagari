@@ -1,6 +1,8 @@
 //! Direct references retain provenance through packed fields and graph reclamation.
 use crate::{
-    Runtime, gc::object_header::ObjectHeader, test_support::native::program::ProgramFixture,
+    Runtime,
+    gc::object_header::ObjectHeader,
+    test_support::{layouts::layout, native::program::ProgramFixture},
     value::Value,
 };
 use kagari_bytecode::{instruction::StructId, module::BytecodeModule, program::ModuleRef};
@@ -12,6 +14,64 @@ use kagari_types::{
     visibility::Visibility,
 };
 use std::sync::Arc;
+
+#[test]
+fn packed_builtin_edges_survive_collection_and_release_replaced_graphs() {
+    let mut runtime = Runtime::default();
+    let string_type = Ty::Builtin(BuiltinType::String);
+    let shape = layout(
+        &mut runtime,
+        "BuiltinEdges",
+        &[
+            ("prefix", Ty::Builtin(BuiltinType::Bool), false),
+            ("label", string_type.clone(), true),
+            (
+                "pair",
+                Ty::Tuple(vec![string_type.clone(), string_type]),
+                true,
+            ),
+        ],
+    );
+    let heap = runtime.gc();
+    let old = heap.alloc_string("old".into()).unwrap();
+    let sibling = heap.alloc_string("sibling".into()).unwrap();
+    let pair = heap.alloc_tuple(vec![old, sibling]).unwrap();
+    let record = heap
+        .alloc_struct(shape.clone(), vec![Value::Bool(true), old, pair])
+        .unwrap();
+    let root = runtime.root_value(Value::Struct(record)).unwrap();
+    let label_field = heap.prepare_struct_field(shape.clone(), 1).unwrap();
+    let pair_field = heap.prepare_struct_field(shape.clone(), 2).unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 4);
+    // SAFETY: the root retains both unaligned pointer fields and all tuple edges.
+    let Value::Str(label) = (unsafe { label_field.read(heap, record) }).unwrap() else {
+        panic!("declared string field");
+    };
+    assert_eq!(&*heap.string(label).unwrap(), "old");
+    let Value::Tuple(tuple) = (unsafe { pair_field.read(heap, record) }).unwrap() else {
+        panic!("declared tuple field");
+    };
+    assert_eq!(&*heap.tuple(tuple).unwrap(), &[old, sibling]);
+    let replacement = heap.alloc_string("new".into()).unwrap();
+    let next_pair = heap.alloc_tuple(vec![replacement, replacement]).unwrap();
+    // SAFETY: allocation/publication cannot collect between these operations;
+    // the destination root remains live through both field commits.
+    unsafe { label_field.write(heap, record, replacement) }.unwrap();
+    unsafe { pair_field.write(heap, record, next_pair) }.unwrap();
+    let collected = runtime.collect_garbage().unwrap();
+    assert_eq!(
+        (collected.reclaimed_objects, collected.live_objects),
+        (3, 3)
+    );
+    assert_eq!(heap.struct_get_slot(record, &shape, 1), Some(replacement));
+    let Value::Tuple(tuple) = heap.struct_get_slot(record, &shape, 2).unwrap() else {
+        panic!("replacement tuple field");
+    };
+    assert_eq!(&*heap.tuple(tuple).unwrap(), &[replacement, replacement]);
+    drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
+    assert_eq!(heap.stats().current_retained_bytes, 0);
+}
 
 #[test]
 fn packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes() {
@@ -97,7 +157,7 @@ fn packed_direct_struct_edges_preserve_provenance_and_collection_lifetimes() {
     let weak_description = Arc::downgrade(&physical_description);
     let weak_scan = Arc::downgrade(physical_description.structure.as_ref().unwrap());
     drop(physical_description);
-    let old_identity = heap.objects.borrow().struct_location(child).unwrap();
+    let old_identity = heap.objects.borrow().direct_location(child).unwrap();
     let parent = heap
         .alloc_struct(
             parent_shape.clone(),

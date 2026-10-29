@@ -7,7 +7,6 @@ mod initialization;
 use super::*;
 use crate::{
     error::RuntimeErrorKind,
-    gc::graph::GraphIdentity,
     module::{VerifiedProgram, state::cells::CellId},
     native::storage::scan::{ScanBudget, ScanStatus},
 };
@@ -79,10 +78,7 @@ fn black_static_initialization_replacement_and_sweep_reload_preserve_published_e
         assert!(
             runtime
                 .gc
-                .graph_survivor(
-                    runtime.modules(),
-                    GraphIdentity::Object(value.checked_id().unwrap())
-                )
+                .graph_survivor(runtime.modules(), value.heap_identity().unwrap().graph())
                 .unwrap()
         );
     }
@@ -111,10 +107,9 @@ fn black_static_initialization_replacement_and_sweep_reload_preserve_published_e
         replacement
     );
     runtime.gc.graph.lock().finish_sweep().unwrap();
-    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
     assert!(runtime.gc.validate_value(&replacement));
-    assert!(!runtime.gc.validate_value(&initial));
-    assert!(!runtime.gc.validate_value(&dead));
+    assert_eq!(runtime.gc.allocated_objects(), 1);
 }
 
 #[cfg(feature = "execution-diagnostics")]

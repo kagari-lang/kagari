@@ -18,7 +18,7 @@ fn physical_group_credit_requires_closed_marking_and_registers_again_on_reuse() 
     let mut marker = state.lock();
     let mut blocks = MarkBlocks::default();
     blocks.prepare(0).unwrap();
-    let mark = blocks.slot(Domain::Struct, 0);
+    let mark = blocks.slot(Domain::Direct, 0);
     let id = object(0, 0);
     marker.prepare_identity().unwrap();
     marker.admit_prepared(id, mark);

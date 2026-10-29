@@ -8,7 +8,9 @@ use crate::{
             pages::{SLAB_BYTES, batch::Disposal},
         },
         metrics::IndivisibleKind,
+        reference::GcRef,
     },
+    module::ExecutableModule,
     native::{
         payload::data::NativeData,
         storage::{NativeStorage, scan::ScanStatus},
@@ -18,6 +20,7 @@ use crate::{
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
+    cmp::Reverse,
     mem::size_of_val,
     panic::{AssertUnwindSafe, catch_unwind},
 };
@@ -85,6 +88,33 @@ fn try_batch<'a>(heap: &'a GcHeap, budget: &mut ScanBudget) -> Option<SweepBatch
 
 pub(super) fn batch(heap: &GcHeap, work: usize) -> SweepBatch<'_> {
     try_batch(heap, &mut ScanBudget::new(work)).unwrap()
+}
+
+/// Fresh heaps allocate monotonically numbered pages; sweep visits newest pages
+/// first and occupied slots in ascending order. Keep fixture identities in that
+/// order across payload/header size changes, without running the sweep itself.
+fn strings_in_sweep_order(heap: &GcHeap, count: usize, capacity: usize) -> Vec<GcRef> {
+    let mut ids: Vec<_> = (0..count)
+        .map(|_| {
+            heap.alloc_string(String::with_capacity(capacity))
+                .unwrap()
+                .direct_reference()
+                .unwrap()
+        })
+        .collect();
+    let objects = heap.objects.borrow();
+    ids.sort_by_key(|id| {
+        let location = objects.direct_location(*id).unwrap();
+        (Reverse(location.page), location.slot)
+    });
+    ids
+}
+
+fn indexed_scalar(heap: &GcHeap, owner: &ExecutableModule) -> HeapObjectId {
+    let payload = NativeStorage::takeable::<i32>()
+        .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), 7, owner)
+        .unwrap();
+    heap.alloc_native(payload).unwrap()
 }
 
 #[test]
@@ -169,18 +199,21 @@ fn greedy_page_geometry_fills_32_owners_without_batch_allocations() {
 }
 
 #[test]
-fn range_accounting_and_generation_reuse_follow_release_not_detachment() {
+fn range_accounting_and_physical_reuse_follow_release_not_detachment() {
     let runtime = Runtime::default();
     let heap = runtime.gc();
-    let mut ids = Vec::new();
-    for _ in 0..42 {
-        let Value::Str(id) = heap.alloc_string(String::with_capacity(7)).unwrap() else {
-            unreachable!()
-        };
-        ids.push(id);
-    }
+    let ids = strings_in_sweep_order(heap, 42, 7);
     begin(heap);
     let before = heap.resources.counters();
+    let locations: Vec<_> = ids
+        .iter()
+        .map(|id| heap.objects.borrow().direct_location(*id).unwrap())
+        .collect();
+    let initial_backing = heap.objects.borrow().backing_bytes();
+    assert_eq!(
+        before.current_retained_bytes,
+        initial_backing as u128 + 42 * 7
+    );
     let mut retired = batch(heap, 1024);
     assert_eq!(retired.units, 32);
     assert_eq!(retired.bytes, 32 * 7);
@@ -197,7 +230,8 @@ fn range_accounting_and_generation_reuse_follow_release_not_detachment() {
         heap.dispose_sweep_batch(&mut retired)
             .unwrap()
             .released_bytes,
-        0
+        initial_backing - SLAB_BYTES,
+        "release complete pages while the final ten strings retain one page"
     );
     assert_eq!(heap.resources.counters().current_heap_units, 10);
     assert_eq!(
@@ -208,11 +242,8 @@ fn range_accounting_and_generation_reuse_follow_release_not_detachment() {
     let Value::Str(newborn) = heap.alloc_string(String::new()).unwrap() else {
         unreachable!()
     };
-    assert!(
-        ids[..32]
-            .iter()
-            .any(|old| old.index() == newborn.index() && old.generation != newborn.generation)
-    );
+    let newborn_location = heap.objects.borrow().direct_location(newborn).unwrap();
+    assert!(locations[..32].contains(&newborn_location));
     assert!(heap.validate_value(&Value::Str(newborn)));
     let mut retired = batch(heap, 1024);
     assert_eq!(retired.units, 10);
@@ -238,7 +269,7 @@ fn range_accounting_and_generation_reuse_follow_release_not_detachment() {
         SLAB_BYTES as u128
     );
     assert!(heap.validate_value(&Value::Str(newborn)));
-    assert!(ids.iter().all(|&id| !heap.validate_value(&Value::Str(id))));
+    assert_eq!(heap.objects.borrow().pages.occupied().count(), 1);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -405,14 +436,13 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
-    let mut ids: Vec<_> = (0..42)
-        .map(|_| {
-            heap.alloc_string(String::new())
-                .unwrap()
-                .checked_id()
-                .unwrap()
-        })
-        .collect();
+    let mut ids: Vec<_> = (0..42).map(|_| indexed_scalar(heap, &owner)).collect();
+    ids.sort_by_key(|id| {
+        let objects = heap.objects.borrow();
+        let location = objects.slots[id.index()].location().unwrap();
+        (Reverse(location.page), location.slot)
+    });
+    let unit = heap.resources.counters().current_heap_units / 42;
     {
         let mut objects = heap.objects.borrow_mut();
         for ordinal in [0, 17] {
@@ -425,7 +455,7 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
         }
     }
     begin(heap);
-    let mut retired = batch(heap, 1024);
+    let mut retired = batch(heap, usize::MAX);
     {
         let objects = heap.objects.borrow();
         assert_eq!(objects.initialization_owners.len(), 10);
@@ -446,23 +476,19 @@ fn bounded_transaction_preserves_initialization_owners_and_exhausted_generations
     }
     heap.dispose_sweep_batch(&mut retired).unwrap();
     for _ in 0..32 {
-        let new = heap
-            .alloc_string(String::new())
-            .unwrap()
-            .checked_id()
-            .unwrap();
+        let new = indexed_scalar(heap, &owner);
         assert_ne!(new.index(), ids[0].index());
         assert_ne!(new.index(), ids[17].index());
         assert!(!ids.contains(&new), "full identities never alias");
     }
-    let mut retired = batch(heap, 1024);
-    assert_eq!(retired.units, 10);
+    let mut retired = batch(heap, usize::MAX);
+    assert_eq!(retired.units, 10 * unit);
     heap.dispose_sweep_batch(&mut retired).unwrap();
     let totals = heap.objects.borrow_mut().finish_physical_sweep().unwrap();
     assert_eq!(totals.objects, 42);
     assert_eq!(totals.live, 32);
     assert!(heap.objects.borrow().initialization_owners.is_empty());
-    assert_eq!(heap.resources.counters().current_heap_units, 32);
+    assert_eq!(heap.resources.counters().current_heap_units, 32 * unit);
 }
 
 #[test]
@@ -470,7 +496,8 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
     let runtime = Runtime::default();
     let heap = runtime.gc();
     let old = heap.alloc_string(String::with_capacity(7)).unwrap();
-    let id = old.checked_id().unwrap();
+    let id = old.direct_reference().unwrap();
+    let old_location = heap.objects.borrow().direct_location(id).unwrap();
     begin(heap);
     let mut initialization = ScanBudget::new(WORKSPACE_WORK);
     assert!(initialization.take(WORKSPACE_WORK));
@@ -486,10 +513,10 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
         scanner.advance();
         let cursor = scanner.cursor();
         let candidate = Candidate {
-            index: id.index(),
+            index: u32::MAX as usize,
             location: physical.location,
-            physical: Some((physical.descriptor, physical.small)),
-            payload: Some(physical.payload),
+            physical: (physical.descriptor, physical.small),
+            payload: physical.payload,
             mark: physical.mark,
         };
         let mut marker = heap.graph.lock();
@@ -532,17 +559,18 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
     {
         let objects = heap.objects.borrow();
         assert!(objects.sweep.as_ref().unwrap().outstanding);
-        assert_eq!(objects.slots[id.index()].generation, id.generation + 1);
-        assert!(objects.slots[id.index()].location().is_none());
+        assert!(objects.pages.get(old_location).is_none());
     }
     assert_eq!(heap.resources.counters(), before);
     heap.dispose_sweep_batch(&mut retired).unwrap();
     let newborn = heap.alloc_string(String::with_capacity(11)).unwrap();
-    let new_id = newborn.checked_id().unwrap();
-    assert_eq!(new_id.index(), id.index());
-    assert_ne!(new_id, id);
+    let new_id = newborn.direct_reference().unwrap();
+    assert_eq!(
+        heap.objects.borrow().direct_location(new_id).unwrap(),
+        old_location
+    );
     let before = heap.resources.counters();
-    let location = heap.objects.borrow().slots[new_id.index()].location();
+    let location = heap.objects.borrow().direct_location(new_id);
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
             let _ = prepared.seal();
@@ -552,11 +580,10 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
     {
         let objects = heap.objects.borrow();
         assert!(!objects.sweep.as_ref().unwrap().outstanding);
-        assert_eq!(objects.slots[new_id.index()].location(), location);
-        assert_eq!(objects.slots[new_id.index()].generation, new_id.generation);
+        assert_eq!(objects.direct_location(new_id), location);
     }
     assert!(heap.validate_value(&newborn));
-    assert!(!heap.validate_value(&old));
+    assert_eq!(heap.objects.borrow().pages.occupied().count(), 1);
     assert_eq!(heap.resources.counters(), before);
     assert_eq!(
         heap.objects
@@ -572,14 +599,7 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
 fn bounded_transaction_rejects_late_credit_underflow_before_detachment() {
     let runtime = Runtime::default();
     let heap = runtime.gc();
-    let ids: Vec<_> = (0..42)
-        .map(|_| {
-            heap.alloc_string(String::with_capacity(17))
-                .unwrap()
-                .checked_id()
-                .unwrap()
-        })
-        .collect();
+    let ids = strings_in_sweep_order(heap, 42, 17);
     begin(heap);
     // Deliberately corrupt the credit ledger by consuming one unretired credit.
     // The first physical batch can commit; the second must fail atomically.
@@ -596,7 +616,7 @@ fn bounded_transaction_rejects_late_credit_underflow_before_detachment() {
     let before = heap.resources.counters();
     let locations: Vec<_> = ids[32..]
         .iter()
-        .map(|id| heap.objects.borrow().slots[id.index()].location().unwrap())
+        .map(|id| heap.objects.borrow().direct_location(*id).unwrap())
         .collect();
     assert!(try_batch(heap, &mut ScanBudget::new(1024)).is_none());
     {
@@ -607,8 +627,7 @@ fn bounded_transaction_rejects_late_credit_underflow_before_detachment() {
     }
     for (id, location) in ids[32..].iter().zip(locations) {
         let objects = heap.objects.borrow();
-        assert_eq!(objects.slots[id.index()].generation, id.generation);
-        assert_eq!(objects.slots[id.index()].location(), Some(location));
+        assert_eq!(objects.direct_location(*id), Some(location));
         assert!(objects.pages.get(location).is_some());
     }
     assert_eq!(
@@ -697,7 +716,7 @@ fn retirement_reserves_disposal_and_finish_before_detaching() {
 fn inspection_progress_cannot_finish_another_batch_and_reports_newborn_liveness() {
     let runtime = Runtime::default();
     let heap = runtime.gc();
-    let old = heap.alloc_string(String::with_capacity(7)).unwrap();
+    let _old = heap.alloc_string(String::with_capacity(7)).unwrap();
     begin(heap);
     let mut progress = batch(heap, 1);
     assert!(!progress.has_retirements());
@@ -723,13 +742,13 @@ fn inspection_progress_cannot_finish_another_batch_and_reports_newborn_liveness(
     // Progress-only completion has no ownership requiring a disposal handshake.
     let totals = heap.objects.borrow_mut().finish_physical_sweep().unwrap();
     assert_eq!((totals.objects, totals.live), (1, 1));
-    assert!(!heap.validate_value(&old));
+    assert_eq!(heap.objects.borrow().pages.occupied().count(), 1);
     assert!(heap.validate_value(&newborn));
     assert_eq!(heap.resources.counters().current_heap_units, 1);
 }
 
 #[test]
-fn reverse_wrapper_cursor_repairs_swaps_and_excludes_reused_newborns() {
+fn interface_page_cursor_excludes_reused_newborns_and_retains_metadata() {
     let mut runtime = Runtime::default();
     let Value::Interface(original) = interface_value(&mut runtime) else {
         unreachable!()
@@ -740,16 +759,20 @@ fn reverse_wrapper_cursor_repairs_swaps_and_excludes_reused_newborns() {
     for _ in 0..6 {
         ids.push(heap.alloc_interface(snapshot).unwrap());
     }
-    let roots = [
+    let _roots = [
         heap.root_value(Value::Interface(ids[0])).unwrap(),
         heap.root_value(Value::Interface(ids[4])).unwrap(),
     ];
+    let reused_location = heap.objects.borrow().direct_location(ids[1].0).unwrap();
     begin_with_roots(&runtime);
-    let mut first = batch(heap, 41);
+    // Two bitmap planes, one survivor and one dead owner, plus the complete
+    // physical fragment/transaction reservation. Admit exactly one dead wrapper.
+    let one_owner = 2 + 1 + OWNER_RETIRE_WORK + BATCH_FINISH_WORK + FRAGMENT_FINISH_WORK;
+    let mut first = batch(heap, one_owner + 1);
     assert_eq!(first.objects, 1);
     assert!(
-        first.disposal.iter().all(Option::is_none),
-        "wrapper has no physical drop token"
+        first.disposal.iter().any(Option::is_some),
+        "interface wrapper owns physical retirement"
     );
     assert!(
         first.has_retirements(),
@@ -758,52 +781,41 @@ fn reverse_wrapper_cursor_repairs_swaps_and_excludes_reused_newborns() {
     assert!(heap.objects.borrow().sweep.as_ref().unwrap().outstanding);
     assert_eq!(first.status, ScanStatus::Pending);
     heap.dispose_sweep_batch(&mut first).unwrap();
-    assert!(!heap.validate_value(&Value::Interface(ids[6])));
+    assert!(heap.objects.borrow().pages.get(reused_location).is_none());
     let newborn = heap.alloc_interface(snapshot).unwrap();
-    assert_eq!(newborn.0.index(), ids[6].0.index());
-    assert_ne!(newborn.0.generation, ids[6].0.generation);
-    let mut second = batch(heap, 41);
+    let mut second = batch(heap, one_owner);
     assert_eq!(second.objects, 1);
     heap.dispose_sweep_batch(&mut second).unwrap();
     assert_eq!(
-        heap.objects.borrow().slots[newborn.0.index()]
-            .location()
-            .unwrap()
-            .page,
-        5
+        heap.objects.borrow().direct_location(newborn.0).unwrap(),
+        reused_location
     );
     loop {
-        let mut retired = batch(heap, 42);
+        let mut retired = batch(heap, one_owner);
         assert!(retired.objects <= 1);
         let status = retired.status;
         heap.dispose_sweep_batch(&mut retired).unwrap();
-        let objects = heap.objects.borrow();
-        assert!(
-            (0..objects.interface_directories.len()).all(|ordinal| objects.valid_wrapper(ordinal))
-        );
         assert!(heap.validate_value(&Value::Interface(newborn)));
+        assert!(heap.interface_metadata(snapshot).is_some());
         if status == ScanStatus::Complete {
             break;
         }
     }
     let totals = heap.objects.borrow_mut().finish_physical_sweep().unwrap();
     assert_eq!((totals.objects, totals.live), (5, 3));
-    assert_eq!(heap.objects.borrow().interface_directories.len(), 3);
-    for (ordinal, id) in ids.iter().enumerate() {
-        assert_eq!(
-            heap.validate_value(&Value::Interface(*id)),
-            ordinal == 0 || ordinal == 4
-        );
+    assert_eq!(heap.objects.borrow().pages.occupied().count(), 3);
+    for id in [ids[0], ids[4]] {
+        assert!(heap.validate_value(&Value::Interface(id)));
     }
-    assert!(roots.iter().all(|root| root.value(heap).is_some()));
 }
 
 #[test]
 fn maintenance_charges_one_off_compaction_without_discarding_generation_history() {
-    let runtime = Runtime::default();
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
     let values: Vec<_> = (0..17)
-        .map(|_| heap.alloc_string(String::new()).unwrap())
+        .map(|_| Value::GcHandle(indexed_scalar(heap, &owner)))
         .collect();
     begin(heap);
     loop {
@@ -872,7 +884,7 @@ fn maintenance_charges_one_off_compaction_without_discarding_generation_history(
     {}
     drop(objects);
     assert!(values.iter().all(|value| !heap.validate_value(value)));
-    let Value::Str(newborn) = heap.alloc_string(String::new()).unwrap() else {
+    let Value::GcHandle(newborn) = Value::GcHandle(indexed_scalar(heap, &owner)) else {
         unreachable!()
     };
     assert_eq!(heap.objects.borrow().slots.len(), history);
@@ -896,7 +908,7 @@ fn zero_work_and_failed_accounting_preflight_cannot_detach() {
             heap.dispose_sweep_batch(&mut empty).unwrap().released_bytes,
             0
         );
-        let location = heap.objects.borrow().slots[id.index()].location().unwrap();
+        let location = heap.objects.borrow().direct_location(id).unwrap();
         if invalid {
             heap.objects.borrow_mut().sweep.as_mut().unwrap().max_bytes = 16;
         } else {
@@ -911,8 +923,7 @@ fn zero_work_and_failed_accounting_preflight_cannot_detach() {
         let before = heap.resources.counters();
         assert!(try_batch(heap, &mut ScanBudget::new(1024)).is_none());
         let objects = heap.objects.borrow();
-        assert_eq!(objects.slots[id.index()].generation, id.generation);
-        assert_eq!(objects.slots[id.index()].location(), Some(location));
+        assert_eq!(objects.direct_location(id), Some(location));
         assert!(objects.pages.get(location).is_some());
         assert_eq!(objects.backing_bytes(), SLAB_BYTES);
         assert_eq!(

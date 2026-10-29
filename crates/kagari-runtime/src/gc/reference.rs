@@ -2,12 +2,12 @@
 use crate::gc::{HeapObjectId, object_header::ObjectHeader};
 use std::ptr::NonNull;
 
-/// A stable struct allocation address, without independent retention authority.
+/// A stable managed allocation address, without independent retention authority.
 ///
 /// Copying this transport neither roots the object nor permits dereferencing it.
 /// Runtime entrypoints require a live frame, root or admitted provider lifetime.
-/// Addresses never appear in portable artifacts. Other managed families still
-/// use checked IDs until the complete graph migration.
+/// Addresses never appear in portable artifacts. Native aliases retain checked IDs
+/// until extraction gains traced tombstones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct GcRef {
@@ -24,7 +24,7 @@ unsafe impl Sync for GcRef {}
 
 impl GcRef {
     /// # Safety
-    /// The pointer must name a fully initialized live struct header allocated by
+    /// The pointer must name a fully initialized live managed header allocated by
     /// the runtime. Keep its original allocation provenance and root/traced owner
     /// until publication; never reconstruct a reference from an integer address.
     pub(crate) unsafe fn from_allocation(pointer: NonNull<u8>) -> Self {
@@ -39,13 +39,13 @@ impl GcRef {
 }
 
 /// Non-owning identity used while inspecting a protected mixed heap graph.
-/// Struct addresses require a live traced owner through any runtime query; they
+/// Direct addresses require a live traced owner through any runtime query; they
 /// are not generation-checked capabilities after reclamation. Indexed families
 /// retain their existing generation validation until their transport migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HeapObjectIdentity {
     Indexed(HeapObjectId),
-    Struct(GcRef),
+    Direct(GcRef),
 }
 
 impl From<HeapObjectId> for HeapObjectIdentity {
@@ -56,6 +56,6 @@ impl From<HeapObjectId> for HeapObjectIdentity {
 
 impl From<GcRef> for HeapObjectIdentity {
     fn from(reference: GcRef) -> Self {
-        Self::Struct(reference)
+        Self::Direct(reference)
     }
 }

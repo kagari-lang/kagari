@@ -605,9 +605,9 @@ fn mixed_layout_relocation_preserves_references_empty_records_and_aliases() {
         };
         assert_eq!(value.to_bits(), *bits);
     }
-    let stale = kept[0].3;
     drop(kept);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-    runtime.alloc_struct(empty, vec![]).unwrap();
-    assert!(!runtime.gc().validate_value(&Value::Struct(stale)));
+    let newborn = runtime.alloc_struct(empty, vec![]).unwrap();
+    assert!(runtime.gc().validate_value(&Value::Struct(newborn)));
+    assert_eq!(runtime.gc().allocated_objects(), 1);
 }

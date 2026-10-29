@@ -1829,14 +1829,20 @@ See [runtime](spec/runtime.md), [host interop](spec/host-interop.md) and
 [typed path mutation](spec/typed-path-mutation.md).
 
 Internal `Value` is a 16-byte `Copy` tagged value. Scalars retain complete payloads;
-strings, immutable tuples/ranges, mutable objects and host descriptors carry checked
-12-byte heap identities (owner, slot, generation). Copying a Value neither copies
+structs, strings, tuples, ranges, enums, closures, cells and host descriptors carry
+a non-owning `GcRef` to their stable allocation header. Interface wrappers carry
+the same reference and trace a separately generation-checked metadata snapshot.
+Native/Array aliases retain checked 12-byte heap identities (owner, slot, generation)
+until extraction gains traced tombstones in the ordered migration. Copying a Value neither copies
 text/aggregate contents nor acquires ownership or a root. Tuple updates allocate a
 replacement tuple while sharing referenced children; mutable children retain alias
 semantics. Host descriptors are heap records, but referenced Rust state remains
 outside the script heap. Runtime-only ephemeral IDs remain a distinct value tag.
-Every heap access still checks owner, generation and object kind. Saturated slot
-generations retire storage; owner/slot exhaustion cannot truncate or wrap identity.
+Indexed access checks owner, generation and object kind. Direct access requires a
+retained frame/root/edge, validates the allocation against the owning heap and
+checks its representation; it cannot validate or revive a reclaimed address.
+Saturated indexed generations retire storage; owner/slot exhaustion cannot truncate
+or wrap identity.
 
 The heap directory stores generation and a private kind/location (12 bytes on the
 measured 64-bit target). It locates nonmoving small slots or separately allocated
@@ -1850,9 +1856,13 @@ stride class and edge capability, not nominal type. The first class fitting the
 combined layout and its alignment is selected; size above 1024 or alignment above
 16 uses an exact-layout large allocation. PG02's measured correction supersedes
 initial 4 KiB slabs: these are separately released allocations, not subpages of a
-retained 4 KiB block. Slab side metadata holds occupied/retiring bits, directory
-back-references and numeric representation tokens; large records do not carry
-small-page slot arrays or bitmaps. Empty backing is released after its last retired
+retained 4 KiB block. Every slab has occupied/retiring bits. Indexed slabs also hold
+directory back-references and numeric representation tokens. Direct slabs instead
+retain dispatch in each object's 8-byte header and marks in their page trailer,
+without duplicate per-slot directory records. Header dispatch permits different
+payload kinds to share a stride/edge class; the descriptor supplies the aligned
+payload offset. Large records do not carry small-page slot arrays or bitmaps.
+Empty backing is released after its last retired
 payload is disposed; surviving payloads never move during ordinary collection.
 
 Native allocations contain their identity-local header and actual aligned Rust T,
@@ -1865,11 +1875,14 @@ and backing until destruction completes. Canonical struct layouts remain with
 one semantic interning owner, not a duplicate physical semantic-key map.
 
 The current replacement marker has checked phase/epoch state, original-owner marks
-and one active owned scan cursor. Each 128-slot identity-store block holds discovered/
-scanned bitmaps and deduplicates a pending block job; non-reused static cells use
+and one active owned scan cursor. Each indexed 128-slot identity-store block holds
+discovered/scanned bitmaps and deduplicates a pending block job. Direct references
+use their physical page's corresponding mark group, released after its final
+disposed occupant and before allocation-index reuse. Non-reused static cells use
 singleton marks/jobs. Queue work credits count registered blocks/singletons separately
 from identity credits. Full generations resolve through original stores, not a second
-ID registry or payload address. This grouping is independent of physical slab size.
+ID registry. Indexed grouping is independent of physical slab size; direct grouping
+follows the original physical owner.
 Frame allocation and managed operand writes publish strong edges before exposing the
 window/slot, including writes behind an advanced root cursor; scalar banks need no
 reference barrier. Module scan slots retain compact generation history and optional
@@ -1911,8 +1924,10 @@ quarantines execution before the next destructor; cleanup continues exactly once
 Descriptor evidence skips destruction only when Rust needs_drop is false or encoded
 struct bytes own no Rust resources; native payloads retain their actual destructor.
 Edge-freedom is not destructor-freedom. Descriptor and backing owners release outside
-borrows after disposal. Interface identities directly locate
-snapshots and use a narrow occupied-directory index, with no slab wrapper payload.
+borrows after disposal. Interface wrappers use the same physical page allocator
+and bounded retirement protocol as other heap payloads. Their common header and
+compact snapshot locator are accounted as occupied bytes; there is no independent
+wrapper occupancy table or retirement cursor.
 Physical sweep and bounded disposal were brought forward into PG04, now locally
 complete at `fe56b675`; the
 [PG04 ledger](paged-incremental-gc-design.md#pg04-marker-implementation-and-open-acceptance)
@@ -2012,8 +2027,8 @@ operation still admits its own receiver. The weak registry introduces no root;
 metadata tracing visits a shared description once and traces each receiver/view
 separately. Sharing parent snapshots would incorrectly share receivers and is forbidden.
 
-Heap interface identities locate those snapshots directly through the common
-directory; there is no separate wrapper payload vector. Metadata snapshots retain
+Heap interface identities locate a paged wrapper containing a compact snapshot
+locator under the common object header. Metadata snapshots retain
 their own full owner/slot/generation IDs. Every live heap wrapper traces its snapshot,
 and collection invalidates dead heap IDs before metadata detaches, so a published
 locator cannot survive snapshot-slot reuse. Checked metadata tokens and caches still

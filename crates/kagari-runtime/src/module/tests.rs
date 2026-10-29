@@ -218,7 +218,7 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         StaticState::Uninitialized(_)
     ));
 
-    let pool_only = first_runtime
+    first_runtime
         .read_constant(&first, ConstantId::new(1))
         .unwrap();
     assert_eq!(
@@ -248,7 +248,7 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
     let collected = first_runtime.collect_garbage().unwrap();
     assert_eq!(collected.reclaimed_modules, vec![first.key()]);
     assert_eq!(collected.reclaimed_objects, 1);
-    assert!(!first_runtime.gc().validate_value(&pool_only));
+    assert_eq!(collected.live_objects, 1);
     assert!(first_runtime.gc().validate_value(&escaped));
     assert!(first_runtime.read_constant(&first, shared).is_err());
     drop(escaped_root);
@@ -256,7 +256,7 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         first_runtime.collect_garbage().unwrap().reclaimed_objects,
         1
     );
-    assert!(!first_runtime.gc().validate_value(&escaped));
+    assert_eq!(first_runtime.gc().allocated_objects(), 0);
     assert_eq!(
         second_runtime.collect_garbage().unwrap().reclaimed_objects,
         0

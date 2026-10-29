@@ -196,7 +196,10 @@ fn native_root_admission_requires_a_loan_and_preserves_validation_and_borrow_che
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);
     let heap = runtime.gc();
-    let stale = heap.alloc_string("stale".into()).unwrap();
+    let native = NativeStorage::data::<i32>()
+        .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), 1, &owner)
+        .unwrap();
+    let stale = Value::GcHandle(heap.alloc_native(native).unwrap());
     runtime.collect_garbage().unwrap();
     let value = heap.alloc_string("retained".into()).unwrap();
     let source = heap.root_value(value).unwrap();
@@ -216,7 +219,11 @@ fn native_root_admission_requires_a_loan_and_preserves_validation_and_borrow_che
             assert!(heap.root_value(value).is_none());
             assert!(heap.root_execution_values(vec![value]).is_none());
             assert!(runtime.collect_garbage().is_err());
-            for invalid in [stale, foreign_value, Value::HostRoot(id)] {
+            for invalid in [
+                stale,
+                foreign_value,
+                Value::HostRoot(value.direct_reference().unwrap()),
+            ] {
                 assert!(heap.retain_native_value(invalid).is_err());
             }
             {
@@ -244,8 +251,8 @@ fn native_root_admission_requires_a_loan_and_preserves_validation_and_borrow_che
     runtime.collect_garbage().unwrap();
     assert_eq!(retained.value(heap), Some(value));
     drop(retained);
-    runtime.collect_garbage().unwrap();
-    assert!(!heap.validate_value(&value));
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+    assert_eq!(heap.allocated_objects(), 0);
 }
 
 #[test]

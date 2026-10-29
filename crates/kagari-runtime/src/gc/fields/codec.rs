@@ -20,7 +20,10 @@ pub(super) unsafe fn read_field(bytes: &[u8], field: StoredField) -> Option<Valu
                 bytes.as_ptr().cast::<GcRef>().read_unaligned()
             }))
         }
-        StoredField::Managed { offset } => read_managed(bytes, offset),
+        StoredField::Managed { offset } => {
+            // SAFETY: the enclosing field belongs to initialized traced storage.
+            unsafe { read_managed(bytes, offset) }
+        }
     }
 }
 
@@ -91,47 +94,70 @@ pub(super) fn write_scalar(
     Some(())
 }
 
-/// Remaining mixed families retain their checked owner/slot/generation encoding.
-pub(super) fn read_managed(bytes: &[u8], offset: usize) -> Option<Value> {
+/// Native fields retain checked IDs; builtin fields preserve pointer provenance.
+/// The migration keeps the existing 13-byte field extent until Native conversion.
+unsafe fn read_managed(bytes: &[u8], offset: usize) -> Option<Value> {
     let bytes = bytes.get(offset..offset + 13)?;
-    let id = HeapObjectId {
-        owner: u32::from_ne_bytes(bytes[1..5].try_into().ok()?),
-        slot: u32::from_ne_bytes(bytes[5..9].try_into().ok()?),
-        generation: u32::from_ne_bytes(bytes[9..13].try_into().ok()?),
-    };
-    Some(match bytes[0] {
-        1 => Value::Str(id),
-        2 => Value::Tuple(id),
-        3 => Value::Range(id),
-        4 => Value::Array(id),
-        7 => Value::Enum(id),
-        9 => Value::GcHandle(id),
-        10 => Value::Closure(id),
-        11 => Value::Cell(id),
-        12 => Value::Interface(InterfaceObjectId(id)),
+    if matches!(bytes[0], 4 | 9) {
+        let id = HeapObjectId {
+            owner: u32::from_ne_bytes(bytes[1..5].try_into().ok()?),
+            slot: u32::from_ne_bytes(bytes[5..9].try_into().ok()?),
+            generation: u32::from_ne_bytes(bytes[9..13].try_into().ok()?),
+        };
+        return Some(if bytes[0] == 4 {
+            Value::Array(id)
+        } else {
+            Value::GcHandle(id)
+        });
+    }
+    let construct = match bytes[0] {
+        1 => Value::Str,
+        2 => Value::Tuple,
+        3 => Value::Range,
+        7 => Value::Enum,
+        10 => Value::Closure,
+        11 => Value::Cell,
+        12 => |reference| Value::Interface(InterfaceObjectId(reference)),
         _ => return None,
-    })
+    };
+    // SAFETY: the validated direct tag names an initialized, traced pointer carrier.
+    // A typed unaligned load retains the allocation provenance, unlike integer bits.
+    Some(construct(unsafe {
+        bytes.as_ptr().add(1).cast::<GcRef>().read_unaligned()
+    }))
 }
 
 pub(super) fn write_managed(bytes: &mut [u8], offset: usize, value: Value) -> Option<()> {
-    let (tag, id) = match value {
-        Value::Str(id) => (1, id),
-        Value::Tuple(id) => (2, id),
-        Value::Range(id) => (3, id),
-        Value::Array(id) => (4, id),
-
-        Value::Enum(id) => (7, id),
-        Value::GcHandle(id) => (9, id),
-        Value::Closure(id) => (10, id),
-        Value::Cell(id) => (11, id),
-        Value::Interface(InterfaceObjectId(id)) => (12, id),
+    let tag = match value {
+        Value::Str(_) => 1,
+        Value::Tuple(_) => 2,
+        Value::Range(_) => 3,
+        Value::Array(_) => 4,
+        Value::Enum(_) => 7,
+        Value::GcHandle(_) => 9,
+        Value::Closure(_) => 10,
+        Value::Cell(_) => 11,
+        Value::Interface(_) => 12,
         _ => return None,
     };
     let bytes = bytes.get_mut(offset..offset + 13)?;
+    bytes.fill(0);
     bytes[0] = tag;
-    bytes[1..5].copy_from_slice(&id.owner.to_ne_bytes());
-    bytes[5..9].copy_from_slice(&id.slot.to_ne_bytes());
-    bytes[9..13].copy_from_slice(&id.generation.to_ne_bytes());
+    if let Some(reference) = value.direct_reference() {
+        // SAFETY: the fixed extent has space for the exact nonowning pointer carrier.
+        unsafe {
+            bytes
+                .as_mut_ptr()
+                .add(1)
+                .cast::<GcRef>()
+                .write_unaligned(reference)
+        };
+    } else {
+        let id = value.checked_id()?;
+        bytes[1..5].copy_from_slice(&id.owner.to_ne_bytes());
+        bytes[5..9].copy_from_slice(&id.slot.to_ne_bytes());
+        bytes[9..13].copy_from_slice(&id.generation.to_ne_bytes());
+    }
     Some(())
 }
 
