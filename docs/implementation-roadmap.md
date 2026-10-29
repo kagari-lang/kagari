@@ -578,16 +578,22 @@ own ordering, implementation checkpoints and acceptance: close raw-value boundar
 prove an integrated struct path, migrate all managed owners, then complete joint
 local/CI acceptance. Phase 1 is locally complete. Phase 2 has an integrated physical
 struct graph with improved field access/storage. Scoped scanning, compact identity
-leases and page-owned marks at `f77d934b` pass 29/29 storage timings, 37/39 family
-timings and 60/60 family-memory gates. Reference release and dense cyclic GC remain
-blocked; sparse GC and the current scalar control pass. The plan's progress ledger
-owns shared sweep-evidence repair, historical scalar attribution and pending
-automatic/sampling acceptance. The
+leases, page-owned marks, shared sweep evidence and installation admission at
+`436724a0` pass 29/29 storage timings and 39/39 family timings, retaining 2A's
+60/60 family-memory evidence. Scalar Vec now passes at 0.9800 against the unchanged
+1.05 limit; dense GC retains little margin. The finite historical bracket did not
+reliably attribute the older 6% observation. Phase 2B's local correction/timing
+obligations are closed. Phase 2C's symmetric three-lifecycle/interval memory repair
+at `f464e792` passes 144/144 metrics and 672 zero-net teardowns. Default/pressure
+measurements pass all 22 observed original-PG00 normal-step gates; 34 rows remain
+unobserved. Phase 2 is locally complete. The active goal proceeds to phase 3's
+managed/execution owners, Native providers and bridge removal. The
 [ordered closure sequence](paged-incremental-gc-design.md#ordered-closure-after-expanded-gates-2026-10-29)
 records runtime references, while the
 [next goal execution contract](paged-incremental-gc-design.md#execution-contract-for-the-next-goal-2026-10-29)
-maps the remaining checkpoints, exit evidence and scope limits. Phase 3 has not
-started. Option compaction remains deferred; Lua is an external comparison, not a
+maps the remaining checkpoints, exit evidence and scope limits. Phase 4 retains
+the complete historical joint matrix and CI obligations. Option compaction remains
+deferred; Lua is an external comparison, not a
 replacement gate or a new parity requirement.
 
 The joint [PG00-PG06/NC migration](paged-incremental-gc-design.md#execution-plan)

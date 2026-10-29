@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     Runtime, gc::graph::marks::Color, module::layout_storage::StructStorageLayout,
-    test_support::layouts::layout,
+    native::storage::scan::ScanBudget, test_support::layouts::layout,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -47,7 +47,7 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
         let location = pages
             .insert(u32::MAX, descriptor.clone(), initialize)
             .unwrap();
-        let payload = pages.get(location).unwrap().0;
+        let payload = pages.get(location).unwrap().pointer;
         pages.struct_mark(location).set(7, Color::Black);
         // SAFETY: the published struct has a header immediately before its payload.
         let base = unsafe { payload.sub(ObjectHeader::SIZE) };
@@ -56,6 +56,38 @@ fn struct_header_survives_failed_initialization_and_detached_owner_teardown() {
         let header = unsafe { ObjectHeader::read(base) };
         assert_eq!(header.allocation_id, location.page);
         assert_ne!(header.descriptor_id, 0);
+        pages.begin_sweep();
+        for invalid in [
+            ObjectHeader {
+                descriptor_id: 0,
+                ..header
+            },
+            ObjectHeader {
+                allocation_id: header.allocation_id ^ 1,
+                ..header
+            },
+        ] {
+            // SAFETY: no payload or mark borrow remains; inject corruption only
+            // while this test exclusively owns the live allocation, then restore it.
+            unsafe { invalid.write(base) };
+            assert!(pages.get(location).is_none());
+            assert!(
+                pages
+                    .scanner()
+                    .peek(&mut ScanBudget::new(usize::MAX))
+                    .is_none()
+            );
+            // SAFETY: restore the exact admitted header before teardown or reuse.
+            unsafe { header.write(base) };
+        }
+        let scanned = pages
+            .scanner()
+            .peek(&mut ScanBudget::new(usize::MAX))
+            .unwrap()
+            .unwrap();
+        assert_eq!(scanned.location, location);
+        assert_eq!(scanned.payload.pointer, payload);
+        assert_eq!(scanned.mark.unwrap().color(7), Color::Black);
         if size != 0 {
             // SAFETY: both bytes were initialized above and are in the live payload.
             assert_eq!(unsafe { payload.as_ptr().read() }, 0x5a);

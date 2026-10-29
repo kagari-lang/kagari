@@ -26,69 +26,83 @@ measurements, not a before/after comparison with the macOS results.
 
 ## Struct collector follow-up, macOS 2026-10-29
 
-Clean `f77d934b3ccc3d6f9f5732eaff7d5acfab165f6e` moves struct marks into live
-physical page controls and removes their historical-index maintenance pass. It
-retains scoped struct scanning, prepared fields and compact executable identity
-leases. Against frozen `725a4fb5a4900c79160d8e7b551e0dd8b4d27048`, seven pairs pass
-**29/29 storage timings**, **37/39 family timings**, and **60/60 family-memory gates**.
-Phase 2 remains blocked by two GC rows. The baseline already has paged incremental
-GC; it is not the runtime before the GC migration.
+Clean `436724a0e5eb32e50a9813713baaf9dac69ebde4` resolves executable installation
+membership once per admission, retaining shared sweep evidence, page-owned marks,
+prepared fields and compact executable identities. Against unchanged
+`725a4fb5a4900c79160d8e7b551e0dd8b4d27048`, seven pairs pass **29/29 storage timings**
+and **39/39 family timings**. Scalar Vec now passes; the two earlier GC failures
+remain closed. The baseline already contains paged incremental GC, not the runtime
+before the GC migration.
 
-| Selected workload | Baseline | Candidate | Median paired C/B |
+| Selected workload | Baseline us | Candidate us | Median paired C/B |
 | --- | ---: | ---: | ---: |
-| Field reads | 2.676 ms | 1.803 ms | 0.672 |
-| Field writes | 3.020 ms | 2.151 ms | 0.712 |
-| Point live GC | 57.542 us | 38.375 us | 0.669 |
-| Node live GC | 143.292 us | 171.125 us | 1.188 |
-| 8192-reference live GC | 748.541 us | 450.959 us | 0.603 |
-| Sparse-cycle live GC | 29.625 us | 35.125 us | 1.179 |
-| Sparse-cycle release GC | 33.375 us | 36.584 us | 1.078 |
-| Scalar Vec verification | 99.229 ms | 100.976 ms | 1.019 |
+| Field reads | 2633.500 | 1772.958 | 0.6733 |
+| Field writes | 2983.000 | 2119.292 | 0.7100 |
+| Point live GC | 54.750 | 35.667 | 0.6515 |
+| Node live GC | 139.208 | 165.375 | 1.1884 |
+| 8192-reference live GC | 737.875 | 438.291 | 0.5952 |
+| 8192-reference release GC | 264.917 | 233.083 | 0.8780 |
+| Dense cyclic graph GC | 1050.459 | 1255.459 | 1.1950 |
+| Sparse-cycle live GC | 28.125 | 33.208 | 1.1780 |
+| Sparse-cycle release GC | 31.334 | 31.125 | 0.9854 |
+| Scalar Vec verification | 98355.792 | 96388.541 | 0.9800 |
 
-The two sparse GC failures at `07a99157` now pass. Scalar verification also passes
-at 1.012-1.022 across pairs, but no call-architecture change was made; this does not
-explain the previous 6% regression. Node live collection remains within its existing
-allowance. Two expanded rows fail their unchanged estimator:
+Scalar's seven ratios are 0.9801, 0.9767, 0.9800, 0.9748, 0.9855, 0.9823, 0.9774;
+all pass the original 1.05 bound. Dense GC passes max(1.2B, B+10 us) at normalized
+median 0.9958, with one individual pair above the bound; it has little margin.
+The finite historical bracket and matched retained-runtime scalar profiles did not
+reliably attribute the older 6% observation. The current measured pass does not
+retroactively explain that fluctuation. No baseline or gate was relaxed.
 
-| Failing row | Baseline | Candidate | Paired C/bound(B) |
-| --- | ---: | ---: | ---: |
-| 8192-reference release GC | 278.417 us | 362.458 us | **1.0935** |
-| Dense cyclic graph GC | 1071.875 us | 1298.333 us | **1.0124** |
+Reuse `f6a3d446`'s 60/60 family memory gates (39 backing, 21 peak) and 294 zero-net
+family teardowns: allocation/layout/accounting code is unchanged. Sparse-live
+backing remains 261,688 versus 329,296 bytes; final sparse-cycle release 93,992 versus
+149,008; sparse-types release 66,312 versus 60,936 (bound 67,029.6). These are reused
+diagnostics, not newly measured allocation results on this candidate.
 
-Sparse-live marks occupy **64 actual struct pages / 3,072 embedded bytes**, versus
-`07a99157`'s 1,472 historical mark entries / 86,016 allocated bytes. With the same
-129 live objects, total scoped backing falls from 344,632 to **261,688 bytes**;
-baseline is 329,296. Embedded marks are included in page controls and must not be
-added again. Final sparse-cycle release remains 93,992 versus baseline 149,008;
-sparse-types release remains 66,312 versus 60,936, under its 67,029.6-byte limit.
-All 21 family peak gates and all 294 family teardown checks pass.
+Corrected no-argument diagnostics at harness `f464e792` (unchanged `436724a0`
+production) pass **144/144** backing/peak gates and **672/672** zero-net teardowns.
+Baseline `725a4fb5` uses the identical `memory.rs` overlay. Each process measures
+three independently warmed Runtime lifecycles, including three reuse cycles each;
+post-setup checkpoints include every reuse interval and final teardown. Seven
+alternating process pairs compare maxima of three lifecycle-local metrics under
+the original bounds. The largest normalized median is 0.9092, setup backing
+16,739,003 B versus 16,741,123 B. These replace the old one-lifecycle observations
+whose nominal post-setup peaks could include setup. All 14 diagnostic processes
+complete with unchanged image hashes, separately from the 28 ordinary processes.
+The [phase 2C ledger](paged-incremental-gc-design.md#struct-trial-sampling-and-integration-phase-2c-2026-10-29)
+records the matching harness/image hashes and validation. Use the same environment
+below, adding `--features diagnostics` to the build; these runs make no timing claim.
 
-Additional no-argument diagnostics pass 144 backing/peak comparisons and 224 zero-net
-teardown checks. They still measure one warmed lifecycle per scenario/process with
-three stable reuse cycles, not the family's three independent lifecycles. This does
-not close the plan's three-lifecycle acceptance gap. All 56 formal processes succeed.
+Default/pressure automatic measurements on the same `436724a0` ordinary image
+pass **22/22 observed normal-step gates**; **34 rows are unobserved, not passes**.
+Seven fresh original-PG00 pairs use clean harness `47be3cb7` above production
+`50ab194b`, rebuilt with the same toolchain. The later `725a4fb5` supplement supplies
+separate matched observations and never replaces the normal-step denominator.
+All 42 scheduled processes succeed. Candidate normal work totals 90,244 invocations,
+maximum charged work 1,024, absolute maximum 78.000 us. The three formerly failing
+mixed/default, mixed/pressure and scalar/pressure rows now have median maxima
+36.250, 36.875 and 16.375 us respectively, each under its original 50 us bound.
+Some individual mixed maxima exceed that bound; the frozen estimator remains the
+median of seven process-maximum/bound ratios, not a hard real-time guarantee.
+The same phase 2C ledger records every observed process maximum, baseline/image
+identity, fixed-role selection of incidental duplicate script-key baseline rows,
+separate assists/destruction and remaining joint acceptance obligations.
 
-Post-measurement diagnostic profiles identify the next boundary: in a repeated
-8192-Point release probe, 629/723 release-collection samples (87.0%) include physical
-batch preparation, with repeated representation/charge resolution visible. A dense
-cyclic probe spends 6,893/8,056 main-thread samples (85.6%) in graph scanning and
-1,130 (14.0%) in retirement. These are current-path samples, not attribution of the
-baseline delta. The next finite repair shares validated physical sweep evidence
-within one storage borrow, preserving canonical charging and whole-batch validation.
-Native provider/callback boundaries remain mandatory; no general call rewrite,
-Vec-specific collector path or concurrent collector follows from these samples.
-
-M1 Max/32 GiB, macOS 26.6.2, aarch64-apple-darwin, Rust 1.99.1 (`58cf8f9c3`),
-Cargo 1.99.1, workspace release/default build parallelism, warm dependency cache,
-source/native features with interpreter execution. Frozen images run serially,
-alternating B/C order across seven pairs, without overlapping builds/tests/probes.
-Timing uses three warmups/eleven samples; family allocation rows use the maximum of
-three lifecycle repetitions per process. Absolutes are medians of process values;
-ratios are medians of paired ratios. Compilation/loading is excluded, and desktop
-activity/frequency are uncontrolled. Requested backing is not RSS. The
-[active ledger](paged-incremental-gc-design.md#page-owned-struct-marks-phase-2a-2026-10-29)
-records hashes, reproduction, focused correctness/Miri evidence and profile limits.
-Automatic/pressure, older PG05 gates, full CI and updated Lua parity remain open.
+M1 Max/32 GiB, macOS 26.6.2 (25G83), aarch64-apple-darwin, Rust 1.99.1 (`58cf8f9c3`,
+LLVM 23.1.1), Cargo 1.99.1, workspace release/default build parallelism, warm
+dependency cache and normal OS cache, source/native features with interpreter
+execution. Build `cargo build --release --locked -p kagari-lua-benchmark --example
+runtime_storage`; run each frozen image with no arguments and `--families`.
+Seven serial pairs alternate B/C on odd pairs and C/B on even pairs, without
+concurrent builds/tests/probes. Timing uses three warmups/eleven samples. Absolutes
+are process medians and ratios are paired medians. Compilation/loading are excluded;
+desktop activity/frequency are uncontrolled. Requested backing is not RSS. The
+[active ledger](paged-incremental-gc-design.md#scalar-attribution-and-typed-native-admission-phase-2b-2026-10-29)
+records hashes, profile limitations and focused correctness evidence. Phase 2 is
+locally complete. Remaining representation migration, older joint obligations,
+full CI and refreshed Lua comparisons remain open; Lua
+parity is not an acceptance requirement.
 
 ## Current Kagari/Lua execution and GC, macOS 2026-10-28
 

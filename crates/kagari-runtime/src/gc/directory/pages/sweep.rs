@@ -1,7 +1,10 @@
 //! Storage-owned progress: unlink repairs the cursor before an index can be reused.
-use super::{Allocation, Pages};
+use super::{Allocation, CheckedPayload, Pages};
 use crate::{
-    gc::directory::{PayloadLocation, descriptors::DescriptorId},
+    gc::{
+        directory::{PayloadKind, PayloadLocation, descriptors::DescriptorId},
+        graph::marks::{Domain, MarkRef, WorkGroup},
+    },
     native::storage::scan::ScanBudget,
 };
 
@@ -20,11 +23,13 @@ impl Cursor {
     }
 }
 
-pub(in crate::gc::directory) struct SweepSlot {
+pub(in crate::gc::directory) struct SweepSlot<'a> {
     pub(in crate::gc::directory) location: PayloadLocation,
     pub(in crate::gc::directory) directory: u32,
     pub(in crate::gc::directory) descriptor: DescriptorId,
     pub(in crate::gc::directory) small: bool,
+    pub(in crate::gc::directory) payload: CheckedPayload<'a>,
+    pub(in crate::gc::directory) mark: Option<MarkRef<'a>>,
 }
 
 /// Bitmap evidence lives only within selection's uninterrupted storage borrow.
@@ -37,7 +42,7 @@ pub(in crate::gc::directory) struct Scanner<'a> {
     loaded: bool,
 }
 
-impl Scanner<'_> {
+impl<'a> Scanner<'a> {
     pub(in crate::gc::directory) fn cursor(&self) -> Cursor {
         self.cursor
     }
@@ -57,9 +62,10 @@ impl Scanner<'_> {
     pub(in crate::gc::directory) fn peek(
         &mut self,
         budget: &mut ScanBudget,
-    ) -> Option<Option<SweepSlot>> {
+    ) -> Option<Option<SweepSlot<'a>>> {
         while let Some(index) = self.cursor.page {
-            let (directory, descriptor, small) = match self.pages.allocations.get(index as usize)? {
+            let allocation = self.pages.allocations.get(index as usize)?;
+            let (directory, descriptor, pointer, small) = match allocation {
                 Allocation::Small(page) => {
                     if !self.loaded {
                         let bits = page.bits();
@@ -109,7 +115,12 @@ impl Scanner<'_> {
                         return Some(None);
                     }
                     let slot = page.slot(self.cursor.slot as usize)?;
-                    (slot.directory, slot.descriptor?, true)
+                    (
+                        slot.directory,
+                        slot.descriptor?,
+                        page.pointer(self.cursor.slot as usize),
+                        true,
+                    )
                 }
                 Allocation::Large(large) => {
                     if self.cursor.slot != 0 {
@@ -122,19 +133,40 @@ impl Scanner<'_> {
                         self.next_page();
                         continue;
                     };
-                    (large.header().directory, descriptor, false)
+                    (
+                        large.header().directory,
+                        descriptor,
+                        large.backing().pointer(),
+                        false,
+                    )
                 }
                 Allocation::Vacant(_) => return None,
             };
+            let description = self.pages.descriptors.get(descriptor)?;
+            let location = PayloadLocation {
+                kind: description.kind,
+                page: index,
+                slot: self.cursor.slot,
+            };
+            let payload = CheckedPayload::new(location, pointer, descriptor, description)?;
+            let mark = if location.kind == PayloadKind::Struct {
+                Some(allocation.marks()?.group_slot(
+                    WorkGroup {
+                        domain: Domain::Struct,
+                        block: index as usize,
+                    },
+                    location.slot as usize,
+                ))
+            } else {
+                None
+            };
             return Some(Some(SweepSlot {
-                location: PayloadLocation {
-                    kind: self.pages.descriptors.get(descriptor)?.kind,
-                    page: index,
-                    slot: self.cursor.slot,
-                },
+                location,
                 directory,
                 descriptor,
                 small,
+                payload,
+                mark,
             }));
         }
         Some(None)
@@ -181,7 +213,7 @@ impl Pages {
     }
 
     #[cfg(test)]
-    pub(super) fn sweep_slot(&self) -> Option<SweepSlot> {
+    pub(super) fn sweep_slot(&self) -> Option<SweepSlot<'_>> {
         self.scanner()
             .peek(&mut ScanBudget::new(usize::MAX))
             .unwrap()

@@ -4,7 +4,9 @@ use crate::{
     error_trace::ErrorTrace,
     execution_metadata::interfaces::InterfaceStore,
     gc::{
-        directory::{ObjectStorage, PayloadKind, PayloadLocation, ResolvedStruct},
+        directory::{
+            ObjectStorage, PayloadKind, PayloadLocation, ResolvedStruct, pages::CheckedPayload,
+        },
         fields::{StructView, StructViewMut},
         reference::GcRef,
         storage::{Exclusive, HeapObject, Shared},
@@ -38,7 +40,7 @@ impl ObjectStorage {
         if location.kind != PayloadKind::Native {
             return None;
         }
-        let (pointer, _) = self.pages.get(location)?;
+        let pointer = self.pages.get(location)?.pointer;
         // SAFETY: checked occupied kind has exactly this initialized representation.
         Some(unsafe { pointer.cast::<NativeObject>().as_ref() })
     }
@@ -50,24 +52,23 @@ impl ObjectStorage {
         if location.kind != PayloadKind::Native {
             return None;
         }
-        let (pointer, _) = self.pages.get(location)?;
+        let pointer = self.pages.get(location)?.pointer;
         // SAFETY: exclusive directory borrow; payload loans separately exclude T access.
         Some(unsafe { pointer.cast::<NativeObject>().as_mut() })
     }
 
     pub(in crate::gc) fn structure(&self, location: PayloadLocation) -> Option<StructView<'_>> {
-        let (pointer, descriptor) = self.pages.get(location)?;
-        let description = descriptor.structure.as_deref()?;
-        // SAFETY: descriptor and fully initialized bytes live for the storage borrow.
-        let bytes = unsafe { slice::from_raw_parts(pointer.as_ptr(), description.size) };
-        Some(StructView { description, bytes })
+        self.pages.get(location)?.structure()
     }
 
     pub(in crate::gc) fn structure_mut(
         &mut self,
         location: PayloadLocation,
     ) -> Option<StructViewMut<'_>> {
-        let (pointer, descriptor) = self.pages.get(location)?;
+        let CheckedPayload {
+            pointer,
+            descriptor,
+        } = self.pages.get(location)?;
         let description = descriptor.structure.as_deref()?;
         // SAFETY: exclusive directory borrow excludes any other view of these bytes.
         let bytes = unsafe { slice::from_raw_parts_mut(pointer.as_ptr(), description.size) };
@@ -87,49 +88,7 @@ impl ObjectStorage {
                     .directory_binding(self.snapshot_index(location)?)?,
             });
         }
-        if location.kind == PayloadKind::Struct {
-            return self
-                .structure(location)
-                .map(|storage| HeapObject::Struct { storage });
-        }
-        let (pointer, _) = self.pages.get(location)?;
-        // SAFETY: each private placement arm pairs its kind with precisely the type
-        // below. Occupancy is checked and every returned reference is owner-borrowed.
-        Some(unsafe {
-            match location.kind {
-                PayloadKind::String => HeapObject::String(pointer.cast::<String>().as_ref()),
-                PayloadKind::Tuple => HeapObject::Tuple(pointer.cast::<TupleData>().as_ref()),
-                PayloadKind::Range => HeapObject::Range(pointer.cast::<RangeValue>().as_ref()),
-                PayloadKind::HostRoot => {
-                    HeapObject::HostRoot(pointer.cast::<HostRootHandle>().as_ref())
-                }
-                PayloadKind::HostPath => {
-                    HeapObject::HostPath(pointer.cast::<Arc<HostPathViewHandle>>().as_ref())
-                }
-                PayloadKind::Ephemeral => {
-                    HeapObject::Ephemeral(pointer.cast::<EphemeralValue>().as_ref())
-                }
-                PayloadKind::Native => HeapObject::Native(pointer.cast::<NativeObject>().as_ref()),
-                PayloadKind::Enum => {
-                    let value = pointer.cast::<EnumPayload>().as_ref();
-                    HeapObject::Enum(&value.0, &value.1)
-                }
-                PayloadKind::Struct => unreachable!("structure handled above"),
-                PayloadKind::Interface | PayloadKind::Vacant => {
-                    unreachable!("checked physical descriptor")
-                }
-                PayloadKind::Closure => HeapObject::Closure {
-                    snapshot: pointer.cast::<ClosureValueSnapshot>().as_ref(),
-                },
-                PayloadKind::Cell => {
-                    let value = pointer.cast::<CellPayload>().as_ref();
-                    HeapObject::Cell {
-                        ty: &value.0,
-                        value: &value.1,
-                    }
-                }
-            }
-        })
+        self.pages.get(location)?.view()
     }
 
     pub(in crate::gc) fn get_mut(
@@ -150,7 +109,7 @@ impl ObjectStorage {
                 .structure_mut(location)
                 .map(|storage| HeapObject::Struct { storage });
         }
-        let (pointer, _) = self.pages.get(location)?;
+        let pointer = self.pages.get(location)?.pointer;
         // SAFETY: same sealed mapping as get, with exclusive directory ownership.
         Some(unsafe {
             match location.kind {
@@ -183,6 +142,58 @@ impl ObjectStorage {
                     HeapObject::Cell {
                         ty: &mut value.0,
                         value: &mut value.1,
+                    }
+                }
+            }
+        })
+    }
+}
+
+impl<'a> CheckedPayload<'a> {
+    pub(super) fn structure(&self) -> Option<StructView<'a>> {
+        let description = self.descriptor.structure.as_deref()?;
+        // SAFETY: the checked descriptor and initialized bytes share the owner borrow.
+        let bytes = unsafe { slice::from_raw_parts(self.pointer.as_ptr(), description.size) };
+        Some(StructView { description, bytes })
+    }
+
+    pub(super) fn view(&self) -> Option<HeapObject<Shared<'a>>> {
+        let pointer = self.pointer;
+        // SAFETY: each private placement arm pairs its kind with precisely the type
+        // below. Occupancy is checked and every returned reference is owner-borrowed.
+        Some(unsafe {
+            match self.descriptor.kind {
+                PayloadKind::String => HeapObject::String(pointer.cast::<String>().as_ref()),
+                PayloadKind::Tuple => HeapObject::Tuple(pointer.cast::<TupleData>().as_ref()),
+                PayloadKind::Range => HeapObject::Range(pointer.cast::<RangeValue>().as_ref()),
+                PayloadKind::HostRoot => {
+                    HeapObject::HostRoot(pointer.cast::<HostRootHandle>().as_ref())
+                }
+                PayloadKind::HostPath => {
+                    HeapObject::HostPath(pointer.cast::<Arc<HostPathViewHandle>>().as_ref())
+                }
+                PayloadKind::Ephemeral => {
+                    HeapObject::Ephemeral(pointer.cast::<EphemeralValue>().as_ref())
+                }
+                PayloadKind::Native => HeapObject::Native(pointer.cast::<NativeObject>().as_ref()),
+                PayloadKind::Enum => {
+                    let value = pointer.cast::<EnumPayload>().as_ref();
+                    HeapObject::Enum(&value.0, &value.1)
+                }
+                PayloadKind::Struct => HeapObject::Struct {
+                    storage: self.structure()?,
+                },
+                PayloadKind::Interface | PayloadKind::Vacant => {
+                    unreachable!("checked physical descriptor")
+                }
+                PayloadKind::Closure => HeapObject::Closure {
+                    snapshot: pointer.cast::<ClosureValueSnapshot>().as_ref(),
+                },
+                PayloadKind::Cell => {
+                    let value = pointer.cast::<CellPayload>().as_ref();
+                    HeapObject::Cell {
+                        ty: &value.0,
+                        value: &value.1,
                     }
                 }
             }

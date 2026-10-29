@@ -17,14 +17,16 @@ proof passes. Budget/cache corrections have final source approval and selected t
 local quality pass. Ordinary-build collector observations are implemented and locally
 validated. The disabled-observation timing/accumulation finding is repaired, preserving
 work budgets and public last_pause; the latest focused/quality checkpoint passes.
-The trusted actual-root replacement reports **77 ordinary gates passing / 11 failing** and
-**19 observed normal-step gates passing / 3 failing**; **34 unobserved rows are not passes**.
+The earlier trusted actual-root replacement reports **77 ordinary gates passing / 11 failing**
+and **19 observed normal-step gates passing / 3 failing**; **34 unobserved rows are not passes**.
 All **112 timing processes** completed once with semantic assertions passing. Separately
 verified fresh memory passes **55/55**, with **21 zero-net teardowns**. This supersedes older
 measurement summaries, not the frozen gates. The contaminated selected 23/6 interpretation
 remains withdrawn; other historical artifacts retain their individual audit qualifications.
-Subsequent finite source corrections are not yet timed or memory-accepted; these totals remain
-prior-image evidence. Numerical closure and CI remain pending. The [PG05 ledger](#pg05-integrated-driver-and-open-acceptance)
+The direct-reference trial below now closes its selected timing/memory gates and all
+22 observed normal gates on `436724a0`; the old ordinary totals remain prior-image
+evidence pending phase 4's complete joint comparison. Numerical joint closure and CI
+remain pending. The [PG05 ledger](#pg05-integrated-driver-and-open-acceptance)
 owns current progress. PG06/NC06 remains outstanding.
 Initial implementation parameters remain selected policy, not measured optima or
 acceptance of future performance gates. The execution breakdown
@@ -57,13 +59,17 @@ platform CI remains unrun.
 Status: the user accepted the trial direction and started implementation on
 2026-10-28. Phase 1 host-boundary migration is locally complete. Phase 2 integrates
 struct headers, direct transport, prepared fields, scoped scanning, compact identity
-leases and page-owned marks at `f77d934b`. Seven paired comparisons pass 29/29 storage
-timings, 37/39 family timings and 60/60 family-memory gates. Reference-container
-release GC and dense cyclic GC still fail. Sparse GC now passes; scalar Vec
-verification also passes on this candidate, with historical attribution unresolved.
-The next implementation is the bounded shared physical sweep-evidence repair in
-the latest ledger. Automatic/pressure, the no-argument diagnostic sampling repair,
-older joint gates and CI remain pending. Phase 3 has not begun.
+leases, page-owned marks, shared sweep evidence and installation admission at
+`436724a0`. Seven paired comparisons pass 29/29 storage timings and 39/39 family
+timings, retaining 2A's 60/60 family-memory evidence. Scalar Vec verification now
+passes at 0.9800 against the unchanged 1.05 limit; dense GC still has little margin.
+The finite historical bracket remains inconclusive about the older 6% observation.
+Phase 2B's local correction and selected timing gates are closed. Phase 2C's
+corrected three-lifecycle/interval memory sampling at `f464e792` passes 144/144
+metrics with 672 zero-net teardowns. Default/pressure measurements pass all 22
+observed original-PG00 normal-step gates; 34 rows remain unobserved, not passes.
+Phase 2 is locally complete. Next is phase 3's ordered managed/execution, Native
+provider and bridge-removal migration. Older joint obligations and CI remain open.
 This section owns the proposed change to reference representation and the finite
 trial below; the remainder describes the implemented handle-based migration until
 replaced by a corresponding checkpoint. PG05/NC05 and PG06/NC06 remain open. Do not
@@ -391,8 +397,8 @@ checkpoint is not automatically a completed phase.
 | Trial phase | Current status | Exit artifact |
 | --- | --- | --- |
 | 1. Close host/backend value boundaries | Locally complete | One safe retained/scoped public boundary, with all raw consumers classified and migrated |
-| 2. Prove an integrated struct path | Stopped: physical graph integrated; live GC and metadata tails fail | Working direct-reference struct graph with correctness and bounded performance evidence |
-| 3. Migrate the complete runtime graph | Not started | All managed values use the selected representation; temporary bridges removed |
+| 2. Prove an integrated struct path | Locally complete: 68 timing, 204 memory and 22 observed normal-step gates pass; 34 normal rows unobserved | Working direct-reference struct graph with correctness and bounded performance evidence |
+| 3. Migrate the complete runtime graph | Next: ordered representation migration | All managed values use the selected representation; temporary bridges removed |
 | 4. Joint acceptance and cleanup | Not started | Required local gates and designated CI pass, final contracts documented |
 
 Already completed: source snapshot `725a4fb5`, single-process baseline observations
@@ -609,10 +615,10 @@ controls and affected backing. If release rows still fail, attribute marking ver
 payload retirement, descriptor cleanup and allocator work before selecting one
 further repair; do not assume the sparse profile covers release-heavy workloads.
 
-The page-owned mark implementation is now `f77d934b`. Sparse GC and affected memory
-pass, while reference release and dense cyclic GC still fail. The next bounded
-checkpoint is shared physical sweep evidence and canonical charging under one
-storage borrow, as specified in the [2A ledger](#page-owned-struct-marks-phase-2a-2026-10-29).
+Page-owned marks at `f77d934b` closed the sparse GC failures. Shared physical
+sweep evidence at `f6a3d446` now closes reference release and dense cyclic GC,
+with all affected memory controls passing. The [latest 2A ledger](#shared-physical-sweep-evidence-phase-2a-2026-10-29)
+records the measurements and the remaining scalar failure owned by phase 2B.
 Keep the current mark owner; do not return to historical mark arrays or optimize
 provider callbacks by retaining graph locks across them.
 
@@ -674,10 +680,10 @@ this planning task, and the expanded timing failures remain open.
 
 #### Execution contract for the next goal (2026-10-29)
 
-The user requested the remaining execution plan before entering goal mode. This
-section organizes the existing phases and acceptance; it does not start a goal or
-create another progress queue. Resume from production `f77d934b` and the latest
-ledger, preserving subsequent documentation and unrelated changes.
+The user activated this goal on 2026-10-29 after reviewing the execution plan.
+This section organizes the existing phases and acceptance; the progress/error
+ledger below remains the sole execution record. Execution started from production
+`f77d934b`, preserving subsequent documentation and unrelated changes.
 
 **Objective:** complete the accepted direct-reference GC migration, remove obsolete
 heap-object transport bridges, satisfy the existing correctness/performance gates
@@ -2845,6 +2851,449 @@ Full-workspace tests and the complete feature/backend/platform matrix remain CI-
 Documentation-only work needs content/link/diff checks, not Rust builds.
 
 ## Progress and error ledger
+
+### Scalar attribution and typed Native admission: phase 2B (2026-10-29)
+
+The bounded historical bracket is complete. Reuse the previously frozen ordinary
+images (their hashes match their original provenance) with the unchanged
+`runtime_storage --families` workload, same Rust 1.99.1/M1 Max environment as 2A.
+For each adjacent comparison, run three diagnostic pairs in B/C, C/B, B/C order;
+retain the existing three warmups/eleven samples and semantic assertions. No build,
+test or probe overlaps these measurements. These are diagnostic ratios, not a new
+acceptance baseline or a replacement for seven-pair gates. All 30 processes across
+five comparisons succeeded. Temporary records live in `target/gc-scalar-history/`.
+The comparison launcher initially rejected the baseline provenance's older field
+name before starting its process; it now accepts its recorded `executable_sha256`
+key as well as `ordinary_sha256`, still verifying the exact published hash.
+
+| Before | After | Scalar verification paired median after/before | Individual ratios |
+| --- | --- | ---: | --- |
+| `a421b15b` | `07a99157` | 0.9552 | 0.9563, 0.9495, 0.9552 |
+| `5b871fae` | `a421b15b` | 1.0199 | 1.0101, 1.0199, 1.0256 |
+| `b289797a` | `5b871fae` | 1.0038 | 1.0016, 1.0038, 1.0057 |
+| `725a4fb5` | `b289797a` | 1.0080 | 1.0037, 1.0146, 1.0080 |
+| `f77d934b` | `f6a3d446` | 1.0392 | 1.0031, 1.0392, 1.0393 |
+
+The historical 6% result is not causally attributable to `07a99157` from this
+bracket. That identical frozen image measured 104.529 ms in its original formal
+run and 97.236 ms in this diagnostic comparison. This establishes non-source
+variation, not its cause; desktop activity, frequency, address/cache effects and
+process state were not separately controlled. Do not multiply ratios from separate
+comparisons into a synthetic acceptance result. Stop historical searching at this
+predefined bracket, retain the older observation with its uncertainty, and do not
+invent a call/frame architecture rewrite. The current `f6a3d446` formal 1.0544
+failure remains authoritative until a changed candidate passes the original gate.
+
+**Local diagnosis and ownership.** Review of `check_numbers`, Native contract
+admission, `readable_location`, typed payload loans and physical access found a
+concrete avoidable conversion: Native-only admission calls `readable_object`,
+constructs a generic `HeapObject<Shared>` and immediately matches its Native arm.
+The existing `native_ref` already serves other Native operations and retains the
+same `readable_location` checks (owner/generation, graph access, candidate-initializer
+isolation), then validates the exact physical Native kind. Executable disassembly
+of the frozen `ObjectStorage::get` functions also shows changed generic dispatch:
+`f6a3d446` loads the kind from the returned descriptor and materializes the generic
+view, whereas `f77d934b` dispatches from the already supplied location kind. This
+is visible work on the affected admission path, not proof that one load explains
+the full 3.9% diagnostic difference or the historical 6% result.
+
+For one `values[i]` or `values.len()` call, keep closed contract matching, actual
+receiver identity, payload Rust type, borrow/operation checks, cancellation and
+error order. Replace only the generic view conversion with the existing typed
+Native owner. Six sites in `gc/native.rs` now reuse `native_ref`: selection lookup,
+operation admission, argument/type matching and the two payload contract checks.
+No new cache, access authority, unsafe kernel, layout, bytecode or call engine is
+introduced; the shared physical sweep proof remains intact. This is a local
+correction using an existing reviewed mechanism, not a new runtime architecture
+requiring another comparative design study.
+
+Validation selects `gc::native` (provider/operation/revision/extraction contracts)
+and `native::typed::payload` (foreign/wrong type, phase/error ordering, cancellation,
+reentry and loan cleanup). Reuse these semantic owners; add no duplicate smoke
+tests. All 16 `gc::native` and five `native::typed::payload` tests pass. Structure
+(1,850 files, zero violations/exceptions), formatting, workspace all-target Clippy
+with denied warnings and diff checks pass. No unsafe kernel changed, so the
+preceding strict-provenance Miri evidence remains applicable.
+Allocation/layout/accounting code is unchanged, so reuse 2A's passing backing/peak
+evidence rather than claim newly measured allocation results. Full workspace/
+backend/feature/platform acceptance remains CI-only.
+
+**Changed-candidate gate result.** Clean production
+`bdaa5b14565ea0efa169e07546879f08d0360108`, ordinary SHA-256
+`deb169b3af4d78dd4913c2dd8233c24a07828f8226f8816d75349b7e639dc400`.
+Build with the same ordinary release command as 2A; run no arguments and
+`--families` against the unchanged `725a4fb5` ordinary image, seven alternating
+pairs each. All 28 processes succeed and hashes remain unchanged. The environment,
+warmups/samples, estimator, exclusions and thresholds are exactly 2A's method;
+temporary records are in `target/gc-typed-native-trial/`.
+
+| Selected timing | B median us | C median us | Paired C/B | Paired C/bound(B) |
+| --- | ---: | ---: | ---: | ---: |
+| Field reads | 2631.000 | 1781.625 | 0.6772 | 0.6157 |
+| Field writes | 2983.625 | 2128.292 | 0.7123 | 0.6476 |
+| references_8192/release_gc | 264.209 | 232.792 | 0.8820 | 0.7350 |
+| sparse_cycles_4096_keep64/dense_gc | 1049.541 | 1259.166 | 1.1970 | 0.9975 |
+| scalar_65536/verified | 98705.667 | 104006.208 | 1.0546 | **1.0043, fail** |
+
+Storage passes **29/29**, family timing **38/39**. Scalar verification fails five
+of seven pairs: 1.0251, 1.0605, 1.0601, 1.0573, 1.0509, 1.0499, 1.0546. The local
+Native access cleanup does **not** close the scalar gate or demonstrate a scalar
+speedup; its result is essentially unchanged from 2A's 1.0544. Retain it as coherent
+reuse of the existing typed owner, not as a proven performance win or a reason to
+add more special paths. Both GC targets remain passing, dense GC still narrowly
+(two individual pairs exceed its bound). Phase 2B is not complete.
+
+**Matched scalar profile (completed).** Build the same disposable harness-only
+probe on baseline `725a4fb5` and candidate `00c099b9` (production `bdaa5b14`). The
+full adapted main/family source SHA-256 is identical on both sides:
+`37d4e14f6c96eb7c616de8ff49c51c9b82507018beb29321bfe36c9cebbb9132`;
+`families.kgr` SHA-256 is
+`7341308a406fbf9a27abf26b961432d37f94095a2cd87bbe3dac20ff5342773b`.
+Probe images: B `d6762737c93d907553a0b87fb6e755322c6ad4115df897ddd606d7df9fd51532`,
+C `c0e6add001afd45f838927df4652bb7f3f05b09adc3dbb2d683b49e70bce91f4`.
+Both worktrees' harness files were restored byte-for-byte after building; no
+production source changed for sampling.
+
+The probe prepares/loads once, creates the original 65,536-element `numbers` Vec,
+warms `check_numbers` three times, asserts baseline+1 live objects and an additional
+root, then repeatedly executes the unchanged checker for 35 seconds. Every result
+is 65,536 and root count stays constant. Final collection retains exactly that Vec;
+dropping it restores the original root/live counts. After its ready marker, run
+`/usr/bin/sample <pid> 30 1 -file <output>` serially on B then C, with no concurrent
+builds/tests/probes. Reproduction uses the same release profile/toolchain/machine as
+2A. Temporary sources/images/samples are in `target/gc-scalar-profile/`; this
+retained-runtime probe deliberately excludes original fresh-lifecycle setup effects
+and changes code layout, and is not an acceptance workload.
+
+B and C complete 335/336 iterations respectively; neither fails an assertion.
+Main-thread samples are 22,010/22,030. Inclusive executable-installation validation
+accounts for 1,683/1,774 samples (7.65%/8.05%), while route selection accounts for
+4,616/4,692 (20.97%/21.30%). These stacks overlap and must not be added. Exclusive
+SipHash writes account for 1,472/1,501 samples (6.69%/6.81%) across registry lookups,
+not just installations. Frame admission/allocation is substantial in both images;
+inlining differs, so isolated symbol percentages are not regression attribution.
+The profile does not reproduce the formal 5% delta and does not prove a new call
+architecture defect. Preserve the formal failure and historical uncertainty.
+
+**One bounded ownership correction.** Inspection of linked calls, route selection,
+frame admission, operand publication and Native context confirms that these owners
+already separate selected executable facts from actual values. Do not add a call
+engine/cache or weaken current receiver, borrow, bounds, cancellation, candidate or
+reload checks. Within `ModuleStore::validate_executable_installation` and
+`current_for`, however, code retrieves an Arc from this store's installation map and
+then calls the external-Arc validator, which looks up the same map entry again and
+compares it with itself. The map owns registration and its immutable key/ID pairing;
+this second lookup supplies no new evidence during the same storage borrow.
+
+A private `executable_installation` resolver now performs that one authoritative
+lookup and checks the executable's registry owner, returning a store-borrowed
+installation. Existing current-publication mutex/poison handling and initial-load
+candidate fallback remain at their original points. The validator for externally
+supplied installation Arcs still checks both registry owner and pointer identity;
+no public authority is inferred from a numeric ID. There is no retained proof or
+cache across callback, publication, collection or retirement. This reuses existing
+ownership and is a local duplicated-validation correction, not a new runtime model
+or evidence that all frame validation is avoidable. No speedup is claimed before
+measurement.
+
+Validation selects the four dispatch contracts plus frame-admission unwind,
+matching-key/uninstalled descriptor rejection, abandoned candidate retention,
+foreign/retired handles and poisoned installation cells. Reuse those semantic
+owners without new duplicate tests; all nine selected tests pass, along with
+structure (1,850 files, zero violations/exceptions), formatting, workspace all-target
+Clippy with denied warnings and diff checks. No unsafe kernel/layout/accounting changes: retain the prior Miri and
+backing/peak evidence. Freeze one changed ordinary image for the original seven-pair
+storage/family gates; if the failure remains, do not blindly inline, relax gates,
+repeat unchanged measurements or expand into a call rewrite. Phase 2C's sampling
+and original PG00 associations, automatic/pressure, phases 3-4 and CI remain open.
+
+**Installation-resolution acceptance.** Clean production
+`436724a0e5eb32e50a9813713baaf9dac69ebde4`, ordinary SHA-256
+`dd2e4b4ffcc777540bb42aeb1f1906e6aa6625f63f8164e5a291bb6f8ff6a362`.
+Use the same release build, fixed `725a4fb5` image, environment, seven alternating
+pairs per no-argument/`--families` mode and original gates as above. All 28
+processes succeed with hashes unchanged. Records are under
+`target/gc-installation-resolution-trial/`; no builds/tests/probes overlapped.
+
+| Selected timing | B median us | C median us | Paired C/B | Paired C/bound(B) |
+| --- | ---: | ---: | ---: | ---: |
+| Field reads | 2633.500 | 1772.958 | 0.6733 | 0.6121 |
+| Field writes | 2983.000 | 2119.292 | 0.7100 | 0.6454 |
+| references_8192/release_gc | 264.917 | 233.083 | 0.8780 | 0.7317 |
+| sparse_cycles_4096_keep64/dense_gc | 1050.459 | 1255.459 | 1.1950 | 0.9958 |
+| scalar_65536/verified | 98355.792 | 96388.541 | 0.9800 | 0.9333 |
+
+Storage **29/29** and family timing **39/39** pass. Scalar paired ratios are
+0.9801, 0.9767, 0.9800, 0.9748, 0.9855, 0.9823, 0.9774; every pair passes.
+Dense GC's normalized median is 0.9958, with one individual pair over its bound;
+this remains narrow empirical acceptance, not a stability guarantee. Reuse the
+unchanged family allocation/layout evidence from 2A. This closes 2B's local defect
+and formal scalar/affected timing obligations without claiming that the new result
+explains the old historical fluctuation. Do not reopen the finite attribution
+search or require unrelated call optimizations. Proceed to 2C; joint completion,
+automatic/normal-step gates and CI have not passed by implication.
+
+### Struct-trial sampling and integration: phase 2C (2026-10-29)
+
+Production is frozen at `436724a0` while completing acceptance. The no-argument
+memory probe needs the preplanned three independent warmed lifecycles per scenario.
+Inspection also found that its snapshots use `allocations::current`, which never
+resets the interval high-water counter; the nominal post-setup peak can therefore
+include a setup peak. Its old 144 comparison rows remain historical one-lifecycle
+observations, and the 16 post-setup peak rows must not be treated as corrected
+interval acceptance. Family diagnostics already use checkpointed intervals and
+three lifecycles; their 60 passing gates are unaffected.
+
+Repair only the harness symmetrically on frozen baseline `725a4fb5` and the current
+runtime: take true interval checkpoints, include the final teardown interval, and
+record three independently warmed complete lifecycles with explicit repetition
+IDs and unchanged three reuse-cycle assertions in each. Compare per-process maxima
+of each backing/peak metric across those lifecycles under the original bounds;
+never subtract maxima belonging to different lifecycles. Preserve raw repetitions,
+first-use observations and zero-net teardown assertions. Record runtime revisions,
+harness hashes and separate diagnostic image hashes. The old method is not silently
+relabeled. No runtime accounting, layout, GC policy or baseline denominator changes.
+Automatic/default-pressure and the original PG00 normal-step associations remain
+subsequent 2C work. Original PG00 images are absent from local `target/`; commit
+`47be3cb7` supplies the recorded harness and only opt-in allocator counter changes
+above runtime `50ab194b`, allowing faithful reproduction rather than substitution
+with the later supplement. This inventory is not yet a rebuilt or measured baseline.
+
+**Sampling implementation.** `memory.rs` now captures checkpoints for all phases
+and every intermediate reuse interval, accumulating the post-setup maximum through
+the final Runtime teardown. Each of three measured fresh lifecycles has a preceding
+warm lifecycle; fixed-size records keep output/bookkeeping outside measurement.
+Phase backing must agree across repetitions. The new `storage_memory.py` evaluator
+requires all 48 lifecycles/288 phase records per process, consistent peaks, exact
+zero-net teardown and field controls. It preserves raw repetitions and evaluates
+the original 144 bounds using per-process maxima and seven paired ratios. Its exit
+status fails when a metric fails. No production Rust changes are included.
+
+Both diagnostic images build successfully with identical `memory.rs` SHA-256
+`b07435a91ec6a925f92c5b943b74e566cbb1f09260ac0974a389e75144414b66`.
+The baseline worktree is restored byte-for-byte and clean after building its overlay.
+One behavioral diagnostic process per image passes all 48 zero-net teardowns and
+stable backing assertions; these checks are not the seven-pair acceptance result.
+The evaluator rejects intentionally missing/duplicate repetitions, inconsistent
+post-setup peaks and nonzero teardown. Structure (1,850 files, zero findings),
+formatting, workspace all-target Clippy and diff checks pass. Reuse the previous
+production semantic/Miri evidence: only measurement and its evaluator changed.
+Formal paired memory acceptance and subsequent automatic/normal-step gates remain
+pending at this checkpoint. Temporary build/check records are under
+`target/gc-storage-memory-trial/`; the method and results above do not depend on
+retaining that directory.
+
+**Corrected memory acceptance.** Harness `f464e792`, production `436724a0`,
+baseline production `725a4fb5` with the identical harness overlay above. Diagnostic
+SHA-256: baseline
+`4fbb3adffa91960dc2b59a2d35c492632d925af3dd0ec8be4dabe6249f671a34`, candidate
+`1378189b0f4d5bdfb09fdf782763188ad37528d31f409d424e20057f2c123089`.
+Use the 2B environment and default release build with `--features diagnostics`;
+warm dependency cache, ordinary OS cache, no CPU affinity/power isolation. Fourteen
+serial no-argument processes, seven B/C odd and C/B even pairs, succeed with hashes
+unchanged and no overlapping builds/tests/probes. **144/144** original memory
+gates pass and **672/672** measured Runtime teardowns balance to zero. The largest
+normalized median is 0.9092 (setup backing 16,739,003 B baseline versus 16,741,123 B
+candidate). All per-process repeated backing assertions pass. Requested bytes are
+not RSS; these allocation-instrumented runs provide no execution-time claim.
+This closes the no-argument sampling/interval obligation. Reuse 2A's unaffected
+60/60 family-memory gates and 2B's ordinary timings; automatic/default-pressure,
+original PG00 normal-step acceptance and later joint/CI obligations remain open.
+
+**Automatic acceptance inputs.** Rebuild clean original PG00 harness `47be3cb7`
+in its isolated worktree's default target with the ordinary release command and
+original lockfile, same Rust/toolchain/machine as 2B. Its production collector is
+`50ab194b`: the intervening checkpoint only adds benchmark sources, documentation
+and opt-in allocation counters, which are inactive in the ordinary image. Both
+`families.kgr` and `script_keys.kgr` are byte-identical to current sources.
+Rebuilt PG00 ordinary SHA-256 is
+`b51c7372e0b7ff5dc6dc2aab50269bafc6084484841f7d8b89cf95a0499af5d7`.
+Retain the original `725a4fb5` supplement and `436724a0` candidate ordinary hashes
+recorded in 2B. The memory-only harness checkpoint does not change those images.
+
+One candidate `--automatic-families --check` process for each default/pressure
+policy passes complete scenario/activity validation, including the host pressure
+control. These are behavioral checks, not latency acceptance. Freeze seven groups
+before timing: PG00 `--families` and `--script-keys`, supplement default/pressure,
+and candidate default/pressure; reverse the baseline/candidate block order every
+other group. Keep three warmups/eleven samples and all output. The same group's
+fresh PG00 pair supplies the original normal-step association to both policies;
+the supplement never replaces F. No concurrent builds/tests/probes. Association,
+images and process manifests are recorded in `target/gc-automatic-trial/`.
+The unchanged canonical association SHA-256 is
+`e57a3af3f87d4eea70026ddd8df9db0e8acc59f57e0252581484c5d270d95dd2`.
+Phase/action wall time is separate from normal service latency, and unobserved
+normal activity is not a passing zero.
+
+**Evaluator correction.** All 42 frozen measurement processes succeeded once, but
+the original evaluator then rejected `overlapping baseline scenarios`: PG00's
+`--families` also emits incidental script-key rows alongside the separately declared
+`--script-keys` process. Correct selection by the manifest's existing role:
+`baseline_families` supplies the six other families, and `baseline_script_keys`
+supplies script keys. Preserve every source row and report excluded rows; do not
+select by duration, change F's revision/association, drop failed samples or rerun
+measurements. `automatic_baselines.py` now validates complete role-specific
+scenarios/associated phases and seven distinct processes for each role. The same
+unchanged logs evaluate successfully. Focused evaluator checks reject wrong-role,
+missing-family, missing-associated-phase and reused-process inputs, and prove that
+changing incidental script-key durations cannot alter selected family values.
+The dedicated script-key rows remain exact. This Python/documentation correction
+requires no Rust rebuild or repeated Rust tests; diff checks pass.
+
+**Automatic result and phase-2 exit.** Candidate `436724a0` passes **22/22 observed
+normal-step gates** under the unchanged `max(50 us, F/4)` bound and median of seven
+process-maximum/bound ratios. **34 phase-policy rows remain unobserved**, not passes.
+All 28 supplement/candidate automatic processes pass complete scenario, activity,
+service/work and lifecycle validation; the 14 PG00 processes supply fresh F values.
+No process retry or measurement extension occurred, and all image hashes remain
+unchanged. Candidate reports 90,244 normal invocations, maximum charged work 1,024,
+and absolute maximum 78.000 us. The previous mixed default/pressure and scalar
+pressure failures are closed on this candidate; individual mixed maxima still
+occasionally exceed 50 us, so this is empirical gate acceptance, not a real-time
+guarantee. The complete observed process maxima and normalized medians follow.
+
+| Policy / family / phase | Seven process maxima (us) | Absolute max (us) | Median Q |
+| --- | --- | ---: | ---: |
+| default / sparse_types_32x4 / construct | 26.667, 26.292, 25.583, 27.875, 26.417, 26.000, 31.041 | 31.041 | 0.5283 |
+| default / mixed_native_128x6 / construct | 35.792, 37.958, 35.584, 36.250, 56.083, 35.792, 44.958 | 56.083 | 0.7250 |
+| default / scalar_65536 / construct | 14.667, 28.459, 25.625, 18.041, 21.917, 16.542, 19.000 | 28.459 | 0.3800 |
+| default / references_8192 / construct | 15.000, 15.125, 15.042, 18.917, 18.417, 17.583, 15.417 | 18.917 | 0.0403 |
+| default / script_keys_256 / construct | 30.500, 31.500, 31.416, 31.583, 29.292, 29.500, 34.000 | 34.000 | 0.6283 |
+| default / script_keys_256 / access | 31.834, 34.208, 29.208, 29.042, 30.416, 29.708, 30.541 | 34.208 | 0.6083 |
+| default / sparse_cycles_4096_keep64 / construct | 39.500, 45.834, 45.250, 37.625, 75.542, 50.375, 55.209 | 75.542 | 0.1043 |
+| default / sparse_cycles_4096_keep64 / churn_construct_0 | 40.167, 37.250, 39.875, 36.792, 78.000, 38.250, 40.792 | 78.000 | 0.2074 |
+| default / sparse_cycles_4096_keep64 / churn_construct_1 | 45.791, 38.833, 39.500, 37.917, 39.750, 37.458, 45.792 | 45.792 | 0.2069 |
+| default / sparse_cycles_4096_keep64 / churn_construct_2 | 68.417, 40.375, 58.375, 39.625, 40.500, 72.958, 42.125 | 72.958 | 0.2190 |
+| default / retained_reload_4x256 / construct_reload | 25.917, 25.125, 24.583, 26.166, 25.500, 27.625, 25.000 | 27.625 | 0.4544 |
+| pressure / sparse_types_32x4 / construct | 23.042, 22.042, 22.792, 22.375, 22.458, 22.334, 22.208 | 23.042 | 0.4475 |
+| pressure / mixed_native_128x6 / construct | 35.667, 50.625, 36.375, 44.458, 36.875, 50.709, 35.959 | 50.709 | 0.7375 |
+| pressure / scalar_65536 / construct | 19.333, 18.042, 12.833, 38.500, 16.375, 15.083, 15.083 | 38.500 | 0.3275 |
+| pressure / references_8192 / construct | 15.334, 18.333, 15.084, 21.541, 24.500, 14.959, 54.750 | 54.750 | 0.0476 |
+| pressure / script_keys_256 / construct | 30.750, 30.041, 29.250, 30.083, 42.541, 31.542, 32.417 | 42.541 | 0.6150 |
+| pressure / script_keys_256 / access | 29.084, 29.083, 29.292, 29.208, 29.375, 29.083, 34.333 | 34.333 | 0.5842 |
+| pressure / sparse_cycles_4096_keep64 / construct | 41.125, 40.000, 44.958, 54.375, 77.667, 42.083, 74.458 | 77.667 | 0.1036 |
+| pressure / sparse_cycles_4096_keep64 / churn_construct_0 | 49.417, 37.292, 72.666, 39.584, 73.500, 37.708, 75.791 | 75.791 | 0.2592 |
+| pressure / sparse_cycles_4096_keep64 / churn_construct_1 | 41.500, 42.250, 50.084, 70.708, 71.541, 67.250, 39.375 | 71.541 | 0.2623 |
+| pressure / sparse_cycles_4096_keep64 / churn_construct_2 | 47.708, 39.750, 39.166, 37.416, 66.625, 56.917, 71.166 | 71.166 | 0.2526 |
+| pressure / retained_reload_4x256 / construct_reload | 34.583, 25.542, 57.334, 29.417, 29.792, 24.875, 25.375 | 57.334 | 0.5243 |
+
+Natural families record no pressure assists. The separate host control records
+77 assists per policy (154 total), absolute maxima 381.041 us default and
+392.375 us pressure. Its normal/assist activity has no PG00 family association.
+The largest indivisible observation is 1,275.959 us `RetiredModule` metadata
+destruction during explicit old-generation release; it stays inside that explicit
+operation and is not subtracted from a normal pause. Explicit cleanup, normal
+steps and assists remain separate; these results do not replace full-cycle gates.
+
+Phase 2 is locally closed: 2B's 29/29 storage and 39/39 family timing gates,
+2A's unchanged 60/60 family memory gates, 2C's corrected 144/144 storage memory
+gates and 22/22 observed normal gates, plus the recorded focused semantic/Miri and
+local quality evidence. Proceed to phase 3's ordered representation migration.
+The older PG00 ordinary/root/sort/collection matrix (historical 77 pass / 11 fail)
+has not been replaced by this supplement; phase 4 owns its complete applicable
+joint reevaluation, final memory/pause gates, refreshed Lua comparison and CI.
+Full workspace/backend/feature/platform tests remain unrun CI obligations.
+Do not claim PG05/PG06/NC joint completion or Lua parity from this phase-2 exit.
+
+### Shared physical sweep evidence: phase 2A (2026-10-29)
+
+Goal execution checkpoint 1 replaces repeated physical resolution during selection
+with `CheckedPayload`, borrowed from the same page owner as the scanner. Both
+ordinary `Pages::get` and the scanner use one header/descriptor validation kernel;
+the scanner reuses its occupied slot, descriptor and allocation instead of looking
+up the same location again. The scoped candidate carries the checked representation
+and physical struct mark. Directory-backed owners still validate the full slot
+location/generation before consulting directory marks. Only numeric sweep progress
+and copied retirement identities/fragments leave selection.
+
+Survivors need no retirement view or direct-reference reconstruction. Dead owners
+use the same typed view mapping as ordinary access and the existing canonical
+`HeapObject::charge`; struct units remain field count plus one, not bytes or a
+constant per object. Native retained-byte/dynamic charges and interface metadata
+charges retain their existing owners. There is no new charge implementation,
+long-lived cache, provider callback or graph-lock scope. Full transaction preflight,
+32-owner batches, work reservations, cursor publication and out-of-borrow disposal
+are unchanged. This applies the already reviewed Go 1.26.0 ownership-local sweep
+organization under Kagari's heterogeneous descriptors and Rust destruction rules;
+it does not copy Go's concurrent span/bitmap protocol.
+
+Selected validation covers physical allocation/header ownership and retirement
+transactions, including malformed bitmaps/descriptors, late accounting/credit
+failure, mixed fragments, small/large reuse, Native take and panic cleanup:
+
+- `cargo test -p kagari-runtime --lib gc::directory::retirement --no-fail-fast`:
+  20 pass.
+- `cargo test -p kagari-runtime --lib gc::directory::pages --no-fail-fast`:
+  17 pass after correcting the allocator-only raw-byte fixture's kind from Struct
+  to directory-backed Tuple. It never constructs a typed tuple view; real packed
+  structs require a header/layout/physical marks and remain covered by header tests.
+  The first run had three scanner failures because that obsolete fixture declared
+  Struct without its representation. No assertion or production validation was
+  weakened. The header contract now injects invalid descriptor/allocation IDs and
+  checks rejection through both ordinary access and the shared scanner for empty,
+  small and large structs before restoring the admitted header.
+- Source-free strict-provenance Miri on nightly-2026-07-27: header ownership and
+  mixed sparse retirement and late-accounting rollback all pass (three tests).
+- Structure: 1,850 Rust files, zero violations/exceptions. Formatting, workspace
+  all-target Clippy with denied warnings and diff checks pass. Import/visibility,
+  borrowing and structural review introduces no re-export or exception.
+
+The initial test compile also found a missing candidate field and a test retaining
+its new borrowed candidate across page mutation; callers now end that borrow before
+mutation. These integration failures are resolved. Full workspace/backend/feature
+validation remains CI-only and unrun.
+
+**Frozen measurements.** Clean production `f6a3d4461dc1a47108b071b9fe720edb250dbe9d`,
+ordinary SHA-256 `b14f05903a9ada3b115f5744b827795a5b87518135f4f8fe97120b39e369818f`,
+diagnostic SHA-256 `d50276179bd32cf9535d3a087a32b9a45fe472b3f5556af3b71659356a75993d`.
+Baseline remains `725a4fb5a4900c79160d8e7b551e0dd8b4d27048`, ordinary SHA-256
+`a0a4b085751d8c04c9a3c98f923c6f20e94e4a1cf9a20a9b64d2e95e25e9168c`, diagnostic
+`a5901bfac3ac8933a4ad06f2a89b8eb533700add0054749398e9f7f0e906ca84`.
+Build each image with `cargo build --release --locked -p kagari-lua-benchmark
+--example runtime_storage`, adding `--features diagnostics` for allocation evidence;
+copy images before switching features. Run each image with no arguments and with
+`--families`, seven pairs per mode, B/C on odd pairs and C/B on even pairs. All
+56 processes succeeded and retained their hashes. Temporary records are under
+`target/gc-shared-sweep-trial/`; the method and necessary results are retained here.
+
+M1 Max/32 GiB, macOS 26.6.2 (25G83), aarch64, Rust 1.99.1 (`58cf8f9c3`, LLVM
+23.1.1), Cargo 1.99.1, workspace release/default target and build parallelism,
+warm dependency cache, normal OS cache, unchanged three warmups/eleven timing
+samples. Source/native features use interpreter execution. All builds/tests/Miri
+finished before serial measurements; no concurrent probes. Setup/compilation is
+excluded from action timing; desktop activity/frequency remain uncontrolled.
+Absolutes below are process medians, ratios are medians of paired ratios. The
+original GC bound remains max(1.2B, B+10 us), scalar control 1.05B; no threshold,
+baseline or estimator was changed.
+
+| Selected timing | B median us | C median us | Paired C/B | Paired C/bound(B) |
+| --- | ---: | ---: | ---: | ---: |
+| Field reads | 2648.500 | 1798.166 | 0.6793 | 0.6176 |
+| Field writes | 3002.416 | 2183.125 | 0.7259 | 0.6599 |
+| references_8192/release_gc | 264.417 | 234.458 | 0.8862 | 0.7385 |
+| sparse_cycles_4096_keep64/dense_gc | 1050.542 | 1259.709 | 1.1977 | 0.9981 |
+| sparse_cycles_4096_keep64/sparse_live_gc | 28.000 | 33.250 | 1.1884 | 0.8756 |
+| sparse_cycles_4096_keep64/release_gc | 31.209 | 31.166 | 0.9986 | 0.7563 |
+| scalar_65536/verified | 98233.083 | 103830.000 | 1.0544 | **1.0042, fail** |
+
+Storage passes **29/29**, family timing **38/39**, family backing/peak **60/60**
+(39 backing, 21 peak), and 294 family teardowns are zero. No-argument diagnostics
+pass **144/144** comparisons and 224 zero-net teardowns, retaining their original
+one-warmed-lifecycle qualification: three reuse cycles are not three independent
+lifecycles. Sparse-live backing remains 261,688 versus 329,296 bytes; sparse-cycle
+release 93,992 versus 149,008; sparse-types release 66,312 versus 60,936 (bound
+67,029.6). These are requested allocation bytes, not RSS.
+
+Both previously failing GC rows pass. Dense GC's normalized 0.9981 leaves little
+margin; two individual pairs exceed its bound, so this is the specified median
+gate passing, not a stability guarantee. Scalar verification fails four of seven
+pairs, with C/B 1.0318, 1.0599, 1.0574, 1.0547, 1.0544, 1.0485, 1.0239. Retain this
+failure instead of rerunning unchanged code to green. The repair preserves field
+and sparse gains and closes checkpoint 1's GC targets; overall phase 2 remains
+open. Next execute phase 2B's finite historical bracket and diagnose the relevant
+call/access owner before changing it. Automatic/pressure, no-argument sampling,
+older joint normal-step gates, full CI and the refreshed Lua comparison remain
+outstanding. No scalar root cause or future speedup is claimed yet.
 
 ### Page-owned struct marks: phase 2A (2026-10-29)
 

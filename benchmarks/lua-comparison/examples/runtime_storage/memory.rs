@@ -37,17 +37,23 @@ pub(super) fn run(
                 let loaded = runtime.load_program(program, Default::default()).unwrap();
                 runtime.runtime().collect_garbage().unwrap();
                 let snapshot = || Snapshot {
-                    allocations: allocations::current().unwrap(),
+                    allocations: allocations::checkpoint().unwrap(),
                     heap: runtime.runtime().gc().stats(),
                     storage: runtime.runtime().gc().storage_usage().unwrap(),
                 };
                 let setup = snapshot();
+                let mut post_setup_peak = setup.allocations.net_bytes;
+                let mut capture = || {
+                    let next = snapshot();
+                    post_setup_peak = post_setup_peak.max(next.allocations.interval_peak_net_bytes);
+                    next
+                };
                 let values: ScriptValue = runtime
                     .execute_typed(&loaded, name, (count,), context)
                     .unwrap();
-                let constructed = snapshot();
+                let constructed = capture();
                 runtime.runtime().collect_garbage().unwrap();
-                let live = snapshot();
+                let live = capture();
                 let sparse: Option<ScriptValue> = (name == "points").then(|| {
                     runtime
                         .execute_typed(&loaded, "sparse", (values.clone(), count), context)
@@ -55,10 +61,10 @@ pub(super) fn run(
                 });
                 drop(values);
                 runtime.runtime().collect_garbage().unwrap();
-                let released = snapshot();
+                let released = capture();
                 drop(sparse);
                 runtime.runtime().collect_garbage().unwrap();
-                let empty = snapshot();
+                let empty = capture();
                 // Three equal cycles expose capacity growth after the first reuse.
                 let mut reused = None;
                 let mut plateau = None;
@@ -67,10 +73,10 @@ pub(super) fn run(
                         .execute_typed(&loaded, name, (count,), context)
                         .unwrap();
                     runtime.runtime().collect_garbage().unwrap();
-                    let live = snapshot();
+                    let live = capture();
                     drop(again);
                     runtime.runtime().collect_garbage().unwrap();
-                    let empty = snapshot();
+                    let empty = capture();
                     let net = (live.allocations.net_bytes, empty.allocations.net_bytes);
                     if let Some(expected) = plateau {
                         assert_eq!(net, expected, "{name} reuse cycle {cycle}");
@@ -82,36 +88,58 @@ pub(super) fn run(
                     runtime.runtime().gc().stats().allocated_objects,
                     setup.heap.allocated_objects
                 );
-                [setup, constructed, live, released, empty, reused.unwrap()]
+                (
+                    [setup, constructed, live, released, empty, reused.unwrap()],
+                    post_setup_peak,
+                )
             };
-            // Immutable prepared-program caches can initialize on first execution
-            // and outlive Runtime. Warm that shared owner before measuring its
-            // separate runtime-owned lifecycle; teardown must still balance.
-            let (_, first_use) = allocations::measure(lifecycle);
-            let (phases, total) = allocations::measure(lifecycle);
-            println!("shared_first_use,{name},count={count},allocations={first_use:?}");
-            for (phase, snapshot) in [
-                "setup",
-                "constructed",
-                "live",
-                "released",
-                "empty",
-                "reused",
-            ]
-            .into_iter()
-            .zip(phases)
-            {
+            // Warm shared program owners independently before each fresh Runtime
+            // lifecycle; report their allocations separately from Runtime backing.
+            let mut retained = None;
+            for repetition in 0..3 {
+                let (_, first_use) = allocations::measure(lifecycle);
+                let ((phases, post_setup_peak), total) = allocations::measure(lifecycle);
+                let balances = phases.each_ref().map(|phase| phase.allocations.net_bytes);
+                if let Some(expected) = retained {
+                    assert_eq!(balances, expected, "{name} lifecycle {repetition}");
+                }
+                retained = Some(balances);
+                let setup = phases[0].allocations;
+                let post_setup_peak = post_setup_peak.max(total.interval_peak_net_bytes);
                 println!(
-                    "memory,{name},count={count},phase={phase},allocations={:?},heap={:?}",
-                    snapshot.allocations, snapshot.heap
+                    "shared_first_use,{name},count={count},repetition={repetition},allocations={first_use:?}"
+                );
+                for (phase, snapshot) in [
+                    "setup",
+                    "constructed",
+                    "live",
+                    "released",
+                    "empty",
+                    "reused",
+                ]
+                .into_iter()
+                .zip(phases)
+                {
+                    println!(
+                        "memory,{name},count={count},repetition={repetition},phase={phase},allocations={:?},heap={:?}",
+                        snapshot.allocations, snapshot.heap
+                    );
+                    println!(
+                        "storage,{name},count={count},repetition={repetition},phase={phase},usage={:?}",
+                        snapshot.storage
+                    );
+                }
+                println!(
+                    "memory_peak,{name},count={count},repetition={repetition},setup_peak_bytes={},post_setup_peak_bytes={post_setup_peak},post_setup_peak_delta_bytes={},lifecycle_peak_bytes={}",
+                    setup.peak_net_bytes,
+                    post_setup_peak - setup.net_bytes,
+                    total.peak_net_bytes,
                 );
                 println!(
-                    "storage,{name},count={count},phase={phase},usage={:?}",
-                    snapshot.storage
+                    "teardown,{name},count={count},repetition={repetition},allocations={total:?}"
                 );
+                assert_eq!(total.net_bytes, 0, "runtime teardown for {name}");
             }
-            println!("teardown,{name},count={count},allocations={total:?}");
-            assert_eq!(total.net_bytes, 0, "runtime teardown for {name}");
         }
     }
     field_loops(engine, program, context);

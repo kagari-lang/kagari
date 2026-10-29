@@ -93,8 +93,8 @@ impl GcHeap {
             .objects
             .try_borrow()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
-        match self.readable_object(&objects, id) {
-            Some(HeapObject::Native(object)) => Ok(object.selected.clone()),
+        match self.native_ref(&objects, id) {
+            Some(object) => Ok(object.selected.clone()),
             _ => Err(RuntimeError::module_validation(
                 "invalid native selection receiver",
             )),
@@ -111,10 +111,7 @@ impl GcHeap {
             .objects
             .try_borrow()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
-        if !matches!(
-            self.readable_object(&objects, id),
-            Some(HeapObject::Native(_))
-        ) {
+        if self.native_ref(&objects, id).is_none() {
             return Err(RuntimeError::module_validation(
                 "invalid native operation receiver",
             ));
@@ -136,12 +133,14 @@ impl GcHeap {
         owner: &ExecutableModule,
     ) -> bool {
         let objects = self.objects.borrow();
-        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches_argument(expected, owner))
+        self.native_ref(&objects, id)
+            .is_some_and(|object| object.matches_argument(expected, owner))
     }
 
     pub(crate) fn matches_native_type(&self, id: HeapObjectId, expected: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
-        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(expected))
+        self.native_ref(&objects, id)
+            .is_some_and(|object| object.matches(expected))
     }
 
     pub(crate) fn default_storage(&self, ty: &Ty) -> Option<&NativeStorage> {
@@ -190,7 +189,7 @@ impl GcHeap {
             .objects
             .try_borrow()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+        let Some(object) = self.native_ref(&objects, id) else {
             return Err(RuntimeError::module_validation("invalid native identity"));
         };
         if !object.matches_argument(expected, owner) {
@@ -215,7 +214,7 @@ impl GcHeap {
             .objects
             .try_borrow()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+        let Some(object) = self.native_ref(&objects, id) else {
             return Err(RuntimeError::module_validation("invalid native identity"));
         };
         if !object.storage.accepts_payload::<S>()

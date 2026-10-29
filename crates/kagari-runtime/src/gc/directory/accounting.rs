@@ -18,7 +18,11 @@ impl ObjectStorage {
         let mut initialized_payload_bytes = 0;
         let mut object_header_bytes = 0;
         for (_, location) in self.pages.occupied() {
-            let (_, descriptor) = self.pages.get(location).expect("occupied descriptor");
+            let descriptor = self
+                .pages
+                .get(location)
+                .expect("occupied descriptor")
+                .descriptor;
             initialized_payload_bytes += descriptor.layout.size();
             object_header_bytes += descriptor.payload_offset();
             if let Some(object) = self.native(location) {

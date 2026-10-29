@@ -76,6 +76,46 @@ impl Default for Pages {
     }
 }
 
+/// Initialized physical representation checked under the storage owner's borrow.
+/// The descriptor retains dispatch and bounds; this proof cannot outlive mutation.
+pub(super) struct CheckedPayload<'a> {
+    pub(super) pointer: NonNull<u8>,
+    pub(super) descriptor: &'a Descriptor,
+}
+
+impl<'a> CheckedPayload<'a> {
+    /// Callers establish occupancy and allocation bounds under this same borrow.
+    fn new(
+        location: PayloadLocation,
+        pointer: NonNull<u8>,
+        id: DescriptorId,
+        descriptor: &'a Descriptor,
+    ) -> Option<Self> {
+        if descriptor.kind != location.kind {
+            return None;
+        }
+        if descriptor.structure.is_some() {
+            // SAFETY: occupied slot and retained descriptor prove initialized
+            // aligned header storage. Validate dispatch before reading the payload.
+            let header = unsafe { ObjectHeader::read(pointer) };
+            if header.descriptor_id != id.get() || header.allocation_id != location.page {
+                return None;
+            }
+        }
+        // SAFETY: the complete payload lies within the descriptor's allocation.
+        Some(CheckedPayload {
+            pointer: unsafe { pointer.add(descriptor.payload_offset()) },
+            descriptor,
+        })
+    }
+
+    pub(super) fn struct_reference(&self) -> Option<GcRef> {
+        self.descriptor.structure.as_ref()?;
+        // SAFETY: validation retained the initialized header and original allocation.
+        Some(unsafe { GcRef::from_allocation(self.pointer.sub(ObjectHeader::SIZE)) })
+    }
+}
+
 /// Detached payloads retain dispatch and backing independently of the live owner.
 /// Interface wrappers have no allocation or destructor, but use the same retirement.
 #[derive(Debug)]
@@ -424,10 +464,7 @@ impl Pages {
     }
 
     pub(super) fn struct_reference(&self, location: PayloadLocation) -> Option<GcRef> {
-        let (payload, descriptor) = self.get(location)?;
-        descriptor.structure.as_ref()?;
-        // SAFETY: occupied initialized header retained by the original owner.
-        Some(unsafe { GcRef::from_allocation(payload.sub(ObjectHeader::SIZE)) })
+        self.get(location)?.struct_reference()
     }
 
     pub(super) fn next_gray_struct(&self, block: usize, epoch: u64) -> (Option<GcRef>, bool) {
@@ -482,14 +519,17 @@ impl Pages {
             page: header.allocation_id,
             slot: u16::try_from(slot).ok()?,
         };
-        let (payload, descriptor) = self.get(location)?;
+        let CheckedPayload {
+            pointer: payload,
+            descriptor,
+        } = self.get(location)?;
         descriptor.structure.as_ref()?;
         // SAFETY: published header occupies the first eight bytes of this allocation.
         (payload == unsafe { reference.pointer().add(ObjectHeader::SIZE) })
             .then_some((location, payload, descriptor))
     }
 
-    pub(super) fn get(&self, location: PayloadLocation) -> Option<(NonNull<u8>, &Descriptor)> {
+    pub(super) fn get(&self, location: PayloadLocation) -> Option<CheckedPayload<'_>> {
         let (pointer, id) = match self.allocations.get(location.page as usize)? {
             Allocation::Small(page) => {
                 let slot = page.slot(location.slot as usize)?;
@@ -500,23 +540,7 @@ impl Pages {
             }
             _ => return None,
         };
-        let descriptor = self.descriptors.get(id)?;
-        if descriptor.kind != location.kind {
-            return None;
-        }
-        if descriptor.structure.is_some() {
-            // SAFETY: occupied slot and retained descriptor prove initialized
-            // aligned header storage. Validate dispatch before reading the payload.
-            let header = unsafe { ObjectHeader::read(pointer) };
-            if header.descriptor_id != id.get() || header.allocation_id != location.page {
-                return None;
-            }
-        }
-        // SAFETY: the complete payload lies within the descriptor's allocation.
-        Some((
-            unsafe { pointer.add(descriptor.payload_offset()) },
-            descriptor,
-        ))
+        CheckedPayload::new(location, pointer, id, self.descriptors.get(id)?)
     }
 
     fn occupied_slots(&self) -> impl Iterator<Item = (u32, u32, u16, DescriptorId)> + '_ {

@@ -22,8 +22,11 @@ fn maintain_descriptors(pages: &mut Pages) {
 }
 
 fn bytes(size: usize, align: usize, edges: bool) -> Arc<Descriptor> {
+    // Allocator-only raw bytes exercise directory-backed placement. Packed Struct
+    // placement requires its real header/layout/marks; header_tests owns that case.
+    // These fixtures never construct typed HeapObject views of their payloads.
     Arc::new(Descriptor::new(
-        PayloadKind::Struct,
+        PayloadKind::Tuple,
         Layout::from_size_align(size, align).unwrap(),
         edges,
         |_| {},
@@ -109,13 +112,13 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
             2 * count.div_ceil(64) * 2 * size_of::<u64>()
         );
         let survivor = locations[1];
-        let address = pages.get(survivor).unwrap().0;
+        let address = pages.get(survivor).unwrap().pointer;
         let first = locations[0];
         release(&mut pages, first);
         assert!(pages.get(first).is_none());
         let reused = insert(&mut pages, 999, descriptor.clone());
         assert_eq!(reused, first, "newly nonfull page is immediately reusable");
-        assert_eq!(pages.get(survivor).unwrap().0, address);
+        assert_eq!(pages.get(survivor).unwrap().pointer, address);
         assert_eq!(pages.occupied().count(), count + 1);
         for location in locations {
             release(&mut pages, location);
@@ -130,7 +133,7 @@ fn classes_alignment_full_page_reuse_and_immediate_empty_release() {
         assert!(pages.available.iter().all(Option::is_none));
         // Reuse a page ID with a different class and alignment, not its old backing.
         let aligned = insert(&mut pages, 1000, bytes(24, 16, true));
-        assert_eq!(pages.get(aligned).unwrap().0.as_ptr().addr() % 16, 0);
+        assert_eq!(pages.get(aligned).unwrap().pointer.as_ptr().addr() % 16, 0);
         release(&mut pages, aligned);
         assert_eq!(pages.backing_bytes, 0);
     }
@@ -288,7 +291,7 @@ fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_to
     );
     assert_eq!(foreign.backing_bytes, 0);
     let second = insert(&mut pages, 1, bytes(8, 8, false));
-    let second_descriptor = pages.get(second).unwrap().1 as *const Descriptor;
+    let second_descriptor = pages.get(second).unwrap().descriptor as *const Descriptor;
     assert!(!std::ptr::eq(
         second_descriptor,
         pages.descriptors.get(first_id).unwrap().as_ref()
@@ -298,7 +301,7 @@ fn descriptor_ids_remain_owned_through_retirement_and_recycle_only_after_last_to
     maintain_descriptors(&mut pages);
     assert!(pages.descriptors.get(first_id).is_none());
     let third = insert(&mut pages, 2, bytes(8, 8, false));
-    let third_descriptor = pages.get(third).unwrap().1 as *const Descriptor;
+    let third_descriptor = pages.get(third).unwrap().descriptor as *const Descriptor;
     assert!(std::ptr::eq(
         third_descriptor,
         pages.descriptors.get(first_id).unwrap().as_ref()
@@ -363,7 +366,7 @@ fn bounded_ranges_keep_unprocessed_slots_and_contain_each_destructor_panic() {
         locations.push(insert(&mut pages, index, descriptor.clone()));
     }
     drop(descriptor);
-    let address = pages.get(locations[32]).unwrap().0;
+    let address = pages.get(locations[32]).unwrap().pointer;
     let mut retired = pages.prepare_range(locations[0], 32).unwrap().detach();
     assert_eq!(pages.backing_bytes, SLAB_BYTES);
     assert_eq!(pages.occupied().count(), 10);
@@ -377,7 +380,7 @@ fn bounded_ranges_keep_unprocessed_slots_and_contain_each_destructor_panic() {
             .iter()
             .all(|&location| pages.get(location).is_some())
     );
-    assert_eq!(pages.get(locations[32]).unwrap().0, address);
+    assert_eq!(pages.get(locations[32]).unwrap().pointer, address);
     let runtime = Runtime::default();
     let heap = runtime.gc();
     heap.start_collection_observation().unwrap();
@@ -730,7 +733,8 @@ fn bitmap_sweep_charges_words_and_occupied_slots_not_vacant_runs() {
         scanner.advance();
         assert!(scanner.cursor().page.is_none());
         assert_eq!(exact.spent(), words + 1);
-        release(&mut pages, slot.location);
+        let location = slot.location;
+        release(&mut pages, location);
         assert_eq!(pages.backing_bytes, 0);
     }
 }

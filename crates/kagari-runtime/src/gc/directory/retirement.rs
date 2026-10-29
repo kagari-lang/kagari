@@ -11,13 +11,16 @@ use self::disposal::SweepBatch;
 use super::{
     ObjectStorage, PayloadKind, PayloadLocation,
     descriptors::DescriptorId,
-    pages::batch::{Fragment, order::ordering_work},
+    pages::{
+        CheckedPayload,
+        batch::{Fragment, order::ordering_work},
+    },
 };
 use crate::{
     execution_metadata::interfaces::InterfaceStore,
     gc::{
         HeapObjectId,
-        graph::{GraphMarker, MarkPhase, sweep::SweepGraph},
+        graph::{GraphMarker, MarkPhase, marks::MarkRef, sweep::SweepGraph},
         reference::HeapObjectIdentity,
     },
     native::storage::scan::{ScanBudget, ScanStatus},
@@ -59,10 +62,12 @@ pub(in crate::gc) struct SweepTotals {
     pub(in crate::gc) live: usize,
 }
 
-struct Candidate {
+struct Candidate<'a> {
     index: usize,
     location: PayloadLocation,
     physical: Option<(DescriptorId, bool)>,
+    payload: Option<CheckedPayload<'a>>,
+    mark: Option<MarkRef<'a>>,
 }
 
 struct Prepared {
@@ -97,7 +102,7 @@ impl Prepared {
         }
     }
 
-    fn extends(&self, candidate: &Candidate) -> bool {
+    fn extends(&self, candidate: &Candidate<'_>) -> bool {
         candidate.physical.is_some_and(|(descriptor, small)| {
             small
                 && self.fragment_count != 0
@@ -108,7 +113,7 @@ impl Prepared {
 
     fn push(
         &mut self,
-        candidate: &Candidate,
+        candidate: &Candidate<'_>,
         identity: HeapObjectIdentity,
         units: usize,
         bytes: usize,
@@ -205,24 +210,27 @@ impl ObjectStorage {
 
     fn prepare_owner(
         &self,
-        candidate: &Candidate,
+        candidate: &Candidate<'_>,
         interfaces: &RefCell<InterfaceStore>,
         graph: &SweepGraph<'_, '_>,
         prepared: &mut Prepared,
         budget: &mut ScanBudget,
     ) -> Option<PreparedOwner> {
         let identity = if candidate.location.kind == PayloadKind::Struct {
-            HeapObjectIdentity::Struct(self.pages.struct_reference(candidate.location)?)
+            None
         } else {
             let slot = self.slots.get(candidate.index)?;
             if slot.location()? != candidate.location {
                 return None;
             }
-            HeapObjectId::new(prepared.owner, candidate.index, slot.generation).into()
+            Some(HeapObjectId::new(prepared.owner, candidate.index, slot.generation).into())
         };
         #[cfg(test)]
         self.discovery_visits.set(self.discovery_visits.get() + 1);
-        if graph.is_survivor(self.mark(candidate.location)?).ok()? {
+        let mark = candidate
+            .mark
+            .unwrap_or_else(|| self.mark_for_directory(candidate.index));
+        if graph.is_survivor(mark).ok()? {
             return Some(PreparedOwner::Survivor);
         }
         let new_fragment = candidate.physical.is_some() && !prepared.extends(candidate);
@@ -243,9 +251,17 @@ impl ObjectStorage {
         if !budget.take(reserve) {
             return Some(PreparedOwner::Pending);
         }
-        let charge = self
-            .get(candidate.location, interfaces)?
-            .charge(interfaces)?;
+        // Physical validation and mark selection share the scanner's storage borrow.
+        // Survivors never reconstruct an object view or perform retirement charging.
+        let object = match &candidate.payload {
+            Some(payload) => payload.view()?,
+            None => self.get(candidate.location, interfaces)?,
+        };
+        let charge = object.charge(interfaces)?;
+        let identity = match identity {
+            Some(identity) => identity,
+            None => HeapObjectIdentity::Struct(candidate.payload.as_ref()?.struct_reference()?),
+        };
         prepared.push(
             candidate,
             identity,
@@ -281,6 +297,8 @@ impl ObjectStorage {
                 index: slot.directory as usize,
                 location: slot.location,
                 physical: Some((slot.descriptor, slot.small)),
+                payload: Some(slot.payload),
+                mark: slot.mark,
             };
             if matches!(
                 self.prepare_owner(&candidate, interfaces, &graph, &mut prepared, budget)?,
@@ -303,6 +321,8 @@ impl ObjectStorage {
                         slot: 0,
                     },
                     physical: None,
+                    payload: None,
+                    mark: None,
                 };
                 if matches!(
                     self.prepare_owner(&candidate, interfaces, &graph, &mut prepared, budget)?,

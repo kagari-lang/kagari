@@ -134,13 +134,7 @@ impl ModuleStore {
         &self,
         module: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
-        let installation = self
-            .installations
-            .get(&module.installation_id())
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::StaleHandle, "unregistered installation")
-            })?;
-        self.validate_installation(installation, module.registry_owner)?;
+        let installation = self.executable_installation(module)?;
         let live = installation
             .current
             .lock()
@@ -179,14 +173,29 @@ impl ModuleStore {
         &self,
         module: &ExecutableModule,
     ) -> Result<ExecutableModule, RuntimeError> {
+        self.executable_installation(module)?.capture_current()
+    }
+
+    /// Resolve through this store's registry and check the executable's owner.
+    /// Unlike an externally supplied Arc, this borrow already proves registration;
+    /// do not look it up again just to compare it with the same registry entry.
+    fn executable_installation(
+        &self,
+        module: &ExecutableModule,
+    ) -> Result<&Installation, RuntimeError> {
         let installation = self
             .installations
             .get(&module.installation_id())
             .ok_or_else(|| {
                 RuntimeError::new(RuntimeErrorKind::StaleHandle, "unregistered installation")
             })?;
-        self.validate_installation(installation, module.registry_owner)?;
-        installation.capture_current()
+        if installation.registry_owner != module.registry_owner {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::StaleHandle,
+                "foreign or unregistered installation",
+            ));
+        }
+        Ok(installation)
     }
 
     #[cfg(test)]

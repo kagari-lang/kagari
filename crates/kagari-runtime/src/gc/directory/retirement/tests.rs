@@ -489,6 +489,8 @@ fn borrowed_retirement_proof_cannot_replay_into_outstanding_or_reused_storage() 
             index: id.index(),
             location: physical.location,
             physical: Some((physical.descriptor, physical.small)),
+            payload: Some(physical.payload),
+            mark: physical.mark,
         };
         let mut marker = heap.graph.lock();
         let graph = marker.sweep_batch().unwrap();

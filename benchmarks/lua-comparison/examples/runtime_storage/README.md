@@ -80,6 +80,34 @@ and root drops between captures belong to the following interval; sparse churn
 intervals include graph construction and collection, not GC alone. No output is
 printed inside the measured scope.
 
+No-argument diagnostics apply the same interval accounting to the original eight
+storage scenarios at populations 1 and 512. Each of three fresh measured Runtime
+lifecycles has its own preceding warm lifecycle and retains three equal reuse
+cycles. `repetition` identifies the independent lifecycle; `memory_peak` includes
+all intermediate reuse intervals and final teardown. The six printed phase
+balances must agree across repetitions. Compare each process's maximum of three
+values for every backing/peak metric, calculating setup-relative values within
+each lifecycle before taking maxima. This replaces the older one-lifecycle probe
+whose post-setup counter was not reset at setup; historical output cannot satisfy
+the corrected method.
+
+For seven alternating baseline/candidate process pairs, create a JSON manifest
+with `pairs` entries containing `pair` (0 through 6), `baseline` and `candidate`
+(distinct log paths relative to the invocation directory), then run:
+
+```text
+uv run python benchmarks/lua-comparison/examples/runtime_storage/storage_memory.py --pairs target/memory-pairs.json --output target/memory-summary.json
+```
+
+The evaluator requires complete three-lifecycle coverage, stable phase backing,
+consistent peaks, zero-net teardown and all field controls. It retains repetitions
+and input hashes and evaluates 144 metrics: six backing balances and three peaks
+for each scenario/population. Setup uses 110% of paired baseline; later balances
+and peaks use baseline plus the larger of 10% or 4,096 bytes. Acceptance uses the
+median of seven candidate/bound ratios. Use the identical diagnostic harness on
+both frozen runtimes, record both image hashes, and keep these runs separate from
+ordinary execution timings.
+
 High-water tracking occurs at every successful allocator event on the calling
 thread, not by periodic sampling. It excludes pre-scope allocations, other threads,
 allocator overhead and transient backing inside System::realloc (realloc atomically
@@ -275,8 +303,14 @@ For paired evaluation, `--automatic-pairs manifest.json` accepts a manifest cont
 `association_sha256` (the canonical association fingerprint) and `pairs`. Each pair
 contains `policy`, zero-based `pair`, `candidate`, `baseline_families` and
 `baseline_script_keys` log paths. It must exactly cover the input candidate logs,
-provide seven distinct baseline pairs, and use the same baseline pair for both
-policies. Baseline F is validated against eleven raw samples and three warmups, and
+provide seven distinct process logs for each baseline role, and use the same
+baseline pair for both policies. `baseline_families` supplies the six non-script-key
+families; `baseline_script_keys` exclusively supplies script keys. PG00's family
+mode also emits incidental script-key rows: preserve them in the source log, but
+exclude them by declared role, never by their measured duration. The report records
+every excluded row and rejects missing scenarios, missing associated full-cycle
+phases or a process reused across roles. Baseline F is validated against eleven
+raw samples and three warmups, and
 is recomputed for each fresh process from the preserved PG00 images. The parser
 rejects a changed association, duplicate pair, check-mode log or policy mismatch.
 No historical median, constructor duration, summed family timings or PG04 result can

@@ -69,6 +69,21 @@ def full_cycles(path: Path) -> dict:
     return rows
 
 
+def select_cycles(rows: dict, script_keys: bool) -> dict:
+    """Select the manifest's declared role, never the faster duplicate sample."""
+    expected = {"script_keys_256"} if script_keys else PHASE_MAP.keys() - {"script_keys_256"}
+    names = {family for family, _ in rows}
+    if not names <= PHASE_MAP.keys() or not expected <= names:
+        raise ValueError("incomplete or unknown baseline scenarios")
+    if script_keys and names != expected:
+        raise ValueError("dedicated script-key baseline contains other scenarios")
+    selected = {key: value for key, value in rows.items() if key[0] in expected}
+    required = {(family, phase) for family in expected for phase in PHASE_MAP[family].values()}
+    if not required <= selected.keys():
+        raise ValueError("incomplete baseline full-cycle phases")
+    return selected
+
+
 def paired(report: dict, manifest_path: Path) -> dict:
     if report["mode"] != "measurement":
         raise ValueError("check runs cannot satisfy normal-step gates")
@@ -79,7 +94,7 @@ def paired(report: dict, manifest_path: Path) -> dict:
     processes = {str(Path(p["path"]).resolve()): p for p in report["processes"]}
     if len(pairs) != len(processes) or {str(Path(p["candidate"]).resolve()) for p in pairs} != processes.keys():
         raise ValueError("pair manifest does not exactly cover candidate logs")
-    grouped, baselines, input_hashes = {}, {}, {}
+    grouped, baselines, input_hashes, selections = {}, {}, {}, {}
     frozen_baseline_pair = {}
     for pair in pairs:
         policy, index = pair["policy"], pair["pair"]
@@ -96,18 +111,24 @@ def paired(report: dict, manifest_path: Path) -> dict:
             raise ValueError("policies must use the same predeclared baseline pair")
         frozen_baseline_pair[index] = baseline_paths
         combined = {}
-        for path in baseline_paths:
+        for role, path in zip(("baseline_families", "baseline_script_keys"), baseline_paths):
             if path not in baselines:
                 baselines[path] = full_cycles(Path(path))
                 input_hashes[path] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-            if combined.keys() & baselines[path].keys():
+            selected = select_cycles(baselines[path], role == "baseline_script_keys")
+            selection = {"role": role, "selected_families": sorted({family for family, _ in selected}),
+                         "excluded_rows": sorted("/".join(key) for key in baselines[path].keys() - selected.keys())}
+            if path in selections and selections[path] != selection:
+                raise ValueError("baseline process reused in different roles")
+            selections[path] = selection
+            if combined.keys() & selected.keys():
                 raise ValueError("overlapping baseline scenarios")
-            combined.update(baselines[path])
+            combined.update(selected)
         grouped[key] = candidate, combined
     policies = {p for p, _ in grouped}
     if any({i for p, i in grouped if p == policy} != set(range(7)) for policy in policies):
         raise ValueError("seven fixed pairs are required per selected policy")
-    if len(set(frozen_baseline_pair.values())) != 7:
+    if any(len({paths[role] for paths in frozen_baseline_pair.values()}) != 7 for role in range(2)):
         raise ValueError("seven distinct paired baseline processes are required")
     rows = []
     for policy in sorted(policies):
@@ -134,5 +155,5 @@ def paired(report: dict, manifest_path: Path) -> dict:
                              "status": "evaluated" if observed else "unobserved in one or more processes; not a zero-cost pass"})
     return {"association": ASSOCIATION, "association_sha256": fingerprint(),
             "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-            "baseline_log_sha256": input_hashes, "gates": rows,
+            "baseline_log_sha256": input_hashes, "baseline_selection": selections, "gates": rows,
             "escalation": "absolute invocation/indivisible statistics only; host control has no PG00 ratio"}
