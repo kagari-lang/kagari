@@ -33,6 +33,8 @@ lifetime safety remain required.
   against the current implementation; validation limits are recorded below.
 - [Interpreter instruction model](#interpreter-instruction-and-operand-model-follow-up):
   general operand/control-flow simplification before specialized loop instructions.
+- [Hashing policy](#deferred-hashing-policy-evaluation): evaluate FxHash for compiler
+  internals and AHash for builtin script hashing before selecting a migration.
 - [R13 type/code ownership](#r13--type-and-layout-provenance-retains-retired-code):
   the remaining lifecycle finding. Scalar storage, transition-owned parking and
   payload-independent version identity are implemented; bounded retention decisions
@@ -1051,6 +1053,65 @@ GC/callback and reload contracts, including negative/zero bounds and effectful f
 Measure warmed execution separately from preparation, code size and slot traffic.
 Current cancellation/slice guarantees remain unless explicitly revised; do not use
 benchmark-only unchecked execution.
+
+## Deferred hashing policy evaluation
+
+**Status:** deferred discussion, recorded 2026-10-30. The user requested a note
+for later consideration, not implementation or benchmarking. No hasher choice,
+dependency addition or semantic change is approved; no Kagari speedup is measured.
+
+**Current ownership.** Compiler lookup inventories such as
+[instance state](../crates/kagari-compiler/src/source/lower/instances/state.rs)
+use ordinary Rust HashMap/HashSet. Script collections have a different pipeline:
+[intrinsic value hashing](../crates/kagari-runtime/src/value_semantics/hash.rs)
+uses `DefaultHasher::new()`, while custom keys invoke their selected `Hash.hash()`.
+[Library hash storage](../crates/kagari-stdlib/src/collections/hash.rs) indexes the
+resulting i64 hashes with `HashMap<i64, usize, BuildHasherDefault<StoredHash>>`;
+`StoredHash` passes those bits through without hashing the script value again.
+[Lookup operations](../crates/kagari-stdlib/src/collections/hash/operations.rs)
+then compare candidate keys sharing that script hash through the selected Eq path.
+
+**Candidate direction and references.** The primary project documentation for
+[rustc-hash](https://github.com/rust-lang/rustc-hash) and
+[AHash](https://github.com/tkaitchuck/aHash), inspected on 2026-10-30, motivates
+different boundaries. The current rustc-hash 2.x design prioritizes cheap compiler
+hashing, especially integer keys, without collision-attack resistance; FxHashMap/
+FxHashSet are candidates for internal ID, instance-key and visited-set tables.
+Compiler input is not inherently trusted: public compilation services and arbitrary
+source/name ingestion need an explicit threat-model decision. Retain ordered
+collections where ordering is required; deterministic hashing alone does not make
+artifact generation, diagnostic order or assigned identities deterministic.
+
+AHash is a keyed, non-cryptographic in-memory hashing candidate for builtin script
+values, not persistent fingerprints or artifact identities. Its output is not
+specified across versions/platforms, and hardware-dependent paths and browser/WASM
+entropy support must be considered. For a String key such as `"player:123"`, the
+candidate replaces the initial DefaultHasher computation, not just the bucket map
+alias. Replacing the pass-through index with AHash adds another hash computation;
+any benefit from mixing poorly distributed custom hashes needs separate evidence.
+No secondary mixer can separate keys whose custom Hash always returns the same i64.
+
+**Unresolved semantic decision.** Randomized hashing needs an explicit seed owner
+and lifetime. Never create fresh random state per `.hash()` invocation or reseed
+live keys during hot reload. Equal keys must keep equal hashes while stored, and
+the existing [hash stability test](../crates/kagari/src/runtime/tests/language/standard_traits/hash_stability.rs)
+compares results across independent runtimes. Reconcile that expectation before
+choosing process-, engine- or runtime-scoped seeds; do not silently weaken coverage.
+Keep [key stability and nonpersistent hash semantics](spec/value-semantics.md#hash-containers-and-user-obligations),
+callback operand/effect order, GC roots, cancellation, checked host access and
+mutation commits unchanged. The separate receiver-order finding below is not
+implicitly resolved or activated by a hashing change.
+
+**Evidence required if activated.** Inspect then-current owners and pin dependency
+versions. Evaluate compiler FxHash separately from builtin script hashing, leaving
+the existing prehashed index unchanged initially. Measure source checking and
+lowering separately, plus integer/String/composite-key map/set workloads and
+collision behavior; microbenchmarks alone do not establish end-to-end improvement.
+Record toolchain, machine, profile, features, parallelism, cache state and workload,
+including native versus browser differences. Select focused contracts for Eq/Hash,
+reload stability, custom collisions and callback/GC cleanup; leave the complete
+feature/backend/platform matrix to CI. Persistent identity algorithms and unrelated
+collection/storage redesign remain outside this deferred proposal.
 
 ## Hash lookup equality receiver clarification
 
