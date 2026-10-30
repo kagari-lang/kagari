@@ -6720,107 +6720,26 @@ sample shares. Current profiling artifacts are under `target/gc-retained-iterato
 
 ### Whole-path iterator/Native architecture review (2026-10-29)
 
-The user requests architectural simplification before further local performance
-patches: review whether the complete next-call flow contains redundant boundaries,
-not merely whether symbolic member equality can be cached. This supersedes treating
-PreparedEnumMember optimization as the next implementation. Physical GC release
-gates already pass; do not reopen their tuning. Option representation compaction and
-unrelated call-frame redesign remain deferred. The scoped review covers the Native
-invocation, provider loan and result-publication path actually used by iterators.
+The user expanded the iterator investigation into a complete Native architecture
+review and requested a dedicated redesign plan. The [Native redesign plan](native-redesign-plan.md)
+now exclusively owns that review's current-source inventory, candidate model,
+references, unresolved decisions, phases and progress. Native architecture review
+precedes further local iterator tuning; the earlier PreparedEnumMember matcher
+investigation is evidence, not a selected next implementation.
 
-Current source facts:
+This GC plan continues to own the frozen measurements and remaining joint GC
+acceptance. Passing physical-release gates are not reopened by default; the full
+iterator workload, memory/normal-step obligations, required CI and Lua refresh
+remain as recorded below. Option representation compaction remains deferred.
+Native improvements must preserve these contracts and thresholds; no new runtime
+implementation or performance result is claimed by the documentation handoff.
 
-- Vec next opens a NativeContext, admits the child mapping and receiver, reads the
-  cursor, reads/retains its source item under a separate Vec loan, advances the
-  cursor, then converts and constructs the ordinary Option result. Some checks
-  protect separate callback/safepoint intervals and cannot simply be deleted.
-- TypeArgument already owns cached parameter/member facts; NativeApplication already
-  caches concrete applications. Do not claim every call rebuilds all generic types
-  or add another overlapping preparation cache.
-- Native invocation still traverses explicit admission, entry and return states.
-  The older LinkedNativeCall/invoke_prepared_native machinery remains in source,
-  but ExecutionModule::prepare_calls rewrites Native calls into current-selection
-  PreparedCall operations and clears native_calls. Restoring the old direct path
-  would pin callbacks in caller links and bypass the current call semantics.
-  Explicit native frames also participate in depth limits and error traces.
-- A scalar ScriptValue already avoids a managed root record. The review must not
-  attribute per-element heap roots to the i32 benchmark. The formal iterator test
-  constructs as well as traverses 2000 elements; its 8.89% gap is not an isolated
-  next-call measurement.
+### Candidate Native registration and invocation model (2026-10-29)
 
-Proposed ownership direction, pending the complete route audit: one selected-call
-owner should carry exact executable/type/receiver/result facts through admission,
-provider access and publication. Prepare immutable facts with their closed type
-application; validate changing state at its semantic boundary. Use the invocation's
-traced argument/result storage for internal transfers where lifetime proof permits,
-while ordinary escaping host values retain owning handles. Preserve argument
-snapshots across alias mutation/reentry and publish result protection before any
-safepoint. Preserve logical call depth/traces, current implementation selection,
-cancellation, revision checks and mutation/error order even if physical transfers
-are consolidated. Do not add a stdlib-only unchecked kernel, a second collection
-algorithm, or a set of flags that skips checks without transferred authority.
-
-Reference boundaries: [Go 1.26 range lowering](https://github.com/golang/go/blob/go1.26.0/src/cmd/compile/internal/walk/range.go)
-lowers array/slice iteration to index/length operations, while
-[Rust 1.99.1 Iterator](https://doc.rust-lang.org/std/iter/trait.Iterator.html)
-retains next -> Option as the semantic protocol. These illustrate that protocol and
-execution representation are separate decisions; they do not predict Kagari speed.
-Go's builtin slice handling is not authority to hardcode library Vec into this VM.
-Kagari must preserve ordinary provider extensibility, script-defined iterators,
-scoped borrowing and generation-pinned/current-call distinctions.
-
-Before runtime edits, trace the actual lowered routes for Vec, another provider and
-a script-defined iterator; assign every validation/retention to its owner and valid
-interval. Produce one concrete replacement flow, obsolete-state removal list and
-bounded validation selection. Include existing reload, reentry, cursor invalidation,
-failed conversion, cancellation/depth and trap-cleanup contracts. Measure the
-replacement against the frozen full workload and unchanged gates; a separate
-iteration-only diagnostic may attribute costs but cannot replace that workload.
-Reject changes that merely spread the same checks among more adapters. No runtime
-change or speed claim is made by this review checkpoint.
-
-#### Candidate Native registration and invocation model (2026-10-29)
-
-The user expands the review to the complete Native architecture and requests a
-concrete target data model before implementation. Review registration, installation,
-linking, invocation and payload access together; this does not authorize an unrelated
-runtime rewrite or change the deferred Option representation decision.
-
-The candidate separates three semantic owners, reusing existing storage where
-possible rather than adding three new wrapper layers:
-
-- Registration records own names, declaration signatures, Rust callbacks/captured
-  host state and storage contracts. Installation and linking validate their agreement
-  with the program; source-free artifacts still require independent validation.
-- An immutable executable-owned Native entry owns the prepared invocation contract
-  and callback. Its slot is scoped to that executable, not a persistent/global ID.
-  Ordinary calls select the current executable through the existing module mechanism
-  once, then use its entry slot. The active frame retains the exact selection. Do not
-  introduce a second global dispatch registry or a callback/owner reference cycle.
-  Generic applications reuse the existing owner/environment-scoped preparation cache;
-  unresolved applications still require preparation before invocation.
-- A Native call view borrows the selected entry and the active frame's traced
-  argument/result slots. One adapter owns conversion and terminal result publication.
-  Frame-backed transport is an ownership target, not permission to retain Rust slices
-  across stack growth, payload loans across reentry, or unrooted results across GC.
-  Escaping host values still require owning roots; alias-sensitive snapshots remain.
-
-Names, symbolic type resolution and binding compatibility belong before the repeated
-call. Cancellation, depth, runtime/host ownership, mutable borrow/revision state and
-raw callback result validation remain at their actual dynamic boundaries. Preserve
-existing trap/side-effect ordering. A compact entry does not justify unchecked host
-access or separate collection kernels. Actual representation, removal list and
-performance remain pending the route audit and validation described above.
-
-Primary reference mechanisms: [Java SE 25 JNI RegisterNatives](https://docs.oracle.com/en/java/javase/25/docs/specs/jni/functions.html#registernatives)
-associates method names/signatures with function pointers; this informs registration
-separation, not a claim about JVM invocation cost. [Lua 5.4.9 CClosure](https://www.lua.org/source/5.4/lobject.h.html#CClosure)
-stores a C entry and captured values, while [precallC](https://www.lua.org/source/5.4/ldo.c.html#precallC)
-establishes call state around invocation. Kagari can reuse the prepared-entry plus
-call-frame pattern, but Lua's dynamic stack API and JNI's native-reference rules do
-not supply Kagari's static generics, Rust scoped borrows or current-versus-pinned
-reload ownership. Those require the existing Kagari contracts. This is a proposal,
-not an implemented speedup; no runtime files or benchmarks change at this checkpoint.
+The candidate and its lifetime/check boundaries have moved to the
+[dedicated execution model](native-redesign-plan.md#candidate-execution-model).
+This section retains the existing link target only; do not maintain a second
+Native design or implementation checklist in the GC plan.
 
 ### Final graph acceptance: phase 4 first frozen image (2026-10-29)
 

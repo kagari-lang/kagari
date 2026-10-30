@@ -57,6 +57,11 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Native architecture redesign](native-redesign-plan.md): active audit of
+  registration, linking, generic applications, invocation and payload ownership.
+  The prepared-entry/frame model is a proposal; runtime replacement has not started.
+  This review precedes further iterator tuning and preserves joint GC acceptance.
+
 - [Async Runtime CI acceptance](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api):
   async blocks, structured pair composition and the typed Runtime facade are
   implemented with focused local acceptance. Current contracts are in the

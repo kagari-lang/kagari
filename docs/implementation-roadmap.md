@@ -563,6 +563,23 @@ Their activation must still recheck current APIs and freeze their own relevant
 baseline. Downcast, collection-library migration, collector changes and call-lifecycle
 optimization remain separate scopes. Git history owns the completed OM ledger.
 
+## Native architecture redesign
+
+The user requested a complete Native architecture review before further iterator
+micro-optimizations. The [Native redesign plan](native-redesign-plan.md) is the sole
+owner of its current-path inventory, candidate registration/entry/frame model,
+unresolved decisions and NAR00-NAR04 execution sequence. Design/audit is active;
+replacement runtime implementation has not started. Preserve generic functions and
+methods, ordinary external providers, scoped host borrowing, current-call reload,
+retained computations, cancellation and source-free validation.
+
+The [GC plan](paged-incremental-gc-design.md#whole-path-iteratornative-architecture-review-2026-10-29)
+retains final measurement and integration acceptance. Native review takes priority
+over further local iterator patches; it does not reopen passing physical-release
+gates or activate Option compaction, collector replacement, broader JIT/AOT or
+multi-Runtime sharing. New Native decisions and progress belong in the dedicated
+plan rather than a duplicate checklist in the GC ledger.
+
 ## Library-owned native collections
 
 A concrete [direct-reference trial and API proposal](paged-incremental-gc-design.md#direct-reference-trial-and-api-proposal-2026-10-28)
