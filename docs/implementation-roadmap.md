@@ -1615,3 +1615,17 @@ and feature/backend matrices belong to CI. Documentation-only changes need
 content/link/diff checks. Performance reports retain revision, workload, machine,
 toolchain, profile/features, parallelism and cache state, separating compilation,
 preparation and execution.
+
+## GC library redesign
+
+The [GC redesign plan](gc-redesign-plan.md) owns remaining GCR00-GCR05 work;
+the [implementation design](gc-implementation-design.md) owns data structures and
+safety contracts. The [kagari-gc crate](../crates/kagari-gc/README.md) implements
+standalone typed/dynamic objects, roots, direct execution-root adapters,
+incremental collection, reclaimable metadata and opt-in safepoint pacing.
+
+Runtime integration, arbitrary erased layouts/native extraction, integrated
+pressure/cancellation policy and complete comparative acceptance remain deferred.
+Main retains its existing Runtime collector. Historical PG/NC source and
+measurement references are pinned in the plan; they are integration obligations,
+not evidence that main's Runtime has been replaced or its gates have passed.

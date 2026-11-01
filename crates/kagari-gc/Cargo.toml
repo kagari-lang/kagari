@@ -1,0 +1,12 @@
+[package]
+name = "kagari-gc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "An explicitly rooted, nonmoving incremental managed heap"
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+gc-arena = "=0.7.0"

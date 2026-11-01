@@ -57,6 +57,14 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --no-fail-fast
 
+      - name: Upload failing GC operation traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gc-graph-failures
+          path: target/gc-graph-failures/*.trace
+          if-no-files-found: ignore
+
       - name: Run complete formatter grammar inventory
         run: 'cargo test --locked -p kagari-format --lib tests::complete_grammar_fixture_inventory:: -- --ignored'
 
@@ -68,6 +76,34 @@ jobs:
 
       - name: Test CLI native feature
         run: cargo test -p kagari-cli --features jit
+
+  gc-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MIRIFLAGS: -Zmiri-strict-provenance
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pinned Miri toolchain
+        run: rustup toolchain install nightly-2026-10-22 --profile minimal --component miri --component rust-src
+
+      - name: Prepare Miri sysroot
+        run: cargo +nightly-2026-10-22 miri setup --target x86_64-unknown-linux-gnu
+
+      - name: Check graph operations against independent reachability
+        run: cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknown-linux-gnu --test graph_model
+
+      - name: Check layouts and failure cleanup
+        run: cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknown-linux-gnu --test failures --test layouts --no-fail-fast
+
+      - name: Check typed access panic and quarantine contracts
+        run: cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknown-linux-gnu --lib access::fields::tests
+
+      - name: Check shared access, erased layouts, thread transfer and execution roots
+        run: cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknown-linux-gnu --test ownership --test dynamic --test root_source --no-fail-fast -- shared_scope_reads following_an_edge_borrowed owning_handles layout_tokens scalar_domains frame_reuse_new_frontiers
 
   editor-tooling:
     runs-on: ubuntu-latest

@@ -405,6 +405,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "gc-arena"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "160a11f93020eea95cb4c59e2eda2e4c6353f75aa4fbb01f2bf8729b2e4d6dd2"
+dependencies = [
+ "gc-arena-derive",
+]
+
+[[package]]
+name = "gc-arena-derive"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd3d24b051bd5a5f44e66bac510393d3d484ef776bb560f6504668239f35959a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+ "synstructure",
+]
+
+[[package]]
 name = "gimli"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -662,6 +683,14 @@ dependencies = [
  "kagari-syntax",
  "rowan",
  "rstest",
+]
+
+[[package]]
+name = "kagari-gc"
+version = "0.1.0"
+dependencies = [
+ "gc-arena",
+ "thiserror",
 ]
 
 [[package]]
@@ -1329,6 +1358,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "synstructure"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
