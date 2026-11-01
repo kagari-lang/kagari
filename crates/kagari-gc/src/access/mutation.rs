@@ -14,12 +14,18 @@ use std::{
 };
 
 impl Access<'_> {
-    // The caller holds a live Root or a handle in a noncollecting Scope.
+    // Callers hold a live Root or scoped handle and have checked heap state in
+    // this operation: Access::with_object_mut, Scope::with_object_mut, or
+    // Scope::borrow_object_mut. Their admission cannot yield or change state
+    // before entering this kernel. Provider charge/callbacks run only afterward.
     pub(super) fn borrow_object_mut<T: GcObject>(
         &mut self,
         reference: ObjectRef,
     ) -> Result<ObjectMut<'_, T>, GcError> {
-        self.heap.marking.check()?;
+        debug_assert!(
+            self.heap.marking.check().is_ok(),
+            "mutable loan requires lifecycle admission"
+        );
         let object = self.heap.physical.resolve(reference)?;
         if !object.descriptor.matches::<T>() {
             return Err(GcError::Representation);

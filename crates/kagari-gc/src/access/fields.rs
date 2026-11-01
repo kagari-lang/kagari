@@ -137,12 +137,14 @@ impl<T: GcObject, U: 'static> EdgeField<T, U> {
     /// that panic does not make the heap usable again. The invariant scope brand
     /// excludes foreign handles at compile time.
     pub fn set<'gc>(&self, cx: &mut Scope<'gc>, object: Gc<'gc, T>, value: Option<Gc<'gc, U>>) {
-        if let Some(value) = value {
-            cx.check(value).expect("invalid incoming scoped edge");
-        }
         let mut pointer = cx.typed_pointer(object);
+        // typed_pointer admitted state; the scope brand admits the target. No
+        // callbacks or state changes occur before the shared publication core.
         let edge = value
-            .map(|value| cx.publish(value).expect("fixed edge publication failed"))
+            .map(|value| {
+                cx.publish_admitted(value)
+                    .expect("fixed edge publication failed")
+            })
             .map(|reference| Edge {
                 reference,
                 marker: PhantomData,

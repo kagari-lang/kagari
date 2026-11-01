@@ -1,7 +1,7 @@
 mod support;
 
 use kagari_gc::{
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{Heap, HeapConfig, Phase},
     scan::WorkBudget,
@@ -25,11 +25,12 @@ fn shared_scope_reads_compose_across_aliases_roots_and_dynamic_edges() -> Result
     })?;
     let root = Node::alloc(&mut heap.access()?, 20, &drops)?;
     let pack = heap.access()?.create_roots(1)?;
-    let layout = heap
-        .access()?
-        .register_dynamic(&[FieldType::U64, FieldType::Reference])?;
-    let scalar = layout.scalar::<u64>(0)?;
-    let edge = layout.reference(1)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let scalar = builder.scalar::<u64>();
+    let edge = builder.reference();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let scalar = layout.scalar(scalar)?;
+    let edge = layout.reference(edge)?;
     heap.scope(|cx| {
         let a = cx.get(&root)?;
         let b = Node::alloc_scoped(cx, 22, &drops)?;

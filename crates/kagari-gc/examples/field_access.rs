@@ -2,7 +2,7 @@
 
 use kagari_gc::{
     access::ScalarField,
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{Heap, Phase},
 };
@@ -83,8 +83,10 @@ const ALTERNATING_CASES: [(Case, &str); 2] = [
 
 fn alternating(dynamic: bool) -> Result<Measurement, GcError> {
     let mut heap = Heap::default();
-    let layout = heap.access()?.register_dynamic(&[FieldType::U64])?;
-    let field = layout.scalar::<u64>(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let field = builder.scalar::<u64>();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let field = layout.scalar(field)?;
     let nanoseconds = heap.scope(|cx| {
         let mut typed = Vec::new();
         let mut records = Vec::new();
@@ -227,8 +229,10 @@ fn typed(case: Case) -> Result<Measurement, GcError> {
 
 fn dynamic(operation: Operation) -> Result<Measurement, GcError> {
     let mut heap = Heap::default();
-    let layout = heap.access()?.register_dynamic(&[FieldType::U64])?;
-    let field = layout.scalar::<u64>(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let field = builder.scalar::<u64>();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let field = layout.scalar(field)?;
     let result = heap.scope(|cx| {
         let object = cx.alloc_dynamic(&layout)?;
         field.set(cx, object, operation.initial())?;
@@ -282,8 +286,10 @@ fn verify_cleanup(heap: &mut Heap) -> Result<(), GcError> {
 
 fn dynamic_borrow(batch: bool) -> Result<Measurement, GcError> {
     let mut heap = Heap::default();
-    let layout = heap.access()?.register_dynamic(&[FieldType::U64])?;
-    let field = layout.scalar::<u64>(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let field = builder.scalar::<u64>();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let field = layout.scalar(field)?;
     let result = heap.scope(|cx| {
         let object = cx.alloc_dynamic(&layout)?;
         let start = Instant::now();

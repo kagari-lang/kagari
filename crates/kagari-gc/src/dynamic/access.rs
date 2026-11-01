@@ -92,10 +92,12 @@ impl<V: Scalar> ScalarField<V> {
     /// The reference cannot escape the loan or overlap another object access.
     ///
     /// ```compile_fail
-    /// use kagari_gc::{dynamic::FieldType, heap::Heap};
+    /// use kagari_gc::{dynamic::DynamicLayoutBuilder, heap::Heap};
     /// let mut heap = Heap::default();
-    /// let layout = heap.access().unwrap().register_dynamic(&[FieldType::U64]).unwrap();
-    /// let field = layout.scalar::<u64>(0).unwrap();
+    /// let mut builder = DynamicLayoutBuilder::new();
+    /// let value = builder.scalar::<u64>();
+    /// let layout = heap.access().unwrap().register_dynamic(builder).unwrap();
+    /// let field = layout.scalar(value).unwrap();
     /// heap.scope(|cx| {
     ///     let object = cx.alloc_dynamic(&layout)?;
     ///     let value = field.borrow_mut(cx, object)?;
@@ -106,10 +108,12 @@ impl<V: Scalar> ScalarField<V> {
     /// ```
     ///
     /// ```compile_fail,E0502
-    /// use kagari_gc::{dynamic::FieldType, heap::Heap};
+    /// use kagari_gc::{dynamic::DynamicLayoutBuilder, heap::Heap};
     /// let mut heap = Heap::default();
-    /// let layout = heap.access().unwrap().register_dynamic(&[FieldType::U64]).unwrap();
-    /// let field = layout.scalar::<u64>(0).unwrap();
+    /// let mut builder = DynamicLayoutBuilder::new();
+    /// let value = builder.scalar::<u64>();
+    /// let layout = heap.access().unwrap().register_dynamic(builder).unwrap();
+    /// let field = layout.scalar(value).unwrap();
     /// heap.scope(|cx| {
     ///     let object = cx.alloc_dynamic(&layout)?;
     ///     let value = field.borrow_mut(cx, object)?;
@@ -120,10 +124,12 @@ impl<V: Scalar> ScalarField<V> {
     /// ```
     ///
     /// ```compile_fail
-    /// use kagari_gc::{dynamic::FieldType, heap::Heap};
+    /// use kagari_gc::{dynamic::DynamicLayoutBuilder, heap::Heap};
     /// let mut heap = Heap::default();
-    /// let layout = heap.access().unwrap().register_dynamic(&[FieldType::U64]).unwrap();
-    /// let field = layout.scalar::<u64>(0).unwrap();
+    /// let mut builder = DynamicLayoutBuilder::new();
+    /// let value = builder.scalar::<u64>();
+    /// let layout = heap.access().unwrap().register_dynamic(builder).unwrap();
+    /// let field = layout.scalar(value).unwrap();
     /// let escaped = heap.scope(|cx| {
     ///     let object = cx.alloc_dynamic(&layout)?;
     ///     field.borrow_mut(cx, object)
@@ -176,7 +182,9 @@ impl ReferenceField {
         value: Option<Gc<'gc, AnyObject>>,
     ) -> Result<(), GcError> {
         let pointer = self.layout.pointer(cx, object)?;
-        let target = value.map(|value| cx.publish(value)).transpose()?;
+        // Exact-layout admission above also checked heap state. Nothing can
+        // invalidate that proof before publication in this exclusive operation.
+        let target = value.map(|value| cx.publish_admitted(value)).transpose()?;
         // SAFETY: the admitted same-heap source lives through this closed commit.
         // No coordinate/charge changes or callbacks occur; pointers retain their
         // provenance through typed stores rather than integer byte encodings.

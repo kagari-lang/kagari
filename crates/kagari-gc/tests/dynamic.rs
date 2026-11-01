@@ -1,6 +1,6 @@
 use kagari_gc::{
     access::{EdgeField, Scope},
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{Heap, HeapConfig, Phase},
     object::{AnyObject, Edge, Gc, GcObject},
@@ -88,18 +88,26 @@ fn finish_cycle(heap: &mut Heap) -> Result<(), GcError> {
 }
 
 #[test]
-fn field_order_does_not_inflate_size_or_change_selector_indices() -> Result<(), GcError> {
+fn field_order_does_not_inflate_size_or_change_key_identity() -> Result<(), GcError> {
     let mut heap = Heap::default();
     let expected = (size_of::<i64>() + 2).div_ceil(align_of::<i64>()) * align_of::<i64>();
     for integer_index in 0..3 {
-        let mut kinds = [FieldType::Bool; 3];
-        kinds[integer_index] = FieldType::I64;
-        let layout = heap.access()?.register_dynamic(&kinds)?;
+        let mut builder = DynamicLayoutBuilder::new();
+        let mut integer = None;
+        let mut flags = Vec::new();
+        for position in 0..3 {
+            if position == integer_index {
+                integer = Some(builder.scalar::<i64>());
+            } else {
+                flags.push(builder.scalar::<bool>());
+            }
+        }
+        let layout = heap.access()?.register_dynamic(builder)?;
         assert_eq!(layout.size(), expected);
         assert_eq!(layout.alignment(), align_of::<i64>());
-        let integer = layout.scalar::<i64>(integer_index)?;
-        let first = layout.scalar::<bool>((integer_index + 1) % 3)?;
-        let second = layout.scalar::<bool>((integer_index + 2) % 3)?;
+        let integer = layout.scalar(integer.unwrap())?;
+        let first = layout.scalar(flags.remove(0))?;
+        let second = layout.scalar(flags.remove(0))?;
         heap.scope(|cx| {
             let object = cx.alloc_dynamic(&layout)?;
             integer.set(cx, object, i64::MIN)?;
@@ -117,26 +125,33 @@ fn field_order_does_not_inflate_size_or_change_selector_indices() -> Result<(), 
 #[test]
 fn scalar_domains_alignment_large_and_empty_layouts_remain_valid() -> Result<(), GcError> {
     let mut heap = Heap::default();
-    let layout = heap.access()?.register_dynamic(&[
-        FieldType::I8,
-        FieldType::I128,
-        FieldType::Bool,
-        FieldType::Char,
-        FieldType::F64,
-        FieldType::Reference,
-    ])?;
-    let byte = layout.scalar::<i8>(0)?;
-    let wide = layout.scalar::<i128>(1)?;
-    let flag = layout.scalar::<bool>(2)?;
-    let character = layout.scalar::<char>(3)?;
-    let float = layout.scalar::<f64>(4)?;
-    let edge = layout.reference(5)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let byte = builder.scalar::<i8>();
+    let wide = builder.scalar::<i128>();
+    let flag = builder.scalar::<bool>();
+    let character = builder.scalar::<char>();
+    let float = builder.scalar::<f64>();
+    let edge = builder.reference();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let byte = layout.scalar(byte)?;
+    let wide = layout.scalar(wide)?;
+    let flag = layout.scalar(flag)?;
+    let character = layout.scalar(character)?;
+    let float = layout.scalar(float)?;
+    let edge = layout.reference(edge)?;
     assert_eq!(layout.alignment(), align_of::<i128>());
     assert_eq!(layout.field_count(), 6);
-    let large = heap.access()?.register_dynamic(&[FieldType::U128; 96])?;
-    let last = large.scalar::<u128>(95)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let mut last = None;
+    for _ in 0..96 {
+        last = Some(builder.scalar::<u128>());
+    }
+    let large = heap.access()?.register_dynamic(builder)?;
+    let last = large.scalar(last.unwrap())?;
     assert!(large.size() > 1024);
-    let empty = heap.access()?.register_dynamic(&[])?;
+    let empty = heap
+        .access()?
+        .register_dynamic(DynamicLayoutBuilder::new())?;
     assert_eq!(empty.size(), 0);
     let root = heap.scope(|cx| {
         let object = cx.alloc_dynamic(&layout)?;
@@ -181,20 +196,45 @@ fn scalar_domains_alignment_large_and_empty_layouts_remain_valid() -> Result<(),
 fn layout_tokens_pin_exact_identity_and_erasure_never_fabricates_a_rust_type() -> Result<(), GcError>
 {
     let mut heap = Heap::default();
-    let first = heap.access()?.register_dynamic(&[FieldType::U64])?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let first_key = builder.scalar::<u64>();
+    let first_reference = builder.reference();
+    let first = heap.access()?.register_dynamic(builder)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let second_key = builder.scalar::<u64>();
+    let second_reference = builder.reference();
+    let second = heap.access()?.register_dynamic(builder)?;
+    // Equal field types/positions in equal-shaped schemas do not confer ownership.
     assert!(matches!(
-        first.scalar::<i64>(0),
+        first.scalar(second_key.clone()),
         Err(GcError::Representation)
     ));
-    assert!(matches!(first.reference(0), Err(GcError::Representation)));
-    assert!(matches!(first.scalar::<u64>(1), Err(GcError::Index)));
-    let field = first.scalar::<u64>(0)?;
+    assert!(matches!(
+        second.scalar(first_key.clone()),
+        Err(GcError::Representation)
+    ));
+    assert!(matches!(
+        first.reference(second_reference),
+        Err(GcError::Representation)
+    ));
+    assert!(matches!(
+        second.reference(first_reference),
+        Err(GcError::Representation)
+    ));
+    let orphan = {
+        let mut discarded = DynamicLayoutBuilder::new();
+        discarded.scalar::<u64>()
+    };
+    assert!(matches!(first.scalar(orphan), Err(GcError::Representation)));
+    let field = first.scalar(first_key)?;
+    let second_field = second.scalar(second_key)?;
     drop(first);
     heap.collect()?; // the field token must keep its descriptor registration alive
-    let second = heap.access()?.register_dynamic(&[FieldType::U64])?;
     let mut foreign = Heap::default();
-    let foreign_layout = foreign.access()?.register_dynamic(&[FieldType::U64])?;
-    let foreign_field = foreign_layout.scalar::<u64>(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let foreign_field = builder.scalar::<u64>();
+    let foreign_layout = foreign.access()?.register_dynamic(builder)?;
+    let foreign_field = foreign_layout.scalar(foreign_field)?;
     let root = heap.scope(|cx| {
         let object = cx.alloc_dynamic(&second)?;
         assert!(matches!(
@@ -215,7 +255,7 @@ fn layout_tokens_pin_exact_identity_and_erasure_never_fabricates_a_rust_type() -
         ));
         let rust = cx.alloc_leaf(42u64)?;
         assert!(matches!(
-            second.scalar::<u64>(0)?.get(cx, rust.erase()),
+            second_field.get(cx, rust.erase()),
             Err(GcError::Representation)
         ));
         let restored = cx.downcast::<u64>(rust.erase())?;
@@ -243,11 +283,12 @@ fn dynamic_and_rust_objects_form_collectible_cycles_through_one_frame_pack() -> 
         ..HeapConfig::default()
     })?;
     let drops = Arc::new(AtomicUsize::new(0));
-    let layout = heap
-        .access()?
-        .register_dynamic(&[FieldType::Reference, FieldType::I64])?;
-    let next = layout.reference(0)?;
-    let value = layout.scalar::<i64>(1)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let next = builder.reference();
+    let value = builder.scalar::<i64>();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let next = layout.reference(next)?;
+    let value = layout.scalar(value)?;
     let frame = heap.access()?.create_roots(1)?;
     heap.scope(|cx| {
         let record = cx.alloc_dynamic(&layout)?;
@@ -290,11 +331,11 @@ fn dynamic_and_rust_objects_form_collectible_cycles_through_one_frame_pack() -> 
 fn writing_behind_a_dynamic_scan_cursor_publishes_the_moved_target() -> Result<(), GcError> {
     let mut heap = Heap::default();
     let drops = Arc::new(AtomicUsize::new(0));
-    let layout = heap
-        .access()?
-        .register_dynamic(&[FieldType::Reference; 128])?;
-    let first = layout.reference(0)?;
-    let last = layout.reference(127)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let mut keys = (0..128).map(|_| builder.reference()).collect::<Vec<_>>();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let last = layout.reference(keys.pop().unwrap())?;
+    let first = layout.reference(keys.remove(0))?;
     let frame = heap.access()?.create_roots(1)?;
     heap.scope(|cx| {
         let record = cx.alloc_dynamic(&layout)?;
@@ -340,8 +381,10 @@ fn writing_behind_a_dynamic_scan_cursor_publishes_the_moved_target() -> Result<(
 fn sweep_allocation_and_admission_failure_preserve_physical_ownership() -> Result<(), GcError> {
     let mut heap = Heap::default();
     let drops = Arc::new(AtomicUsize::new(0));
-    let layout = heap.access()?.register_dynamic(&[FieldType::Reference])?;
-    let next = layout.reference(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let next = builder.reference();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let next = layout.reference(next)?;
     let frame = heap.access()?.create_roots(2)?;
     heap.scope(|cx| {
         let target = Anchor::alloc(cx, &drops)?;
@@ -377,7 +420,11 @@ fn sweep_allocation_and_admission_failure_preserve_physical_ownership() -> Resul
         max_backing_bytes: 0,
         ..HeapConfig::default()
     })?;
-    let layout = limited.access()?.register_dynamic(&[FieldType::U128; 96])?;
+    let mut builder = DynamicLayoutBuilder::new();
+    for _ in 0..96 {
+        builder.scalar::<u128>();
+    }
+    let layout = limited.access()?.register_dynamic(builder)?;
     assert!(matches!(
         limited.scope(|cx| cx.alloc_dynamic(&layout).map(|_| ())),
         Err(GcError::Limit("backing bytes"))
@@ -393,13 +440,21 @@ fn retired_layout_history_does_not_increase_empty_collection_work() -> Result<()
     let baseline = Heap::default().collect()?.work;
     let mut heap = Heap::default();
     for _ in 0..10000 {
-        drop(heap.access()?.register_dynamic(&[])?);
+        drop(
+            heap.access()?
+                .register_dynamic(DynamicLayoutBuilder::new())?,
+        );
     }
     heap.collect()?;
     assert_eq!(heap.collect()?.work, baseline);
     // Pinned layouts survive swap-removal of their unpinned neighbours.
     let layouts = (0..64)
-        .map(|_| heap.access()?.register_dynamic(&[FieldType::U64]))
+        .map(|_| {
+            let mut builder = DynamicLayoutBuilder::new();
+            let key = builder.scalar::<u64>();
+            let layout = heap.access()?.register_dynamic(builder)?;
+            Ok((layout, key))
+        })
         .collect::<Result<Vec<_>, GcError>>()?;
     let kept: Vec<_> = layouts
         .into_iter()
@@ -408,9 +463,9 @@ fn retired_layout_history_does_not_increase_empty_collection_work() -> Result<()
         .collect();
     heap.collect()?;
     heap.scope(|cx| {
-        for layout in &kept {
+        for (layout, key) in &kept {
             let object = cx.alloc_dynamic(layout)?;
-            let field = layout.scalar::<u64>(0)?;
+            let field = layout.scalar(key.clone())?;
             field.set(cx, object, 42)?;
             assert_eq!(field.get(cx, object)?, 42);
         }

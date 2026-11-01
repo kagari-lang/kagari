@@ -1,5 +1,5 @@
 use kagari_gc::{
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{Heap, Phase},
     object::GcObject,
@@ -89,17 +89,24 @@ fn high_and_scattered_survivors_release_historical_pages_and_root_slots() -> Res
 fn descriptor_blocks_keep_external_layout_and_field_leases() -> Result<(), GcError> {
     let mut heap = Heap::default();
     let mut layouts = (0..2048)
-        .map(|_| heap.access()?.register_dynamic(&[FieldType::U64]))
+        .map(|_| {
+            let mut builder = DynamicLayoutBuilder::new();
+            let key = builder.scalar::<u64>();
+            let layout = heap.access()?.register_dynamic(builder)?;
+            Ok((layout, key))
+        })
         .collect::<Result<Vec<_>, GcError>>()?;
-    let layout = layouts.pop().unwrap();
-    let field = layout.scalar::<u64>(0)?;
+    let (layout, key) = layouts.pop().unwrap();
+    let field = layout.scalar(key.clone())?;
     drop(layouts);
     heap.collect()?;
     let metadata = heap.metadata_stats();
     assert_eq!(metadata.descriptors.entries, 1);
     assert!(metadata.descriptors.slots <= 256);
     assert!(metadata.scan_workspace_bytes >= size_of::<usize>());
-    let replacement = heap.access()?.register_dynamic(&[FieldType::U64])?;
+    let mut builder = DynamicLayoutBuilder::new();
+    builder.scalar::<u64>();
+    let replacement = heap.access()?.register_dynamic(builder)?;
     let root = heap.scope(|cx| {
         let object = cx.alloc_dynamic(&layout)?;
         field.set(cx, object, 42)?;
@@ -121,7 +128,17 @@ fn descriptor_blocks_keep_external_layout_and_field_leases() -> Result<(), GcErr
     assert_eq!(heap.metadata_stats().descriptors.entries, 1);
     drop(field);
     heap.collect()?;
+    // A key pins only its schema identity, not descriptor/storage lifetime.
     assert_eq!(heap.metadata_stats().descriptors.bytes, 0);
+    let mut builder = DynamicLayoutBuilder::new();
+    builder.scalar::<u64>();
+    let replacement = heap.access()?.register_dynamic(builder)?;
+    assert!(matches!(
+        replacement.scalar(key),
+        Err(GcError::Representation)
+    ));
+    drop(replacement);
+    heap.collect()?;
     assert_eq!(heap.metadata_stats().scan_workspace_bytes, 0);
     Ok(())
 }

@@ -3,13 +3,14 @@
 use crate::{
     access::Access,
     dynamic::{
-        DynamicLayout, DynamicShape, Field, FieldType, ReferenceField, Scalar, ScalarField, sealed,
+        DynamicLayout, DynamicLayoutBuilder, DynamicShape, Field, FieldKey, FieldType,
+        ReferenceField, ReferenceKey, Scalar, ScalarField, ScalarKey, sealed,
     },
     error::GcError,
     object::ObjectRef,
     scan::{EdgeVisitor, ScanBudget, ScanStatus},
 };
-use std::{alloc::Layout, cmp::Reverse, marker::PhantomData, ptr::NonNull};
+use std::{alloc::Layout, cmp::Reverse, marker::PhantomData, ptr::NonNull, sync::Arc};
 
 macro_rules! scalar_types {
     ($($ty:ty => $kind:ident),+ $(,)?) => {
@@ -35,14 +36,16 @@ scalar_types!(bool => Bool, char => Char, i8 => I8, u8 => U8, i16 => I16,
     i128 => I128, u128 => U128, f32 => F32, f64 => F64);
 
 impl Access<'_> {
-    /// Register an immutable physical record layout. Checked composition rejects
-    /// overflow; field selectors subsequently verify index and scalar kind.
-    /// Physical fields are ordered by descending alignment, with declaration order
-    /// breaking ties. Selector indices always refer to the input field order.
-    /// The caller owns semantic interning; registration creates a fresh identity.
-    pub fn register_dynamic(&mut self, fields: &[FieldType]) -> Result<DynamicLayout, GcError> {
+    /// Consume a schema and register its immutable physical layout. Composition
+    /// rejects layout overflow and allocation failures. Fields are packed by
+    /// descending alignment; keys continue to identify their declared fields.
+    /// The caller owns semantic interning; every builder registers a fresh identity.
+    pub fn register_dynamic(
+        &mut self,
+        builder: DynamicLayoutBuilder,
+    ) -> Result<DynamicLayout, GcError> {
         self.heap.marking.check()?;
-        let shape = DynamicShape::new(fields)?;
+        let shape = DynamicShape::new(builder)?;
         let descriptor = self.heap.physical.descriptors.register_dynamic(shape)?;
         self.heap.workspace.reserve(descriptor.state_layout)?;
         Ok(DynamicLayout {
@@ -53,14 +56,11 @@ impl Access<'_> {
 }
 
 impl DynamicLayout {
-    /// Prepare one scalar field; reject an out-of-range index or differing kind.
-    pub fn scalar<V: Scalar>(&self, index: usize) -> Result<ScalarField<V>, GcError> {
-        let field = self
-            .descriptor
-            .shape()?
-            .fields
-            .get(index)
-            .ok_or(GcError::Index)?;
+    /// Bind a scalar key from this layout's builder to its final offset.
+    /// Returns Representation for a key from another builder, even if its field
+    /// type and position happen to match. The result pins this registered layout.
+    pub fn scalar<V: Scalar>(&self, key: ScalarKey<V>) -> Result<ScalarField<V>, GcError> {
+        let field = self.field(key.field)?;
         if field.kind != V::FIELD_TYPE {
             return Err(GcError::Representation);
         }
@@ -71,14 +71,10 @@ impl DynamicLayout {
         })
     }
 
-    /// Prepare one reference field, rejecting scalar fields and invalid indices.
-    pub fn reference(&self, index: usize) -> Result<ReferenceField, GcError> {
-        let field = self
-            .descriptor
-            .shape()?
-            .fields
-            .get(index)
-            .ok_or(GcError::Index)?;
+    /// Bind a reference key to this exact registered layout. Returns
+    /// Representation for a key from another builder. The result pins the layout.
+    pub fn reference(&self, key: ReferenceKey) -> Result<ReferenceField, GcError> {
+        let field = self.field(key.field)?;
         if field.kind != FieldType::Reference {
             return Err(GcError::Representation);
         }
@@ -86,6 +82,15 @@ impl DynamicLayout {
             layout: self.clone(),
             offset: field.offset,
         })
+    }
+
+    fn field(&self, key: FieldKey) -> Result<&Field, GcError> {
+        let shape = self.descriptor.shape()?;
+        if !Arc::ptr_eq(&shape.identity, &key.identity) {
+            return Err(GcError::Representation);
+        }
+        // Keys are private, append-only logical indices from this exact builder.
+        Ok(&shape.fields[key.index])
     }
 
     pub fn field_count(&self) -> usize {
@@ -115,7 +120,8 @@ impl DynamicLayout {
 }
 
 impl DynamicShape {
-    fn new(kinds: &[FieldType]) -> Result<Self, GcError> {
+    fn new(builder: DynamicLayoutBuilder) -> Result<Self, GcError> {
+        let kinds = &builder.fields;
         let mut layout = Layout::from_size_align(0, 1).expect("empty layout");
         let mut fields = Vec::new();
         let mut references = Vec::new();
@@ -150,6 +156,7 @@ impl DynamicShape {
             }
         }
         Ok(Self {
+            identity: builder.identity,
             layout: layout.pad_to_align(),
             fields: fields.into_boxed_slice(),
             references: references.into_boxed_slice(),

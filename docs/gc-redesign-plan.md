@@ -25,7 +25,7 @@ not enforce language nominal types or implement all Runtime storage needs.
 
 | Phase | Current state and remaining exit condition |
 | --- | --- |
-| GCR00: contract closure | Typed/fixed dynamic access, branded handles, provider mutation, cursor repair and direct root-source contracts are implemented. Close Runtime representation/extraction requirements and freeze comparable performance gates. General safe custom-object construction remains an explicitly reviewed provider responsibility. |
+| GCR00: contract closure | Typed/fixed dynamic access, typed schema keys, branded handles, provider mutation, cursor repair and direct root-source contracts are implemented. Close Runtime representation/extraction requirements and freeze comparable performance gates. General safe custom-object construction remains an explicitly reviewed provider responsibility. |
 | GCR01: standalone heap | Allocation, roots, mutation, resumable collection, metadata reclamation and opt-in safepoints are implemented. Complete the remaining representation/diagnostic requirements selected for integration; do not invent placeholder APIs. |
 | GCR02: Runtime object-model proof | Standalone frame adapters exist. Map every genuine root and managed relationship, prove object/code-state cycles and pinned computation lifetime, then measure actual frame/layout adapters. |
 | GCR03: coherent Runtime cutover | Connect Value/layout/Native providers and direct frame scanning; rehome execution state and remove the replaced collector and graph owners. Not started. |
@@ -37,6 +37,44 @@ separate heaps. Before GCR03, list affected crates and any finite temporarily
 non-building migration boundary here, with its owning repair checkpoint. No
 production stubs, disabled validation, duplicate semantic implementations or
 compatibility facades are part of the transition.
+
+Dynamic schemas use DynamicLayoutBuilder and typed field keys; the former raw
+index registration/binding API is replaced. A non-Clone builder and its keys share
+one Arc identity, transferred into the registered shape. Binding checks identity
+once, then uses the existing field accessor. This follows the external-owner
+identity check in gc-arena 0.7.0 DynamicRootSet::fetch (linked below), without its
+lifetime rebinding: keys retain only schema identity, and accessors retain actual
+descriptors. Named accessors belong to Rust consumers or Runtime metadata. The
+[implementation contract](gc-implementation-design.md#runtime-defined-fixed-records)
+owns details. This physical-schema builder does not resolve the separate unsafe
+custom-object construction question below.
+
+Builder field declarations return keys directly and use ordinary Vec growth.
+Registration/binding still return Result. Registration buffers and collector
+preparation (root release credits, mark jobs, active lists, radix slots, scanner
+workspace and staged provider growth) retain their failure/commit guarantees;
+ordinary Arc/Box allocation still means OOM recovery is partial. See
+[allocation semantics](gc-implementation-design.md#allocate-and-publish).
+
+Reference writes now admit lifecycle state once per closed operation: typed
+receiver admission, dynamic exact-layout admission, or the direct-source entry.
+An internal admitted publication core shares the existing barrier algorithm with
+the checked wrapper used by other callers. The core retains debug assertions;
+publication failure still quarantines before error/panic and before field commit.
+The [field contract](gc-implementation-design.md#concrete-entrypoint-shapes)
+defines the proof lifetime; no public unchecked API is added.
+
+Mutable-loan entrypoints likewise own their lifecycle check. The shared private
+kernel retains a debug assertion after all three callers (rooted callback,
+scoped callback and scoped loan) were audited to admit state before invoking it.
+Its physical/type/scanner checks and failure quarantine remain intact. Existing
+quarantine coverage rejects all three entries after a caught publication failure,
+including an Access acquired before that failure; callbacks must not run.
+Ten selected native contracts pass (field units, failure/forget/accounting and
+scoped cycle loans), with both field units also passing in release and strict-
+provenance Miri. Structure, fmt, workspace all-target Clippy, document/link and
+diff checks pass. Full workspace/platform/backend acceptance remains CI-only.
+No new API, state cache or performance claim is introduced.
 
 ## Remaining decisions and work
 
@@ -176,6 +214,9 @@ are characterizations, not frozen regression gates or Runtime measurements.
 
 ### Current field access
 
+These measurements precede the typed schema-builder API. Registration/binding
+changed outside the field timers; no post-builder timing result is claimed.
+
 The retained implementation removes the redundant scoped heap-ID check and
 shrinks Gc from 16 to 8 bytes on x64. Faulted/Closed state checks and dynamic
 layout admission remain. For attribution, three release variants used identical
@@ -216,6 +257,123 @@ paired measurement reduced dynamic reads from 1.128 to 0.864 ns/op while retaini
 all checks. Broad forced inlining was not retained; measured improvements do not
 justify a blanket inline policy. External Root/RootSet/layout and unbranded edge
 admission still validates membership before access.
+
+### Reference-write state-check diagnostic
+
+The reference_access fixture was measured after the direct-return schema builder,
+using main c5567989 plus the current standalone builder edits. Environment,
+profile, features, warm-cache and single-thread conditions match the method
+above. rustc 1.99.1/LLVM 23.1.1, workspace release/default target/default build
+parallelism; all builds complete before sequential timing, with no tests or
+profiling running concurrently. No compiler inlining or profile flags change.
+
+Compare the original source, removal of only EdgeField::set's initial check, and
+that removal plus a diagnostic release-only omission of Marking::publish's state
+gate. The last variant is only for valid, healthy inputs: it is not a reviewed
+replacement for the generic publication contract. Scope/receiver state checks,
+physical lookup, reference marking and all fixture assertions remain active.
+An identical original executable is also run as an A/A control. Build each image
+with `cargo build --release --locked -p kagari-gc --example reference_access` and
+archive it before changing source. Builds took 1.61/1.34/1.23 seconds, excluded.
+Run seven groups rotating/reversing four image orders. Each invocation has three
+warmups and eleven samples of 50,000 writes for typed/dynamic Idle/Mark/Sweep.
+Values below are medians of seven process medians, with their range, in ns/write.
+All 2352 CSV rows validate; process execution took 0.969 seconds. These alternate
+two retained targets; this is not a fresh-white target or null-write distribution.
+Scope entry, registration, collection and result/reclamation checks are untimed.
+
+| Typed reference write | Original | Remove outer check | Also omit inner gate |
+| --- | ---: | ---: | ---: |
+| Idle | 1.838 [1.838, 1.848] | 1.636 [1.634, 1.746] | 1.636 [1.634, 1.788] |
+| Mark | 6.586 [6.532, 6.870] | 6.326 [6.228, 6.348] | 5.958 [5.934, 6.094] |
+| Sweep | 6.940 [6.736, 7.006] | 6.376 [6.326, 6.488] | 5.862 [5.796, 5.974] |
+
+Original A/A control medians are 1.840/6.588/6.972, versus original
+1.838/6.586/6.940; control ranges are [1.838, 1.932], [6.530, 8.036],
+[6.736, 7.400]. Dynamic controls (same order of three source variants) are Idle
+1.840/1.838/1.838, Mark 6.868/6.790/6.512, Sweep 6.938/6.906/6.468. Removing only
+the typed outer check leaves dynamic source unchanged; small control movement
+shows that whole-image layout/execution variation is not eliminated by pairing.
+
+Final-binary inspection uses LLVM 16 objdump/PDB tools. At the typed set function
+(original and outer-removed address 0x1400075c0), LLVM already merges the three
+Scope checks into one phase load/control path. The original Idle path skips
+Faulted/Closed comparisons once phase==Idle is established. Deleting the initial
+source check changes branch ordering/register allocation rather than removing
+three independently executed state checks. The active path still calls the
+non-inlined Marking::publish, whose original entry at 0x1400088f0 checks phase
+again; outer-removed entry is 0x1400088b0. Diagnostic entry 0x14000cdb0 removes
+that gate, also changes saved registers and moves the function. Thus the observed
+0.368/0.514 ns additional Mark/Sweep saving includes generated-code effects; it
+is not an isolated cycle cost for two comparisons. Original-to-diagnostic total
+savings are about 0.20/0.63/1.08 ns, or 11%/10%/16% of these writes, not script
+speedups or whole-GC gains. Optimizing generic publication requires keeping an
+authoritative state check at each admitted entrypoint, including caught failures.
+
+All experiment source edits are restored byte-for-byte to the saved original
+fields/scope/marking files. Force a rebuild after restoration because copied old
+timestamps can otherwise leave Cargo's experimental artifact cached. The normal
+release example is rebuilt from restored source. No production change, new unsafe
+API, test/assertion removal or timing gate is retained. Previous implementation
+validation remains applicable; this documentation update needs link/diff checks.
+CI and failure-path acceptance are not claimed by healthy-input benchmark runs.
+
+### Admitted reference publication
+
+The retained implementation moves repeated lifecycle checks to each closed field
+operation's admission and shares one publication algorithm with checked callers.
+Measure reference_access on main c5567989 plus the current builder/admission
+changes, under the environment and release/default-profile/feature/parallelism
+conditions above. Baseline is saved immediately before this change. Seven groups
+rotate/reverse baseline, an identical baseline A/A control, and the candidate;
+each image runs three warmups plus eleven 50,000-write samples per typed/dynamic
+Idle/Mark/Sweep case. Build before timing; no concurrent build/test/profile.
+Setup, descriptor/Root admission, full collection and result checks are untimed;
+all 1764 CSV rows pass. Candidate build took 1.26 seconds, excluded; sequential
+process execution took 0.704 seconds. Values are ns/write, median of seven process
+medians with their minimum/maximum. Targets alternate between two retained values;
+no fresh-white-target latency or Runtime speedup is established.
+
+| Operation | Baseline | Retained candidate |
+| --- | ---: | ---: |
+| typed Idle | 1.878 [1.838, 2.042] | 1.838 [1.634, 1.838] |
+| typed Mark | 6.600 [6.552, 6.736] | 5.162 [5.114, 5.190] |
+| typed Sweep | 6.790 [6.734, 6.870] | 5.096 [5.056, 5.114] |
+| dynamic Idle | 1.838 [1.838, 1.840] | 1.838 [1.838, 1.840] |
+| dynamic Mark | 6.794 [6.758, 6.940] | 5.692 [5.564, 5.892] |
+| dynamic Sweep | 6.838 [6.764, 6.948] | 5.714 [5.558, 5.726] |
+
+A/A typed control medians are 1.846/6.578/6.758; dynamic controls are
+1.838/6.804/6.938. Static active-phase medians improve about 22%/25%, dynamic
+active phases about 16%. Idle static ranges overlap; claim no material Idle gain.
+Assembly confirms one state gate in EdgeField::set (0x1400075c0) and a direct
+call to the shared admitted core (0x140010d40). The checked wrapper remains for
+other callers. Compared with the earlier omission-only diagnostic, the compiler
+also inlines physical location into the shared core; this whole-path improvement
+is not a cost attribution for individual comparisons or proof of full-collector
+throughput. No release-mode Faulted/Closed checks repeat on the field write path.
+
+A separate attempt to inline the thin checked wrapper regressed typed Idle
+1.898 -> 2.058 ns/write in its paired run; Mark/Sweep were 6.736 -> 6.050 and
+6.892 -> 5.878. It is rejected, retaining default inlining and the result table
+above. All samples are preserved. After rebuilding the retained source, the full
+instruction stream matches the measured retained image; no favorable rerun of
+unchanged code replaces these results. Other provider/scanner callers keep the
+checked entry; broader collection/performance acceptance remains open.
+
+The existing quarantine unit test now exercises typed panic, dynamic error and
+paired-source error publication failures, then rejects reads, Some/None writes
+and source publication while preserving old fields. The generic checked wrapper
+also rejects Faulted. An empty RootSource fixture supplies a valid driver without
+installing additional managed edges. Debug/release unit tests, the selected
+mixed-graph/source/dynamic/failure contracts and strict-provenance Miri pass.
+Local acceptance passes structure (1791 Rust files, zero findings), workspace
+fmt and all-target Clippy with warnings denied, document/link and diff checks.
+The selected native set has 22 distinct tests; both field units also pass in
+release. Three strict-provenance Miri cases cover the expanded quarantine unit
+and paired dynamic roots. Previous unchanged doctest evidence remains applicable.
+No carried failure; exhaustive workspace/platform/backend tests remain CI-only.
+No commits.
 
 ### Lua context
 
@@ -417,6 +575,23 @@ feature/backend/platform tests belong to CI. Documentation-only changes require
 content/link/diff checks. Passing selected tests does not close the complete plan.
 
 ### Current validation evidence
+
+Direct-return builder methods pass the seven dynamic contracts, all 22 doctests
+and the named-layout example. Structure, fmt, workspace all-target Clippy,
+document/link and diff checks pass. Existing Miri evidence remains applicable:
+this simplification changes Vec growth/error propagation, not key identity,
+layout binding or unsafe access. No new timing or full CI result is claimed.
+
+The schema-builder migration passes 23 focused native tests across dynamic,
+metadata, graph, execution roots, shared reads and pacing; release identity and
+metadata-lifetime cases also pass. All 22 doctests pass, including scalar-key
+and reference-key type rejection, and the named-layout example runs in release.
+These selections cover field packing, cross-builder rejection, orphan keys,
+descriptor recycling and existing mixed graph/borrow behavior. Broader CI remains
+pending. Four strict-provenance Miri cases pass for key identity, packed fields,
+scalar domains and metadata lifetime. Structure, fmt, workspace all-target Clippy,
+document links and diff checks pass; no carried failure or new benchmark claim.
+
 
 The final scoped-handle change passed 33 release library/ownership/root_source/
 dynamic/graph-model tests and 20 doctests, including 18 compile-fail cases.

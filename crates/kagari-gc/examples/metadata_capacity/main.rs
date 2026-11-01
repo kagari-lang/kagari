@@ -1,6 +1,6 @@
 //! High-low collector metadata observations; requested bytes are not allocator RSS.
 
-use kagari_gc::{dynamic::FieldType, error::GcError, heap::Heap};
+use kagari_gc::{dynamic::DynamicLayoutBuilder, error::GcError, heap::Heap};
 use std::time::Duration;
 
 fn emit(case: &str, stage: &str, heap: &Heap, collect: Duration, maintenance: Duration) {
@@ -43,8 +43,13 @@ fn main() -> Result<(), GcError> {
     );
     // One host root; every large dynamic record owns one physical allocation.
     let mut heap = Heap::default();
-    let layout = heap.access()?.register_dynamic(&[FieldType::U64; 256])?;
-    let value = layout.scalar::<u64>(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let value = builder.scalar::<u64>();
+    for _ in 1..256 {
+        builder.scalar::<u64>();
+    }
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let value = layout.scalar(value)?;
     let root = heap.scope(|cx| {
         let mut last = None;
         for i in 0..8192 {
@@ -75,7 +80,11 @@ fn main() -> Result<(), GcError> {
     collect("roots", "empty", &mut heap)?;
 
     let mut layouts = (0..8192)
-        .map(|_| heap.access()?.register_dynamic(&[FieldType::U64]))
+        .map(|_| {
+            let mut builder = DynamicLayoutBuilder::new();
+            builder.scalar::<u64>();
+            heap.access()?.register_dynamic(builder)
+        })
         .collect::<Result<Vec<_>, GcError>>()?;
     let high = layouts.pop().unwrap();
     emit("descriptors", "peak", &heap, Duration::ZERO, Duration::ZERO);

@@ -180,7 +180,8 @@ impl<'gc> Scope<'gc> {
         &mut self,
         value: Gc<'gc, T>,
     ) -> Result<Edge<T>, GcError> {
-        let reference = self.publish(value)?;
+        self.access.heap.marking.check()?;
+        let reference = self.publish_admitted(value)?;
         Ok(Edge {
             reference,
             marker: PhantomData,

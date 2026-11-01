@@ -2,7 +2,7 @@
 
 use kagari_gc::{
     access::EdgeField,
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{Heap, Phase},
     object::{Edge, GcObject},
@@ -47,8 +47,10 @@ const ITERATIONS: usize = 50_000;
 fn measure(dynamic: bool, phase: Phase) -> Result<u128, GcError> {
     let mut heap = Heap::default();
     let descriptor = heap.access()?.register::<Link>()?;
-    let layout = heap.access()?.register_dynamic(&[FieldType::Reference])?;
-    let field = layout.reference(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let field = builder.reference();
+    let layout = heap.access()?.register_dynamic(builder)?;
+    let field = layout.reference(field)?;
     let roots = heap.access()?.create_roots(2)?;
     let (a, b, owners) = {
         let mut access = heap.access()?;

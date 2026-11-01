@@ -2,9 +2,11 @@
 
 use crate::{
     access::{EdgeField, ScalarField},
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{Heap, Phase},
-    object::{Edge, GcObject},
+    object::{Edge, GcObject, ObjectRef},
+    root_source::{RootDriver, RootSource},
     scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -64,32 +66,160 @@ fn application_panic_preserves_committed_scalar_write_and_heap_usability() -> Re
     Ok(())
 }
 
-#[test]
-fn publication_failure_faults_before_panicking_and_preserves_the_old_edge() -> Result<(), GcError> {
-    let mut heap = Heap::default();
-    heap.scope(|cx| {
-        let old = cx.alloc_leaf(1u64)?;
-        let incoming = cx.alloc_leaf(2u64)?;
-        // SAFETY: initialized None contains no edges to import or trace.
-        let owner = unsafe { cx.alloc_with(|_| Ok(Link(None)))? };
-        NEXT.set(cx, owner, Some(old));
-        // Inject exhaustion of non-admission accounting, using real allocated
-        // white objects and the actual publication path. No address is retired.
-        cx.access.heap.marking.start()?;
-        cx.access.heap.marking.publication_work = usize::MAX;
-        assert!(catch_unwind(AssertUnwindSafe(|| NEXT.set(cx, owner, Some(incoming)))).is_err());
-        assert_eq!(cx.access.heap.stats().phase, Phase::Faulted);
-        assert!(catch_unwind(AssertUnwindSafe(|| NEXT.get(cx, owner))).is_err());
-        // Public access correctly rejects the faulted heap. Inspect the still-live
-        // allocation internally to verify that the rejected store did not commit.
-        let object = cx.access.heap.physical.resolve(owner.reference)?;
-        // SAFETY: exact Link allocation above, no collection or mutable loan here.
-        let link = unsafe { object.pointer.cast::<Link>().as_ref() };
-        assert_eq!(link.0.as_ref().unwrap().reference, old.reference);
+struct EmptyRoots;
+
+// SAFETY: the source never installs any edges; its scan is immediately complete.
+unsafe impl RootSource for EmptyRoots {
+    type Cursor = ();
+
+    fn empty() -> Self {
+        Self
+    }
+
+    fn begin_scan(&self) -> Result<(), GcError> {
         Ok(())
-    })?;
-    assert!(matches!(heap.collect(), Err(GcError::Faulted)));
-    assert_eq!(heap.shutdown().disposed_objects, 3);
-    assert_eq!(heap.stats().backing_bytes, 0);
+    }
+
+    fn scan(
+        &self,
+        _: &mut (),
+        _: &mut ScanBudget,
+        _: &mut EdgeVisitor<'_>,
+    ) -> Result<ScanStatus, GcError> {
+        Ok(ScanStatus::Complete)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PublicationPath {
+    Typed,
+    Dynamic,
+    Source,
+}
+
+#[test]
+fn publication_failure_quarantines_all_write_entries_and_preserves_old_edges() -> Result<(), GcError>
+{
+    for path in [
+        PublicationPath::Typed,
+        PublicationPath::Dynamic,
+        PublicationPath::Source,
+    ] {
+        let mut driver = RootDriver::<EmptyRoots>::new(Default::default())?;
+        let mut builder = DynamicLayoutBuilder::new();
+        let next = builder.reference();
+        let layout = driver.access()?.register_dynamic(builder)?;
+        let next = layout.reference(next)?;
+        driver.scope(|cx, _| {
+            let old = cx.alloc_leaf(1u64)?;
+            let incoming = cx.alloc_leaf(2u64)?;
+            // SAFETY: initialized None contains no edges to import or trace.
+            let owner = unsafe { cx.alloc_with(|_| Ok(Link(None)))? };
+            let record = cx.alloc_dynamic(&layout)?;
+            let rooted_owner = cx.retain(owner)?;
+            NEXT.set(cx, owner, Some(old));
+            next.set(cx, record, Some(old.erase()))?;
+            // Exhaust the real marking account with allocated white targets.
+            cx.access.heap.marking.start()?;
+            cx.access.heap.marking.publication_work = usize::MAX;
+            match path {
+                PublicationPath::Typed => {
+                    assert!(
+                        catch_unwind(AssertUnwindSafe(|| NEXT.set(cx, owner, Some(incoming))))
+                            .is_err()
+                    );
+                }
+                PublicationPath::Dynamic => {
+                    assert_eq!(
+                        next.set(cx, record, Some(incoming.erase())),
+                        Err(GcError::Limit("publication work"))
+                    );
+                }
+                PublicationPath::Source => {
+                    // SAFETY: current driver's paired scope; no carrier is returned
+                    // on failure and therefore no source slot can be committed.
+                    assert!(matches!(
+                        unsafe { cx.source_edge(incoming) },
+                        Err(GcError::Limit("publication work"))
+                    ));
+                }
+            }
+            assert_eq!(cx.access.heap.stats().phase, Phase::Faulted);
+            assert!(catch_unwind(AssertUnwindSafe(|| NEXT.get(cx, owner))).is_err());
+            assert!(
+                catch_unwind(AssertUnwindSafe(|| NEXT.set(cx, owner, Some(incoming)))).is_err()
+            );
+            assert!(catch_unwind(AssertUnwindSafe(|| NEXT.set(cx, owner, None))).is_err());
+            assert_eq!(
+                next.set(cx, record, Some(incoming.erase())),
+                Err(GcError::Faulted)
+            );
+            assert_eq!(next.set(cx, record, None), Err(GcError::Faulted));
+            assert!(matches!(next.get(cx, record), Err(GcError::Faulted)));
+            // SAFETY: paired driver scope; rejection returns no carrier to install.
+            assert!(matches!(
+                unsafe { cx.source_edge(incoming) },
+                Err(GcError::Faulted)
+            ));
+            // These public entrypoints share the private mutable-loan kernel.
+            // Reject before charging the provider or entering an edit callback.
+            let mut entered = false;
+            // SAFETY: exact scoped Link; any admitted loan would be used only
+            // through its provider contract, with no escaping reference/carrier.
+            assert!(matches!(
+                unsafe { cx.borrow_object_mut(owner) },
+                Err(GcError::Faulted)
+            ));
+            // SAFETY: callbacks only set an unrelated test flag, preserving T.
+            assert!(matches!(
+                unsafe {
+                    cx.with_object_mut(owner, |_, _| {
+                        entered = true;
+                        Ok(())
+                    })
+                },
+                Err(GcError::Faulted)
+            ));
+            // SAFETY: same read-only provider callback through an existing Access.
+            assert!(matches!(
+                unsafe {
+                    cx.access.with_object_mut(&rooted_owner, |_, _| {
+                        entered = true;
+                        Ok(())
+                    })
+                },
+                Err(GcError::Faulted)
+            ));
+            assert!(!entered);
+            let heap = &mut cx.access.heap;
+            assert_eq!(
+                heap.marking
+                    .publish(&heap.physical, incoming.reference, None),
+                Err(GcError::Faulted)
+            );
+            // Inspect only still-live storage internally after public rejection.
+            let object = heap.physical.resolve(owner.reference)?;
+            // SAFETY: exact Link allocation, no collection or mutable loan here.
+            let link = unsafe { object.pointer.cast::<Link>().as_ref() };
+            assert_eq!(link.0.as_ref().unwrap().reference, old.reference);
+            let object = heap.physical.resolve(record.reference)?;
+            let offset = object.descriptor.shape()?.references[0];
+            // SAFETY: this exact initialized layout has one optional reference;
+            // the fault does not retire storage or change representation.
+            let stored = unsafe {
+                object
+                    .pointer
+                    .as_ptr()
+                    .add(offset)
+                    .cast::<Option<ObjectRef>>()
+                    .read()
+            };
+            assert_eq!(stored, Some(old.reference));
+            Ok(())
+        })?;
+        assert!(matches!(driver.collect(), Err(GcError::Faulted)));
+        assert_eq!(driver.shutdown().disposed_objects, 4);
+        assert_eq!(driver.stats().backing_bytes, 0);
+    }
     Ok(())
 }

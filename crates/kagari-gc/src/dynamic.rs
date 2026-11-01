@@ -6,12 +6,15 @@
 //! Rust objects and use the same roots, publication and collection protocols.
 //!
 //! ```
-//! use kagari_gc::{dynamic::FieldType, error::GcError, heap::Heap};
+//! use kagari_gc::{dynamic::DynamicLayoutBuilder, error::GcError, heap::Heap};
 //! fn example() -> Result<(), GcError> {
 //!     let mut heap = Heap::default();
-//!     let layout = heap.access()?.register_dynamic(&[FieldType::I64, FieldType::Reference])?;
-//!     let hp = layout.scalar::<i64>(0)?;
-//!     let target = layout.reference(1)?;
+//!     let mut builder = DynamicLayoutBuilder::new();
+//!     let hp = builder.scalar::<i64>();
+//!     let target = builder.reference();
+//!     let layout = heap.access()?.register_dynamic(builder)?;
+//!     let hp = layout.scalar(hp)?;
+//!     let target = layout.reference(target)?;
 //!     let root = heap.scope(|cx| {
 //!         let player = cx.alloc_dynamic(&layout)?;
 //!         let enemy = cx.alloc_dynamic(&layout)?;
@@ -32,6 +35,7 @@
 //! ```
 
 mod access;
+mod builder;
 mod layout;
 
 use crate::descriptor::Descriptor;
@@ -68,6 +72,39 @@ mod sealed {
     pub trait Sealed {}
 }
 
+/// A physical schema under construction. Adding fields returns typed keys; register
+/// the completed builder once with Access::register_dynamic. Names belong to the
+/// caller's metadata or named accessor struct, never to the collector.
+/// Builders cannot be cloned; each one establishes a distinct field-key identity.
+#[derive(Debug, Default)]
+pub struct DynamicLayoutBuilder {
+    identity: Arc<()>,
+    fields: Vec<FieldType>,
+}
+
+/// A scalar field declared in one builder, before its physical offset is known.
+/// Cloning retains only schema identity, not a registered layout or any objects.
+/// Bind with DynamicLayout::scalar; keys cannot be constructed from raw indices.
+#[derive(Debug, Clone)]
+pub struct ScalarKey<V: Scalar> {
+    field: FieldKey,
+    marker: PhantomData<fn() -> V>,
+}
+
+/// A nullable reference field declared in one builder. Bind with
+/// DynamicLayout::reference after registration. Cloning retains schema identity
+/// only; it does not keep the layout or any managed object alive.
+#[derive(Debug, Clone)]
+pub struct ReferenceKey {
+    field: FieldKey,
+}
+
+#[derive(Debug, Clone)]
+struct FieldKey {
+    identity: Arc<()>,
+    index: usize,
+}
+
 /// A heap-local immutable descriptor lease. Clone retains metadata, not objects.
 /// Equal-shaped independent registrations still have distinct layout identities.
 #[derive(Debug, Clone)]
@@ -93,6 +130,7 @@ pub struct ReferenceField {
 
 #[derive(Debug)]
 pub(crate) struct DynamicShape {
+    identity: Arc<()>,
     pub(crate) layout: Layout,
     fields: Box<[Field]>,
     pub(crate) references: Box<[usize]>,

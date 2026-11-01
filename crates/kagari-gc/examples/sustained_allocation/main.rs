@@ -7,7 +7,7 @@ mod frames;
 
 use frames::Frames;
 use kagari_gc::{
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{HeapConfig, Phase, pacing::AutomaticKind},
     object::AnyObject,
@@ -22,11 +22,12 @@ const ALLOCATIONS: usize = 256;
 fn run(sample: usize, cyclic: bool, burst: bool) -> Result<(), GcError> {
     let mut driver = RootDriver::<Frames<AnyObject>>::new(HeapConfig::default())?;
     let leaf = driver.access()?.register::<u64>()?;
-    let layout = driver
-        .access()?
-        .register_dynamic(&[FieldType::U64, FieldType::Reference])?;
-    let field = layout.scalar::<u64>(0)?;
-    let next = layout.reference(1)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let field = builder.scalar::<u64>();
+    let next = builder.reference();
+    let layout = driver.access()?.register_dynamic(builder)?;
+    let field = layout.scalar(field)?;
+    let next = layout.reference(next)?;
     let id = driver.scope(|cx, roots| Frames::enter(roots, cx, RING))?;
     let mut total = 0;
     let mut cycles = 0;

@@ -176,6 +176,23 @@ impl Marking {
         budget: Option<&mut ScanBudget>,
     ) -> Result<ScanStatus, GcError> {
         self.check()?;
+        self.publish_admitted(physical, reference, budget)
+    }
+
+    /// Shared publication algorithm after lifecycle admission. The caller must
+    /// check state in this closed operation, with no intervening callback or
+    /// state-changing operation. Physical membership and sweep liveness remain
+    /// checked here; this precondition is not a proof for an arbitrary address.
+    pub(crate) fn publish_admitted(
+        &mut self,
+        physical: &PhysicalHeap,
+        reference: ObjectRef,
+        budget: Option<&mut ScanBudget>,
+    ) -> Result<ScanStatus, GcError> {
+        debug_assert!(
+            self.check().is_ok(),
+            "publication requires lifecycle admission"
+        );
         let object = physical.locate(reference)?;
         if self.phase == Phase::Idle {
             return Ok(ScanStatus::Complete);

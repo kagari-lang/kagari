@@ -6,7 +6,7 @@ mod support;
 
 use frames::Frames;
 use kagari_gc::{
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{
         Heap, HeapConfig, Phase,
@@ -119,11 +119,12 @@ fn sustained_default_policy_bounds_a_fixed_live_ring_and_retains_cycles() -> Res
     for cyclic in [false, true] {
         let mut driver = RootDriver::<Frames<AnyObject>>::new(HeapConfig::default())?;
         let descriptor = driver.access()?.register::<u64>()?;
-        let layout = driver
-            .access()?
-            .register_dynamic(&[FieldType::U64, FieldType::Reference])?;
-        let field = layout.scalar::<u64>(0)?;
-        let next = layout.reference(1)?;
+        let mut builder = DynamicLayoutBuilder::new();
+        let field = builder.scalar::<u64>();
+        let next = builder.reference();
+        let layout = driver.access()?.register_dynamic(builder)?;
+        let field = layout.scalar(field)?;
+        let next = layout.reference(next)?;
         let id = driver.scope(|cx, roots| Frames::enter(roots, cx, 512))?;
         let mut sequence = 0usize;
         let mut assists = 0;

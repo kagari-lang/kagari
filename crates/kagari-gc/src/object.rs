@@ -73,9 +73,11 @@ pub struct Gc<'gc, T: 'static> {
 /// an allocated Rust payload and deliberately does not implement GcObject.
 ///
 /// ```compile_fail
-/// use kagari_gc::{dynamic::FieldType, heap::Heap};
+/// use kagari_gc::{dynamic::DynamicLayoutBuilder, heap::Heap};
 /// let mut heap = Heap::default();
-/// let layout = heap.access().unwrap().register_dynamic(&[FieldType::U64]).unwrap();
+/// let mut builder = DynamicLayoutBuilder::new();
+/// let value = builder.scalar::<u64>();
+/// let layout = heap.access().unwrap().register_dynamic(builder).unwrap();
 /// heap.scope(|cx| {
 ///     let object = cx.alloc_dynamic(&layout)?;
 ///     Ok(cx.read(object, |_| ())) // erased bytes cannot be borrowed as a Rust T

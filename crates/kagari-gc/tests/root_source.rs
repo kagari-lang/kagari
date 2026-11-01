@@ -6,7 +6,7 @@ mod support;
 
 use frames::Frames;
 use kagari_gc::{
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{HeapConfig, Phase},
     object::AnyObject,
@@ -172,8 +172,10 @@ fn host_roots_scope_unwind_foreign_access_and_shutdown_share_the_same_owner() ->
 #[test]
 fn erased_dynamic_cycles_are_retained_by_the_direct_source() -> Result<(), GcError> {
     let mut driver = RootDriver::<Frames<AnyObject>>::new(HeapConfig::default())?;
-    let layout = driver.access()?.register_dynamic(&[FieldType::Reference])?;
-    let next = layout.reference(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let next = builder.reference();
+    let layout = driver.access()?.register_dynamic(builder)?;
+    let next = layout.reference(next)?;
     let id = driver.scope(|cx, roots| {
         let a = cx.alloc_dynamic(&layout)?;
         let b = cx.alloc_dynamic(&layout)?;

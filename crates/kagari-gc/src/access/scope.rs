@@ -289,13 +289,21 @@ impl<'gc> Scope<'gc> {
         Ok(object.reference)
     }
 
-    /// Publish an admitted scoped target. Its liveness proof excludes Idle lookup;
-    /// active collection still performs the shared marking/sweep barrier.
-    pub(crate) fn publish<T: 'static>(&mut self, object: Gc<'gc, T>) -> Result<ObjectRef, GcError> {
-        let reference = self.check(object)?;
+    /// Publish after this closed operation has admitted heap state. Typed field
+    /// writes use typed_pointer, dynamic writes use exact-layout admission, and
+    /// source_edge checks state directly. No callback or state-changing operation
+    /// may intervene. A publication failure quarantines before returning.
+    pub(crate) fn publish_admitted<T: 'static>(
+        &mut self,
+        object: Gc<'gc, T>,
+    ) -> Result<ObjectRef, GcError> {
+        debug_assert!(self.access.heap.marking.check().is_ok());
+        let reference = object.reference;
         let heap = &mut self.access.heap;
         if heap.marking.phase != Phase::Idle
-            && let Err(error) = heap.marking.publish(&heap.physical, reference, None)
+            && let Err(error) = heap
+                .marking
+                .publish_admitted(&heap.physical, reference, None)
         {
             // Publication is pre-reserved and has no recoverable admission
             // failure. A caught field-write panic must not resume a collector

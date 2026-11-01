@@ -311,6 +311,7 @@ required/non-null initialization rules. The collector receives physical facts on
 
 ```text
 DynamicShape {
+    identity: Arc<()>,             // builder identity, distinct from descriptor ID
     layout: Layout,                 // inline data size and alignment
     fields: Box<[Field { kind, offset }]>,
     references: Box<[usize]>,       // validated byte offsets, immutable
@@ -318,13 +319,15 @@ DynamicShape {
 Representation = Rust { type_id, begin, scan, charge, destroy }
                | Dynamic(DynamicShape)
 DynamicLayout { heap: HeapId, descriptor: Arc<Descriptor> }
+DynamicLayoutBuilder { identity: Arc<()>, fields: Vec<FieldType> }
+ScalarKey<V> / ReferenceKey { identity: Arc<()>, logical_index, type_marker }
 dynamic::ScalarField<V> { layout: DynamicLayout, offset, type_marker }
 dynamic::ReferenceField { layout: DynamicLayout, offset }
 ```
 
 Access::register_dynamic places fields by descending alignment, breaking ties by
-their original index, through checked Layout::extend and final padding. Field
-selectors retain input indices: only the offsets change. The closed field types
+their original index, through checked Layout::extend and final padding. Typed
+keys preserve logical field identity while physical offsets change. The closed field types
 have sizes divisible by power-of-two alignments, so this order eliminates padding
 between fields; final record padding remains. A temporary index vector and sort
 are used only during registration, with no additional per-access work or per-object
@@ -334,6 +337,25 @@ independent identity, even at equal shapes. Semantic interning belongs to Runtim
 there is no second generic shape cache. Layout and field leases pin descriptor
 identity against recycling; allocated/retiring objects use the existing usage
 credits. Layout metadata contains no module or executable ownership.
+
+DynamicLayoutBuilder::scalar<V> and reference append fields and return opaque
+ScalarKey<V>/ReferenceKey values directly. Builder growth uses ordinary Rust Vec
+allocation behavior; it does not promise recoverable allocation errors.
+Registration and accessor binding remain fallible. Registration consumes the non-Clone builder;
+keys survive moving it or growing its field vector. DynamicLayout::scalar and
+reference consume the matching key and produce a pinned accessor. Binding compares
+shared schema identity with Arc::ptr_eq before reading the logical field slot;
+keys from other builders return Representation even at equal types/positions.
+The key's Rust type prevents scalar/reference and scalar-type confusion. There
+is no public raw-index binding or field-key constructor.
+
+Each builder owns one fresh Arc identity allocation. Keys and the registered
+DynamicShape share it, preventing identity reuse while any key survives. Keys
+retain neither a descriptor nor managed objects; only bound accessors pin layout
+metadata. This adds construction/binding metadata, not per-object storage or
+per-access name/key lookup. Field operations retain their existing exact-layout,
+heap-state, scalar-loan and reference-publication checks. Named Rust layout structs
+and Runtime semantic maps own names; neither belongs in the physical collector.
 
 This first subset uses aligned scalar/reference fields. Current Runtime packed
 layouts use byte codecs and can have smaller offsets; adopting packed codecs or
@@ -739,10 +761,13 @@ Scope::follow<T,U>(&self, Gc<'gc,T>, source-borrowed edge selector) -> Option<Gc
 unsafe Init::edge_scoped<T>(Gc<'gc,T>) -> Result<Edge<T>,GcError>
 
 Access::register<T: GcObject>() -> Result<TypedDescriptor<T>, GcError>
-Access::register_dynamic(&[FieldType]) -> Result<DynamicLayout,GcError>
+DynamicLayoutBuilder::new() -> DynamicLayoutBuilder
+DynamicLayoutBuilder::scalar<V: Scalar>(&mut self) -> ScalarKey<V>
+DynamicLayoutBuilder::reference(&mut self) -> ReferenceKey
+Access::register_dynamic(DynamicLayoutBuilder) -> Result<DynamicLayout,GcError>
 Scope::alloc_dynamic(&DynamicLayout) -> Result<Gc<'gc,AnyObject>,GcError>
-DynamicLayout::scalar<V: Scalar>(index) -> Result<dynamic::ScalarField<V>,GcError>
-DynamicLayout::reference(index) -> Result<dynamic::ReferenceField,GcError>
+DynamicLayout::scalar<V: Scalar>(ScalarKey<V>) -> Result<dynamic::ScalarField<V>,GcError>
+DynamicLayout::reference(ReferenceKey) -> Result<dynamic::ReferenceField,GcError>
 Gc<T>::erase() -> Gc<AnyObject> // preserves the same scope
 Scope::downcast<T: GcObject>(&self, Gc<AnyObject>) -> Result<Gc<T>,GcError>
 Access::register_erased(unsafe representation contract) -> Result<DescriptorLease, GcError>
@@ -798,8 +823,19 @@ in release builds.
 Scope::read returns the callback's own result without adding a GC Result layer.
 An application callback panic does not roll back completed scalar edits.
 
+Closed fixed-edge writes admit lifecycle state once: typed_pointer for typed
+receivers, exact-layout pointer admission for dynamic receivers, and an immediate
+state check in source_edge for execution-root publication. Scope::publish_admitted
+reuses that admission and the invariant target brand. No callback, reentry or
+state-changing operation may intervene. Writing None still admits the receiver.
+The crate-internal Marking::publish_admitted contains the single marking algorithm;
+its checked publish wrapper remains for other provider/root/scanner callers.
+Debug assertions enforce the admitted precondition. Physical membership, sweep
+liveness, queue/work accounting and publication-before-store remain checked.
+There is no public unchecked API or cached state proof across operations.
+
 Fixed-edge publication completes before the store. If the reserved marking
-operation fails, Scope::publish faults the heap before returning the error to
+operation fails, Scope::publish_admitted faults the heap before returning the error to
 its caller; typed EdgeField::set panics on that failure. Catching it cannot resume
 the collector. External admission failures leave a healthy heap usable. Dynamic
 field APIs retain explicit layout/admission errors;
@@ -824,6 +860,14 @@ instruction count. Preserve current logical-PC polling and distinguish it from
 the collector's work budget; release loans before servicing a request/transition.
 
 ### Provider mutation entrypoint
+
+The private Access::borrow_object_mut kernel requires lifecycle admission from
+its caller. All entries (rooted Access::with_object_mut and scoped with_object_mut/
+borrow_object_mut) check state before invoking it, without an intervening callback
+or state transition. The kernel asserts that precondition in debug builds;
+physical/type/active-scanner validation and charge/finalization remain shared.
+A faulted existing Access or Scope is rejected before lending T or running the
+provider callback. Admission does not authorize continuing after a charge failure.
 
 The fixed-field API is insufficient to express an independently implemented
 container operation. Complete the proposed provider surface as follows; these

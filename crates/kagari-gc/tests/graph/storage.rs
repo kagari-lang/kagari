@@ -6,7 +6,7 @@ use crate::{
 };
 use kagari_gc::{
     access::Scope,
-    dynamic::{FieldType, ReferenceField, ScalarField},
+    dynamic::{DynamicLayoutBuilder, ReferenceField, ScalarField},
     error::GcError,
     heap::Heap,
     object::{AnyObject, Gc},
@@ -26,11 +26,11 @@ impl Storage {
     pub fn new(heap: &mut Heap) -> Result<Self, GcError> {
         let roots = heap.access()?.create_roots(ROOTS)?;
         let vector = ObjectVec::alloc(&mut heap.access()?, &[])?;
-        let layout = heap.access()?.register_dynamic(&[
-            FieldType::U64,
-            FieldType::Reference,
-            FieldType::Reference,
-        ])?;
+        let mut builder = DynamicLayoutBuilder::new();
+        let label = builder.scalar::<u64>();
+        let left = builder.reference();
+        let right = builder.reference();
+        let layout = heap.access()?.register_dynamic(builder)?;
         let dynamic = heap.scope(|cx| {
             let object = cx.alloc_dynamic(&layout)?;
             cx.retain(object)
@@ -39,8 +39,8 @@ impl Storage {
             roots,
             vector,
             dynamic,
-            links: [layout.reference(1)?, layout.reference(2)?],
-            label: layout.scalar(0)?,
+            links: [layout.reference(left)?, layout.reference(right)?],
+            label: layout.scalar(label)?,
         })
     }
 

@@ -74,14 +74,20 @@ failures explicitly: the host may shut down a faulted instance and report an
 execution failure, but cannot repair/resume its collector. Panic isolation is
 available only with unwinding; `panic=abort` does not offer recovery.
 
-Runtime-defined fixed records use the safe `dynamic` module. Register a list of
-`FieldType` values, prepare scalar/reference accessors, and allocate with
-`Scope::alloc_dynamic`. The library orders storage by descending alignment while
-preserving input field indices, then scans its immutable reference-offset table
-incrementally. Reordering happens once at registration. Scalars start at zero/false/NUL; reference
-slots start at None. There are no arbitrary offsets, user scanners, custom drops
-or exposed byte slices on this surface. See the executable
-[dynamic-layout example](examples/dynamic_layout.rs).
+Runtime-defined fixed records use the safe `dynamic` module. Add fields with
+`DynamicLayoutBuilder::scalar::<T>()` and `reference()`, which return typed keys
+directly without a Result;
+consume the builder with `Access::register_dynamic`, then bind each key with
+`layout.scalar(key)` or `layout.reference(key)`. Keys from another builder are
+rejected even when its schema is identical. The library packs fields by descending
+alignment while preserving key identity, then scans immutable reference offsets.
+Names stay in caller-owned structs or Runtime metadata; no numeric selectors or
+per-access string lookup are needed. The [dynamic-layout example](examples/dynamic_layout.rs)
+groups layout and accessors in `PlayerLayout`, used as `fields.hp` and `fields.target`.
+
+Scalars start at zero/false/NUL and references at None. There are no arbitrary
+offsets, custom scanners/drops or exposed byte slices on this surface. Keys keep
+only their builder identity alive; bound accessors retain registered metadata.
 
 Dynamic records use `Gc<AnyObject>` and `Root<AnyObject>` in the same scope/root
 system. Rust handles can be erased with `Gc::erase`; `Scope::downcast` checks the

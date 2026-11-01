@@ -7,7 +7,7 @@ mod frames;
 
 use frames::Frames;
 use kagari_gc::{
-    dynamic::FieldType,
+    dynamic::DynamicLayoutBuilder,
     error::GcError,
     heap::{HeapConfig, Phase},
     object::AnyObject,
@@ -18,8 +18,10 @@ use std::time::Instant;
 
 fn measure(sample: usize, case: &str, count: usize) -> Result<(), GcError> {
     let mut driver = RootDriver::<Frames<AnyObject>>::new(HeapConfig::default())?;
-    let layout = driver.access()?.register_dynamic(&[FieldType::Reference])?;
-    let next = layout.reference(0)?;
+    let mut builder = DynamicLayoutBuilder::new();
+    let next = builder.reference();
+    let layout = driver.access()?.register_dynamic(builder)?;
+    let next = layout.reference(next)?;
     let chain = case == "chain";
     let duplicate = case == "duplicate";
     let id = driver.scope(|cx, roots| {
