@@ -16,7 +16,24 @@ use kagari_gc::{
 };
 use std::time::Instant;
 
-fn measure(sample: usize, case: &str, count: usize) -> Result<(), GcError> {
+struct Row {
+    record: &'static str,
+    sample: usize,
+    case: &'static str,
+    count: usize,
+    stage: &'static str,
+    elapsed_ns: u128,
+    work: usize,
+    steps: usize,
+    maintenance_ns: u128,
+}
+
+fn measure(
+    sample: usize,
+    case: &'static str,
+    count: usize,
+    rows: &mut Vec<Row>,
+) -> Result<(), GcError> {
     let mut driver = RootDriver::<Frames<AnyObject>>::new(HeapConfig::default())?;
     let mut builder = DynamicLayoutBuilder::new();
     let next = builder.reference();
@@ -47,9 +64,13 @@ fn measure(sample: usize, case: &str, count: usize) -> Result<(), GcError> {
     let mut ns = [0u128; 4];
     let mut work = [0usize; 4];
     let mut steps = [0usize; 4];
+    let stages = ["roots", "mark", "sweep", "transition"];
     loop {
         let before = driver.stats().phase;
         let report = driver.step(WorkBudget::NORMAL)?;
+        assert!(report.work <= 1024 && report.retired_owners <= 32);
+        assert_eq!(report.required_budget, None);
+        assert!(report.work > 0 || report.phase != before || report.completed_cycles > 0);
         let category = match (before, report.phase) {
             (Phase::Idle | Phase::Roots, Phase::Roots) => 0,
             (Phase::Mark, Phase::Mark) => 1,
@@ -59,40 +80,86 @@ fn measure(sample: usize, case: &str, count: usize) -> Result<(), GcError> {
         ns[category] += report.elapsed.as_nanos();
         work[category] += report.work;
         steps[category] += 1;
+        rows.push(Row {
+            record: "step",
+            sample,
+            case,
+            count,
+            stage: stages[category],
+            elapsed_ns: report.elapsed.as_nanos(),
+            work: report.work,
+            steps: 1,
+            maintenance_ns: 0,
+        });
         if report.completed_cycles != 0 {
+            assert_eq!(report.completed_cycles, 1);
             break;
         }
     }
+    assert_eq!(driver.stats().phase, Phase::Idle);
+    assert_eq!(driver.stats().completed_cycles, 1);
+    assert!(work.iter().sum::<usize>() > 0);
     assert_eq!(driver.stats().objects, if duplicate { 1 } else { count });
-    for (i, name) in ["roots", "mark", "sweep", "transition"]
-        .into_iter()
-        .enumerate()
-    {
-        println!(
-            "{sample},{case},{count},{name},{},{},{}",
-            ns[i], work[i], steps[i]
-        );
+    for (i, stage) in stages.into_iter().enumerate() {
+        rows.push(Row {
+            record: "stage",
+            sample,
+            case,
+            count,
+            stage,
+            elapsed_ns: ns[i],
+            work: work[i],
+            steps: steps[i],
+            maintenance_ns: 0,
+        });
     }
     let start = Instant::now();
     let report = driver.collect()?;
-    println!(
-        "{sample},{case},{count},full,{},{},0",
-        start.elapsed().as_nanos(),
-        report.work
-    );
+    let elapsed_ns = start.elapsed().as_nanos();
+    assert_eq!(report.completed_cycles, 1);
+    assert!(report.work > 0);
+    assert_eq!(driver.stats().objects, if duplicate { 1 } else { count });
+    rows.push(Row {
+        record: "full",
+        sample,
+        case,
+        count,
+        stage: "full",
+        elapsed_ns,
+        work: report.work,
+        steps: 0,
+        maintenance_ns: report.maintenance_elapsed.as_nanos(),
+    });
     driver.scope(|cx, roots| Frames::leave(roots, cx, id))?;
     driver.collect()?;
     assert_eq!(driver.stats().objects, 0);
     assert_eq!(driver.stats().backing_bytes, 0);
+    assert_eq!(driver.stats().indirect_bytes, 0);
+    assert_eq!(driver.stats().phase, Phase::Idle);
     Ok(())
 }
 
 fn main() -> Result<(), GcError> {
-    println!("sample,case,count,stage,elapsed_ns,work,steps");
+    let mut rows = Vec::new();
     for sample in 0..14 {
         for case in ["leaves", "duplicate", "chain"] {
-            measure(sample, case, 8192)?;
+            measure(sample, case, 8192, &mut rows)?;
         }
+    }
+    println!("record,sample,case,count,stage,elapsed_ns,work,steps,maintenance_ns");
+    for row in rows {
+        println!(
+            "{},{},{},{},{},{},{},{},{}",
+            row.record,
+            row.sample,
+            row.case,
+            row.count,
+            row.stage,
+            row.elapsed_ns,
+            row.work,
+            row.steps,
+            row.maintenance_ns
+        );
     }
     Ok(())
 }

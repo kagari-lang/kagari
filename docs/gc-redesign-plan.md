@@ -190,6 +190,34 @@ than a duplicate API sketch here.
 
 ## Performance evidence
 
+### Durable standalone benchmark tooling
+
+The [benchmark guide](../crates/kagari-gc/BENCHMARKS.md) owns the persistent
+standalone suite, output schemas/estimators, commands and metric limitations.
+`scripts/benchmark_gc.py` reuses existing checked fixtures; it builds once,
+archives exact executables/raw CSV and alternates saved-baseline/candidate process
+order. Reports retain process estimates, paired ratios, tails and separate
+managed/metadata memory observations. Missing evidence, incompatible recipes or
+changed inputs during measurement fail rather than produce a successful report.
+No collector algorithm, Runtime policy or numerical acceptance gate is changed.
+
+This closes repeatable collection/reporting for the existing scalar, lifecycle,
+reference, incremental-stage, regular/burst-ring and metadata-capacity fixtures.
+It does not close GCR00/GCR04 comparative acceptance: first-white barriers,
+mixed/sparse page behavior, real destructor tails, complete allocation/RSS,
+long-duration stability and integrated Runtime results remain open. Small-fixture
+tails are characterization, and a lower reported step time is not a pass without
+matching throughput, progress and memory evidence. Historical tables below keep
+their original revision and timing boundaries; buffered instrumentation and new
+cleanup rows do not retroactively refresh them.
+
+Focused tooling validation passes 58 parser/runner tests, all ten suites with
+seven sequential process repetitions, and seven-pair archived-binary A/A runs.
+The A/A run validates evidence plumbing, not a speedup or a noise-free timing gate.
+The focused release example build, structure, formatting, workspace all-target
+Clippy and diff checks pass. The IDE build endpoint timed out; Cargo supplied the
+actual build evidence. Full workspace/platform/backend tests remain CI-only.
+
 ### Method and interpretation
 
 Measurements below were taken on 2026-11-01: Windows 11 Pro 10.0.26300 x64,

@@ -156,6 +156,21 @@ comparative gate result or p99. Managed backing/indirect peaks exclude root-tabl
 Arc/control, workspace and allocator overhead; they are not whole-heap requested
 bytes or RSS. Runtime field/script performance cannot be inferred from this example.
 
+For repeatable measurements and before/after comparisons, use the
+[durable benchmark suite](BENCHMARKS.md):
+
+```text
+uv run python scripts/benchmark_gc.py --output target/gc-benchmark/before
+uv run python scripts/benchmark_gc.py --baseline target/gc-benchmark/before --output target/gc-benchmark/after
+```
+
+Run from the repository root. It builds once, archives executables and raw CSV,
+runs seven sequential process repetitions, and writes Markdown/CSV/JSON reports.
+Comparisons rerun archived old binaries paired with the candidate after checking
+recipe/environment identity. `--suite` selects workloads; `--runs 1` is exploratory.
+The guide defines timing/memory boundaries and explicitly unmeasured metrics.
+Individual examples below remain available for focused diagnostics.
+
 The [scalar field measurement](examples/field_access.rs) compares plain Rust,
 typed GC fields, dynamic fields and per-operation versus batch scalar borrowing.
 Build once with `cargo build --release -p kagari-gc --example field_access`, then
@@ -225,8 +240,10 @@ of 256 leaf/self-cyclic objects into a 512-slot live ring and invokes one safepo
 per batch. `--burst` replaces every sixteenth batch with 4096 allocations. Both
 fixtures use three warmups and eleven measured runs; build before timing and run
 seven sequential processes. CSV records operation/service times, work, cycles,
-normal/assist counts, object populations and managed peak; final values and full
-reclamation are checked outside timers. Commands:
+normal/assist counts, object populations and managed peak. The stage fixture
+also emits individual step rows. The sustained fixture separately records
+maintenance and the post-root-release final collect; validation is outside the
+timers. CSV output is buffered until measurements and checks finish. Commands:
 
 ```text
 cargo build -p kagari-gc --release --example collection_profile --example sustained_allocation
