@@ -5,6 +5,15 @@ Status: agreed direction recorded; implementation has not started. The
 placement. This plan owns NC01-NC06, the bounded API design, migration acceptance
 and progress ledger. API sketches are proposals, not currently callable APIs.
 
+A bounded [GCR authoring trial](gc-redesign-plan.md#orders-1-3-executable-checkpoint)
+now exercises candidate stdlib value-vector/fold components through Runtime's
+public generic managed interfaces. It does not activate NC01-NC06 or replace
+production collection registrations. The trial keeps its revision in the private
+provider payload; the inventory below describes current production ownership.
+Before cutover, choose one revision/operation owner under the shared contract,
+without retaining a shadow counter or collection-specific Runtime escape hatch.
+The GCR plan owns this trial's progress and validation; no second ledger is added.
+
 Storage inventory refresh, 2026-10-18: the prioritized
 [runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) and
 [object overhead work](implementation-roadmap.md#object-storage-overhead) are locally complete.

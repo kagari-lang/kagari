@@ -13,6 +13,7 @@ kagari-bytecode.workspace = true
 kagari-runtime.workspace = true
 
 [dev-dependencies]
+kagari-gc.workspace = true
 rstest.workspace = true
 kagari-derive.workspace = true
 kagari-stdlib.workspace = true

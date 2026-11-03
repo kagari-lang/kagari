@@ -22,6 +22,7 @@ pub(crate) mod hashed;
 mod host;
 pub mod installation;
 pub mod interfaces;
+pub mod managed;
 pub mod methods;
 pub mod module;
 pub mod objects;

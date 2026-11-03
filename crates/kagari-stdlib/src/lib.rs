@@ -5,6 +5,7 @@ mod foundation;
 pub mod catalog;
 pub mod declarations;
 pub mod identity;
+pub mod managed;
 pub mod namespaces;
 use kagari_runtime::native::{binding::NativeResult, module::NativeModule};
 

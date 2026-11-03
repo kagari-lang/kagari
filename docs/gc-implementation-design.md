@@ -4,6 +4,9 @@ This document owns the standalone library's data structures, safety invariants
 and operation protocols. The [redesign plan](gc-redesign-plan.md) owns remaining
 scope, integration phases and acceptance; the [crate guide](../crates/kagari-gc/README.md)
 provides executable usage examples. Runtime still uses its existing collector.
+The [Runtime integration draft](runtime-gc-integration-design.md) owns proposed
+Runtime responsibilities, scoped/stored/rooted Value forms and native shells;
+its open decisions are not claims about the standalone implementation.
 
 Implemented: typed Rust and fixed dynamic objects, host roots, pointer-sized
 scoped identities, checked field access, provider mutation/cursor repair,
@@ -26,6 +29,8 @@ Read [ownership](#engine-ownership) first, then [storage](#physical-storage),
 [object/root ownership](#object-graph-and-root-ownership). The
 [operation algorithms](#operation-algorithms) define commit/failure order. The
 [Runtime map](#runtime-integration-map) identifies what must leave GcHeap.
+Read the [Runtime draft](runtime-gc-integration-design.md) for the concrete value,
+frame, host retention and callback protocols, including unresolved choices.
 Borrowing restrictions are exercised by compile-fail examples beside the actual
 [Heap](../crates/kagari-gc/src/heap.rs), [Scope](../crates/kagari-gc/src/access/scope.rs)
 and [field APIs](../crates/kagari-gc/src/access/fields.rs), alongside behavioral
@@ -258,7 +263,6 @@ Descriptor {
     state_layout: Layout,
     drop_payload: Option<unsafe fn(payload_pointer)>,
     charge: unsafe fn(payload_pointer) -> ObjectCharge,
-    access_kind: Live | Taken,
 }
 
 DescriptorPool {
@@ -435,9 +439,10 @@ establish that proof; unsafe source_get must supply it under its provider contra
 No current operation changes the Rust representation during a scope. Root/erased
 admission and dynamic layout checks remain fallible. Gc and stored Edge each
 contain one pointer; there is no persistent pointer cache or new public unsafe API.
-Any future native
-take/tombstone implementation must revisit outstanding typed handles before
-allowing a representation change within a scope.
+The [Runtime native-shell draft](runtime-gc-integration-design.md#stable-native-shell-for-take)
+preserves that invariant during take: the shell remains the same Rust
+representation, and its inner payload is accessed only through checked loans.
+Generic representation-changing extraction is not selected.
 
 Access::with_reference also asserts the established Rust type only in debug
 builds. Its callers are with_object (an admitted immutable Root<T>) and scoped
@@ -786,7 +791,6 @@ EdgeField<T,U>::get(&Scope, Gc) -> Option<Gc<U>>
 EdgeField<T,U>::set(&mut Scope, Gc, Option<Gc>) -> ()
 Access::create_roots(slot_count: usize) -> Result<RootSet, GcError>
 Access::replace_root(&RootSet, index, protected_object_or_empty) -> Result<(), GcError>
-Access::take<T: Takeable>(&Root<T>) -> Result<T, GcError>
 ```
 
 Root admission validates heap/slot/generation/lease identity before any header
@@ -855,9 +859,11 @@ Scalar writes need no reference barrier; managed destinations, including frame
 root slots, still perform required publication. Do not infer zero instruction
 cost from the absence of per-field Root creation or a generic view callback.
 The [region-boundary contract](gc-redesign-plan.md#remaining-decisions-and-work)
-defines exits by proof validity and cooperative requests, rather than a fixed
-instruction count. Preserve current logical-PC polling and distinguish it from
-the collector's work budget; release loans before servicing a request/transition.
+defines exits by proof validity and required GC/observation transitions, rather
+than a fixed instruction count. The proposed Runtime integration
+[removes cooperative execution cancellation](runtime-gc-integration-design.md#execution-without-cooperative-cancellation-polling);
+retain independent GC service and admission gates, and release loans before
+servicing a transition. Collector work budgets do not define execution polling.
 
 ### Provider mutation entrypoint
 
@@ -1045,7 +1051,8 @@ is no suffix publication loop. This matches the growth order of Rust's
 and requires no relocation-publication pass over the shifted suffix. Repeated
 front removal is quadratic. Reduced work is not measured throughput acceptance,
 and the collector step budget does not bound this mutator operation's duration.
-Long-operation cancellation remains an integration obligation.
+This operation has no execution-cancellation obligation under the selected
+[Runtime policy](runtime-gc-integration-design.md#execution-without-cooperative-cancellation-polling).
 
 The selected ordered-removal protocol requires 0 <= next <= end <= old_len, with
 end exclusive. All ObjectVec structural operations must preserve this invariant
@@ -1223,8 +1230,9 @@ An active owner remains Gray until its scanner finishes. Other gray slots in
 the same block remain queued. At most one descriptor state is initialized in
 ScanWorkspace. A provider Pending leaves its numeric cursor and active identity
 in Heap; all payload/page/graph loans are released. Completion reacquires the
-same identity/mark before changing it to Black. A taken native owner is completed
-as an edge-free tombstone after discarding its old Copy scanner state.
+same identity/mark before changing it to Black. The proposed Runtime native
+shell changes payload state through the provider mutation protocol; scanner
+restart/continuation remains under that protocol, without descriptor replacement.
 
 Admitted Rust payloads and owned scan state must be Send + 'static, as in the
 current provider contract. Erased layout/scan/drop dispatch must preserve that
@@ -1323,8 +1331,9 @@ targets Gray (or Black for proven
 edge-free leaves) and reserves no new queue storage for admitted targets. In
 Sweep, existing targets must already be Black; new initialized allocations are
 admitted Black. Idle still checks heap/type/liveness admission before skipping
-mark work. New publication rejects taken objects; existing traced aliases are
-allowed to mark their edge-free tombstones.
+mark work. Runtime admission rejects newly published taken native values;
+existing traced aliases still name valid shells. The generic collector does not
+interpret Native/Taken language state.
 
 The core receives a generic continuation decision, not a container operation:
 
@@ -1521,42 +1530,57 @@ prepares this operation; the physical API does not choose script trap ordering.
 
 ### Remove and return an element
 
+Runtime script removal follows the
+[simple scoped-return policy](runtime-gc-integration-design.md#option-wrapping-and-removal-failures):
+read/remove within one noncollecting region, wrap the normal optional value and
+publish through the common return path. A scoped Gc remains live after its source
+edge is removed. No Option preallocation, PreparedReturn or mutation rollback
+is required; later failures propagate while completed changes remain committed.
+Surviving values must enter a traced slot/root before the region ends or a
+callback/collection runs. Collection storage and scan-state edits still obey
+their physical publication/commit rules.
+
+An independent owning-host API that returns Root has a different retention
+boundary. The following protocol describes that provider's chosen failure
+contract, as exercised by standalone retained-result examples; it is not a
+requirement to allocate a Root for each script pop/remove:
+
 ```text
 1. Locate the element under its traced source's loan.
-2. Prepare result protection while the element is still traced: install an owning
-   Root for host escape, or validate/stage the directly scanned frame destination
-   for script transport without changing that destination. Publish the target.
+2. Prepare an owning Root for host escape while the element is still traced.
+   Publish the target before committing that root.
 3. Prepare commit/accounting resources and all fallible checks before destructive
    changes. Admit receiver-bound scan-state access for ordered Vec removal; other
    representations may require covered relocation publication or Restart. The
    source loan still protects the result.
-4. In the closed no-fail suffix, install any staged script result protection
-   before removing its source, commit removal and any provider-owned cursor repair,
+4. In the closed no-fail suffix, commit removal and any provider-owned cursor repair,
    finalize charge, and report Continue or Restart without clearing an earlier
    pending Restart. Release the payload loan after completing the paired commit.
-5. Return the independent Root or rooted script value; callbacks can now run.
+5. Return the independent Root; callbacks can now run.
 ```
 
-If preparation fails, the source and original script destination remain intact;
-an unused temporary result Root is released normally. If an algorithm removes
+For this owning-host provider operation, failed preparation leaves its source
+intact; an unused temporary Root is released normally. If an algorithm removes
 several entries before a callback,
 all removed live values must reside in rooted or traced scratch first. A Rust Vec
 of unrooted copied Edge values is insufficient scratch storage.
 
 ### Take a native payload
 
-Require an installed Takeable representation and its current exclusion/operation
-proof. Takeable means recursively free of managed edges, roots, executable
-metadata and script callbacks, including through shared/interior mutable owners,
-as required by [NativeTake](https://github.com/kagari-lang/kagari/blob/0490f8a4071f11ffcb98679f0eb3dd67eb8c9854/crates/kagari-runtime/src/native/payload/take.rs).
-An empty scanner alone is not that proof. Do not return an arbitrary
-reference-bearing T to untraced host storage. Prepare the edge-free taken descriptor
-and move the Rust T once. Replace
-dispatch at the original header with Taken, preserving occupied slot, page mark,
-physical extent and address. Retire the removed native record/metadata outside
-storage borrows. Clear its indirect charge while physical backing remains charged.
-Old traced aliases retain the tombstone; inspect/new publication rejects it.
-The normal sweep later reclaims it. No separate moved-ID store is introduced.
+Runtime extraction remains unimplemented. The
+[integration draft](runtime-gc-integration-design.md#stable-native-shell-for-take)
+proposes a stable NativeObject shell with Present/Taken payload state. NativeTake
+still proves that the extracted Rust payload is recursively free of managed
+edges, roots, executable metadata and script callbacks; an empty scanner alone
+is insufficient. Active payload loans/operations reject extraction.
+
+Take moves the inner payload once through reviewed provider mutation, preserving
+the shell's descriptor, address and typed-handle validity. Scanner coordination
+and charge updates follow the ordinary mutation contract. Detach obsolete
+dependencies under that protocol and dispose them outside storage loans;
+physical shell backing remains charged. Existing aliases trace the valid shell
+until ordinary GC reclaims it. Runtime rejects moved-value access/publication.
+The core gains no generic take entrypoint or Native/Taken descriptor policy.
 
 ## Cycle state machine and sweep
 
@@ -1798,6 +1822,11 @@ there is no extra cached bitmap or weakened scan/retirement budget.
 
 ## Runtime integration map
 
+The [Runtime integration design draft](runtime-gc-integration-design.md) owns the
+detailed proposed responsibilities and Value/slot/host/native protocols. This
+map summarizes the physical collector boundary; GCR00/GCR02 decisions remain
+open and Runtime has not switched collectors.
+
 ```text
 Runtime {
     memory_and_roots: checked owner of RootDriver<ExecutionRoots>,
@@ -1850,6 +1879,8 @@ to make heap teardown memory-safe; Root drops after teardown are inert.
 
 Rehome methods by responsibility, not by copying whole old files. Remove the old
 production collector/forwarding models at cutover. Do not change static typing,
-once-only effects, trap ordering, rooted return transfer, cancellation or reload
-selection to make the new API fit. Existing type/code retention debt and historical
+once-only effects, trap ordering, rooted return transfer or reload selection to
+make the new API fit. The user-selected cancellation-policy change belongs to the
+[Runtime draft](runtime-gc-integration-design.md#execution-without-cooperative-cancellation-polling),
+not the generic collector API. Existing type/code retention debt and historical
 performance gates remain at their original review/plan owners.

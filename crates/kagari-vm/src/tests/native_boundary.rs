@@ -31,6 +31,7 @@ use std::sync::{
 use std::{ops::Bound, sync::Arc};
 use {kagari_stdlib as foundation, kagari_stdlib::declarations::StandardDeclarations};
 
+mod managed_gc;
 mod native_boundary_artifacts;
 mod native_boundary_callbacks;
 mod native_boundary_control;

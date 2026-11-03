@@ -1624,8 +1624,27 @@ safety contracts. The [kagari-gc crate](../crates/kagari-gc/README.md) implement
 standalone typed/dynamic objects, roots, direct execution-root adapters,
 incremental collection, reclaimable metadata and opt-in safepoint pacing.
 
+The [Runtime integration draft](runtime-gc-integration-design.md) details proposed
+Runtime ownership, scoped/stored/rooted Values, actual frame/root transfers,
+host slots and stable native shells. It remains a revisable GCR00/GCR02 design
+input; actual representation/provider/index proofs and cutover are not complete.
+The user-selected [execution policy](runtime-gc-integration-design.md#execution-without-cooperative-cancellation-polling)
+removes cooperative Runtime cancellation polling, preserving independent
+GC/admission/failure gates, queued/suspended async retirement and compilation
+cancellation. GCR03 owns the coherent implementation/spec cutover; current
+Runtime behavior has not changed.
+
+The [implementation order](gc-redesign-plan.md#implementation-order-for-runtime-integration)
+starts with the minimum authoring/value contract and real Native/provider proofs,
+then complete retention proofs, Runtime ownership/execution-policy separation and
+a coherent collector/consumer cutover. The user-authorized orders 1-3 have an
+[executable bounded trial](gc-redesign-plan.md#orders-1-3-executable-checkpoint):
+shared value/slot/native-shell components, public stdlib vector/fold providers and
+real VM collection/reentry proofs. Complete nominal/generic Native admission and
+direct bind integration remain open; orders 4-8 and production cutover are pending.
 Runtime integration, arbitrary erased layouts/native extraction, integrated
-pressure/cancellation policy and complete comparative acceptance remain deferred.
+pressure scheduling, execution-policy cutover and complete comparative acceptance
+remain deferred.
 Main retains its existing Runtime collector. Historical PG/NC source and
 measurement references are pinned in the plan; they are integration obligations,
 not evidence that main's Runtime has been replaced or its gates have passed.

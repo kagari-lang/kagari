@@ -8,6 +8,11 @@ borrowing, tracing and mutation contracts, and the [crate guide](../crates/kagar
 owns usage and fixture commands. The [roadmap](implementation-roadmap.md#gc-library-redesign)
 owns activation of the integration phases.
 
+The [Runtime integration design draft](runtime-gc-integration-design.md) records
+proposed Runtime responsibilities, the scoped/stored/rooted Value family,
+direct frame transfers, host slots and stable native shells. It is an editable
+GCR00/GCR02 design input, not a second execution plan or a completed proof.
+
 ## Scope and status
 
 The library is a precise, nonmoving, nongenerational incremental mark-sweep
@@ -17,7 +22,9 @@ IDs, language typing, execution policy, hot reload and code selection stay in
 Runtime; host Rust state stays outside the script heap.
 
 The standalone implementation is usable without language crates. Runtime cutover,
-arbitrary erased providers and native extraction/tombstones remain deferred.
+arbitrary erased providers and Runtime native extraction remain deferred; the
+selected extraction model preserves a stable shell rather than replacing its
+descriptor with a tombstone.
 Concurrent/moving collectors, foreign graph stores or Domain bindings, generic
 finalizers/resurrection, shared heaps across Runtimes, derive tooling and new
 container libraries are outside this scope. The current fixed dynamic API does
@@ -27,7 +34,7 @@ not enforce language nominal types or implement all Runtime storage needs.
 | --- | --- |
 | GCR00: contract closure | Typed/fixed dynamic access, typed schema keys, branded handles, provider mutation, cursor repair and direct root-source contracts are implemented. Close Runtime representation/extraction requirements and freeze comparable performance gates. General safe custom-object construction remains an explicitly reviewed provider responsibility. |
 | GCR01: standalone heap | Allocation, roots, mutation, resumable collection, metadata reclamation and opt-in safepoints are implemented. Complete the remaining representation/diagnostic requirements selected for integration; do not invent placeholder APIs. |
-| GCR02: Runtime object-model proof | Standalone frame adapters exist. Map every genuine root and managed relationship, prove object/code-state cycles and pinned computation lifetime, then measure actual frame/layout adapters. |
+| GCR02: Runtime object-model proof | Standalone frame adapters and the bounded Native/value/provider trial exist; production nominal/generic entry admission remains open. Map every genuine root and managed relationship, prove object/code-state cycles and pinned computation lifetime, then measure actual frame/layout adapters. |
 | GCR03: coherent Runtime cutover | Connect Value/layout/Native providers and direct frame scanning; rehome execution state and remove the replaced collector and graph owners. Not started. |
 | GCR04: integration and performance closure | Complete selected integration regressions, paired standalone/integrated gates and CI; reconcile inherited obligations at their existing owners. |
 | GCR05: documentation and cleanup | Move lasting behavior to architecture/spec/authoring owners, remove obsolete paths, transfer unresolved work and retire this plan. |
@@ -76,13 +83,224 @@ provenance Miri. Structure, fmt, workspace all-target Clippy, document/link and
 diff checks pass. Full workspace/platform/backend acceptance remains CI-only.
 No new API, state cache or performance claim is introduced.
 
+## Implementation order for Runtime integration
+
+Implementation checkpoint, 2026-11-03: the user authorized orders 1-3 for an
+executable authoring trial. Their bounded value/Native/provider components and
+selected proofs are implemented; the general nominal/generic binding contract is
+not closed. Orders 4-8 remain pending. The checkpoint below owns concrete results
+and remaining limits; this is not GCR03 activation or a second progress queue.
+Standalone capabilities already implemented above remain available evidence.
+Contract clarification, a demonstrated missing core capability and its Runtime
+proof may iterate across GCR00/GCR01/GCR02; do not restart completed standalone
+work or begin wholesale Runtime replacement while Native ergonomics are unproved.
+
+| Order | Existing phase and responsibility | Concrete result and exit condition |
+| --- | --- | --- |
+| 1. Close the minimum authoring contract | GCR00; Runtime Native, value and provider owners | Specify what a normal function, an ordinary Native type and a managed container provider each define. Settle parameter/return adaptation, short access versus callback capabilities, typed application provenance, initialization, host borrowing and Present/Taken admission. Vector/VectorMut are proposed library facades, not assumed core features. List real gaps and freeze baseline workloads before execution-policy changes. |
+| 2. Build the minimum value/access foundation | GCR01 gaps with GCR02 Runtime adapters | Implement only the scoped/stored/rooted forms, checked region/slot transitions and stable native-shell/storage primitives needed by the next proofs. Reuse existing collector tracing, roots, barriers and accounting. Demonstrate lifetime escape rejection, protected removal and typed result publication with actual Rust signatures, not pseudocode. |
+| 3. Prove Native authoring end to end | GCR02; Runtime Native and provider owners, NC-owned collection logic | Run an ordinary edge-free Native payload plus a scoped host borrow, real Vec push/pop, and fold with a collecting/reentrant script callback. Use real storage and registration/application adapters. Function authors define bodies and bindings, not root packs or per-method tracing; provider authors implement one reviewed storage boundary. Compile-time return mistakes fail, declaration/application mismatches fail before effects, and stable facts are not rebuilt per call. |
+| 4. Prove the complete retention model | GCR02; execution, module and host owners | Exercise real frame transfers, reusable Local slots, parked execution and host roots through collection. Prove object/environment/static/code cycles, ordinary current-code selection and retained closure/Future bodies. Check a collecting Hash/Eq callback and sort scratch recovery at their existing semantic owners. Settle lookup-index validity and metadata placement before production cutover. |
+| 5. Separate Runtime owners and change execution policy | GCR03 preparation; Runtime execution/memory/modules/host, backends and SDK | Rehome ResourceState responsibilities without moving the same mixed state into a renamed owner. Remove cooperative execution-token polling and its API coherently, preserving admission/sticky-failure gates, GC service, compilation cancellation and queued/suspended async retirement. Make this a separately reviewable change from physical GC replacement. |
+| 6. Perform the coherent representation/collector cutover | GCR03; Runtime plus all actual consumers | Replace Value/storage/frame roots, managed object/module relationships, Native adapters/providers and host retention together with their backend consumers. Migrate existing stdlib/host paths needed to preserve supported behavior through the shared provider API. Remove the old production collector, joint graph/metadata sweep, obsolete adapters and privileged collection paths replaced by this cutover. No selectable old/new execution path. |
+| 7. Close correctness and performance acceptance | GCR04; existing contract/benchmark owners | Complete focused local boundary coverage and paired integrated workloads, then CI's exhaustive matrix. Compare field/value/frame work, Native calls, allocation, live/cyclic collection and pressure latency under documented settings. Attribute cancellation removal separately from collector and Native-model changes; diagnose architecture again if gates fail. |
+| 8. Consolidate the lasting contracts | GCR05; architecture/spec/authoring owners | Move implemented ownership and API contracts to their lasting documents, update examples, retain unresolved work at its roadmap/review owner and remove the completed plan only after required acceptance. |
+
+### Native prototype boundary
+
+The immediate next work is orders 1-3, not migrating every standard-library
+function. Resolve the public parameter/adaptation shape with executable examples:
+
+- **Ordinary Native type:** define its Rust payload, script declaration and method
+  bindings; show the actual amount of user-written mapping/borrow code. Also show
+  a host-owned resource accessed through the installed scoped interface. Do not
+  move arbitrary host state into the script heap.
+- **Vec storage and view:** implement the real push/pop path beneath the proposed
+  Vector/VectorMut facades. Show provider construction, controlled mutation,
+  removed-value protection, scanner repair, capacity accounting and return
+  publication. A short wrapper delegating to an undefined storage helper is not
+  evidence of a maintainable API. Do not require unrestricted mutable payloads.
+- **Script callback:** implement fold using a fixed reusable slot set; its callback
+  can allocate, collect and synchronously reenter. No scoped value/payload loan
+  survives that boundary. Use the normal typed return path with no return_unit,
+  PreparedReturn, per-element Root/RootSet construction or cancellation polls.
+
+Keep prototypes bounded and attached to the actual owning modules/test fixtures.
+Before production activation they may use a separate fixture heap, but must reuse
+the intended storage/adaptation components; do not create a second miniature
+Runtime or a disposable duplicate collection semantics implementation. A normal
+method must not require new unsafe tracing code. If each new Native type needs
+handwritten read/write wrappers and repeated conversion glue, revisit the generic
+admission/borrow boundary before freezing the API. Exact trait/lifetime names are
+chosen by these proofs, not by making the illustrative names compile at any cost.
+
+The Hash/Eq and sort cases in order 4 validate the harder callback/exclusion and
+scratch-liveness boundary before committing to the model. They do not authorize
+reimplementing the entire collection library during the prototype checkpoint.
+NC remains the owner of collection storage/algorithms and its inherited gates;
+record the exact shared migration checkpoint there when implementation starts.
+Do not make full NC completion, derive tooling, compact Option encoding, full R13
+resolution or a general-purpose container framework prerequisites for these
+proofs. Do not silently drop supported collection behavior at cutover either.
+
+### GCR03 migration and build boundary
+
+Expected affected owners are kagari-gc, kagari-runtime, kagari-stdlib, kagari-vm,
+kagari and the actual ABI/codegen/Cranelift consumers of changed value/call
+contracts. Audit kagari-derive, compiler/artifact metadata, CLI and web/example
+consumers for concrete affected contracts before listing them as implementation
+work. Frontend/type analysis is not to acquire a collector dependency, and the
+backend must continue consuming checked source-free executable facts.
+
+Prefer building checkpoints for responsibility separation and execution-policy
+removal while the old collector is still the sole production collector. Update
+the affected execution specifications/examples with that behavior change; do not
+leave them promising in-flight interruption after its implementation is removed.
+The physical Value/root/provider/backend migration is one coherent cutover even
+if its edits need several batches. Do not promise every batch independently
+builds: before the first incompatible edit, record its exact affected crates,
+expected diagnostics and the next repair checkpoint here. Attempt the affected
+checks at each meaningful boundary, preserve distinct behavioral coverage and
+carry any real failures in this plan until resolved. There are no new carried
+build errors from this documentation checkpoint.
+
+Orders 1-4 must close the actual representation, generic Native adaptation,
+root completeness and provider-access questions before order 6 starts. Use a
+small correctly connected execution path first within the cutover, then finish
+all supported consumers before claiming GCR03 complete. No production stubs,
+ignored validation, old-ID compatibility adapters or permanent parallel banks
+are accepted ways to obtain a green intermediate build.
+
+Local implementation acceptance uses affected contract tests, structure/fmt,
+workspace all-target Clippy and diff checks. Full workspace tests and the complete
+feature/backend/platform matrix remain CI-only. Reuse passing evidence unless a
+change affects it. Documentation-only sequencing changes need content/link/diff
+checks and do not establish implementation or performance acceptance.
+
+### Orders 1-3 executable checkpoint
+
+The user-authorized first trial is implemented in these existing owners:
+
+- [Runtime managed components](../crates/kagari-runtime/src/native/managed/mod.rs):
+  one private Repr family, scoped Value, opaque non-Copy StoredValue, immutable
+  typed host snapshots with scalar owner identity, sealed physical kinds,
+  generative Locals, a complete direct slot source and short driver access.
+  NativeCall retains a shared Memory reference, not a driver/payload loan across
+  callbacks. Same-driver nested entry is checked dynamically while an access
+  region is live and succeeds after it ends.
+- [Typed scoped entry](../crates/kagari-runtime/src/native/managed/entry.rs) and
+  [argument projections](../crates/kagari-runtime/src/native/managed/arguments.rs):
+  supported outer tuples are (), (A,) and (A, B). Rust checks the real scoped
+  output family; the adapter publishes before region exit. Closed u64/Unit
+  declarations can be checked once with prepare_scalar. There is no signature
+  walk in invoke and no manual return completion. new constructs a Rust-only
+  body; it is deliberately not a script nominal/application proof.
+- [Stable Native shell](../crates/kagari-runtime/src/native/managed/payload.rs):
+  Present/Taken preserves the Rust descriptor and typed-handle validity. Ordinary
+  edge-free payloads implement the reviewed EdgeFree contract once; methods use
+  safe read/edit/take. Reference-bearing providers use GcObject and generic unsafe
+  construction/mutation once at their storage boundary. Missing tracing is never
+  justified by the old safe NativePayload trait.
+- [Stdlib value vector](../crates/kagari-stdlib/src/managed/vector.rs): the same
+  provider stores unboxed u64 and managed references, publishes before commit,
+  stages amortized capacity growth at its actual charge, repairs incremental
+  tail-scan state and owns a revision. pop protects a scoped value, removes the
+  source, then admits/returns it; later failure does not roll removal back.
+  Taken Native values cannot be newly published. All operations use Runtime/core
+  public generic services, without crate-private collection hooks.
+- [Stdlib fold](../crates/kagari-stdlib/src/managed/fold.rs) and the
+  [real VM proof](../crates/kagari-vm/src/tests/native_boundary/managed_gc.rs):
+  one source slot and two reused scalar working slots survive script -> Native
+  -> script reentry and collection from inside the script callback. The fixture
+  uses the real compiler, installed native modules, typed callable routes and VM.
+  A test-only scoped host service selects the same Memory owner; no managed
+  references cross between the old Runtime heap and the candidate heap.
+
+The representative [provider tests](../crates/kagari-stdlib/src/managed/tests.rs)
+cover real ordinary payload access, typed push/pop, removal/error order, take,
+capacity and incremental scanning, host snapshot ownership, unwind cleanup,
+borrow rejection and scalar declaration preparation. With max_roots=0 the normal
+vector/fold paths run without host root registrations. The scalar vector stores
+128 values in one managed container object, not 128 boxed scalar objects.
+These are behavioral/ownership observations, not throughput results.
+
+Important boundaries found by this trial:
+
+1. CallRegion needs both access and GC-brand lifetimes. Returning scoped values
+   works through a higher-ranked output family only when publication happens
+   inside the adapter's region. Ordinary region callbacks cannot return Gc.
+2. Holding &mut Memory for a whole Native call prevents independently driven
+   synchronous reentry. The driver is now exclusively borrowed only inside each
+   region/collection operation; Memory itself is shared by active nested calls.
+3. Present/Taken can invalidate an admitted physical object without changing its
+   type. Read helpers can fail, and language-value publication must check state;
+   typed physical handles do not authorize removed-payload access.
+4. Explicit Rust kind tuples are currently required to instantiate ScopedEntry.
+   Object<P> proves a physical Native shell, not an arbitrary loaded script type
+   or generic application. Scalar preparation is intentionally restricted. Do
+   not generalize it into a nominal-type trust flag or infer the script type from
+   Rust P. Direct ModuleBuilder::bind integration for the new scoped families,
+   application/witness ownership and custom-value ingress remain orders 1-3
+   closure work before advancing to the complete retention/cutover checkpoints.
+5. The proof covers u64, Unit and Native object kinds, with one optional working-
+   slot projection. It does not implement the language Option encoding or nested
+   Option transport. fold covers revision-checked vector projection and a u64
+   accumulator, not all Iterable/generic reducer combinations. Other language
+   representations, host mutable slots and complete module/async roots remain at
+   their existing design/phase owners.
+
+The production collector, Value ABI, NativeEntry dispatcher, execution cancellation
+and ordinary stdlib registrations are unchanged. The scalar callback bridge uses
+those existing production adapters, including their current conversion/checking
+costs; its success does not prove a new production Native ABI or speedup. No
+second Runtime, provider registry, production compatibility adapter or selectable
+collector mode was introduced. These results do not close GCR00/GCR02 as a whole.
+
+Focused local evidence for this checkpoint:
+
+- cargo test -p kagari-stdlib -p kagari-vm --lib managed --no-fail-fast:
+  7 provider tests and 8 relevant VM tests pass, including the real collecting
+  reentry route and existing managed-payload/code-retention regressions.
+- cargo test -p kagari-runtime --doc native::managed --no-fail-fast:
+  4 compile-fail cases pass for missing/wrong returns and GC/call-local escape.
+- cargo test -p kagari-vm --lib registered_struct_loans_use_original_host_storage_and_common_methods --no-fail-fast:
+  the existing source-free scoped-host-loan contract passes; the prototype reuses
+  that host boundary rather than define a second borrowing mechanism.
+- cargo test -p kagari-stdlib --lib fold_reports_alias_mutation --no-fail-fast:
+  the additional provider case passes, checking the next-read trap even when the
+  final callback mutates the source. Eight distinct provider cases now pass.
+- The final managed_gc VM case passes with original script-trap propagation and
+  candidate-source cleanup on the failing path. Its earlier successful collection
+  and reentry assertions remain in the same case. This is 17 distinct focused
+  behavioral cases across the commands above, plus the 4 compile-fail cases.
+- Structure, fmt, workspace all-target Clippy, content/link and diff checks pass.
+  The content check covers 6 affected documents and 539 local links/anchors.
+  Full workspace/backend/platform tests remain CI-only and were not run locally.
+  Performance workloads and historical gates above remain unchanged; none was
+  rerun to claim a speedup.
+
+Resolved development failures: the first lifetime prototype let the view/region
+brands differ; explicit invariant lifetimes and the region-dependent result family
+resolve that. Provider tests initially lived inside Runtime's unit-test copy,
+creating mismatched Runtime types through its stdlib dev-dependency; moving them
+to the stdlib owner exercises the actual public boundary. A global From<GcError>
+implementation also widened unrelated error inference; conversion now lives only
+at the managed memory boundary and unrelated production code is restored. The
+first VM source probe used Rust let/named-function-value syntax; the fixture now
+uses Kagari val and an ordinary closure. These failures are resolved; no carried
+build failure is selected as an acceptable intermediate state.
+
 ## Remaining decisions and work
 
 - **Runtime representations:** validate fixed layouts against packed Value fields,
-  custom erased layouts, Native take/tombstones and outstanding aliases. Do not
-  assume a transient Gc remains valid after adding an in-scope representation
-  change. The [Runtime map](gc-implementation-design.md#runtime-integration-map)
-  owns proposed responsibility changes.
+  custom erased layouts and the
+  [Value/native-shell draft](runtime-gc-integration-design.md). The draft separates
+  scoped values, traced carriers, immutable host roots and replaceable host slots;
+  it proposes stable shell state for take instead of changing a typed Gc target's
+  representation. Exact metadata placement, argument carriers, encoding and index
+  validity still need concrete proofs. The draft owns proposed Runtime boundaries;
+  the [Runtime map](gc-implementation-design.md#runtime-integration-map) summarizes
+  the physical collector boundary.
 - **Safe provider authoring:** GcObject, raw initialization and general mutation
   remain unsafe contracts. Opaque Edge is non-Copy/non-Clone; a higher-ranked Init
   callback alone cannot stop an unbranded owned edge escaping. Reviewed providers
@@ -92,14 +310,16 @@ No new API, state cache or performance claim is introduced.
   It must not expose blanket safe mutable object access.
 - **Complete execution roots:** adapt actual frames, parked tasks, return/argument
   transfers and host reentry to RootDriver. Validate slot reuse, changed frontiers,
-  incoming publication, cursor repair and cleanup on every trap/cancellation path.
+  incoming publication, cursor repair and cleanup on every trap/retirement path.
   No mirrored per-variable Root registration or foreign-store graph is selected.
 - **Access intervals:** reuse prepared layout/offset facts only while their
   ownership and admission proofs hold. Release payload/frame loans before calls
   that may collect or reenter; root values that cross that boundary and reacquire
   transient loans afterward. Shared layout evidence never permits caching mutable
-  field values across aliases. Retain existing cooperative polling and long-native
-  operation cancellation; GC work allowance is not an instruction-count interval.
+  field values across aliases. Follow the user-selected
+  [execution policy](runtime-gc-integration-design.md#execution-without-cooperative-cancellation-polling):
+  remove cooperative cancellation polling without removing GC service or required
+  admission/failure gates. GC work allowance is not an instruction-count interval.
 - **Failure policy:** Faulted permits shutdown only. Errors/panics can be caught
   inside Scope, so its state gate remains. Removing that gate would require a
   separate recovery/exit protocol, not merely replacing Result with panic.
@@ -109,10 +329,69 @@ No new API, state cache or performance claim is introduced.
   sustained policies before claiming broader parity. Prepared dynamic layout
   binding may amortize exact-layout checks, but requires a concrete validity owner.
 - **Validation:** full CI/platform/backend acceptance, integrated pressure and
-  cancellation behavior, coverage-guided fuzzing, automatic trace reduction and
+  async retirement and revised execution behavior, coverage-guided fuzzing, trace reduction and
   sanitizers remain open. Existing deterministic graph/Miri evidence is scoped.
 
 ### Integration obligations
+
+Design checkpoint, 2026-11-03: the
+[integration draft](runtime-gc-integration-design.md#open-decisions) now records
+the proposed Value/ownership model, existing API changes and unresolved choices.
+The collector design no longer proposes descriptor-changing native take or a
+generic core take entrypoint. This is documentation only; GCR00 contract closure,
+GCR02 actual Runtime proofs and GCR03 cutover remain incomplete. Documentation
+acceptance checks local links/anchors, consistency and diff/line endings; no new
+Runtime test or performance result is established.
+
+The draft's [mechanism comparisons](runtime-gc-integration-design.md#mechanisms-consulted-and-differing-assumptions)
+now record source versions, applicable ownership rules, differing assumptions and
+Kagari-specific evidence for SpiderMonkey, gc-arena, Wasmtime, Lua, mlua, MMTk
+and OpenJDK/Java. Repr reuse, host-slot mutability, stored-carrier copy policy,
+direct-source ownership, native-shell layout and module/index lifetimes remain
+proposals requiring actual Runtime proofs; the references do not close them or
+activate another migration. Their detailed open decisions remain in the draft.
+
+User direction, 2026-11-03: the draft now includes
+[typical standard-library function bodies](runtime-gc-integration-design.md#standard-library-authoring-proposal)
+and their call/storage capability requirements. Script pop/remove use ordinary
+scoped removal and result publication; no preallocated Some, PreparedReturn,
+rollback or retry is required to preserve contents on a later Runtime failure.
+Propagate the original error and preserve completed effects, without mapping it
+to None or a script Result. The user selected future direct-value Option wrapping;
+exact encoding remains later work, not an implementation added by this design
+update. This overrides preserving today's Option-before-removal allocation order.
+GC liveness, checked storage commits and standalone owning-root API guarantees
+remain intact. Authoring prototypes/proofs belong to GCR00/GCR02 and collection
+algorithms remain NC-owned; no code or phase completion is claimed.
+
+The user's Native preparation requirement is recorded in the draft's
+[staged-check model](runtime-gc-integration-design.md#native-preparation-and-execution-checks):
+Rust compilation, Kagari static checking and existing link/application owners
+establish stable signature, mapping, layout and witness facts before body entry.
+Typed execution consumes those facts, with actual owner/borrow/liveness,
+terminal-failure admission, bounds, mutation and untrusted-value checks retained at their
+changing boundaries. Function sketches now use typed parameters and ordinary
+NativeResult<R> returns; the adapter publishes scoped/call-local results, rather
+than requiring manual return_unit/return_option completion. Reuse existing
+signature/application records, not a new proof cache or a parallel Native plan.
+GCR00/GCR02 must prove the concrete adapters and attribute repeated-call work;
+no implementation or measured reduction is established by this documentation.
+
+User direction, 2026-11-03: remove the cooperative Runtime execution-cancellation
+mechanism, not just explicit Native poll calls. The draft's
+[execution policy](runtime-gc-integration-design.md#execution-without-cooperative-cancellation-polling)
+records uninterrupted synchronous segments, independent GC/admission/failure
+responsibilities, retained queued/suspended async retirement and unaffected
+compilation cancellation. This explicitly supersedes preservation of in-flight
+execution-token interruption in the prior integration requirements. GCR00/GCR02
+close the boundary design; GCR03 owns the coherent backend/Native/SDK/spec cutover
+and replacement of obsolete interruption assertions with the selected contract.
+No active-loop or call-boundary token polling, inert compatibility API or alternate
+execution mode is selected. Runtime code and current specifications are unchanged
+by this design checkpoint; no performance or phase-completion claim is made.
+The user explicitly accepts noninterruptible synchronous execution for performance
+and simpler authoring; the draft records this rationale and differing Lua,
+Wasmtime and V8 mechanisms without claiming that all runtimes omit interruption.
 
 Runtime should own memory, execution and semantic stores alongside each other.
 Split ResourceState along actual responsibilities rather than move it intact into
@@ -180,7 +459,7 @@ provenance, and extraction alone does not fix other type-only holders of code.
 | [Go 1.26.0 barriers](https://github.com/golang/go/blob/go1.26.0/src/runtime/mbarrier.go) | Bulk movement publishes pointers before copying. Concurrent Go marking cannot use Kagari's exclusive-driver ordered-Vec cursor repair; arbitrary container edits still need a provider proof. |
 | [OpenJDK 21+35 OopStorage](https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/gc/shared/oopStorage.hpp) | Block allocation/occupancy permits empty-block reclamation. Kagari uses stable numeric IDs and a sparse radix directory rather than HotSpot's handle/iteration protocol. |
 | [gc-arena 0.7.0 metrics](https://github.com/kyren/gc-arena/blob/49c4c041816be2dc6ce8a928ace838e37a066813/src/metrics.rs), [Lua 5.4.9 collection](https://www.lua.org/source/5.4/lgc.c.html) | Allocation debt schedules collection at safe boundaries. Kagari keeps explicit bounded-provider admission and opt-in driver safepoints; their coefficients are not interchangeable. |
-| [HotSpot JDK 25 safepoint options](https://docs.oracle.com/en/java/javase/25/docs/specs/man/java.html), [Go 1.26.0 preemption](https://github.com/golang/go/blob/go1.26.0/src/runtime/preempt.go) | Poll placement trades throughput against responsiveness. Neither supplies a Kagari instruction interval or justifies weakening cancellation during extraction. |
+| [HotSpot JDK 25 safepoint options](https://docs.oracle.com/en/java/javase/25/docs/specs/man/java.html), [Go 1.26.0 preemption](https://github.com/golang/go/blob/go1.26.0/src/runtime/preempt.go) | GC safepoints and preemption have different responsibilities. Neither supplies a Kagari instruction interval; the user-selected removal of execution cancellation is a separate semantic decision, not a GC safety relaxation. |
 
 These sources inform ownership and mechanisms, not predicted speedups. Kagari's
 custom boundary combines compact dynamic layouts, Rust provider destruction,
@@ -594,7 +873,8 @@ score may hide a failed throughput, memory or latency gate.
 Use existing semantic owners for live graphs, cyclic reclamation, mutation behind
 scan cursors, root reuse, sweep admission, alignment, allocation/scan/destructor
 failure and shutdown. Integration adds actual Value/Native/frame/reentry,
-cancellation, parked reload and source-free boundaries. Do not dereference freed
+uninterrupted synchronous execution, async retirement, parked reload and source-free
+boundaries. Do not dereference freed
 memory merely to test rejection or add duplicate smoke suites.
 
 Implementation checks follow [AGENTS.md](../AGENTS.md): affected local tests plus

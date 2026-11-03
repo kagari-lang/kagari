@@ -12,6 +12,7 @@ serde = ["dep:serde"]
 web = ["dep:web-time"]
 
 [dependencies]
+kagari-gc.workspace = true
 kagari-types.workspace = true
 bincode.workspace = true
 kagari-abi.workspace = true

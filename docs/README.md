@@ -62,8 +62,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Standalone GC redesign](gc-redesign-plan.md): independent `kagari-gc` allocation,
   rooting, field access and incremental collection, with standalone tests and
   benchmarks. The [implementation design](gc-implementation-design.md) owns its
-  structures and safety contracts. Runtime integration remains deferred; main
-  retains its existing collector.
+  structures and safety contracts. The
+  [Runtime integration draft](runtime-gc-integration-design.md) covers Runtime
+  responsibilities, Value forms, frames, host roots and native extraction.
+  Runtime integration remains deferred; main retains its existing collector.
 
 - [Async Runtime CI acceptance](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api):
   async blocks, structured pair composition and the typed Runtime facade are
