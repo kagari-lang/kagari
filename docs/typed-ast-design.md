@@ -1,6 +1,6 @@
 # Strongly Typed AST Replacement
 
-Status: TA1–TA3 integrated on 2026-11-05; TA4 local acceptance in progress.
+Status: TA1–TA4 locally accepted on 2026-11-05; complete CI pending.
 The production parser and consumers use the strongly typed AST. This document
 owns its finite migration, performance contract and progress ledger; the
 [roadmap](implementation-roadmap.md) owns activation. It does not activate a wider
@@ -289,7 +289,9 @@ Measure seven fresh processes for baseline characterization. Candidate acceptanc
 uses seven alternating baseline/candidate process pairs, three warmup batches and
 eleven measured batches per stage/process. Batch size targets 20 ms (100 ms for
 field reads, frozen in TA1) using an
-untimed probe, bounded to 1..100,000 iterations. Record actual iterations; a sample
+untimed probe. Lifecycle probes use one iteration and remain bounded to 1..100,000
+iterations. Field probes use 1,000 untimed iterations and allow 1..10,000,000
+iterations, so the new direct reads can actually reach the 100 ms target. Record actual iterations; a sample
 is a batch mean, not individual-operation latency. Report median of process
 medians, process min/max, ns/file or ns/workload and MiB/s for parse rows.
 Paired results use the median of per-pair candidate/baseline ratios, not a ratio
@@ -513,7 +515,7 @@ roadmap and remove this completed plan. Do not leave a parallel progress queue.
 - [x] Prepare the single-branch goal contract, fixed decisions, baseline prerequisites and completion gate.
 - [x] TA1 memory baseline and bounded representation proof.
 - [x] TA2/TA3 implementation and coherent consumer migration.
-- [ ] TA4 paired performance and integration acceptance; exhaustive CI remains pending.
+- [x] TA4 paired performance and integration acceptance; exhaustive CI remains pending.
 
 ### TA1 execution ledger (2026-11-05)
 
@@ -714,6 +716,90 @@ the admitted read before the controlled entrypoint rejects cancellation. No host
 callback or partial success is introduced. The eight selected cancellation and
 resource tests pass again. The final image must be rebuilt and measured from a
 fresh complete seven-pair run; earlier image results cannot accept this change.
+
+### Final seven-pair sampling policy
+
+Implementation checkpoint `8fdf19e6` contains TA2/TA3 and the cancellation repair.
+The interrupted application-policy diagnostic still showed small-field medians
+16.77–19.30 ns, so application/tier policy did not stabilize that short row.
+Final matched sampling instead inherits the same background QoS clamp in both
+images, concentrating scheduling under one policy without changing binaries,
+workloads, the 100,000-iteration cap or the 10% gate:
+`/usr/sbin/taskpolicy -b -c background /usr/bin/caffeinate -i uv run python scripts/benchmark_ast.py --baseline-executable target/ast-baseline/20261104T161411058915Z/ast_baseline`.
+The exact policy is part of the measurement context; results must not be presented
+as fixed-frequency or core-affinity measurements. Final acceptance remains pending.
+
+### Short-row sampling diagnosis: address layout
+
+The background-clamped experiment is rejected after three pairs: the first two
+small-field medians were 45.94 and 93.20 ns, already proving that its final spread
+cannot meet 10%. No acceptance claim uses this partial run. The ordinary shell
+and child already request user-interactive QoS (0x21), so raising that class is
+not a remedy. All timed Rust images and frozen batch settings remain unchanged.
+
+The final experiment launches each image with the same Darwin SETEXEC/disable-ASLR
+flags. A separate address probe confirms identical code addresses across launches.
+LLVM's [Darwin spawn implementation](https://reviews.llvm.org/D34236?id=102667)
+uses disable-ASLR flag 0x0100; the installed SDK supplies POSIX_SPAWN_SETEXEC.
+The launcher affects only benchmark child processes, and no system setting changes.
+The runner's optional `--launcher` records its path/hash and archives that image;
+all input/memory/timing invocations use the same launcher on both sides. Thirteen
+benchmark-tool tests still pass. This is a measurement-control diagnosis, not a
+production optimization or relaxed budget. Final seven-pair acceptance is pending.
+
+### Required field-sampling correction (explicit TA4 method change)
+
+Fixed-address launch also fails the noise bound (small-field medians 17.56–20.66
+ns); no report from the diagnostic scheduling/address experiments is accepted.
+The frozen one-call cold probe and 100,000 cap cannot attain the stated 100 ms
+field target after direct access reaches about 17 ns: even the cap gives 1.7 ms.
+Changing scheduling or address layout did not cure this measurement defect.
+
+The field-only calibration now uses a 1,000-read untimed probe and a 10,000,000
+iteration ceiling. Lifecycle probe/cap, 100 ms field target, 3 warmups, 11 samples,
+7 alternating fresh-process pairs, workloads, checksums, budgets and the 10% gate
+remain unchanged. The same exact calibration is applied to the Rowan control
+from frozen commit e1b38ebb in an isolated detached checkout. This is an explicit
+measurement-method correction, not a relaxed acceptance rule or production
+baseline change. The original SHA-256-frozen image/results remain intact. The
+Rowan control's input/evidence and all memory counters must match the original
+before freezing its new image; a contemporaneous complete paired run is required.
+Temporary launch-policy/address helpers are removed from the runner. Ordinary
+launch policy is used. No production source in the control checkout is changed.
+
+### Calibrated control frozen
+
+The control rebuilt from e1b38ebb changes only the identical field calibration
+fragment. Original/control/candidate input bytes, hashes, lexical counts,
+diagnostics, logical field checksums and function counts all match. Every control
+allocation counter at every phase of all nine rows matches the original exactly.
+The replacement did not redefine its memory baseline. The original image remains
+unchanged. The calibrated control is archived at UTC 20261104T184018168524Z in its
+isolated checkout; the one-process archive prepares the image/metadata and is not
+performance acceptance. The next run compares seven fresh alternating pairs with
+that image, without a scheduling/address launcher. Both controls and the current
+candidate use the same toolchain/profile/default features and field calibration.
+
+### TA4 accepted result and handoff
+
+The ordinary-launch calibrated seven-pair comparison at UTC
+20261104T184103054561Z passes every required timing, both-image noise and memory
+budget, with no near-threshold ratio requiring an independent repeat. Primary
+parse lifecycle C/B is 0.715742, 0.710498, 0.748703 and 0.590342 for medium,
+large, trivia and syntax_corpus. All eight lifecycle rows pass, all five HIR and
+field rows pass, all nine memory rows pass, and four repeated complete allocation
+lifecycles return to zero. The complete method, image/lock/input hashes, time and
+allocation results and limitations now belong to [performance measurements](performance-baseline.md#strongly-typed-ast-replacement-macos-2026-11-05).
+
+The final candidate's field-only calibration passes workspace all-target Clippy;
+structure (1812 Rust files, zero violations/exceptions), fmt and diff checks pass.
+Focused semantic/source/ownership/tooling selections listed above pass. All carried
+integration and acceptance failures are resolved. Complete workspace tests,
+ignored formatter/editor/syntax inventories, SDK feature/source-free consumers,
+JIT/AOT, browser and Windows/platform coverage remain pending under the existing
+CI workflow. Local completion does not assert that those jobs ran or passed.
+Current syntax/ownership/formatter contracts live in architecture/syntax.md. This
+completed plan can now be removed after its ledger is committed to Git history.
 
 ### Baseline measured on 2026-11-04
 

@@ -172,15 +172,19 @@ fn measure(
     warmups: usize,
     samples: usize,
 ) -> Value {
-    let probe = batch(workload, stage, 1, fields).0.max(1.0);
-    // Field reads are short enough to expose process scheduling variation at
-    // 20 ms. Freeze longer batches on both images before production cutover.
+    // A batched field probe amortizes the cold call and timer overhead. Keep
+    // allocation-heavy lifecycle probes bounded independently of these pure reads.
+    let field_read = stage == "field_read";
+    let probe = batch(workload, stage, if field_read { 1_000 } else { 1 }, fields)
+        .0
+        .max(1.0);
     let target_ns = if stage == "field_read" {
         100_000_000.0
     } else {
         20_000_000.0
     };
-    let iterations = (target_ns / probe).ceil().clamp(1.0, 100_000.0) as usize;
+    let max_iterations = if field_read { 10_000_000.0 } else { 100_000.0 };
+    let iterations = (target_ns / probe).ceil().clamp(1.0, max_iterations) as usize;
     for _ in 0..warmups {
         black_box(batch(workload, stage, iterations, fields));
     }

@@ -16,10 +16,224 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
-The latest result is [BO17-BO19 scalar dispatch on the i9-12900K](#bo17-bo19-scalar-dispatch-windows-2026-10-27).
+The latest interpreter result is [BO17-BO19 scalar dispatch on the i9-12900K](#bo17-bo19-scalar-dispatch-windows-2026-10-27).
 It includes all 19 original/forms timings and arithmetic machine-code attribution.
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
+
+## Strongly typed AST replacement, macOS 2026-11-05
+
+The production parser and all source consumers use owned grammar fields. The
+[syntax architecture](architecture/syntax.md) owns current contracts. Rowan,
+raw-tree construction and the bounded representation prototype are removed.
+This measurement accepts the local TA1–TA4 replacement; complete CI remains
+pending. These are parser/source-lowering results, not runtime or complete
+compilation speed claims.
+
+### Environment and measurement control
+
+Production candidate: `8fdf19e6`, plus the field-only measurement calibration
+recorded below. The Rowan control is production source from `e1b38ebb`, rebuilt
+with exactly that same calibration; no control production source changed.
+Apple M1 Max, 10 logical CPUs, 32 GiB RAM; macOS 26.6.2 arm64; rustc 1.99.1
+`58cf8f9c35b355199727627d07ae34a4e2846d67`, LLVM 23.1.1; cargo 1.99.1
+`5f94df478`. Both use workspace release, default features and Cargo parallelism,
+one measurement thread, resident inputs and warmed allocator/code/data. No
+compilation, tests or another benchmark overlap the accepted timed processes.
+CPU frequency and affinity are not fixed; normal launch/QoS and ASLR apply.
+`RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_BUILD_JOBS` and `RUSTC_WRAPPER`
+are unset. Allocation counting is inactive during timing.
+
+Seven fresh baseline/candidate process pairs alternate execution order. Each
+stage has three warmup batches and eleven measured batches. Times are batch
+means, then process medians; C/B is the median of seven paired ratios. This is
+not individual-operation p99. Lifecycle calibration targets 20 ms with a one-call
+probe and at most 100,000 iterations. Field calibration targets 100 ms with a
+1,000-read untimed probe and at most 10,000,000 iterations. Actual iterations
+remain recorded for every stage/process.
+
+The field calibration is an explicit correction to the initial frozen method.
+The original one-call probe and 100,000 cap gave only about 1.7 ms for the new
+17 ns small-row reads; a complete initial comparison failed its 10% noise gate.
+Scheduling and fixed-address diagnostics did not resolve that row and are not
+accepted results. The same field-only correction was applied to both images.
+Inputs, logical reads, three/eleven sampling, seven pairs and every numerical
+budget remain unchanged. The original frozen image is retained with SHA-256
+`270fd10917c9f2592f1f41c8add05d1d6c7ccd7ee2099400a5434c8cdbe8557f`.
+Original/rebuilt control input/evidence and all memory counters match exactly.
+The rebuilt control's one-process freeze is metadata preparation, not acceptance.
+
+Accepted report UTC stamp: `20261104T184103054561Z`. Candidate image SHA-256
+`2293257aec7c0661224ae1a7bbff135bf7e7bacc1918d511d967fe86b61a585c`; recalibrated control
+`7b4a49f5788e22a046432f6916b6068ee06a00fc6b802ca8bd2b194e64fdd5d7`. Candidate lock SHA-256
+`8df058e58d1c0a11df6b3734b4c9dead286f65bff63bdd80bd6e724c4a73c826`; control lock
+`431f73298cb3a76908c7b488f2012acfc3b8cebfb17dccf31dee2538db00147b`.
+
+The only resolved dependency changes are orphan removal of `countme 3.0.1`, `hashbrown 0.14.5`, `memoffset 0.9.1`, `rowan 0.17.0`, `rustc-hash 1.1.0`, `text-size 1.1.1`. Retained versions, checksums, sources and other edges match; version-qualified lockfile spelling is normalized for comparison. No ABI/format identifier changed.
+
+### Workloads and timing scopes
+
+[Driver](../crates/kagari-hir/examples/ast_baseline/main.rs),
+[recipes](../crates/kagari-hir/examples/ast_baseline/workloads.rs),
+[allocator probe](../crates/kagari-hir/examples/ast_baseline/allocation.rs) and
+[runner](../scripts/benchmark_ast.py) own the reproducible method. Hashes below
+use length-delimited BLAKE3 over source bytes. Corpus fixtures normalize CRLF to
+LF. File/source/line-index setup, input loading, compilation and correctness
+walks are excluded. Every process checks input hashes, lexical counts, diagnostics,
+function counts and logical field checksums before/after timing.
+
+| Workload | Files | UTF-8 bytes | BLAKE3 |
+| --- | ---: | ---: | --- |
+| small | 1 | 77 | `669549a370d6e209ba0dbb72e6b51eceede737246d3ff85d7a5db37594492bd1` |
+| medium | 1 | 20114 | `af7413102e1b5c17c7d52864469f82a618c6f77474d5370dde8ec429f3b69a01` |
+| large | 1 | 326570 | `c1ae1c000158fbd75daf74df8bbd22ec53527661d49214070c83a3f1ae7e22e4` |
+| trivia | 1 | 34450 | `d851a4cfeebc30d42f18a178c127713ff0bf69b01bdaa5004dd890f1860a5055` |
+| syntax_corpus | 12 | 9268 | `44aeb6877a0b8c35b926f449e61dfcfd7e7420e4b47f7952b95cb138d83035aa` |
+| recovery | 1 | 2038 | `f1667a1b1211e31b3d5f8f2c888c61acf360c2cf0d3df6a0cfeb91123dd0060e` |
+| limits | 1 | 352 | `9feb535f2264a812ffa02fd8a427c128cc6d26f146b8d5bdd91675388ce50b1d` |
+| declarations | 1 | 8338 | `9d58d0c4a6e74b24af28be51b7f8418d3a42f713ba78f70c8f9dc8de47cff10c` |
+| inline_retention (memory only) | 1 | 17558 | `3125435cdfe3c659afecef0da93e5dbe944d66a9da28e3da9026bb7c5d49b2fb` |
+
+`parse_drop` includes lexing, fresh parsing and final destruction. Split
+construction/drop has extra timer reads and is diagnostic. `field_read` repeats
+lhs/operator/rhs, callee/arguments and condition/then/else reads of preselected
+nodes; discovery is excluded, so this is not complete AST traversal.
+`parse_hir_drop` calls public `lower_module`: parse, structural root-module HIR,
+SourceMap and teardown. It excludes name/type checking, full inline-child/package
+preparation and executable lowering. Do not subtract independent lexer/parse
+rows to invent parser-only or HIR-only timings.
+
+### Required lifecycle results
+
+Times are microseconds per complete workload (the corpus row contains 12 files).
+Ranges are candidate process-median minimum/maximum. Spreads are baseline/candidate
+process range divided by their respective medians. The four primary rows each
+require C/B <= 0.80; all other parse rows require <= 1.05.
+
+| Row | Baseline µs | Candidate µs | Candidate range µs | Paired C/B | Candidate MiB/s | Spread B/C |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| small | 6.249 | 3.044 | 3.017–3.160 | 0.4891 | 24.13 | 3.2% / 4.7% |
+| medium | 842.858 | 603.399 | 601.671–609.217 | 0.7157 | 31.79 | 0.6% / 1.3% |
+| large | 14094.312 | 10005.917 | 9999.917–10032.666 | 0.7105 | 31.13 | 3.3% / 0.3% |
+| trivia | 890.822 | 665.634 | 664.582–670.006 | 0.7487 | 49.36 | 1.5% / 0.8% |
+| syntax_corpus | 382.119 | 225.605 | 225.019–226.235 | 0.5903 | 39.18 | 4.0% / 0.5% |
+| recovery | 84.363 | 60.396 | 59.996–60.782 | 0.7147 | 32.18 | 3.9% / 1.3% |
+| limits | 15.873 | 7.368 | 7.361–7.384 | 0.4643 | 45.56 | 0.8% / 0.3% |
+| declarations | 265.998 | 216.976 | 216.714–217.202 | 0.8166 | 36.65 | 1.0% / 0.2% |
+
+| Valid row | Parse-to-HIR candidate µs | HIR C/B | Field candidate ns/workload | Field C/B | Maximum required spread B/C |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| small | 8.489 | 0.3623 | 17.580 | 0.0162 | 3.0% / 9.6% |
+| medium | 1755.977 | 0.3536 | 3903.948 | 0.0139 | 1.2% / 2.5% |
+| large | 32984.000 | 0.3818 | 62338.231 | 0.0139 | 6.8% / 2.4% |
+| trivia | 1895.847 | 0.3769 | 3908.774 | 0.0139 | 1.1% / 1.1% |
+| syntax_corpus | 573.068 | 0.3739 | 803.887 | 0.0166 | 0.7% / 1.1% |
+
+All five parse-to-HIR rows meet <= 1.05 and all five field rows meet <= 1.00. The maximum required process spread is 9.64%, below 10% on both images. No ratio is within 0.02 of its budget; the independent near-threshold repeat rule is not triggered.
+
+### Diagnostic intervals
+
+These ratios are reported separately and do not replace lifecycle gates. A noisy
+auxiliary row cannot establish fine-grained attribution or a standalone lexer win.
+
+| Row | Lexer C/B | Split construction C/B | Split final drop C/B | Auxiliary rows over 10% spread |
+| --- | ---: | ---: | ---: | --- |
+| small | 1.0084 | 0.5069 | 0.3774 | none |
+| medium | 0.9992 | 0.7074 | 0.7959 | none |
+| large | 1.0008 | 0.7036 | 0.7996 | none |
+| trivia | 1.0039 | 0.7454 | 0.7626 | none |
+| syntax_corpus | 0.9970 | 0.6161 | 0.4411 | none |
+| recovery | 0.9974 | 0.7176 | 0.6784 | none |
+| limits | 1.0007 | 0.5192 | 0.2326 | none |
+| declarations | 0.9953 | 0.8147 | 0.8366 | none |
+
+### Owned allocation acceptance
+
+Separate diagnostic processes forward the System allocator and count successful
+allocation/reallocation requests, requested bytes, frees, net live requested bytes
+and peak live requested bytes. Existing source text/line storage is excluded on
+both sides. These are owned requested allocation bytes, not RSS, allocator slab
+size or internal allocator/reallocation working space. Every row repeats four
+complete lifecycles with identical counters and zero live bytes after all owners
+drop. The inline case retains the first child after releasing all root parses,
+then inspects four items and its physical content range before releasing it.
+
+Each peak and retained metric must satisfy C <= B + max(0.10 B, 4096 bytes),
+separately per row. B/C below means baseline/candidate, not a ratio.
+
+| Row | Peak bytes B/C | Parsed retained bytes B/C | After parse handles drop B/C |
+| --- | ---: | ---: | ---: |
+| small | 4592 / 2207 | 3456 / 2143 | 0 / 0 |
+| medium | 764768 / 468805 | 333936 / 269641 | 0 / 0 |
+| large | 12207968 / 7499845 | 5310576 / 4781128 | 0 / 0 |
+| trivia | 805864 / 492365 | 350456 / 291153 | 0 / 0 |
+| syntax_corpus | 164888 / 107895 | 141168 / 96778 | 0 / 0 |
+| recovery | 113304 / 56261 | 54952 / 47823 | 0 / 0 |
+| limits | 32848 / 14072 | 7888 / 3790 | 0 / 0 |
+| declarations | 321664 / 222277 | 87440 / 90203 | 0 / 0 |
+| inline_retention | 572936 / 444109 | 174488 / 152111 | 174064 / 152111 |
+
+All nine rows meet every peak, parsed-retained and independently retained-view
+budget. Allocation counts are reported without a count-based speed claim.
+"After parsing" includes view creation/inspection and all owner release.
+
+| Row | Parse requests B/C | Parse requested bytes B/C | After-parsing requests B/C | After-parsing requested bytes B/C | Final frees B/C | Final freed bytes B/C |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| small | 88 / 46 | 6592 / 3447 | 0 / 0 | 0 / 0 | 88 / 46 | 6592 / 3447 |
+| medium | 6235 / 8474 | 1219976 / 1234733 | 0 / 0 | 0 / 0 | 6235 / 8474 | 1219976 / 1234733 |
+| large | 98415 / 135201 | 19529160 / 19294760 | 0 / 0 | 0 / 0 | 98415 / 135201 | 19529160 / 19294760 |
+| trivia | 6239 / 8484 | 1285648 / 1278809 | 0 / 0 | 0 / 0 | 6239 / 8484 | 1285648 / 1278809 |
+| syntax_corpus | 3418 / 2797 | 460543 / 391225 | 0 / 0 | 0 / 0 | 3418 / 2797 | 460543 / 391225 |
+| recovery | 764 / 858 | 187296 / 172211 | 0 / 0 | 0 / 0 | 764 / 858 | 187296 / 172211 |
+| limits | 77 / 58 | 55528 / 31790 | 0 / 0 | 0 / 0 | 77 / 58 | 55528 / 31790 |
+| declarations | 2629 / 3353 | 567976 / 601663 | 0 / 0 | 0 / 0 | 2629 / 3353 | 567976 / 601663 |
+| inline_retention | 3103 / 4389 | 982920 / 1041391 | 38 / 0 | 1520 / 0 | 3141 / 4389 | 984440 / 1041391 |
+
+The first owned layout exceeded several retained budgets despite lower peaks.
+Measured costs came from absent large optional payloads, retained vector headers
+and redundant lexical extent entries. The integrated model isolates rare clauses,
+uses immutable lists and compact source sites, and stores source-length-proven
+16/32-bit starts plus sparse trivia split exceptions. This retains source identity,
+recovered roles and module lifetimes without a custom allocator, node cache or
+interned graph. It does not infer the proportion of CPU time saved by each change.
+
+### Reproduction and acceptance limits
+
+Preserve the original control image/metadata and source corpus before replacing
+production code. To reproduce the corrected comparison, use an isolated checkout
+of `e1b38ebb`, apply only the field calibration above, and build its release
+`ast_baseline` example. Prepare its frozen image/metadata with the runner, retaining
+that checkout because the corpus root is compiled into the image. Build the
+integrated checkout with the same toolchain/configuration and run:
+
+```text
+cargo build --release -p kagari-hir --example ast_baseline
+target/release/examples/ast_baseline --check
+target/release/examples/ast_baseline --memory
+uv run python scripts/benchmark_ast.py --baseline-executable <recalibrated-control-image>
+```
+
+The runner archives images, exact lockfiles, harness/input hashes, raw samples,
+process ranges, paired ratios and allocation deltas. Its fail-closed tests reject
+missing/nonfinite evidence, changed inputs, invalid memory accounting, unresolved
+required noise and failed budgets. Near-threshold results require a second
+independent complete paired report with identical images. Ignored raw archives
+are supplemental; the method and accepted results are recorded here.
+
+Focused local acceptance covers explicit missing/list/skipped/trivia roles, both
+offset widths, cancellation/depth limits, lowering/source sites, physical inline
+parse/projection ownership, ordinary/native admission, documentation/navigation,
+formatter exact output/token/typed-shape preservation, lint policy and package
+external/inline visibility. Structure, fmt, workspace all-target Clippy with
+warnings denied, diff checks and benchmark-tool tests pass. The analysis-navigation
+checks exercise HIR's actual implementation; an analyzer name filter selecting
+zero tests is not evidence.
+
+Complete acceptance in CI remains outstanding: workspace tests, ignored complete
+formatter grammar inventory, complete editor/syntax inventories, standalone SDK
+feature/source-free consumers, JIT/AOT and Windows/platform contracts. The existing
+[CI workflow](../.github/workflows/ci.yml) owns those jobs. Local results do not
+assert that CI passed or that other machines/features have the same performance.
 
 ## BO08 Kagari/Lua cost attribution, Windows 2026-10-27
 
