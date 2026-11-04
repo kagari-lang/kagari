@@ -6,6 +6,9 @@ mod clock;
 mod loading;
 mod objects;
 mod observer;
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::Event;
+
 use crate::{
     builtin::BuiltinError,
     cache::{
@@ -667,6 +670,8 @@ impl Runtime {
     }
 
     pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::GcSafepoint);
         self.resources().poll_execution()?;
         let collection_due = if self.gc.collection_due() {
             true

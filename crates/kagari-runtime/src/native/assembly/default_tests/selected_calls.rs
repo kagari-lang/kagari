@@ -2,6 +2,7 @@
 use crate::{
     Runtime,
     frame::{
+        arguments::InvocationArguments,
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
@@ -207,7 +208,7 @@ fn invoke_selected(
     runtime: &Runtime,
     _: &ExecutableModule,
     target: ScriptCall<'_>,
-    arguments: &[Value],
+    arguments: InvocationArguments<'_>,
 ) -> NativeResult<Value> {
     let ScriptCall::Pinned(function) = target else {
         panic!("test only selects a pinned native operation")

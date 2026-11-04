@@ -431,13 +431,16 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     let prepared = make.prepare_call(runtime.runtime()).unwrap();
     assert!(
         runtime
-            .with_context(prepared.owner(), &context, |cx| {
-                prepared.call_with_options::<(), bool>(cx, (), Default::default())
-            })
+            .runtime()
+            .bind_function::<(), bool>(&loaded.root(), "make")
             .is_err()
     );
+    let player = runtime
+        .with_context(prepared.owner(), &context, |cx| {
+            prepared.call_with_options(cx, (), Default::default())
+        })
+        .unwrap();
     drop(prepared);
-    let player = runtime.call_with_context(&make, (), &context).unwrap();
     let callback = runtime
         .call_with_context(&make_callback, (), &context)
         .unwrap();

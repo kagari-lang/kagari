@@ -1,13 +1,13 @@
 //! Borrowed receivers decode capabilities; Rust references are created only later.
 use crate::{
     error::RuntimeError,
-    frame::types::arguments::TypeArgument,
+    frame::{call_slots::ArgumentReader, types::arguments::TypeArgument},
     host::scoped::ScopedHostView,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{
-            arguments::{FromKagariArguments, KagariArguments},
+            arguments::{FromKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         payload::Opaque,
@@ -98,21 +98,22 @@ impl<T: Send + 'static, A: KagariArguments, const MUTABLE: bool> KagariArguments
 impl<T: Send + 'static, A: FromKagariArguments, const MUTABLE: bool> FromKagariArguments
     for LoanArguments<T, A, MUTABLE>
 {
-    fn from_arguments(
-        cx: &mut ConversionContext<'_>,
-        expected: &[TypeArgument],
-        values: &[Value],
+    fn read_prepared_arguments<'runtime>(
+        cx: &mut ConversionContext<'runtime>,
+        prepared: &PreparedArguments<'_, Self>,
+        reader: &ArgumentReader<'_, 'runtime>,
     ) -> NativeResult<Self> {
-        Self::check_types(cx, expected)?;
-        if values.len() != expected.len() || values.is_empty() {
+        let expected = prepared.types();
+        if reader.is_empty() {
             return Err(RuntimeError::module_validation(
                 "borrowed receiver argument count",
             ));
         }
-        let receiver = receiver::<T, MUTABLE>(cx, &expected[0], &values[0])?;
+        let receiver = receiver::<T, MUTABLE>(cx, &expected[0], &reader.get(0)?)?;
         // The ordinary invocation owner roots the entire input snapshot. All
         // owned conversions finish before either storage adapter acquires a loan.
-        let arguments = A::from_arguments(cx, &expected[1..], &values[1..])?;
+        let suffix = PreparedArguments::from_checked(&expected[1..]);
+        let arguments = A::from_prepared_arguments(cx, &suffix, &reader.suffix(1)?)?;
         Ok(Self(receiver, arguments))
     }
 }
@@ -139,20 +140,21 @@ impl<T: Send + 'static, U: Send + 'static, A: KagariArguments, const M1: bool, c
 impl<T: Send + 'static, U: Send + 'static, A: FromKagariArguments, const M1: bool, const M2: bool>
     FromKagariArguments for PairArguments<T, U, A, M1, M2>
 {
-    fn from_arguments(
-        cx: &mut ConversionContext<'_>,
-        expected: &[TypeArgument],
-        values: &[Value],
+    fn read_prepared_arguments<'runtime>(
+        cx: &mut ConversionContext<'runtime>,
+        prepared: &PreparedArguments<'_, Self>,
+        reader: &ArgumentReader<'_, 'runtime>,
     ) -> NativeResult<Self> {
-        Self::check_types(cx, expected)?;
-        if values.len() != expected.len() {
+        let expected = prepared.types();
+        if reader.len() != expected.len() {
             return Err(RuntimeError::module_validation(
                 "borrowed pair argument count",
             ));
         }
-        let first = receiver::<T, M1>(cx, &expected[0], &values[0])?;
-        let second = receiver::<U, M2>(cx, &expected[1], &values[1])?;
-        let owned = A::from_arguments(cx, &expected[2..], &values[2..])?;
+        let first = receiver::<T, M1>(cx, &expected[0], &reader.get(0)?)?;
+        let second = receiver::<U, M2>(cx, &expected[1], &reader.get(1)?)?;
+        let suffix = PreparedArguments::from_checked(&expected[2..]);
+        let owned = A::from_prepared_arguments(cx, &suffix, &reader.suffix(2)?)?;
         Ok(Self(first, second, owned))
     }
 }

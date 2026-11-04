@@ -5,7 +5,7 @@ use super::*;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    frame::{execution_frames::loaded, types::EnvironmentRecord},
+    frame::{arguments::WindowArguments, execution_frames::loaded, types::EnvironmentRecord},
     module::{Program, execution::layout::Location},
     native::{
         application::NativeApplication,
@@ -353,7 +353,8 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
                 .unwrap()
         })
         .collect::<Vec<_>>();
-    let arguments = FrameArguments::frame(caller, &transfers);
+    let source = WindowArguments::mapped(caller, &transfers);
+    let arguments = FrameArguments::frame(&source);
     let callee = values
         .allocate(
             8192,
@@ -524,7 +525,7 @@ fn char_windows_preserve_the_tag_in_scalar_transfers() {
             .allocate(
                 4,
                 &[0],
-                &FrameArguments::frame(source, &transfers),
+                &FrameArguments::frame(&WindowArguments::mapped(source, &transfers)),
                 metadata(),
                 Some(scalar_layout())
             )
@@ -534,7 +535,7 @@ fn char_windows_preserve_the_tag_in_scalar_transfers() {
         .allocate(
             4,
             &[0],
-            &FrameArguments::frame(source, &transfers),
+            &FrameArguments::frame(&WindowArguments::mapped(source, &transfers)),
             metadata(),
             Some(layout),
         )
@@ -593,8 +594,9 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
         values
             .allocate(
                 4,
-                &(0..FrameArguments::frame(slots, &transfers).len()).collect::<Vec<_>>(),
-                &FrameArguments::frame(slots, &transfers),
+                &(0..FrameArguments::frame(&WindowArguments::mapped(slots, &transfers)).len())
+                    .collect::<Vec<_>>(),
+                &FrameArguments::frame(&WindowArguments::mapped(slots, &transfers)),
                 FrameMetadata {
                     program: module.clone(),
                     environment: None,
@@ -614,8 +616,9 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
     let accepted = values
         .allocate(
             4,
-            &(0..FrameArguments::frame(slots, &transfers).len()).collect::<Vec<_>>(),
-            &FrameArguments::frame(slots, &transfers),
+            &(0..FrameArguments::frame(&WindowArguments::mapped(slots, &transfers)).len())
+                .collect::<Vec<_>>(),
+            &FrameArguments::frame(&WindowArguments::mapped(slots, &transfers)),
             FrameMetadata {
                 program: module,
                 environment: None,

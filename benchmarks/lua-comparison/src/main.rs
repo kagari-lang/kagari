@@ -7,6 +7,7 @@ mod execution_controls;
 mod forms;
 mod numeric;
 mod profile;
+mod stdlib_ops;
 mod workloads;
 
 use std::{env, hint::black_box, time::Instant};
@@ -38,6 +39,7 @@ struct Options {
     source_forms: bool,
     diagnostics: bool,
     execution_controls: bool,
+    stdlib_ops: bool,
 }
 
 impl Options {
@@ -53,6 +55,7 @@ impl Options {
             source_forms: false,
             diagnostics: false,
             execution_controls: false,
+            stdlib_ops: false,
         };
         for argument in env::args().skip(1) {
             match argument.as_str() {
@@ -65,6 +68,7 @@ impl Options {
                 "--numeric-matrix" => options.numeric_matrix = true,
                 "--source-forms" => options.source_forms = true,
                 "--execution-controls" => options.execution_controls = true,
+                "--stdlib-ops" => options.stdlib_ops = true,
                 "--diagnostics" => {
                     #[cfg(not(feature = "diagnostics"))]
                     panic!("build with --features diagnostics");
@@ -81,10 +85,18 @@ impl Options {
                     options.workload = Some(argument["--workload=".len()..].to_owned());
                 }
                 _ => panic!(
-                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --source-forms, --execution-controls, --diagnostics, --profile=WORKLOAD, --workload=WORKLOAD"
+                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --source-forms, --stdlib-ops, --execution-controls, --diagnostics, --profile=WORKLOAD, --workload=WORKLOAD"
                 ),
             }
         }
+        assert!(
+            !options.stdlib_ops
+                || (!options.execution_controls
+                    && !options.source_forms
+                    && !options.numeric_matrix
+                    && options.workload.is_none()),
+            "stdlib operations require a separate interpreter run"
+        );
         assert!(
             !cfg!(feature = "diagnostics") || options.diagnostics,
             "diagnostic builds cannot measure throughput; use --diagnostics"
@@ -351,6 +363,10 @@ fn run(workload: &Workload, options: &Options) {
 fn main() {
     let options = Options::parse();
     println!("phase,workload,engine,size,batch,sample,ns,checksum");
+    if options.stdlib_ops {
+        stdlib_ops::run(&options);
+        return;
+    }
     if options.execution_controls {
         execution_controls::run(&options);
         return;
@@ -411,6 +427,7 @@ mod tests {
             source_forms: false,
             diagnostics: false,
             execution_controls: false,
+            stdlib_ops: false,
         };
         for size in [0, 1] {
             for workload in WORKLOADS {

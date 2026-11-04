@@ -5,7 +5,9 @@ use crate::{
     error::RuntimeError,
     error_trace::asynchronous::CallableOrigin,
     frame::{
-        ExecutionStack, arguments::FrameArguments, types::arguments::TypeArgument,
+        ExecutionStack,
+        arguments::{FrameArguments, InvocationArguments},
+        types::arguments::TypeArgument,
         waiting::QueuedFuture,
     },
     gc::roots::{RootSet, RootedValue},
@@ -130,7 +132,11 @@ impl ExecutionStack<'_> {
             } => {
                 let _retained = roots;
                 runtime.gc().validate_async_values(&arguments)?;
-                self.push_pinned_call(runtime, &function, &arguments)?;
+                self.push_pinned_call(
+                    runtime,
+                    &function,
+                    InvocationArguments::from_values(&arguments),
+                )?;
             }
             FactoryEntry::Interface {
                 method,
@@ -139,7 +145,12 @@ impl ExecutionStack<'_> {
             } => {
                 let _retained = roots;
                 runtime.gc().validate_async_values(&arguments)?;
-                self.push_interface_method(runtime, *method, &arguments, None)?;
+                self.push_interface_method(
+                    runtime,
+                    *method,
+                    InvocationArguments::from_values(&arguments),
+                    None,
+                )?;
             }
         }
         *self.session.state().factory_output.borrow_mut() = Some(queued.future);

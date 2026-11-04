@@ -304,6 +304,63 @@ retained. Do not borrow tokens from a different member or discover templates by
 name/impl occurrence. Reusing a Rust algorithm does not merge binding identities:
 each declaration retains its own checked target.
 
+## Typed Native entries and script callbacks
+
+ModuleBuilder::bind and NativeBinding::declared attach their Rust argument/result
+mapping preparation to the linked native signature. Closed mappings are checked
+before program publication; generic mappings are checked when the concrete
+application, result adapter and selected operations have been prepared. An invalid
+mapping rejects preparation before argument converters or the callback can run.
+KagariType::check_type describes stable correspondence, not mutable per-call state.
+
+Typed entry freezes the complete input pack in CallSlots before conversion. The
+linked signature owns its prepared root-slot layout, including declared scoped
+receiver/reference positions. ArgumentReader lends bounded protected reads;
+custom FromKagariArguments packs implement read_prepared_arguments with the
+supplied PreparedArguments. Its checked from_arguments wrapper serves unprepared
+callers through the same body. Reader::decode checks a custom per-value mapping
+and actual value; standard tuple/receiver readers reuse their prepared mappings.
+No bank or payload loan may cross conversion, collection or synchronous reentry.
+Actual values, mutable state, scoped capabilities, conversion limits and returned
+values remain checked. The input window stays live through result conversion;
+an error retains completed callback effects. Owning handles and inert borrow
+adaptation can still require roots at their own lifetime/capability boundaries.
+
+Function<A, R> validates its Rust mapping when bound or converted from a script
+function. Its prepare_call method returns PreparedCall<A, R>, retaining one exact
+selected body and the same argument/result correspondence. Repeated
+call_with_options calls consume that proof; callers cannot supply different Rust
+types to the prepared call. Ordinary Function calls still select current named
+implementations, while closure handles retain their captured body.
+
+KagariType mappings describe stable declaration correspondence. Put mutable,
+value-dependent checks in the converter/access operation. Prepared calls continue
+to check actual values and Runtime admission, protect temporary values through GC,
+and preserve completed effects if result conversion fails. Standard tuple and
+retained-receiver packs consume PreparedArguments without repeating top-level
+mapping preparation. Custom IntoKagariArguments implementations provide
+write_prepared_arguments and write each argument through ArgumentWriter::encode
+in zero-based source order. The supplied PreparedArguments exposes the checked
+types; its fields are private. Unprepared consumers obtain it through checked
+construction. The default builder owns the scoped window and rejects missing,
+repeated or out-of-order writes before backend execution. Ordinary Rust tuple
+callers need no custom writer.
+
+Synchronous typed callbacks use a CallSlots argument/result window in the existing
+execution root bank. Converters publish each value before a safepoint; later
+conversion, collection and reentry retain earlier arguments. The backend borrows
+InvocationArguments coordinates without holding a bank loan. Its result is
+published into the same window before decoding; result conversion failure keeps
+completed script effects. Scope exit releases the window on errors and unwind.
+An async queue converts this borrowed lifetime to owning roots only when queued.
+The current contiguous builtin ABI, enum payload construction and outer host
+ingress can still require value materialization.
+
+Prepared Function conversion borrows its exact selection's existing program
+lease, with a lifetime bounded by that selection. Standalone ConversionContext
+construction keeps its independent owning lease; Runtime/borrow/state/owner
+checks apply to both. Queued calls still establish owning arguments at admission.
+
 ## Exports, documentation and storage
 
 `export_path` supports forward canonical exports; sealing checks target existence,

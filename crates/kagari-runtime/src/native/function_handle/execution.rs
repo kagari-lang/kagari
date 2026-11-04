@@ -1,13 +1,12 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::ExecutionStack,
+    frame::{ExecutionStack, arguments::InvocationArguments},
     native::{
         binding::NativeResult,
         function_handle::{PreparedFunction, Target},
     },
     session::{ExecutionEntry, ExecutionOptions, ExecutionPhase, ExecutionSession},
-    value::Value,
 };
 
 impl PreparedFunction {
@@ -76,7 +75,7 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         function: &PreparedFunction,
-        arguments: &[Value],
+        arguments: InvocationArguments<'_>,
     ) -> NativeResult<()> {
         function.validate(runtime)?;
         match &function.target {

@@ -41,6 +41,76 @@ No system Lua installation is needed: this benchmark-only package embeds standar
 Lua 5.4 through `mlua` with `lua54,vendored`. Kagari production dependencies do
 not gain Lua. The lockfile pins the measured dependencies.
 
+The bounded standard-library matrix uses the existing driver and frozen-image
+comparison protocol:
+
+```text
+uv run python scripts/benchmark_lua.py --stdlib-ops --check --runs 1
+uv run python scripts/benchmark_lua.py --stdlib-ops --runs 7 --freeze-baseline target/lua-comparison/stdlib-baseline/kagari-lua-benchmark.exe
+```
+
+Use a new freeze destination for each checkpoint. This is the current production
+Runtime/stdlib path, not the separate candidate managed-fold fixture. The same
+sources must run after integration before claiming an improvement.
+
+| Workload | Kagari operation | Lua operation | Purpose |
+| --- | --- | --- | --- |
+| loop_control | integer accumulation | same while loop | Dispatch/arithmetic control |
+| native_zero | typed zero-argument Native returning one | mlua Rust callback to the same helper | Small Native boundary |
+| vec_len | `Vec.len()` | dense table `#v` | Small read operation |
+| vec_get | indexed Vec read | indexed dense table read | Element access |
+| vec_set_get | indexed write then read | indexed write then read | Mutation/access round trip |
+| vec_pop_push | match `pop()`, then `push()` | `table.remove`, then `table.insert` | Spare-capacity mutation pair |
+| fold_scalar | public Iterable fold over i64 | Lua reducer over integer elements | Per-element script callback |
+| fold_references | public Iterable fold over Item objects | Lua reducer over table objects | Reference transport and field read |
+
+The first six workloads run 5000 iterations over a prebuilt 64-element container;
+fold consumes 2048 prebuilt elements once. All numbers use the shared signed
+64-bit integer domain and stay within bounds. Indices are zero-based u64 in
+Kagari, one-based integer in Lua. Both use while loops, and both fold reducers
+are created inside the timed entry. Lua library functions are bound to locals
+before its loop. Each batch includes one outer host entry; inputs stay retained
+and are passed by identity, without a Rust Vec import. Setup is recorded
+separately. Timings include dispatch, arithmetic, checked Kagari operations and
+the actual public implementation. They are not isolated instruction/FFI costs;
+do not subtract loop_control and present the difference as an exact call cost.
+
+Automatic GC is disabled on both engines, with a full explicit collection before
+every batch outside timing. Warmups/samples and alternating engine/process order
+follow the ordinary driver contract. Return checksums are checked against Rust
+references; mutation cases also check weighted contents and length outside timing.
+The pop/push pair restores the previous length, so growth is excluded, but Kagari's
+current allocated Some wrapper is included. Public Kagari fold includes cursor,
+Option and callback machinery; Lua uses a direct table loop with a callback.
+These differences belong to the measured public operation and must accompany
+results. This matrix does not establish GC throughput, pressure latency, cold
+entry performance, LuaJIT performance or the future unified interaction API cost.
+
+For cost attribution of the same loop control, zero-argument Native, len and
+indexed-read sources, use separate counting and sampling builds:
+
+```text
+cargo run --release --locked -p kagari-lua-benchmark --features diagnostics -- --stdlib-ops --diagnostics
+uv run python scripts/profile_lua_comparison.py --stdlib-ops --full-symbols native_zero vec_len vec_get
+```
+
+Counting reports a first batch and two warmed batches, with explicit collection
+outside each counted region. It includes the one outer typed host call per batch;
+compare protocol counts with loop_control to distinguish fixed outer work from
+per-operation work. A logical execution-window allocation is not necessarily an
+allocator request. Preparation attempts, roots, window transfers, execution polls,
+state guards, scoped type checks and sequence accesses have separate counters.
+Counters can include other counters' operations; they are not additive time shares.
+The `vec_get` row is `v[i]`, not the Option-returning `v.get(i)` method.
+
+Sampling uses ordinary code without execution counters, three warmups and a
+ten-second execution window per selected route. The selected routes allocate no
+script objects; automatic GC stays disabled and explicit collection occurs before
+the window. Full symbols retain release optimization while improving address
+attribution. These are instruction-pointer samples with local symbol/range checks,
+not inclusive stacks or throughput results. Preserve the matched archived image
+and PDB. The active GC plan records the actual counts, sampling results and limits.
+
 The dependency refresh on 2026-10-13 selects mlua 0.12.2 and lua-src 551.0.2,
 retaining the `lua54,vendored` features. Historical measurements below retain
 their original dependency versions and are not measurements of this updated

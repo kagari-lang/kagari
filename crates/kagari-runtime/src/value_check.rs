@@ -1,5 +1,8 @@
 //! Runtime value/type compatibility consumes checked layouts and lexical type facts.
 //! Heap storage supplies descriptors; the collector does not resolve type policy.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     frame::types::{bindings::TypeBindings, compatibility::TypeView},
     gc::GcHeap,
@@ -33,6 +36,8 @@ pub(crate) fn matches_type_in(
 /// container children without discarding their closed result or supplying scope.
 /// Tuple descent follows the checked type tree; no per-value worklist is needed.
 pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> bool {
+    #[cfg(feature = "execution-diagnostics")]
+    diagnostics::record(Event::ValueTypeMatch);
     if let Ty::Parameter { owner, position } = view.ty {
         return view
             .environment

@@ -1,14 +1,18 @@
 //! One synchronous conversion scope protects unpublished values and exact versions.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::types::arguments::TypeArgument,
+    frame::{call_slots::CallSlots, types::arguments::TypeArgument},
     gc::{HeapObjectId, roots::RootedValue},
     module::{ExecutableModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
         context::CallContext,
         conversion::{FromKagari, IntoKagari, KagariType},
+        function_handle::PreparedFunction,
         types::Type,
     },
     value::Value,
@@ -91,34 +95,42 @@ impl<'runtime> ConversionContext<'runtime> {
         owner: &'runtime ExecutableModule,
         limits: ConversionLimits,
     ) -> NativeResult<Self> {
-        runtime.gc().ensure_no_native_borrow()?;
-        runtime.resources().ensure_execution_allowed()?;
-        runtime.validate_executable_module(owner)?;
+        let mut context = Self::borrowed(runtime, owner)?;
         let program = runtime
             .retain_program(owner, ModuleEpochRetention::ActiveCall)
             .ok_or_else(|| RuntimeError::module_validation("conversion program retention"))?;
-        Ok(Self {
-            runtime,
-            owner,
-            _program: Some(program),
-            limits,
-            depth: 0,
-            nodes: 0,
-            string_bytes: 0,
-            active: HashSet::new(),
-            roots: Vec::new(),
-        })
+        context._program = Some(program);
+        context.limits = limits;
+        Ok(context)
     }
 
     /// The synchronous call already retains its exact program through the
     /// execution frame or selected-call lease. Only escaping handles add leases.
     pub(crate) fn in_native_call(call: &'runtime CallContext<'_>) -> NativeResult<Self> {
-        call.heap().ensure_no_native_borrow()?;
-        call.runtime.resources().ensure_execution_allowed()?;
-        call.runtime.validate_executable_module(call.owner)?;
+        Self::borrowed(call.runtime, call.owner)
+    }
+
+    /// Borrow the exact selection's existing lease for synchronous conversion.
+    /// The context cannot outlive that selection, including during GC/reentry.
+    pub(crate) fn in_prepared_call(
+        runtime: &'runtime Runtime,
+        function: &'runtime PreparedFunction,
+    ) -> NativeResult<Self> {
+        Self::borrowed(runtime, function.owner())
+    }
+
+    fn borrowed(
+        runtime: &'runtime Runtime,
+        owner: &'runtime ExecutableModule,
+    ) -> NativeResult<Self> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ConversionContext);
+        runtime.gc().ensure_no_native_borrow()?;
+        runtime.resources().ensure_execution_allowed()?;
+        runtime.validate_executable_module(owner)?;
         Ok(Self {
-            runtime: call.runtime,
-            owner: call.owner,
+            runtime,
+            owner,
             _program: None,
             limits: ConversionLimits::default(),
             depth: 0,
@@ -190,16 +202,7 @@ impl<'runtime> ConversionContext<'runtime> {
         expected: &TypeArgument,
         value: T,
     ) -> NativeResult<Value> {
-        let (value, root) = {
-            let mut frame = self.enter(None)?;
-            let value = value
-                .into_kagari(&mut frame, expected)
-                .map_err(|error| frame.runtime.resources().admit_execution_error(error))?;
-            frame.check_value(expected, &value)?;
-            let root = frame.protect(&value)?;
-            frame.runtime.gc_safepoint()?;
-            (value, root)
-        };
+        let (value, root) = self.encode_with(expected, value, |cx, value| cx.protect(&value))?;
         if let Some(root) = root {
             self.roots
                 .try_reserve(1)
@@ -207,6 +210,39 @@ impl<'runtime> ConversionContext<'runtime> {
             self.roots.push(root);
         }
         Ok(value)
+    }
+
+    pub(crate) fn encode_into<T: IntoKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        value: T,
+        slots: &mut CallSlots<'_>,
+        index: usize,
+    ) -> NativeResult<()> {
+        if !slots.belongs_to(self.runtime) {
+            return Err(RuntimeError::module_validation("foreign argument writer"));
+        }
+        self.encode_with(expected, value, |_, value| slots.set(index, value))
+            .map(|_| ())
+    }
+
+    fn encode_with<T: IntoKagari, P>(
+        &mut self,
+        expected: &TypeArgument,
+        value: T,
+        publish: impl FnOnce(&Self, Value) -> NativeResult<P>,
+    ) -> NativeResult<(Value, P)> {
+        let output = {
+            let mut frame = self.enter(None)?;
+            let value = value
+                .into_kagari(&mut frame, expected)
+                .map_err(|error| frame.runtime.resources().admit_execution_error(error))?;
+            frame.check_value(expected, &value)?;
+            let protection = publish(&frame, value)?;
+            frame.runtime.gc_safepoint()?;
+            (value, protection)
+        };
+        Ok(output)
     }
 
     pub fn decode_value<T: FromKagari>(
@@ -225,6 +261,27 @@ impl<'runtime> ConversionContext<'runtime> {
     ) -> NativeResult<T> {
         self.check_value(expected, value)?;
         let _root = self.protect(value)?;
+        self.decode_protected(expected, value)
+    }
+
+    pub(crate) fn decode_result<T: FromKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        slots: &CallSlots<'_>,
+    ) -> NativeResult<T> {
+        if !slots.belongs_to(self.runtime) {
+            return Err(RuntimeError::module_validation("foreign result window"));
+        }
+        let value = slots.read_result()?;
+        self.check_value(expected, &value)?;
+        self.decode_protected(expected, &value)
+    }
+
+    fn decode_protected<T: FromKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<T> {
         let tracked = if T::PRESERVES_IDENTITY {
             None
         } else {
@@ -234,6 +291,16 @@ impl<'runtime> ConversionContext<'runtime> {
         frame.runtime.gc_safepoint()?;
         let result = T::from_kagari(&mut frame, expected, value);
         result.map_err(|error| frame.runtime.resources().admit_execution_error(error))
+    }
+
+    /// The supplying call window already roots this copied value through decoding.
+    pub(crate) fn decode_slot<T: FromKagari>(
+        &mut self,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<T> {
+        self.check_value(expected, value)?;
+        self.decode_protected(expected, value)
     }
 
     /// Reject an oversized owned container before reserving its output buffer.
@@ -288,6 +355,8 @@ impl<'runtime> ConversionContext<'runtime> {
 
     /// Validate a requested Rust type before executing user code or converters.
     pub fn check_type<T: KagariType>(&self, expected: &TypeArgument) -> NativeResult<()> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ConversionTypeCheck);
         expected.validate(self.runtime)?;
         T::check_type(self, expected)
     }
@@ -338,6 +407,8 @@ impl<'runtime> ConversionContext<'runtime> {
     /// generation. External references additionally require a live scope and
     /// sufficient access capability; this never dereferences their Rust storage.
     pub fn check_value(&self, expected: &TypeArgument, value: &Value) -> NativeResult<()> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ConversionValueCheck);
         expected.validate(self.runtime)?;
         if !expected.matches(self.runtime, value, self.owner) {
             return Err(RuntimeError::module_validation(

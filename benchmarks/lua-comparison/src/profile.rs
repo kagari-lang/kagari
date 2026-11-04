@@ -17,10 +17,47 @@ use kagari_runtime::{
     error::RuntimeError,
     frame::{ExecutionFrame, transfer::ReturnValue},
     module::{Program, entry::ProgramEntry, execution::ExecutionInstruction},
+    native::{function_handle::Function as KagariFunction, value_handle::ScriptValue},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
 use mlua::{Function, HookTriggers, Lua, VmState};
+
+/// Sample the retained-input public operation after warmup, without diagnostic
+/// counters or collection in the sampling window. This is not throughput evidence.
+pub(super) fn run_typed(
+    runtime: &mut Runtime,
+    function: &KagariFunction<(ScriptValue,), i64>,
+    data: &ScriptValue,
+    name: &str,
+    expected: i64,
+) {
+    for _ in 0..3 {
+        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.call(function, (data.clone(),)).unwrap(), expected);
+    }
+    runtime.runtime().collect_garbage().unwrap();
+    let before = runtime.runtime().gc().stats();
+    println!("PROFILE_READY,{name}");
+    io::stdout().flush().unwrap();
+    let start = Instant::now();
+    let mut calls = 0_u64;
+    while start.elapsed() < Duration::from_secs(10) {
+        assert_eq!(
+            black_box(runtime.call(function, (data.clone(),)).unwrap()),
+            expected
+        );
+        calls += 1;
+    }
+    let after = runtime.runtime().gc().stats();
+    assert_eq!(after.collections, before.collections);
+    assert_eq!(after.allocated_objects, before.allocated_objects);
+    println!(
+        "PROFILE_DONE,{name},calls={calls},ns={},gc_collections=0,heap_object_allocations=0",
+        start.elapsed().as_nanos()
+    );
+    io::stdout().flush().unwrap();
+}
 
 pub(super) fn count_lua(lua: &Lua, entry: &Function, expected: i32) {
     let count = Rc::new(Cell::new(0_u64));

@@ -129,7 +129,7 @@ impl Vm {
         let _session = self.begin_execution(module)?;
         let roots = arguments.into_arguments(&mut conversion, &params)?;
         let arguments = (0..params.len())
-            .map(|slot| roots.get(self.runtime.gc(), slot).ok_or_else(invalid))
+            .map(|slot| roots.get(slot).ok_or_else(invalid))
             .collect::<Result<Vec<_>, _>>()?;
         let value = Executor::new(&self.runtime, module, function, &arguments)?.run()?;
         let rooted = self.runtime.root_value(value).ok_or_else(invalid)?;

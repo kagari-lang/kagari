@@ -2,7 +2,10 @@ use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::{ExecutionFrame, FrameDispatch, FrameEntry, arguments::FrameArguments},
+    frame::{
+        ExecutionFrame, FrameDispatch, FrameEntry,
+        arguments::{FrameArguments, WindowArguments},
+    },
     module::{
         ExecutableModule, Program,
         execution::{OperandSlot, layout::Location},
@@ -303,9 +306,8 @@ fn heap_rejection_does_not_skip_later_argument_window_validation() {
         borrowed_receiver: false,
     }];
     let prefix = [foreign_value];
-    let arguments = FrameArguments::frame(slots, &sources)
-        .with_prefix(&prefix)
-        .unwrap();
+    let source = WindowArguments::mapped(slots, &sources);
+    let arguments = FrameArguments::frame(&source).with_prefix(&prefix).unwrap();
     let error = stack
         .push_admitted_arguments(
             &runtime,

@@ -721,12 +721,111 @@ prepared scoped signatures and result adapters. Applied Native environments have
 their existing immutable application owners. Reuse those owners and the
 [prepared-type architecture](architecture.md#prepared-native-type-facts).
 
-The current owning [typed invocation adapter](../crates/kagari-runtime/src/native/typed.rs)
-nevertheless invokes result/argument Rust type-mapping checks per call, copies a
-parameter pack and registers a root pack for conversion/callback lifetime. Some
-custom conversion paths require protection; that does not justify repeating all
-stable mapping checks or owning snapshots on every ordinary invocation. Review
-each route rather than attribute this sequence to all Native calls.
+The former owning typed adapter repeated Rust mappings and constructed owning
+parameter/root packs. The current [typed invocation adapter](../crates/kagari-runtime/src/native/typed.rs)
+uses linked/application mapping preparation and a prepared CallSlots input/result
+window. Its extra frozen snapshot, repeated argument reads and actual-value
+checks still require architectural review against existing callee protection.
+Some checks protect converter-effect/trap ordering and reacquire mutable state;
+do not remove them by assuming every converter is pure. See the
+[prepared-entry checkpoint](gc-redesign-plan.md#prepared-native-entry-conversion-and-input-slots).
+
+### Callback proof and transfer ownership
+
+The [callback diagnosis](gc-redesign-plan.md#native-callback-architectural-diagnosis)
+identified an architectural gap in the former owning Function API: preparation
+erased A/R and generic invocation accepted arbitrary Rust mappings again. The
+[typed mapping implementation](gc-redesign-plan.md#typed-callback-mapping-implementation)
+now preserves them in PreparedCall<A, R>; PreparedFunction retains its erased
+backend role without that generic conversion entry. PreparedArguments carries
+the immutable signature/pack correspondence into standard tuple and receiver
+conversion. Actual value admission and protection remain. Custom/composite
+conversion and ordinary Native-entry input adaptation are not all prepared by
+this first slice. The borrowed scalar callback remains a diagnostic control,
+not the standard-library API to copy everywhere.
+
+The target separates three responsibilities on the existing owners:
+
+1. **Preparation owns immutable correspondence.** The linked binding/concrete
+   application and its typed adapter retain script parameter/result, nominal
+   scope, declared access and Rust physical mapping evidence. Typed invocation
+   consumes this evidence without passing through a generic API that forgets its
+   Rust mapping. Erased entry and custom conversion validate their actual inputs
+   before effects/publication. An open KagariType implementation does not grant
+   permission to bypass value checks. This replaces the unsuitable adapter
+   boundary; it does not add a global cache, trust flag or parallel type registry.
+2. **Memory owns transfer and retention.** A synchronous native callback reads
+   its authoritative call locals, publishes callee arguments into the shared
+   frame source and writes its result to a protected caller destination. The
+   execution owner already retains the current computation. Owned host conversion
+   and independently retained roots are used when data enters/leaves that scoped
+   model, rather than on every internal round trip. Custom converters may allocate
+   or reenter and still need their temporary protection and final value admission.
+3. **Execution owns admission, dispatch and cleanup.** One shared protocol selects
+   a named target for this invocation or uses an exact retained closure body,
+   admits current phase/borrow/failure/depth state, publishes the frame, drives
+   it and unwinds exactly that call on success/error. The shared stack and banks
+   already exist. Consolidate duplicate entry orchestration around them; do not
+   introduce another executor or reinterpret this as needing a new VM per call.
+   Recheck mutable state after a converter/callback that can invalidate admission.
+
+The initial scalar-only prototype bridge formerly followed this owning route:
+
+```text
+caller u64 locals -> Rust u64 tuple -> owning RootSet -> Vec<Value>
+    -> callee frame -> Value -> Rust u64 -> caller local
+```
+
+The implemented typed callback path now uses protected CallSlots and borrowed
+argument coordinates. Nominal/generic candidate-heap references still cannot
+take that production path; removing old scalar snapshots alone is not cutover.
+
+The target internal callback route is:
+
+```text
+prepared application + caller locals
+    -> checked callee parameter publication -> callee frame
+    -> protected caller result destination
+```
+
+These are ownership/data-flow sketches, not implemented new APIs. Reuse the
+existing invoke_into destination-aliasing contract: argument transfer completes
+before result publication, and the old accumulator remains protected during the
+call. Complete nominal/generic evidence and coherent Value integration are
+required before managed references can take this path. No foreign candidate-heap
+reference may be smuggled through the old Runtime bridge.
+
+For iteration, the library/provider next_into operation owns revision checking,
+element read and destination publication within a short callback-free operation.
+It releases payload loans before invoking script and reacquires afterward. A
+readonly view/region does not freeze aliases or make Present/Taken immutable.
+Coalescing access does not justify retaining a raw payload address across GC,
+skipping failure gates or deleting bounds/lifecycle checks.
+
+Two mature mechanisms support this direction:
+
+- Wasmtime's official [Func typed/untyped comparison](https://docs.wasmtime.dev/api/wasmtime/struct.Func.html#method.typed)
+  and [typed call source](https://docs.wasmtime.dev/api/src/wasmtime/runtime/func/typed.rs.html),
+  reviewed as 51.0.0-dev on 2026-11-04, carry a checked signature into typed calls.
+  Store/reference compatibility and actual execution admission remain runtime
+  obligations. Kagari additionally needs its nominal generic applications,
+  scoped host loans and current-route/exact-closure reload distinction; Wasmtime
+  is evidence for proof placement, not its complete lifecycle model or speed.
+- Lua 5.4.8 [lua_callk](https://github.com/lua/lua/blob/v5.4.8/lapi.c)
+  and [call/frame implementation](https://github.com/lua/lua/blob/v5.4.8/ldo.c)
+  use the current thread's stack segment and call frames for synchronous calls,
+  rather than round-tripping every internal value through independently retained
+  host handles. Kagari already has shared frame storage and should build on it.
+  Lua's dynamic types, long-jump/error protocol and coroutine rules do not replace
+  Kagari's static proof, Rust unwind, borrowing or retained-code contracts.
+
+Validation belongs to the existing orders 1-3 proof and orders 4/6 integration
+owners: prepared scalar/reference callbacks, pre-effect mismatches, actual
+bind/application paths, collecting reentry, mutable lifecycle changes, sticky
+inner failures, call-depth/trap cleanup and named/exact-body reload cases. Measure
+warm allocations and paired throughput separately from diagnostics; preserve the
+generic/foreign-input boundary tests. The scalar raw control is not a promised
+performance floor for full generic callbacks.
 
 ### Earliest valid owner for each fact
 
@@ -803,7 +902,325 @@ blanket assumptions about safe IntoKagari implementations. Replace unsuitable
 converter contracts coherently, separating stable mapping preparation from
 value conversion, and keep one semantic conversion/storage implementation.
 
+### Standard-library hot-path cost contract
+
+User direction, 2026-11-04: the unified exchange model must minimize unnecessary
+work in real standard-library execution. A simpler facade over the same owning
+conversion/validation pipeline does not satisfy this requirement. One exchange
+model does not require every scalar, field read or internal transfer to pass
+through a dynamic Value, an owned Rust snapshot or an independent root.
+
+| Work | Required placement/model |
+| --- | --- |
+| Names, signatures, Rust mappings, type/trait applications and fixed member/layout facts | Check/prepare at compilation, linking or actual application preparation; consume the same immutable evidence on the closed typed path. |
+| Protected arguments/results and frame lifetime | Use authoritative execution storage. If the admitted callee frame already protects a frozen pack, do not create another Vec/RootSet/window solely for conversion; prove its lifetime through converters, GC/reentry and result publication first. |
+| Internal managed values | Pass protected coordinates or short typed views. No promotion to a host-owned RootedValue, graph copying, per-copy TypeArgument/program-lease cloning or owned DTO traversal for ordinary internal moves. |
+| Scalar operations | Keep Rust/typed-bank representations and shared primitive codecs. Thin adapters should disappear when their input/type facts are known; validate actual unknown loads rather than extrapolate from constant round-trips. |
+| Bounds, initialization, borrow conflict, Present/Taken, mutable revisions and lifecycle/failure | Keep the necessary checks at the owning operation/access boundary; reuse evidence only within a proven closed interval and reacquire changing facts after callbacks. |
+| Reference writes, allocation and actual storage growth | Preserve publication/barriers, accounting and failure cleanup. Their real storage/GC work is measured; it must not multiply through redundant adapter layers. |
+| External/custom Rust conversion | Keep actual-value admission, data-dependent errors, conversion limits and effects. Do not grant open converters unchecked typed-path authority through a boolean or matching declared type. |
+
+Steady-state len/get and fixed-field reads should add no heap allocation or
+independent root registration solely for access/dispatch. push with spare capacity
+and pop's removal/transport have the same target; real growth and representation
+construction remain separately attributed. The current language Some allocation
+is a distinct encoding cost, pending the selected compact Option work; do not
+claim it is already allocation-free, preallocate a PreparedReturn or roll back
+completed removal to hide an error. Generic application cold preparation and
+first backing growth are reported separately from warmed operations.
+
+Callback-free kernels can share one admitted access interval/view over their
+work, avoiding a driver/payload/type-admission round-trip per element. Such an
+interval must contain no user callback or other invalidating operation. Callback
+algorithms release loans before the call, keep a bounded reusable working-slot
+set, publish the return and reacquire mutable state. They cannot cache elements
+or payload addresses across callbacks. Existing Native code must continue its
+supplied context instead of invoking SDK convenience methods that open another
+interaction or promote every intermediate result into host retention.
+
+Code-generation inspection complements allocation/event counts and timing.
+Inspect both a known scalar round-trip and an actual erased-slot/field load:
+the former can optimize away while the latter still classifies/repackages the
+same value. Do not add assembly-size golden tests or infer a speed guarantee
+from inlining annotations. A closed typed adapter may reuse admitted value/type
+proof; this is not a stdlib-only unchecked path or permission to remove owner,
+generation, borrow, checked-numeric, GC or reload guarantees.
+
+The focused acceptance workload must expose fixed call overhead, not only
+amortize one Native entry across a large fold. Before its owning implementation
+change, freeze a small native-call control, len/get, spare-capacity push/pop and
+Rust-versus-script-reducer fold at the existing benchmark owners. Measure real
+script-to-Native operations as well as the storage kernel; report call setup,
+steady execution, allocation/root activity and cleanup separately. New object-
+argument rows require the actual unified object ABI: a scalar bridge into a
+separate fixture heap cannot stand in for that path.
+
+Reuse the [Lua comparison](../benchmarks/lua-comparison/README.md) for matched
+language workloads and its existing host_callback/call/collection controls. Use
+fresh before/after images and matched useful work, numeric inputs and GC/liveness
+conditions; separate interpreter/native/JIT execution and compilation/setup.
+Pure Rust throughput or a GC-disabled microbenchmark does not establish
+standard-library parity with another language. Keep unresolved reference-path
+deltas explicit; do not relax an inherited gate or advertise parity from a
+single improved scalar row. Existing plan owners retain numerical gates and
+full acceptance; this contract does not invent absolute ns budgets.
+
+The primary reference mechanisms remain
+[Wasmtime's typed-call preparation](https://docs.wasmtime.dev/api/wasmtime/struct.Func.html#method.typed)
+(51.0.0-dev) and
+[Lua 5.4.9 call-frame/result transfer](https://www.lua.org/source/5.4/ldo.c.html#luaD_precall),
+reviewed 2026-11-04: preserve typed evidence and use actual call storage. Kagari
+retains Rust lifetime proofs, checked semantics, reentry cleanup and reload;
+it does not copy Lua's public manual stack-return protocol or infer interpreter
+speed from Wasmtime's execution model. Further local optimization after a missed
+gate requires renewed ownership/data-flow/code-generation diagnosis.
+
+## Unified host and Native interaction
+
+### One exchange model
+
+User direction, 2026-11-04: evaluate the API by its unified value-exchange model
+and small concept count. Responsibility owners do not define separate public
+exchange protocols for host authors, Native functions, callbacks and containers.
+The same checked script-type/application correspondence must govern parameters,
+returns, frame slots, object fields and container elements. Function bodies use
+ordinary Rust parameter/return shapes or admitted typed views; callers do not
+manually translate through backend kind markers at each boundary.
+
+The common model is a typed value and a protected location that can retain it.
+Reading supplies an admitted value/view; writing publishes it to the destination
+before its previous protection ends. A caller only needs to reason about whether
+the value is used within current access or retained across a callback/collection.
+The existing scoped/stored/rooted forms express the different retention authority
+inside that model. StoredValue and tracing/publication mechanics belong to the
+storage boundary; retaining a value beyond a call is an explicit host operation.
+These distinctions must not become different argument, result or mutation
+protocols. No arbitrary detached carrier or unrestricted Rust reference is admitted.
+
+Scalars remain Rust scalars and managed objects use typed access. Uniformity does
+not require dynamic Value materialization, scalar boxing, universal conversion or
+repeated type checking on internal transfers. Prepare stable correspondence once
+on the linked binding/concrete application; validate actual external/custom
+inputs at admission and retain changing-state checks at access/reentry. Reuse the
+existing reference-role and generative-scope mechanisms researched below.
+
+The closure criterion is one declaration/binding route and one checked exchange
+contract demonstrated by ordinary returns, container push/pop, field read/write
+and a collecting/reentrant callback. The current production From/IntoKagari and
+CallSlots path and candidate Kind/View/Local path are still separate adapters;
+sharing scalar codecs alone does not meet this criterion. Object/Optional kind
+markers, signature-preparation plumbing and entry-completion mechanics must not
+become additional protocols that ordinary function authors select manually.
+An inferred adapter must still prove the exact nominal/generic application;
+renaming types, adding forwarding facades or trusting a physical Rust P is not
+closure evidence. Concrete Rust signatures must prove the required scope/return
+lifetimes before an apparently simple API is called implemented.
+
+### Host interaction API proposal
+
+Review proposal, 2026-11-04. The signatures and examples below are Rust-shaped
+schemas, not implemented Rust APIs. Existing SDK binding/call/member entrypoints
+are the starting point; Runtime::enter, the unified NativeContext operations and
+logical result projections require implementation and Rust lifetime proofs.
+The implemented [embedding specification](spec/embedding-api.md) remains
+authoritative until the ordered migration replaces the affected contracts.
+
+#### One context and two retention forms
+
+Runtime is the exclusive execution owner. NativeContext represents one active
+interaction, shared by host entry and Native callbacks. It owns call protection,
+not a GC access loan for the entire user closure. Each operation borrows storage
+briefly and releases its payload/bank loans before collection or script reentry.
+It must not implicitly bind every operation to one ExecutableModule: callable,
+field and value evidence supplies its exact declaring/applying owner.
+
+| Surface | Meaning |
+| --- | --- |
+| Local<'call, T> | An initialized, protected location in this interaction. Managed values can survive synchronous callbacks/GC while the location remains live. Scalars normally use their Rust value directly. |
+| RootedValue<T> | An immutable retained host value that can outlive the interaction. Object clones share retention and object identity, not copies of the script graph. |
+| Function<A, R>, Field<T>, Method<A, R> | Prepared callable/member evidence. These are descriptors, not additional value-exchange formats. |
+
+T describes the checked script/Rust correspondence. In the examples Object
+denotes the script-struct family, not the physical Object<P>/NativeObject<P>
+prototype markers. Its actual installed nominal type and application remain
+attached to the admitted value. A runtime-only script type can use this family
+without inventing a global Rust-marker-to-script-name registry. Known Rust
+schemas can strengthen the mapping through the existing checked schema route.
+Unrelated declarations with the same name must never become interchangeable.
+
+Function's A/R specify this correspondence, not a manually selected owning or
+scoped carrier. Internal adapters project managed results to Local in an active
+context and RootedValue at the outer host boundary; scalar results remain Rust
+scalars. Parameter tuples similarly borrow host roots or use active locals. These
+family projections must compile before freezing their Rust signatures. Ordinary
+authors do not implement or select Kind/View, argument-pack or return protocols.
+Owned Rust DTO/string/sequence conversion remains an explicit conversion request;
+returning a managed object/collection does not implicitly copy its graph to Rust.
+
+#### Prepare once and call
+
+Binding uses the live module and retains exact declaration/application/member
+contracts. It resolves names and checks Rust mappings without running script.
+Field evidence includes its receiver type, visibility and write contract.
+An Object-family Rust view still needs actual receiver/type admission where its
+specific schema is not statically established; do not promise to erase that check.
+
+```text
+let player_type = runtime.object_type(&module, "Player")?;
+let hp = runtime.field::<i32>(&player_type, "hp")?;
+let spawn = runtime.function::<(i32,), Object>(&module, "spawn")?;
+let heal = runtime.function::<(Object, i32), i32>(&module, "heal")?;
+
+let player: RootedValue<Object> = runtime.call(&spawn, (100,))?;
+runtime.set(&player, &hp, 80)?;
+let healed: i32 = runtime.call(&heal, (&player, 20))?;
+let current: i32 = runtime.get(&player, &hp)?;
+```
+
+The ordinary one-operation SDK entry automatically opens an interaction, imports
+inputs, uses the common operation and retains managed outputs before exit. Host
+root arguments are borrowed; passing an argument does not demand a root clone or
+new root registration. The shared scalar/local/member kernel remains the only
+semantic implementation, rather than a separate host execution path.
+
+#### Several operations and explicit retention
+
+```text
+let saved: RootedValue<Object> = runtime.enter(|cx| {
+    let player: Local<'_, Object> = cx.call(&spawn, (100,))?;
+    cx.set(&player, &hp, 80)?;
+    let healed: i32 = cx.call(&heal, (player, 20))?;
+    cx.retain(&player)
+})?;
+
+let current: i32 = runtime.enter(|cx| {
+    let player = cx.load(&saved)?;
+    cx.get(&player, &hp)
+})?;
+```
+
+enter is bounded by a generative interaction lifetime; Local cannot escape its
+closure. load imports a host-retained value into protected call storage, checking
+owner/lifecycle and the supplying contract without a new independent root.
+retain snapshots the current value into independent host retention and can fail.
+That failure does not undo earlier calls or field changes. Scalars can return
+directly from enter. RootedValue cloning is cheap shared retention; dropping the
+last host reference queues release and does not run script/destructors immediately.
+Surviving handles after shutdown are inert; all access still requires Runtime.
+
+Local denotes a location: copying its coordinates aliases that location, not an
+independent snapshot. Ordinary operations never secretly retarget live argument
+or result locations. Reusable scratch/result destinations are explicit engine/
+library operations; they cannot invalidate other live values to hide allocation.
+Call adapters publish a returned Local into the caller destination before retiring
+callee storage. Functions return NativeResult<R>; no return_unit/return_from
+completion side channel is introduced. Repeated callback algorithms reuse bounded
+working storage or nested interaction scopes rather than grow one root per item.
+
+#### Script calls Rust and Rust calls script
+
+The registered callback receives the same NativeContext and value correspondence
+as an explicit host enter. It continues the current interaction instead of
+starting a second driver. A schematic binding receives a script callback as a
+typed argument and invokes it through that same operation:
+
+```text
+module.bind(notify_declaration, |cx, (player, callback)| {
+    // player: Local<'call, Object>
+    // callback: protected function value with a prepared (Player) -> Unit contract
+    cx.call(&callback, (player,)) // returns Result<()>
+})?;
+```
+
+The same object location is a function argument and field receiver and can be
+passed on to another function. Internal transfers do not promote it to
+RootedValue or convert it through an owned Rust object snapshot. Code that
+stores it in managed fields/containers uses the same checked typed value and
+publication contract, with no custom host/native conversion protocol per site.
+Declaration, nominal/application and declared-access validation belong to common
+preparation/admission; mutable borrow, initialization, bounds and payload-state
+checks remain where their facts can change. A raw payload loan cannot span a call.
+Runtime-independent native declarations cannot capture descriptors or roots from
+one installed Runtime and silently reuse them in others. Fixed field/call
+dependencies use existing per-link/application preparation; foreign descriptors
+remain rejected. The example avoids assuming that a runtime-bound Player field
+was available while authoring a reusable native module.
+
+#### Borrowing Rust-owned state
+
+Rust data remains host-owned. An installed RustType/method contract supplies the
+target identity and access evidence; the interaction can lend a temporary view:
+
+```text
+runtime.enter(|cx| {
+    let counter_view = cx.borrow_mut(&counter_type, &mut rust_counter)?;
+    cx.call_method(&counter_view, &add, (1,))
+})?;
+// rust_counter can be used again here.
+```
+
+The borrowed view participates in the same parameter/member operations but is
+nonpersistent: no retain, managed-field/container storage, escaping return,
+captured closure or queued/suspended call. Borrowing does not make the Rust object
+a managed payload. Reuse the current HostScope's branded Rust-loan validation,
+including alias/overlap checks, nested reentry exclusion and unwind revocation.
+The borrow view must carry both interaction and actual Rust-loan evidence; a
+plain &mut self signature cannot extend a short Rust loan to the whole context.
+Its precise generative bounds remain a compile-proof obligation, not permission
+to erase the lifetime for the proposed surface.
+
+For direct Rust payload access, a short read/edit closure lends the checked Rust
+reference. It holds the context access loan, prohibits direct script calls inside
+that loan and retains dynamic exclusion against reentry through another alias.
+Finish the edit before calling script through the same context. No additional
+general permission matrix or unrestricted retained &mut Rust reference is exposed.
+
+#### Failure, reload and async boundaries
+
+Use the existing error mapping; there is no new interaction-specific error family.
+Preparation rejects stable signature/type/member mismatches before effects;
+foreign/closed handles and nonpersistent loans are checked at admission. Body or
+return-retention failure preserves completed effects. enter and Native return
+release protection and scoped loans on normal return, errors and unwind.
+
+Named Function calls keep selecting the current compatible implementation.
+Closure values retain their captured body/environment. Existing explicit exact-
+body preparation stays a distinct selection operation, not a mandatory extra
+step for ordinary calls or a generic performance flag. Retention alone does not
+pin every subsequent named call to an obsolete body.
+
+Local and Rust borrowed views cannot cross await/queueing. The existing async
+admission boundary establishes owned inputs/roots and fresh access on resumption;
+an async task never holds NativeContext, CallRegion or a payload loan while
+suspended. This proposal does not introduce another scheduler or change the
+separately ordered execution-policy work.
+
+#### Reference mechanism and implementation boundary
+
+Wasmtime's official [RootScope](https://docs.wasmtime.dev/api/wasmtime/struct.RootScope.html)
+and [OwnedRooted](https://docs.wasmtime.dev/api/wasmtime/struct.OwnedRooted.html)
+docs (51.0.0-dev, consulted 2026-11-04) demonstrate temporary group retention and
+explicit independent ownership using the same context operations. They are a
+dated mechanism reference, not a dependency selection. Kagari keeps its own
+generative Local lifetime, statically typed script/application contracts, precise
+execution storage, borrowed Rust restrictions, failure/reload rules and scoped
+GC access. In particular enter must permit calls/GC between short accesses;
+it is not a collection-excluded CallRegion wrapped around the whole closure.
+
+The existing SDK currently returns retained Object/ScriptValue/Function wrappers,
+and NativeContext is tied to conversion owner/backend services. The proposed
+logical result families, module-independent active context, native binding
+inference and Rust-borrow integration are not implemented by adding these names.
+Replace obsolete overlapping models at their ordered checkpoint; do not keep
+duplicate owning Object and RootedValue<Object> semantics, compatibility aliases,
+per-argument owned-root adapters or two execution kernels. Validate a retained
+object round-trip through host call, field write, Native callback, collection,
+reentry, error cleanup and reload, plus compile-fail local/borrow escape cases,
+before calling this public surface closed.
+
 ## Standard-library authoring proposal
+
+### Function body sketches
 
 These are proposed Rust-shaped function bodies, not implemented APIs or
 compilable examples. They make the intended author experience reviewable before
@@ -844,15 +1261,23 @@ is converted into an old Runtime Value. General prepared application/witness
 ownership, declared write admission and untyped ingress must still be settled
 before broad migration. Reuse the existing linker/application owners to do so.
 
-The prototype deliberately supports only u64, Unit, native objects and a single
-optional working-slot projection; it is not the full Value category inventory or
+The prototype supports immediate fixed-width scalars, Unit, native objects and a
+single optional working-slot projection; it is not the full Value category inventory or
 language Option ABI. Native read/publication can fail after take, so concrete
 len/get/push/pop APIs return NativeResult where state can invalidate access.
 There is no new public TypedValue<T> claiming full script identity merely from a
-Rust P. The remaining function sketches below stay design targets; their generic
-markers, scalar widths and Iterable coverage must not be read as implemented APIs.
+Rust P. Scalar carriers and Native conversion share one internal codec with the
+production Value path, preserving widened integer domains and floating-point bits.
+The remaining function sketches below stay design targets; their generic markers
+and Iterable coverage must not be read as implemented APIs.
 
 ### Call and storage capabilities
+
+The [candidate fold measurements](gc-redesign-plan.md#candidate-fold-measurements)
+characterize the executable subset with Rust reducers, existing typed script
+callbacks and explicit callback collections. They measure the current bridge,
+not the proposed generic Native ABI or full Iterable protocol. The active plan
+owns the workload, environment, results and profiling follow-up.
 
 | Proposed capability | Contract |
 | --- | --- |

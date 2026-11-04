@@ -1,6 +1,9 @@
 //! Shared compact-storage kernels after fixed-array or nominal-sequence admission.
 //! Indices accept host positions or wide script integers; narrowing failure follows
 //! each operation's absence/bounds policy, after its receiver and mutation checks.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{GcHeap, HeapObjectId, storage::HeapObject},
@@ -102,6 +105,8 @@ impl GcHeap {
     }
 
     pub(crate) fn buffer_contract(&self, id: HeapObjectId) -> Option<Arc<StorageType>> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::SequenceContractRead);
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
@@ -259,6 +264,8 @@ impl GcHeap {
         id: HeapObjectId,
         f: impl FnOnce(&SequenceStorage) -> R,
     ) -> Option<R> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::SequencePayloadRead);
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))

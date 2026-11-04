@@ -1,17 +1,21 @@
 //! Concrete Rust callbacks share the checked conversion boundary with host access.
 mod loan_arguments;
 pub mod loans;
+mod preparation;
 mod receiver;
 use crate::{
     Runtime,
     error::RuntimeError,
+    frame::call_slots::CallSlots,
     gc::GcCollection,
     module::ExecutableModule,
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
         context::{CallContext, ScriptInvoker},
         conversion::{
-            FromKagari, IntoKagari, arguments::FromKagariArguments, context::ConversionContext,
+            FromKagari, IntoKagari,
+            arguments::{FromKagariArguments, PreparedArguments},
+            context::ConversionContext,
         },
         typed::receiver::ReceiverArguments,
     },
@@ -85,7 +89,8 @@ impl<'call> NativeContext<'call> {
 impl NativeBinding {
     /// Attach a typed callback to a preauthored declaration, including generic
     /// signatures. Module installation still validates the complete declaration
-    /// and binding; every invocation checks concrete Rust mappings before effects.
+    /// and binding. Linking or concrete application preparation checks the Rust
+    /// mappings before the entry is published; invocation checks actual values.
     /// Ordinary authored registrations should use ModuleBuilder::bind.
     pub fn declared<A: FromKagariArguments, R: IntoKagari>(
         declaration: &DefinitionMetadata<NativeDeclaration>,
@@ -114,9 +119,9 @@ impl NativeBinding {
         })
     }
 
-    /// Contextual mappings inherit the checked declaration at invocation. Only
-    /// declaration builders supply the arity; all Rust types are checked before
-    /// argument conversion or callback effects.
+    /// Contextual mappings inherit the linked declaration or concrete application.
+    /// Only declaration builders supply the arity; preparation checks Rust types
+    /// before argument conversion or callback effects can run.
     pub(crate) fn contextual<A: FromKagariArguments, R: IntoKagari>(
         arity: usize,
         entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
@@ -124,9 +129,11 @@ impl NativeBinding {
         + Sync
         + 'static,
     ) -> Self {
-        Self::new(vec![Codec::Value; arity], Codec::Value, move |call| {
+        let mut binding = Self::new(vec![Codec::Value; arity], Codec::Value, move |call| {
             invoke(call, &entry)
-        })
+        });
+        binding.conversion_preparation = Some(preparation::prepare::<A, R>);
+        binding
     }
 }
 
@@ -143,34 +150,42 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
     let result_type = &signature.result;
     // A mismatch known before invocation cannot run any argument converter or
     // callback. The final value is still checked: user adapters are not trusted.
-    context.conversion.check_type::<R>(result_type)?;
     let types = &signature.params;
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(call.arguments.len())
-        .map_err(|_| RuntimeError::resource_limit("native argument values"))?;
+    // Availability errors precede receiver-capability checks. No user conversion
+    // or GC can change these source coordinates before the snapshot is published.
     for slot in 0..call.arguments.len() {
-        values.push(call.argument(slot)?);
+        call.argument(slot)?;
     }
-    A::check_types(&context.conversion, types)?;
+    let receiver = call
+        .function
+        .binding
+        .receiver_access
+        .map(|_| call.argument(0))
+        .transpose()?;
     loans::check_receiver_storage(
         &context,
         call.function.binding.receiver_access,
         types,
-        &values,
+        receiver.as_ref(),
     )?;
     // Keep the complete pack through result conversion as well as decoding and
     // payload access. A loan ends before the result's first allocation/safepoint.
-    let roots = context
-        .runtime()
-        .gc()
-        .root_execution_values(values.clone())
-        .ok_or_else(|| RuntimeError::module_validation("native invocation argument roots"))?;
-    let arguments = A::from_arguments(&mut context.conversion, types, &values)?;
+    let mut slots = CallSlots::snapshot_prepared(
+        call.runtime,
+        call.owner,
+        call.arguments.len(),
+        call.function.input_layout()?,
+        |index| call.argument(index),
+    )?;
+    let prepared = PreparedArguments::from_checked(types);
+    let arguments =
+        A::from_prepared_arguments(&mut context.conversion, &prepared, &slots.reader())?;
     let result = entry(&mut context, arguments)?;
-    let result = context.conversion.encode_value(result_type, result);
-    drop(roots);
-    result
+    let result_index = slots.result_index();
+    context
+        .conversion
+        .encode_into(result_type, result, &mut slots, result_index)?;
+    slots.read_result()
     // No safepoint occurs between dropping this scope and the caller publishing
     // the returned value. LinkedResultAdapter protects it before allocating.
 }

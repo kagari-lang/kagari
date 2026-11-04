@@ -2,10 +2,9 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments},
+    frame::{ExecutionStack, FrameDispatch, FrameEntry, arguments::InvocationArguments},
     module::ExecutableModule,
     native::context::LinkedCallable,
-    value::Value,
 };
 
 impl ExecutionStack<'_> {
@@ -16,15 +15,14 @@ impl ExecutionStack<'_> {
         runtime: &Runtime,
         caller: &ExecutableModule,
         selected: &LinkedCallable,
-        args: &[Value],
+        args: InvocationArguments<'_>,
     ) -> Result<(), RuntimeError> {
         let owner = selected.owner(caller)?;
         runtime.validate_executable_module(&owner)?;
         if args.len() != selected.params.len()
-            || !args
-                .iter()
-                .enumerate()
-                .all(|(index, value)| selected.matches_argument(runtime, &owner, index, value))
+            || !args.source.all(runtime, |index, value| {
+                selected.matches_argument(runtime, &owner, index, value)
+            })?
         {
             return Err(RuntimeError::module_validation("selected call arguments"));
         }
@@ -32,7 +30,7 @@ impl ExecutionStack<'_> {
             runtime,
             owner,
             selected.target,
-            FrameArguments::plain(args),
+            args.source,
             None,
             FrameDispatch {
                 prepared: None,

@@ -20,6 +20,8 @@ use crate::{
 /// Resolve the Rust boundary type through the installed declaration catalog.
 /// This describes a type, never a sample value or a second declaration registry.
 pub trait KagariType {
+    /// Describe this Rust type's stable mapping in the installed catalog.
+    /// Live value/lifecycle admission belongs to conversion, not this declaration.
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type>;
 
     /// Read an owned scalar or retained handle from an inline borrowed field.
@@ -54,6 +56,9 @@ pub trait KagariType {
     /// Check an installed expected type before conversion. Dynamic retained
     /// handles use its exact nominal scope instead of inventing an `Any` type.
     /// This never replaces validation of the converted value against that scope.
+    /// A successful mapping is reusable while the supplying declaration contract
+    /// is retained or transported through a compatible publication. Do not use
+    /// this hook for checks depending on mutable values or execution state.
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
         let ty = Self::kagari_type(&cx.runtime().native_entries.catalog)?;
         cx.check_declared_type(expected, ty)

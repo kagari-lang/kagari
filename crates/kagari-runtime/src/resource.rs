@@ -1,3 +1,6 @@
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     execution_state::ExecutionState,
@@ -206,6 +209,8 @@ impl ResourceState {
     }
 
     pub fn poll_execution(&self) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ExecutionPoll);
         self.execution.ensure_allowed()?;
         // Session polling checks sticky termination before cancellation. Resolve
         // that session once; no callback can change it during this operation.
@@ -241,6 +246,8 @@ impl ResourceState {
     }
 
     pub fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ExecutionGuard);
         self.execution.ensure_allowed()?;
         if let Some(error) = self.termination() {
             return Err(error);

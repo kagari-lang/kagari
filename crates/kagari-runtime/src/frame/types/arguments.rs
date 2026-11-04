@@ -6,6 +6,9 @@ use kagari_common::identity::{
 mod identity_tests;
 mod nominal;
 pub(crate) mod variants;
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -180,6 +183,8 @@ impl TypeArgument {
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::TypeArgumentValidation);
         let table = runtime.definition_context().snapshot();
         if let Some(origin) = &self.data.origin
             && !origin.scope.owner.belongs_to(runtime.host.owner())

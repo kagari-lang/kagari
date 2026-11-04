@@ -7,6 +7,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
     frame::{
+        arguments::InvocationArguments,
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
@@ -163,7 +164,7 @@ fn unexpected_callback(
     _: &Runtime,
     _: &ExecutableModule,
     _: ScriptCall<'_>,
-    _: &[Value],
+    _: InvocationArguments<'_>,
 ) -> NativeResult<Value> {
     panic!("the measured scalar and bulk entries have no script callbacks")
 }

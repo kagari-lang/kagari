@@ -1,7 +1,7 @@
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    frame::driver::ReturnAction,
+    frame::{arguments::InvocationArguments, driver::ReturnAction},
     module::ExecutableModule,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
@@ -30,7 +30,7 @@ fn invoke_stored(
     runtime: &Runtime,
     owner: &ExecutableModule,
     target: ScriptCall<'_>,
-    arguments: &[Value],
+    arguments: InvocationArguments<'_>,
 ) -> NativeResult<Value> {
     // Stored ordinary callbacks select the current publication while keeping the
     // enclosing root session and its candidate/installation admission intact.

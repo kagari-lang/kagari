@@ -2,6 +2,7 @@ use crate::{
     Runtime,
     closure::{ClosureTarget, ObservedCallableTarget},
     frame::{
+        arguments::InvocationArguments,
         cursor::kernel::RegionExit,
         driver::{ExecutionAction, ReturnAction},
     },
@@ -108,7 +109,14 @@ fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exa
         assert!(Runtime::default().observe_callable_value(root).is_err());
         let current = runtime.select_program(&program).unwrap();
         let stack = runtime.enter_execution_stack(&current).unwrap();
-        stack.push_closure(&runtime, &value, &[], None).unwrap();
+        stack
+            .push_closure(
+                &runtime,
+                &value,
+                InvocationArguments::from_values(&[]),
+                None,
+            )
+            .unwrap();
         assert_eq!(
             stack.current().unwrap().loaded().publication_token(),
             expected
@@ -220,7 +228,12 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
     let current = runtime.select_program(&program).unwrap();
     let stack = runtime.enter_execution_stack(&current).unwrap();
     stack
-        .push_closure(&runtime, &root.value(runtime.gc()).unwrap(), &[], None)
+        .push_closure(
+            &runtime,
+            &root.value(runtime.gc()).unwrap(),
+            InvocationArguments::from_values(&[]),
+            None,
+        )
         .unwrap();
     let RegionExit::Return(result) = stack
         .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))

@@ -236,7 +236,13 @@ impl<'gc> CallRegion<'_, 'gc> {
             Repr::Empty => return Err(failure(GcError::Storage("uninitialized host result"))),
             Repr::Absent => Repr::Absent,
             Repr::Unit => Repr::Unit,
+            Repr::Bool(value) => Repr::Bool(value),
+            Repr::Char(value) => Repr::Char(value),
+            Repr::I32(value) => Repr::I32(value),
+            Repr::I64(value) => Repr::I64(value),
             Repr::U64(value) => Repr::U64(value),
+            Repr::F32(value) => Repr::F32(value),
+            Repr::F64(value) => Repr::F64(value),
             Repr::Object(value) => Repr::Object(self.scope_mut().retain(value).map_err(failure)?),
         };
         Ok(RootedValue {
@@ -255,7 +261,13 @@ impl<'gc> CallRegion<'_, 'gc> {
             Repr::Empty => return Err(failure(GcError::Storage("uninitialized host snapshot"))),
             Repr::Absent => Repr::Absent,
             Repr::Unit => Repr::Unit,
+            Repr::Bool(value) => Repr::Bool(*value),
+            Repr::Char(value) => Repr::Char(*value),
+            Repr::I32(value) => Repr::I32(*value),
+            Repr::I64(value) => Repr::I64(*value),
             Repr::U64(value) => Repr::U64(*value),
+            Repr::F32(value) => Repr::F32(*value),
+            Repr::F64(value) => Repr::F64(*value),
             Repr::Object(value) => Repr::Object(self.scope_mut().get(value).map_err(failure)?),
         };
         T::admit(self.scope(), Value { repr }).map_err(failure)

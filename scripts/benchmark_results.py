@@ -11,6 +11,8 @@ ORIGINAL = ("entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "
 FORMS = ("direct", "helper", "concrete_generic", "interface", "shared_generic",
          "capture_cell", "field", "native", "byte_state", "host_callback",
          "string_constants", "string_calls")
+STDLIB_OPS = ("loop_control", "native_zero", "vec_len", "vec_get", "vec_set_get",
+              "vec_pop_push", "fold_scalar", "fold_references")
 CONTROLS = tuple(f"roots_{population}_{order}_{mode}"
                  for population, order in ((1, "tail"), (32, "tail"), (256, "forward"), (256, "random"))
                  for mode in ("complete", "cancel"))
@@ -63,6 +65,15 @@ def expected_rows(metadata: dict) -> dict[tuple[str, str, str], int]:
                 result["execute", f"forms_{name}", engine] = samples
         for phase in ("source_to_artifact", "artifact_prepare", "runtime_init", "program_link"):
             result[phase, "forms_module", "kagari_vm"] = 1
+    elif metadata["suite"] == "stdlib":
+        require(not metadata["workload"], "stdlib operations require the complete bounded matrix")
+        for name in STDLIB_OPS:
+            for engine in ("kagari_vm", "lua54"):
+                result["execute", f"ops_{name}", engine] = samples
+                result["dataset_init", f"ops_{name}", engine] = 1
+            result["prepare", f"ops_{name}", "lua54"] = 1
+        for phase in ("source_to_artifact", "artifact_prepare", "runtime_init", "program_link"):
+            result[phase, "ops_module", "kagari_vm"] = 1
     elif metadata["suite"] in ("controls", "windows"):
         require(not metadata["workload"], "controls cannot select an original workload")
         names, phases = (WINDOWS, ("admit", "retire", "fragment")) if metadata["suite"] == "windows" else (CONTROLS, ("admit", "retire", "collect"))

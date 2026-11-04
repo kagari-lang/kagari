@@ -1,4 +1,7 @@
 //! Heap-owned roots. Leases retain entries without owning their values or storage.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     Runtime, error::RuntimeError, execution_metadata::MetadataRoot, gc::GcHeap, value::Value,
 };
@@ -338,6 +341,8 @@ impl GcHeap {
     }
 
     pub fn root_execution_values(&self, values: Vec<Value>) -> Option<RootSet> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::RootPackRegistration);
         self.ensure_execution_allowed().ok()?;
         if !values.iter().all(|value| self.validate_value(value)) {
             return None;

@@ -61,6 +61,7 @@ impl NativeBinding {
             result,
             entry: BindingEntry::Primitive(primitive),
             converted_result: false,
+            conversion_preparation: None,
             requirement_owner: None,
             receiver_access: None,
         }

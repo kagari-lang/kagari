@@ -1,8 +1,11 @@
 //! One bounded representation shared by scoped values, stored edges and host roots.
 
-use crate::native::{
-    binding::NativeResult,
-    managed::{call::CallRegion, payload::NativeObject, slots::Kind},
+use crate::{
+    native::{
+        binding::NativeResult,
+        managed::{call::CallRegion, payload::NativeObject, slots::Kind},
+    },
+    value::scalar::ScalarValue,
 };
 use kagari_gc::{
     access::Mutation,
@@ -19,8 +22,45 @@ pub(super) enum Repr<R> {
     Empty,
     Absent,
     Unit,
+    Bool(bool),
+    Char(char),
+    I32(i32),
+    I64(i64),
     U64(u64),
+    F32(f32),
+    F64(f64),
     Object(R),
+}
+
+impl<R> Repr<R> {
+    /// Codec boundary only: construct a scalar without converting references.
+    pub(super) fn from_scalar(value: ScalarValue) -> Self {
+        match value {
+            ScalarValue::Unit => Self::Unit,
+            ScalarValue::Bool(value) => Self::Bool(value),
+            ScalarValue::Char(value) => Self::Char(value),
+            ScalarValue::I32(value) => Self::I32(value),
+            ScalarValue::I64(value) => Self::I64(value),
+            ScalarValue::U64(value) => Self::U64(value),
+            ScalarValue::F32(value) => Self::F32(value),
+            ScalarValue::F64(value) => Self::F64(value),
+        }
+    }
+
+    /// Codec boundary only: a stored edge cannot escape through this projection.
+    pub(super) fn scalar(&self) -> Option<ScalarValue> {
+        Some(match self {
+            Self::Unit => ScalarValue::Unit,
+            Self::Bool(value) => ScalarValue::Bool(*value),
+            Self::Char(value) => ScalarValue::Char(*value),
+            Self::I32(value) => ScalarValue::I32(*value),
+            Self::I64(value) => ScalarValue::I64(*value),
+            Self::U64(value) => ScalarValue::U64(*value),
+            Self::F32(value) => ScalarValue::F32(*value),
+            Self::F64(value) => ScalarValue::F64(*value),
+            Self::Empty | Self::Absent | Self::Object(_) => return None,
+        })
+    }
 }
 
 /// An opaque, non-Copy stored value. Only reviewed providers can construct it.
@@ -43,7 +83,13 @@ impl StoredValue {
             Repr::Empty => return Err(GcError::Storage("cannot publish an uninitialized value")),
             Repr::Absent => Repr::Absent,
             Repr::Unit => Repr::Unit,
+            Repr::Bool(value) => Repr::Bool(value),
+            Repr::Char(value) => Repr::Char(value),
+            Repr::I32(value) => Repr::I32(value),
+            Repr::I64(value) => Repr::I64(value),
             Repr::U64(value) => Repr::U64(value),
+            Repr::F32(value) => Repr::F32(value),
+            Repr::F64(value) => Repr::F64(value),
             // SAFETY: inherited live source and same-owner destination proof.
             Repr::Object(value) => Repr::Object(unsafe { mutation.edge_scoped(value)? }),
         };
@@ -82,7 +128,13 @@ impl StoredValue {
                 Repr::Empty => Repr::Empty,
                 Repr::Absent => Repr::Absent,
                 Repr::Unit => Repr::Unit,
+                Repr::Bool(value) => Repr::Bool(*value),
+                Repr::Char(value) => Repr::Char(*value),
+                Repr::I32(value) => Repr::I32(*value),
+                Repr::I64(value) => Repr::I64(*value),
                 Repr::U64(value) => Repr::U64(*value),
+                Repr::F32(value) => Repr::F32(*value),
+                Repr::F64(value) => Repr::F64(*value),
             };
             scalar.set(Some(Value { repr }));
             None

@@ -492,7 +492,7 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
             .begin_candidate_initialization(&candidate)
             .unwrap();
         let error = prepared
-            .call_with_options::<_, i32>(
+            .call_with_options(
                 &mut vm.context(candidate.module()).unwrap(),
                 (receiver.clone(),),
                 vm.runtime().execution_options(),
@@ -504,7 +504,7 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
     let (foreign, foreign_program) = fixture_without_foundation(source, Some(&module));
     let foreign_owner = foreign.runtime().select_program(&foreign_program).unwrap();
     let error = prepared
-        .call_with_options::<_, i32>(
+        .call_with_options(
             &mut foreign.context(&foreign_owner).unwrap(),
             (receiver.clone(),),
             foreign.runtime().execution_options(),
@@ -535,7 +535,7 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
         for expected in [111, 121] {
             assert_eq!(
                 prepared
-                    .call_with_options::<_, i32>(
+                    .call_with_options(
                         &mut vm.context(prepared.owner()).unwrap(),
                         (receiver.clone(),),
                         vm.runtime().execution_options(),

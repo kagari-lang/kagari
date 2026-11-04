@@ -1,4 +1,7 @@
 //! Formal shared access publishes an inert alias, preserving the caller's capability.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     error::RuntimeError,
     native::{binding::NativeResult, context::CallContext},
@@ -11,6 +14,8 @@ impl CallContext<'_> {
         let mut arguments = self.arguments.clone();
         let signature = self.function.type_signature()?;
         for (index, parameter) in signature.params.iter().enumerate() {
+            #[cfg(feature = "execution-diagnostics")]
+            diagnostics::record(Event::NativeParameterScan);
             let external_shared =
                 self.function
                     .binding

@@ -2,7 +2,7 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{
-        arguments::FrameArguments,
+        arguments::{FrameArguments, InvocationArguments},
         types::TypeEnvironment,
         values::{ExecutionValues, FrameSlots},
     },
@@ -39,7 +39,8 @@ use std::{
 };
 
 mod admission;
-pub(crate) mod arguments;
+pub mod arguments;
+pub mod call_slots;
 mod calls;
 mod closures;
 pub mod cursor;
@@ -207,14 +208,14 @@ impl<'runtime> ExecutionStack<'runtime> {
         &self,
         runtime: &Runtime,
         method: RootedInterfaceMethod,
-        args: &[Value],
+        args: InvocationArguments<'_>,
         return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         let method = method.admit(runtime)?;
         let view = method.view(runtime)?;
         runtime.validate_executable_module(view.implementation())?;
-        let arguments = FrameArguments::plain(args);
+        let arguments = args.source;
         view.validate_arguments(runtime, arguments)?;
         let loaded = view.implementation().clone();
         let target = view.target();

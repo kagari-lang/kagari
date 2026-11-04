@@ -291,7 +291,7 @@ fn returned_closures_retain_bodies_while_bound_functions_select_current() {
         assert_eq!(answer.call(&mut cx, ()).unwrap(), 42);
         assert_eq!(
             prepared
-                .call_with_options::<_, i32>(&mut cx, (), vm.runtime().execution_options())
+                .call_with_options(&mut cx, (), vm.runtime().execution_options())
                 .unwrap(),
             41
         );

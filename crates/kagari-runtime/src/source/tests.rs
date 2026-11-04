@@ -1,6 +1,7 @@
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
+    frame::arguments::InvocationArguments,
     module::{ExecutableModule, VerifiedProgram, dispatch::CallRouteKind},
     native::{
         binding::{Codec, NativeBinding},
@@ -243,7 +244,12 @@ fn current_routes_exact_values_frames_and_source_only_history() {
     let frame_target = {
         let stack = runtime.enter_execution_stack(&old).unwrap();
         stack
-            .push_closure(&runtime, &root.value(runtime.gc()).unwrap(), &[], None)
+            .push_closure(
+                &runtime,
+                &root.value(runtime.gc()).unwrap(),
+                InvocationArguments::from_values(&[]),
+                None,
+            )
             .unwrap();
         let frame = stack.current().unwrap();
         assert!(Runtime::default().frame_source_target(&frame).is_err());

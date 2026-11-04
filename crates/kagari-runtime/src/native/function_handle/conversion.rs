@@ -145,7 +145,7 @@ impl<A: KagariArguments, R: KagariType> IntoKagari for Function<A, R> {
             cx.check_value(expected, &value)?;
             return Ok(value);
         }
-        let prepared = self.prepare_call(cx.runtime())?;
+        let prepared = self.prepare_selection(cx.runtime())?;
         let value = match &prepared.target {
             Target::Closure { root, .. } => root
                 .value(cx.runtime().gc())

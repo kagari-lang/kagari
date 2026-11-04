@@ -3,11 +3,44 @@ use kagari::{context::ExecutionContext, runtime::Runtime};
 use kagari_runtime::{
     diagnostics::{self, allocations},
     module::{Program, entry::ProgramEntry},
+    native::{function_handle::Function, value_handle::ScriptValue},
     value::Value,
 };
 
 #[global_allocator]
 static ALLOCATOR: allocations::Allocator = allocations::Allocator;
+
+/// Count the same retained-input route as the public-operation timing fixture.
+/// Per-batch collection matches that fixture and is outside the counted region.
+pub(super) fn measure_typed(
+    runtime: &mut Runtime,
+    function: &Function<(ScriptValue,), i64>,
+    data: &ScriptValue,
+    name: &str,
+    expected: i64,
+) {
+    for phase in ["cold", "warm_1", "warm_2"] {
+        if phase == "warm_1" {
+            for _ in 0..2 {
+                runtime.runtime().collect_garbage().unwrap();
+                assert_eq!(runtime.call(function, (data.clone(),)).unwrap(), expected);
+            }
+        }
+        runtime.runtime().collect_garbage().unwrap();
+        let before = runtime.runtime().gc().stats();
+        let ((result, execution), allocations) = allocations::measure(|| {
+            diagnostics::measure(|| runtime.call(function, (data.clone(),)))
+        });
+        assert_eq!(result.unwrap(), expected);
+        let after = runtime.runtime().gc().stats();
+        println!(
+            "STDLIB_DIAGNOSTIC,{name},phase={phase},allocations={allocations:?},objects={},collections={},execution={execution:?}",
+            after.allocated_objects as i128 - before.allocated_objects as i128
+                + (after.reclaimed_objects - before.reclaimed_objects) as i128,
+            after.collections - before.collections,
+        );
+    }
+}
 
 pub(super) fn measure(
     runtime: &Runtime,

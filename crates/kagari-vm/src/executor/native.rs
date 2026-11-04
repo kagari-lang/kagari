@@ -3,6 +3,7 @@ use crate::{error::VmError, executor::Executor};
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
+    frame::arguments::InvocationArguments,
     module::ExecutableModule,
     native::{binding::NativeResult, context::ScriptCall},
     value::Value,
@@ -12,7 +13,7 @@ pub(crate) fn invoke_script(
     runtime: &Runtime,
     _owner: &ExecutableModule,
     target: ScriptCall<'_>,
-    arguments: &[Value],
+    arguments: InvocationArguments<'_>,
 ) -> NativeResult<Value> {
     let stack = match target {
         ScriptCall::Closure(closure) => {

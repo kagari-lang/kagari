@@ -8,7 +8,7 @@ use kagari_bytecode::module::CallableTarget;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
-    frame::{ExecutionFrame, ExecutionStack},
+    frame::{ExecutionFrame, ExecutionStack, arguments::InvocationArguments},
     module::ExecutableModule,
     session::owned::OwnedExecution,
     value::Value,
@@ -69,7 +69,12 @@ impl<'a> Executor<'a> {
         let loaded = method.implementation(runtime)?;
         let stack = runtime.enter_execution_stack(&loaded)?;
         stack
-            .push_interface_method(runtime, method, args, None)
+            .push_interface_method(
+                runtime,
+                method,
+                InvocationArguments::from_values(args),
+                None,
+            )
             .map_err(|error| runtime.resources().admit_execution_error(error))?;
         Ok(Self {
             runtime,

@@ -70,6 +70,8 @@ def main() -> None:
                         help="Measure bounded numeric/bit/cast loops in every numeric domain")
     parser.add_argument("--source-forms", action="store_true",
                         help="Measure recurrence forms, byte state, strings and host callbacks")
+    parser.add_argument("--stdlib-ops", action="store_true",
+                        help="Measure the bounded small-call/vector/fold matrix without timed GC")
     parser.add_argument("--execution-controls", action="store_true",
                         help="Measure parked owned roots and ordered retirement separately")
     parser.add_argument("--window-controls", action="store_true",
@@ -81,11 +83,11 @@ def main() -> None:
     parser.add_argument("--freeze-baseline", type=Path,
                         help="Save this ordinary binary and matrix report after successful measurements")
     args = parser.parse_args()
-    if args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls or args.baseline_executable:
+    if args.numeric_matrix or args.source_forms or args.stdlib_ops or args.execution_controls or args.window_controls or args.baseline_executable:
         args.interpreter_only = True
-    if args.workload and (args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls):
+    if args.workload and (args.numeric_matrix or args.source_forms or args.stdlib_ops or args.execution_controls or args.window_controls):
         parser.error("--workload cannot be combined with an expanded matrix")
-    if sum((args.numeric_matrix, args.source_forms, args.execution_controls, args.window_controls)) > 1:
+    if sum((args.numeric_matrix, args.source_forms, args.stdlib_ops, args.execution_controls, args.window_controls)) > 1:
         parser.error("select one expanded matrix")
     if args.window_controls and args.check:
         parser.error("window controls have a fixed ordinary sample contract")
@@ -96,7 +98,7 @@ def main() -> None:
     if args.baseline_report and not args.baseline_executable:
         parser.error("--baseline-report requires --baseline-executable")
     if args.freeze_baseline and (args.baseline_executable or args.check or args.numeric_matrix):
-        parser.error("freeze an ordinary unpaired original/forms run")
+        parser.error("freeze an ordinary unpaired original/forms/stdlib/controls run")
     if args.freeze_baseline:
         args.interpreter_only = True
     if args.baseline_executable and args.numeric_matrix:
@@ -105,6 +107,8 @@ def main() -> None:
     suffix = "-controls" if args.execution_controls else "-forms" if args.source_forms else "-numeric" if args.numeric_matrix else ""
     if args.window_controls:
         suffix = "-windows"
+    if args.stdlib_ops:
+        suffix = "-stdlib"
     if args.baseline_executable:
         suffix += "-paired"
     output = ROOT / "target/lua-comparison" / (stamp + suffix + ("-check" if args.check else ""))
@@ -133,6 +137,10 @@ def main() -> None:
         metadata.update(suite="windows", workloads="private window controls",
                         features="kagari-runtime default features; library test harness",
                         setup_samples_per_workload=1, setup_scope="excluded; storage only")
+    if args.stdlib_ops:
+        metadata.update(suite="stdlib", workloads="small Native/vector/fold operations",
+                        setup_scope="one matrix module per process; per-workload Lua chunk and retained input dataset",
+                        gc_policy="automatic GC disabled on both; explicit full collection before each untimed/timed batch, outside timer")
     metadata["workload_sha256"] = workload_digest(metadata["suite"])
     metadata["lock_sha256"] = hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()
     print(f"Output: {output}", flush=True)
@@ -178,6 +186,8 @@ def main() -> None:
             argv.append("--numeric-matrix")
         if args.source_forms:
             argv.append("--source-forms")
+        if args.stdlib_ops:
+            argv.append("--stdlib-ops")
         if args.execution_controls:
             argv.append("--execution-controls")
         reverse = (pair // 2) % 2 if args.baseline_executable else pair % 2
@@ -239,7 +249,7 @@ def main() -> None:
                for row in summary if row["phase"] == "execute" and row["variant"] == "candidate"}
     if args.workload:
         names = (args.workload,)
-    elif args.numeric_matrix or args.source_forms:
+    elif args.numeric_matrix or args.source_forms or args.stdlib_ops:
         names = sorted({name for name, engine in results if engine == "kagari_vm"})
     else:
         names = ("entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps")
@@ -262,6 +272,7 @@ def workload_digest(suite: str) -> str:
             paths += sorted(path.relative_to(ROOT) for path in (ROOT / "benchmarks/lua-comparison/workloads").glob("*"))
         else:
             paths.append(source / {"forms": "forms.rs", "controls": "execution_controls.rs",
+                                   "stdlib": "stdlib_ops.rs",
                                    "numeric": "numeric.rs"}[suite])
     digest = hashlib.sha256()
     for path in paths:

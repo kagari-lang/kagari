@@ -19,7 +19,7 @@ use kagari_runtime::{
             call::{CallRegion, Memory},
             entry::ScopedEntry,
             payload::{EdgeFree, Leaf, NativeObject},
-            slots::{Object, Optional},
+            slots::{Kind, Object, Optional, Plain},
         },
         types::Type,
     },
@@ -425,6 +425,62 @@ fn scalar_vectors_use_the_shared_value_family_without_boxing_or_per_item_roots()
     })?;
     memory.collect()?;
     assert_eq!(memory.stats()?.objects, 0);
+    Ok(())
+}
+
+fn stored_scalar_round_trip<T>(value: T) -> NativeResult<T>
+where
+    T: Copy + Plain + for<'gc> Kind<View<'gc> = T>,
+{
+    let memory = Memory::new(HeapConfig {
+        max_roots: 0,
+        ..Default::default()
+    })?;
+    let result = memory.call(|call| {
+        let vector = call.local::<Object<NativeObject<VectorStorage<T>>>>()?;
+        call.region(|r| {
+            let values = VectorMut::<T>::alloc(r)?;
+            values.push(r, value)?;
+            r.write(vector, values.object())
+        })?;
+        call.collect()?;
+        assert_eq!(call.stats()?.objects, 1);
+        assert_eq!(call.stats()?.root_registrations, 0);
+        call.region(|r| {
+            let object = r.read(vector)?;
+            let values = VectorMut::<T>::from_object(r, object)?;
+            assert_eq!(values.readable().len(r)?, 1);
+            let result = values.pop(r)?.unwrap();
+            assert!(values.pop(r)?.is_none());
+            Ok(result)
+        })
+    })?;
+    memory.collect()?;
+    assert_eq!(memory.stats()?.objects, 0);
+    Ok(result)
+}
+
+#[test]
+fn stored_scalars_survive_collection_and_unboxed_removal_without_host_roots() -> NativeResult<()> {
+    assert!(stored_scalar_round_trip(true)?);
+    assert_eq!(stored_scalar_round_trip('🙂')?, '🙂');
+    assert_eq!(stored_scalar_round_trip(i8::MIN)?, i8::MIN);
+    assert_eq!(stored_scalar_round_trip(i16::MIN)?, i16::MIN);
+    assert_eq!(stored_scalar_round_trip(i32::MIN)?, i32::MIN);
+    assert_eq!(stored_scalar_round_trip(i64::MIN)?, i64::MIN);
+    assert_eq!(stored_scalar_round_trip(u8::MAX)?, u8::MAX);
+    assert_eq!(stored_scalar_round_trip(u16::MAX)?, u16::MAX);
+    assert_eq!(stored_scalar_round_trip(u32::MAX)?, u32::MAX);
+    assert_eq!(stored_scalar_round_trip(u64::MAX)?, u64::MAX);
+    stored_scalar_round_trip(())?;
+    assert_eq!(
+        stored_scalar_round_trip(f32::from_bits(0x7fc1_2345))?.to_bits(),
+        0x7fc1_2345
+    );
+    assert_eq!(
+        stored_scalar_round_trip(-0.0f64)?.to_bits(),
+        (-0.0f64).to_bits()
+    );
     Ok(())
 }
 

@@ -1,4 +1,7 @@
 //! Checked Rust conversion views prepared once for a concrete executable import.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -6,10 +9,11 @@ use crate::{
         TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView,
         operations::OperationBindings,
     },
-    module::ExecutableModule,
+    module::{ExecutableModule, execution::layout::FrameLayout},
     native::{
         catalog::DeclarationCatalog,
         context::{CallContext, LinkedCallable, LinkedOperation},
+        conversion::context::ConversionContext,
         declarations::SelectedCall,
         primitive::NativePrimitive,
         result::LinkedResultAdapter,
@@ -36,6 +40,12 @@ pub type NativeResult<T> = Result<T, RuntimeError>;
 
 pub type NativeEntry =
     dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value> + Send + Sync;
+
+pub(crate) type ConversionPreparation = fn(
+    &ConversionContext<'_>,
+    &ScopedSignature,
+    Option<ReferenceAccess>,
+) -> NativeResult<Arc<FrameLayout>>;
 
 /// Exact conversions retain scoped semantic types; generic views inherit their declared slot.
 #[derive(Debug, Clone)]
@@ -147,6 +157,7 @@ pub struct NativeBinding {
     pub(crate) result: Codec,
     pub(crate) entry: BindingEntry,
     pub(crate) converted_result: bool,
+    pub(crate) conversion_preparation: Option<ConversionPreparation>,
     pub(crate) requirement_owner: Option<(DefinitionId, DefinitionTable)>,
     pub(crate) receiver_access: Option<ReferenceAccess>,
 }
@@ -184,6 +195,7 @@ impl NativeBinding {
             result,
             entry: BindingEntry::Callback(Arc::new(entry)),
             converted_result: false,
+            conversion_preparation: None,
             requirement_owner: None,
             receiver_access: None,
         }
@@ -240,9 +252,15 @@ pub struct LinkedNativeFunction {
     pub(crate) declaration: DefinitionId,
     pub(crate) binding: NativeBinding,
     pub(crate) signature: Signature,
-    pub(crate) prepared_signature: OnceLock<ScopedSignature>,
+    pub(crate) prepared_signature: OnceLock<PreparedNativeSignature>,
     pub(crate) selected: Box<[LinkedOperation]>,
     pub(crate) result_adapter: Option<LinkedResultAdapter>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedNativeSignature {
+    signature: ScopedSignature,
+    input_layout: Option<Arc<FrameLayout>>,
 }
 
 impl LinkedNativeFunction {
@@ -258,15 +276,41 @@ impl LinkedNativeFunction {
             .type_arguments(owner, None, slice::from_ref(&self.signature.result))?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?;
+        let signature = ScopedSignature { params, result };
+        let input_layout = self.prepare_conversions(runtime, owner, &signature)?;
         self.prepared_signature
-            .set(ScopedSignature { params, result })
+            .set(PreparedNativeSignature {
+                signature,
+                input_layout,
+            })
             .map_err(|_| RuntimeError::module_validation("duplicate native signature preparation"))
+    }
+
+    fn prepare_conversions(
+        &self,
+        runtime: &Runtime,
+        owner: &ExecutableModule,
+        signature: &ScopedSignature,
+    ) -> NativeResult<Option<Arc<FrameLayout>>> {
+        if let Some(prepare) = self.binding.conversion_preparation {
+            let context = ConversionContext::new(runtime, owner)?;
+            return prepare(&context, signature, self.binding.receiver_access).map(Some);
+        }
+        Ok(None)
     }
 
     pub(crate) fn type_signature(&self) -> NativeResult<&ScopedSignature> {
         self.prepared_signature
             .get()
+            .map(|prepared| &prepared.signature)
             .ok_or_else(|| RuntimeError::module_validation("native signature is not prepared"))
+    }
+
+    pub(crate) fn input_layout(&self) -> NativeResult<&Arc<FrameLayout>> {
+        self.prepared_signature
+            .get()
+            .and_then(|prepared| prepared.input_layout.as_ref())
+            .ok_or_else(|| RuntimeError::module_validation("native input layout is not prepared"))
     }
 
     pub(crate) fn check_requirement(
@@ -313,11 +357,11 @@ impl LinkedNativeFunction {
                 .collect(),
             result: result.ty().clone(),
         };
-        Ok(Self {
+        let applied = Self {
             declaration: self.declaration,
             binding: self.binding.clone(),
             signature,
-            prepared_signature: OnceLock::from(ScopedSignature { params, result }),
+            prepared_signature: OnceLock::new(),
             result_adapter: self
                 .result_adapter
                 .as_ref()
@@ -359,10 +403,22 @@ impl LinkedNativeFunction {
                 })
                 .collect::<NativeResult<Vec<_>>>()?
                 .into_boxed_slice(),
-        })
+        };
+        let signature = ScopedSignature { params, result };
+        let input_layout = applied.prepare_conversions(runtime, owner, &signature)?;
+        applied
+            .prepared_signature
+            .set(PreparedNativeSignature {
+                signature,
+                input_layout,
+            })
+            .map_err(|_| RuntimeError::module_validation("duplicate applied native signature"))?;
+        Ok(applied)
     }
 
     pub(crate) fn invoke(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::NativeEntry);
         if context.arguments.len() != self.signature.params.len() {
             return Err(RuntimeError::module_validation(
                 "native invocation argument count",

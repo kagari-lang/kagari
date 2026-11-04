@@ -3,7 +3,7 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     native::binding::NativeResult,
-    value::Value,
+    value::{Value, scalar::ScalarValue},
 };
 use kagari_types::scalar::BuiltinType;
 
@@ -28,6 +28,34 @@ pub trait NativeScalar: sealed::Scalar + Sized + 'static {
     fn encode(self) -> Value;
 }
 
+/// One scalar codec; production Value and scoped transport only adapt carriers.
+pub(crate) trait ScalarCodec: Sized {
+    fn decode_scalar(value: ScalarValue) -> Result<Self, ScalarError>;
+
+    fn encode_scalar(self) -> ScalarValue;
+}
+
+/// Physical conversion failures carry no execution trace, String or host policy.
+pub(crate) enum ScalarError {
+    Representation,
+    SignedHostRange,
+    UnsignedHostRange,
+}
+
+impl ScalarError {
+    fn into_error(self) -> RuntimeError {
+        match self {
+            Self::Representation => invalid(),
+            Self::SignedHostRange => RuntimeError::host_call_failure(
+                "i64 value is outside the Rust isize conversion range",
+            ),
+            Self::UnsignedHostRange => RuntimeError::host_call_failure(
+                "u64 value is outside the Rust usize conversion range",
+            ),
+        }
+    }
+}
+
 fn invalid() -> RuntimeError {
     RuntimeError::new(
         RuntimeErrorKind::ModuleValidation,
@@ -37,9 +65,30 @@ fn invalid() -> RuntimeError {
 
 macro_rules! integer_scalar {
     ($rust:ty, $abi:ident, $value:ident, $physical:ty) => {
-        integer_scalar!($rust, $abi, $value, $physical, invalid);
+        integer_scalar!($rust, $abi, $value, $physical, ScalarError::Representation);
     };
     ($rust:ty, $abi:ident, $value:ident, $physical:ty, $range_error:expr) => {
+        native_scalar!($rust, $abi);
+
+        impl ScalarCodec for $rust {
+            #[inline]
+            fn decode_scalar(value: ScalarValue) -> Result<Self, ScalarError> {
+                let ScalarValue::$value(value) = value else {
+                    return Err(ScalarError::Representation);
+                };
+                Self::try_from(value).map_err(|_| $range_error)
+            }
+
+            #[inline]
+            fn encode_scalar(self) -> ScalarValue {
+                ScalarValue::$value(self as $physical)
+            }
+        }
+    };
+}
+
+macro_rules! native_scalar {
+    ($rust:ty, $abi:ident) => {
         impl sealed::Scalar for $rust {}
 
         impl NativeScalar for $rust {
@@ -48,14 +97,12 @@ macro_rules! integer_scalar {
             }
 
             fn decode(value: Value) -> NativeResult<Self> {
-                let Value::$value(value) = value else {
-                    return Err(invalid());
-                };
-                Self::try_from(value).map_err(|_| $range_error())
+                Self::decode_scalar(ScalarValue::from_value(value).ok_or_else(invalid)?)
+                    .map_err(ScalarError::into_error)
             }
 
             fn encode(self) -> Value {
-                Value::$value(self as $physical)
+                self.encode_scalar().into_value()
             }
         }
     };
@@ -65,35 +112,29 @@ integer_scalar!(i8, I8, I32, i32);
 integer_scalar!(i16, I16, I32, i32);
 integer_scalar!(i32, I32, I32, i32);
 integer_scalar!(i64, I64, I64, i64);
-integer_scalar!(isize, I64, I64, i64, || RuntimeError::host_call_failure(
-    "i64 value is outside the Rust isize conversion range"
-));
+integer_scalar!(isize, I64, I64, i64, ScalarError::SignedHostRange);
 integer_scalar!(u8, U8, I64, i64);
 integer_scalar!(u16, U16, I64, i64);
 integer_scalar!(u32, U32, I64, i64);
 integer_scalar!(u64, U64, U64, u64);
-integer_scalar!(usize, U64, U64, u64, || RuntimeError::host_call_failure(
-    "u64 value is outside the Rust usize conversion range"
-));
+integer_scalar!(usize, U64, U64, u64, ScalarError::UnsignedHostRange);
 
 macro_rules! scalar {
     ($rust:ty, $abi:ident, $value:ident) => {
-        impl sealed::Scalar for $rust {}
+        native_scalar!($rust, $abi);
 
-        impl NativeScalar for $rust {
-            fn abi_type() -> BuiltinType {
-                BuiltinType::$abi
-            }
-
-            fn decode(value: Value) -> NativeResult<Self> {
-                let Value::$value(value) = value else {
-                    return Err(invalid());
+        impl ScalarCodec for $rust {
+            #[inline]
+            fn decode_scalar(value: ScalarValue) -> Result<Self, ScalarError> {
+                let ScalarValue::$value(value) = value else {
+                    return Err(ScalarError::Representation);
                 };
                 Ok(value)
             }
 
-            fn encode(self) -> Value {
-                Value::$value(self)
+            #[inline]
+            fn encode_scalar(self) -> ScalarValue {
+                ScalarValue::$value(self)
             }
         }
     };
@@ -104,20 +145,18 @@ scalar!(char, Char, Char);
 scalar!(f32, F32, F32);
 scalar!(f64, F64, F64);
 
-impl sealed::Scalar for () {}
+native_scalar!((), Unit);
 
-impl NativeScalar for () {
-    fn abi_type() -> BuiltinType {
-        BuiltinType::Unit
-    }
-
-    fn decode(value: Value) -> NativeResult<Self> {
-        matches!(value, Value::Unit)
+impl ScalarCodec for () {
+    #[inline]
+    fn decode_scalar(value: ScalarValue) -> Result<Self, ScalarError> {
+        matches!(value, ScalarValue::Unit)
             .then_some(())
-            .ok_or_else(invalid)
+            .ok_or(ScalarError::Representation)
     }
 
-    fn encode(self) -> Value {
-        Value::Unit
+    #[inline]
+    fn encode_scalar(self) -> ScalarValue {
+        ScalarValue::Unit
     }
 }

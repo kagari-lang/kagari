@@ -90,16 +90,15 @@ pub(super) fn check_receiver_storage(
     cx: &NativeContext<'_>,
     access: Option<ReferenceAccess>,
     types: &[TypeArgument],
-    values: &[Value],
+    receiver: Option<&Value>,
 ) -> NativeResult<()> {
     let Some(access) = access else {
         return Ok(());
     };
-    if values
-        .first()
-        .is_some_and(|value| matches!(value, Value::Ephemeral(_)))
-    {
-        let view = cx.runtime().scoped_view(&values[0])?;
+    if receiver.is_some_and(|value| matches!(value, Value::Ephemeral(_))) {
+        let view = cx
+            .runtime()
+            .scoped_view(receiver.expect("checked receiver"))?;
         if !cx.runtime().host_borrows.scoped_matches(
             cx.runtime(),
             view,

@@ -7,7 +7,8 @@ use crate::{
     error::RuntimeError,
     execution_metadata::call_contracts::InterfaceCallSite,
     frame::{
-        ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
+        ExecutionStack, FrameDispatch, FrameEntry,
+        arguments::{FrameArguments, WindowArguments},
         driver::ExecutionAction,
     },
     module::{execution::calls::PreparedCallTarget, linked_execution::calls::LinkedCall},
@@ -83,10 +84,11 @@ impl ExecutionStack<'_> {
                     links.as_ref().and_then(|links| links.call_contract(index)),
                 )?;
                 drop(caller);
+                let source = WindowArguments::mapped(slots, &call.arguments);
                 return self.push_resolved_closure(
                     runtime,
                     &closure,
-                    FrameArguments::frame(slots, &call.arguments),
+                    FrameArguments::frame(&source),
                     None,
                     Some(call),
                 );
@@ -124,11 +126,16 @@ impl ExecutionStack<'_> {
                     };
                     runtime.resolve_interface_invocation(&caller, call, receiver.as_ref())?
                 };
-                let arguments = if let Some(receiver) = receiver.as_ref() {
-                    FrameArguments::frame(slots, &call.arguments[1..])
-                        .with_prefix(slice::from_ref(receiver))?
+                let locations = if receiver.is_some() {
+                    &call.arguments[1..]
                 } else {
-                    FrameArguments::frame(slots, &call.arguments)
+                    &call.arguments
+                };
+                let source = WindowArguments::mapped(slots, locations);
+                let arguments = if let Some(receiver) = receiver.as_ref() {
+                    FrameArguments::frame(&source).with_prefix(slice::from_ref(receiver))?
+                } else {
+                    FrameArguments::frame(&source)
                 };
                 let invocation = invocation.admit(runtime)?;
                 let view = invocation.view(runtime)?;
@@ -157,7 +164,8 @@ impl ExecutionStack<'_> {
         let selected = runtime.select_call_route(route)?;
         let loaded = selected.owner().clone();
         let target = selected.target();
-        let arguments = FrameArguments::frame(slots, &call.arguments);
+        let source = WindowArguments::mapped(slots, &call.arguments);
+        let arguments = FrameArguments::frame(&source);
         let environment = if let Some(contract) = shared {
             let prepared = runtime.prepare_selected_shared_environment(
                 &owner,

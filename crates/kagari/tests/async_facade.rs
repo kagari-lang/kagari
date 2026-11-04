@@ -7,8 +7,7 @@ use kagari::{
     runtime::Runtime,
 };
 use kagari_runtime::{
-    frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
+    frame::{call_slots::ArgumentWriter, types::arguments::TypeArgument},
     module::Program,
     native::{
         adapter::Async,
@@ -18,7 +17,7 @@ use kagari_runtime::{
         completion::{Completion, CompletionStatus},
         conversion::{
             FromKagari, IntoKagari, KagariType,
-            arguments::{IntoKagariArguments, KagariArguments},
+            arguments::{IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         declarations::FunctionDecl,
@@ -231,11 +230,12 @@ impl KagariArguments for PanickingArguments {
 }
 
 impl IntoKagariArguments for PanickingArguments {
-    fn into_arguments(
+    fn write_prepared_arguments<'runtime>(
         self,
-        _: &mut ConversionContext<'_>,
-        _: &[TypeArgument],
-    ) -> NativeResult<RootSet> {
+        _: &mut ConversionContext<'runtime>,
+        _: &PreparedArguments<'_, Self>,
+        _: &mut ArgumentWriter<'_, '_, 'runtime>,
+    ) -> NativeResult<()> {
         panic!("argument converter panic");
     }
 }

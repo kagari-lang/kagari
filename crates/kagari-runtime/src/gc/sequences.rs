@@ -1,4 +1,7 @@
 //! Family admission for fixed builtin arrays and registered growable sequences.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{GcHeap, GcObjectKind, HeapObjectId},
@@ -9,6 +12,8 @@ use std::{ops::Bound, sync::Arc};
 
 impl GcHeap {
     pub(crate) fn ensure_sequence(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::SequenceAdmission);
         if self.object_kind(id) == Some(GcObjectKind::Native) && self.buffer_contract(id).is_some()
         {
             Ok(())

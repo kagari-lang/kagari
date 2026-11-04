@@ -2,7 +2,7 @@
 use super::{owner, path};
 use crate::{
     Runtime,
-    frame::driver::ReturnAction,
+    frame::{arguments::InvocationArguments, driver::ReturnAction},
     module::ExecutableModule,
     native::{
         assembly::{
@@ -39,7 +39,7 @@ fn invoke_selected(
     runtime: &Runtime,
     _: &ExecutableModule,
     target: ScriptCall<'_>,
-    arguments: &[Value],
+    arguments: InvocationArguments<'_>,
 ) -> NativeResult<Value> {
     let ScriptCall::Pinned(function) = target else {
         panic!("pinned native operation")

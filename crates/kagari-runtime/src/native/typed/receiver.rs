@@ -1,18 +1,17 @@
 //! The physical receiver slot is separate from the Rust argument tuple.
 use crate::{
     error::RuntimeError,
-    frame::types::arguments::TypeArgument,
+    frame::{call_slots::ArgumentReader, types::arguments::TypeArgument},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{
             FromKagari, KagariType,
-            arguments::{FromKagariArguments, KagariArguments, check_types},
+            arguments::{FromKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         types::Type,
     },
-    value::Value,
 };
 
 pub(super) struct ReceiverArguments<S, A>(pub S, pub A);
@@ -34,30 +33,23 @@ impl<S: KagariType, A: KagariArguments> KagariArguments for ReceiverArguments<S,
 }
 
 impl<S: FromKagari, A: FromKagariArguments> FromKagariArguments for ReceiverArguments<S, A> {
-    fn from_arguments(
-        cx: &mut ConversionContext<'_>,
-        expected: &[TypeArgument],
-        values: &[Value],
+    fn read_prepared_arguments<'runtime>(
+        cx: &mut ConversionContext<'runtime>,
+        prepared: &PreparedArguments<'_, Self>,
+        reader: &ArgumentReader<'_, 'runtime>,
     ) -> NativeResult<Self> {
-        check_types::<Self>(cx, expected)?;
-        if values.len() != expected.len() || values.is_empty() {
+        let expected = prepared.types();
+        if reader.is_empty() {
             return Err(RuntimeError::module_validation(
                 "typed receiver argument count",
             ));
         }
-        for (ty, value) in expected.iter().zip(values) {
-            cx.check_value(ty, value)?;
-        }
+        reader.check_values(cx, expected)?;
         // The receiver converter may reenter before the rest of the pack is
         // decoded. Retain the whole input snapshot across that boundary.
-        let roots = cx
-            .runtime()
-            .gc()
-            .root_execution_values(values.to_vec())
-            .ok_or_else(|| RuntimeError::module_validation("typed receiver argument roots"))?;
-        let receiver = cx.decode_value::<S>(&expected[0], &values[0])?;
-        let arguments = A::from_arguments(cx, &expected[1..], &values[1..])?;
-        drop(roots);
+        let receiver = reader.decode_prepared::<S>(cx, &expected[0], 0)?;
+        let suffix = PreparedArguments::from_checked(&expected[1..]);
+        let arguments = A::from_prepared_arguments(cx, &suffix, &reader.suffix(1)?)?;
         Ok(Self(receiver, arguments))
     }
 }

@@ -114,7 +114,7 @@ def symbol(handle, address):
             result["symbol"] = name
     return result
 
-def sample(workload, exe, output, source_forms):
+def sample(workload, exe, output, source_forms, stdlib_ops=False):
     output = output / workload
     output.mkdir()
     lines = []
@@ -122,6 +122,8 @@ def sample(workload, exe, output, source_forms):
         arguments = [str(exe), "--interpreter-only", f"--profile={workload}"]
         if source_forms:
             arguments.append("--source-forms")
+        if stdlib_ops:
+            arguments.append("--stdlib-ops")
         process = subprocess.Popen(arguments, stdout=subprocess.PIPE,
                                    stderr=error_log, text=True, bufsize=1)
         try:
@@ -221,16 +223,23 @@ def sample(workload, exe, output, source_forms):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("workloads", nargs="+", choices=sorted(set(ORIGINAL + FORMS)))
+    stdlib = ("native_zero", "vec_len", "vec_get")
+    parser.add_argument("workloads", nargs="+", choices=sorted(set(ORIGINAL + FORMS + stdlib)))
     parser.add_argument("--source-forms", action="store_true", help="Sample the source-form matrix")
+    parser.add_argument("--stdlib-ops", action="store_true", help="Sample current small Native/vector operations")
+    parser.add_argument("--full-symbols", action="store_true", help="Keep release optimization with full debug information for sampling")
     parser.add_argument("--executable", type=Path, help="Sample an existing release binary without rebuilding")
     parser.add_argument("--pdb", type=Path, help="Matching local PDB for --executable")
     args = parser.parse_args()
     if bool(args.executable) != bool(args.pdb):
         parser.error("saved sampling requires both --executable and --pdb")
+    if args.source_forms and args.stdlib_ops:
+        parser.error("select one matrix")
+    if args.executable and args.full_symbols:
+        parser.error("--full-symbols configures a new build, not a saved image")
     if len(set(args.workloads)) != len(args.workloads):
         parser.error("select each workload once")
-    if any(name not in (FORMS if args.source_forms else ORIGINAL) for name in args.workloads):
+    if any(name not in (stdlib if args.stdlib_ops else FORMS if args.source_forms else ORIGINAL) for name in args.workloads):
         parser.error("selected workload is not in this matrix")
     root = Path(__file__).resolve().parents[1]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -246,7 +255,10 @@ def main():
     else:
         started = time.perf_counter()
         with (output / "symbol-build.log").open("w") as log:
-            subprocess.run(["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark"], cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
+            build = ["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark"]
+            if args.full_symbols:
+                build.extend(["--config", "profile.release.debug=2"])
+            subprocess.run(build, cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
         elapsed = time.perf_counter() - started
         executable = root / "target/release/kagari-lua-benchmark.exe"
         pdb = root / "target/release/kagari_lua_benchmark.pdb"
@@ -254,9 +266,10 @@ def main():
     shutil.copy2(pdb, binary / "kagari_lua_benchmark.pdb")
     metadata = {
             "build_seconds": elapsed,
-            "profile": "workspace release defaults; local PDB; sampling only, no throughput measurements",
+            "profile": "release optimization with full debug information; sampling only" if args.full_symbols else "workspace release defaults or supplied image; local PDB; sampling only, no throughput measurements",
             "source_executable": str(executable), "source_pdb": str(pdb),
             "source_forms": args.source_forms, "workloads": args.workloads,
+            "stdlib_ops": args.stdlib_ops,
             "rustc": subprocess.check_output(["rustc", "-Vv"], text=True),
             "cargo": subprocess.check_output(["cargo", "-V"], text=True),
             "machine": machine(),
@@ -282,7 +295,7 @@ def main():
     print(f"Output: {output}", flush=True)
     for workload in args.workloads:
         print(f"Sampling {workload}", flush=True)
-        sample(workload, binary / "kagari-lua-benchmark.exe", output, args.source_forms)
+        sample(workload, binary / "kagari-lua-benchmark.exe", output, args.source_forms, args.stdlib_ops)
 
 
 if __name__ == "__main__":

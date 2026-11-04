@@ -6,17 +6,14 @@ use crate::{
     native::{
         binding::NativeResult,
         context::ScriptCall,
-        conversion::{
-            FromKagari,
-            arguments::{IntoKagariArguments, encode_arguments},
-            context::ConversionContext,
-        },
+        conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
         interfaces::{Interface, binding::InterfaceMethod},
         typed::NativeContext,
     },
     session::{ExecutionEntry, ExecutionOptions, ExecutionPhase, ExecutionSession},
 };
 use kagari_types::ty::Ty;
+use std::slice;
 
 impl<S> Interface<S> {
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
@@ -44,14 +41,15 @@ impl<S> Interface<S> {
         })?;
         let _session = runtime.begin_interface_execution(&method, options)?;
         let mut conversion = ConversionContext::new(runtime, &member.owner)?;
-        let (_roots, mut values) =
-            encode_arguments(&mut conversion, &binding.record.signature.params, arguments)?;
-        values
-            .try_reserve(1)
-            .map_err(|_| RuntimeError::resource_limit("interface receiver argument"))?;
-        values.insert(0, *method.receiver());
-        let result = invoke(runtime, &owner, ScriptCall::Interface(&method), &values)?;
-        conversion.decode_prepared(&binding.record.signature.result, &result)
+        let mut slots = arguments
+            .into_arguments(&mut conversion, &binding.record.signature.params)
+            .map_err(|error| runtime.resources().admit_execution_error(error))?;
+        let packet = slots
+            .arguments()
+            .with_prefix(slice::from_ref(method.receiver()))?;
+        let result = invoke(runtime, &owner, ScriptCall::Interface(&method), packet)?;
+        slots.set(slots.result_index(), result)?;
+        conversion.decode_result(&binding.record.signature.result, &slots)
     }
 
     /// Prepare a live method handle for this receiver and checked relationship.

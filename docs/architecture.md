@@ -1133,9 +1133,89 @@ iteration leases, including while a cursor is parked. Generic execution does not
 
 ### Prepared native type facts
 
+Scalar transport is edge-free and independent of the collector. A private
+ScalarValue carries Unit, Bool, Char, widened I32/I64/U64 and F32/F64. Production
+NativeScalar and the managed scoped Kind adapters share one ScalarCodec; their
+carrier wrappers do not implement a second narrowing, arithmetic or cast policy.
+Checked narrowing and machine-size host errors remain at native conversion;
+the physical codec returns a small conversion-error enum and the Native boundary
+constructs RuntimeError only on failure. Repeated managed slot/field reads do not
+transport host diagnostic state through their scalar conversion result.
+Floating-point payloads preserve their bits through storage and roots. Managed
+object references cannot be converted through this scalar carrier. The candidate
+managed family remains a pre-cutover component, not a second production Value ABI.
+
+Bound Function<A, R> handles check Rust mappings when they are admitted from an
+installed declaration or script function value. Function::prepare_call preserves
+that correspondence in PreparedCall<A, R> while selecting one exact body. Its
+arguments/results cannot be re-ascribed to different Rust types. The erased
+PreparedFunction is backend/queued-factory entry authority, without a generic
+Rust conversion invocation API. Named functions still select current code and
+closures retain their exact body; frozen declaration contracts transport the
+mapping proof across compatible publication without adding persistent code pins.
+
+PreparedArguments borrows a supplying signature and proves its Rust pack mapping.
+Unprepared tuple conversion checks the complete pack before constructing this
+proof; prepared typed calls reuse their admitted Function mapping. Standard tuple
+and retained-receiver encoders share the same proof-consuming conversion body.
+Actual value checks, custom conversion errors, roots, limits, GC service and
+Runtime/borrow/phase/depth admission remain. Custom argument packs implement
+write_prepared_arguments using the bounded ArgumentWriter; they own their
+conversion policy and receive the checked signature.
+Custom FromKagariArguments packs implement read_prepared_arguments using the
+bounded ArgumentReader; unprepared callers share a checked snapshot wrapper.
+Nested/composite converters and custom per-value decode operations may still
+check their own mappings; this does not make all host conversion precomputed.
+
+Synchronous typed callbacks publish arguments and one result into a uniquely owned
+CallSlots window in the existing execution root bank. Each argument is published
+before its next safepoint, so a later converter can collect or reenter safely.
+Prepared Function conversion borrows the exact PreparedFunction's existing
+program lease; its context cannot outlive that selection. Independent contexts
+still own their own lease. Both constructors retain the same Runtime, borrow,
+execution-state and executable-owner admission checks.
+InvocationArguments lends source coordinates to the shared frame admission path;
+no bank/payload borrow crosses user conversion or execution. After backend return,
+the closed return transition performs no allocation or GC before the caller
+publishes the result into its window, which remains alive through decoding.
+Dropping the guard releases the exact generational window on success, error or
+unwind, using existing out-of-order release/compaction. Sequential publication
+rejects incomplete/custom packs even when an unwritten slot's initial Unit would
+match the declared type. Async queues materialize owning roots at their actual
+escape boundary. Enum payloads and contiguous builtin/host ingress ABIs may still
+materialize values; this checkpoint does not replace every owning adapter.
+
+WindowArguments keeps the source window key and its mapped locations or dense
+prefix description at the supplying caller. FrameArguments is a small borrowed
+view over that description or a Value slice, with an optional receiver/capture
+prefix. Script entry owns its coordinate description on the caller stack;
+CallSlots owns it throughout typed conversion and invocation. Views cannot
+outlive that description and do not acquire a bank loan or independent roots.
+Adding a physical source kind therefore changes the source owner rather than
+copying its full representation through each admission layer. All source kinds
+still use the same bounds/identity/value checks and window transfer protocol.
+
+Immediate closure selection and entry share a closed transition: selection
+validates the chosen program, then enters one private argument-admission body
+without an intervening callback, collection or suspension. Queued exact closures
+validate their program again when they start after a wait. Both routes retain
+the final common frame-publication validation; selection evidence never skips
+changing-state checks across user conversion, reentry or queueing.
+
 Runtime-local linked native bindings own one scoped-signature preparation cell:
 closed bindings populate it after staging establishes exact program provenance and before
 candidate publication; applied generic bindings populate it during application preparation.
+Typed bindings attach a monomorphized preparation function to that existing cell.
+It checks the Rust argument/result correspondence after concrete signature and
+selected-operation preparation, then builds the execution-only input/result root
+layout. Failure publishes neither a partial mapping nor an admitted application.
+Invocation freezes the complete input pack into CallSlots before any converter,
+then decodes through bounded readers without rebuilding a Vec/RootSet pack or
+repeating the standard tuple/receiver mapping checks. Declared receiver/reference
+positions admit scoped aliases in this layout; ordinary value slots still reject
+them. Runtime owner/generation, actual value, scoped capability and loan checks
+remain at their consuming boundaries. Input roots survive result conversion;
+completed native effects remain observable if result conversion fails.
 Signature consumers only read prepared facts. Preparation failure abandons the candidate
 through its existing lease and collection protocol. Argument views, result validation
 and native object construction

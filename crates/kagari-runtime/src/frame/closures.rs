@@ -4,7 +4,8 @@ use crate::{
     closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, RuntimeErrorKind},
     frame::{
-        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
+        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry,
+        arguments::{FrameArguments, InvocationArguments},
         driver::ExecutionAction,
     },
     module::{
@@ -22,19 +23,13 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         value: &Value,
-        args: &[Value],
+        args: InvocationArguments<'_>,
         return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         let closure = runtime.resolve_closure(value)?;
-        self.push_resolved_closure(
-            runtime,
-            &closure,
-            FrameArguments::plain(args),
-            return_dst,
-            None,
-        )
-        .map(|_| ())
+        self.push_resolved_closure(runtime, &closure, args.source, return_dst, None)
+            .map(|_| ())
     }
 
     pub(super) fn push_resolved_closure(
@@ -46,7 +41,9 @@ impl ExecutionStack<'_> {
         prepared: Option<&PreparedCall>,
     ) -> Result<ExecutionAction, RuntimeError> {
         let selected = closure.select_call(runtime)?;
-        self.push_exact_closure(runtime, &selected, explicit, return_dst, prepared)
+        // Selection admitted this exact owner. No callback, collection or yield
+        // separates it from argument checks and the final frame admission below.
+        self.push_selected_closure(runtime, &selected, explicit, return_dst, prepared)
     }
 
     /// Queue admission has already selected this body; starting it must not select again.
@@ -59,6 +56,20 @@ impl ExecutionStack<'_> {
         prepared: Option<&PreparedCall>,
     ) -> Result<ExecutionAction, RuntimeError> {
         runtime.validate_executable_module(&closure.implementation)?;
+        self.push_selected_closure(runtime, closure, explicit, return_dst, prepared)
+    }
+
+    /// Consume immediate selection/entry admission without repeating its check.
+    /// Queued exact bodies enter through push_exact_closure after their wait.
+    /// The shared frame transaction still validates the owner before publication.
+    fn push_selected_closure(
+        &self,
+        runtime: &Runtime,
+        closure: &ClosureValueSnapshot,
+        explicit: FrameArguments<'_>,
+        return_dst: Option<Slot>,
+        prepared: Option<&PreparedCall>,
+    ) -> Result<ExecutionAction, RuntimeError> {
         let script_function = match &closure.target {
             ClosureTarget::Named(_) => {
                 return Err(RuntimeError::module_validation(

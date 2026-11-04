@@ -3,6 +3,49 @@ use crate::value::Value;
 use kagari_abi::representation::ValueType;
 use kagari_types::scalar::BuiltinType;
 
+/// Edge-free scalar transport shared by production and scoped managed values.
+/// This carrier implements neither arithmetic nor language equality/casts.
+#[derive(Clone, Copy)]
+pub(crate) enum ScalarValue {
+    Unit,
+    Bool(bool),
+    Char(char),
+    I32(i32),
+    I64(i64),
+    U64(u64),
+    F32(f32),
+    F64(f64),
+}
+
+impl ScalarValue {
+    pub(crate) fn from_value(value: Value) -> Option<Self> {
+        Some(match value {
+            Value::Unit => Self::Unit,
+            Value::Bool(value) => Self::Bool(value),
+            Value::Char(value) => Self::Char(value),
+            Value::I32(value) => Self::I32(value),
+            Value::I64(value) => Self::I64(value),
+            Value::U64(value) => Self::U64(value),
+            Value::F32(value) => Self::F32(value),
+            Value::F64(value) => Self::F64(value),
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn into_value(self) -> Value {
+        match self {
+            Self::Unit => Value::Unit,
+            Self::Bool(value) => Value::Bool(value),
+            Self::Char(value) => Value::Char(value),
+            Self::I32(value) => Value::I32(value),
+            Self::I64(value) => Value::I64(value),
+            Self::U64(value) => Value::U64(value),
+            Self::F32(value) => Value::F32(value),
+            Self::F64(value) => Value::F64(value),
+        }
+    }
+}
+
 pub(crate) fn encode(value: &Value) -> Option<u64> {
     Some(match *value {
         Value::Unit => 0,

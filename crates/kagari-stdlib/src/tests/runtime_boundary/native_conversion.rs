@@ -169,9 +169,9 @@ where
         .collect::<Vec<_>>();
     let arguments = value.clone().into_arguments(cx, &expected).unwrap();
     let slots = (0..count)
-        .map(|index| arguments.get(cx.runtime().gc(), index).unwrap())
+        .map(|index| arguments.get(index).unwrap())
         .collect::<Vec<_>>();
-    assert!(arguments.get(cx.runtime().gc(), count).is_none());
+    assert!(arguments.get(count).is_none());
     assert_eq!(A::from_arguments(cx, &expected, &slots).unwrap(), value);
 }
 
@@ -199,14 +199,14 @@ fn outer_argument_tuples_cover_zero_through_twelve_and_preserve_nested_tuple_val
     );
     let tuple = cx.type_for::<(i32, i32)>().unwrap();
     let arguments = ((1, 2),).into_arguments(&mut cx, &[tuple]).unwrap();
-    let Some(Value::Tuple(id)) = arguments.get(runtime.gc(), 0) else {
+    let Some(Value::Tuple(id)) = arguments.get(0) else {
         panic!("tuple argument")
     };
     assert_eq!(
         &*runtime.gc().tuple(id).unwrap(),
         &[Value::I32(1), Value::I32(2)]
     );
-    assert_eq!(arguments.get(runtime.gc(), 1), None);
+    assert_eq!(arguments.get(1), None);
     drop(arguments);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
@@ -269,7 +269,7 @@ fn argument_signature_errors_precede_any_user_conversion_effects() {
         .into_arguments(&mut cx, &[integer.clone(), boolean.clone()])
         .unwrap();
     assert_eq!(effects.get(), 1);
-    assert_eq!(arguments.get(runtime.gc(), 0), Some(Value::I32(7)));
+    assert_eq!(arguments.get(0), Some(Value::I32(7)));
     DECODE_EFFECTS.set(0);
     let signature = [integer, boolean];
     assert!(
@@ -382,6 +382,23 @@ fn conversion_errors_and_panics_release_scratch_roots_and_restore_scope_depth() 
     assert!(catch_unwind(AssertUnwindSafe(|| cx.encode(Failing { panic: true }))).is_err());
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    let expected = [
+        cx.type_for::<Vec<String>>().unwrap(),
+        cx.type_for::<Failing>().unwrap(),
+    ];
+    for panic in [false, true] {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            (vec!["first argument".to_owned()], Failing { panic })
+                .into_arguments(&mut cx, &expected)
+        }));
+        if panic {
+            assert!(result.is_err());
+        } else {
+            assert!(result.unwrap().is_err());
+        }
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    }
     let root = cx.encode(vec!["still usable".to_owned()]).unwrap();
     assert_eq!(cx.decode::<Vec<String>>(&root).unwrap(), ["still usable"]);
 }

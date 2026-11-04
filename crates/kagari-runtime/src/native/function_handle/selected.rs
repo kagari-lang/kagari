@@ -3,6 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     execution_metadata::MetadataRoot,
+    frame::arguments::InvocationArguments,
     frame::types::arguments::ScopedSignature,
     gc::roots::{RootSet, RootedValue},
     module::{ExecutableModule, ModuleEpochRetention, dispatch::CallRoute},
@@ -142,7 +143,12 @@ impl PreparedFunction {
                 .map_err(|error| error.into_runtime_error())?,
             None => cx.invoke_script.ok_or_else(|| {
                 RuntimeError::module_validation("call context has no execution backend")
-            })?(runtime, &self.owner, ScriptCall::Pinned(self), values)?,
+            })?(
+                runtime,
+                &self.owner,
+                ScriptCall::Pinned(self),
+                InvocationArguments::from_values(values),
+            )?,
         };
         if !target.matches_result(runtime, &self.owner, &value) {
             return Err(RuntimeError::module_validation("selected call result"));

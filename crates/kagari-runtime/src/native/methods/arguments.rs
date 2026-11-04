@@ -1,14 +1,13 @@
 //! Prefix the independently retained receiver to the ordinary typed argument pack.
 use crate::{
     error::RuntimeError,
-    frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
+    frame::{call_slots::ArgumentWriter, types::arguments::TypeArgument},
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{
             KagariType,
-            arguments::{IntoKagariArguments, KagariArguments},
+            arguments::{IntoKagariArguments, KagariArguments, PreparedArguments},
             context::ConversionContext,
         },
         methods::receiver::RetainedReceiver,
@@ -39,31 +38,18 @@ impl<A: KagariArguments> KagariArguments for ReceiverArguments<A> {
 }
 
 impl<A: IntoKagariArguments> IntoKagariArguments for ReceiverArguments<A> {
-    fn into_arguments(
+    fn write_prepared_arguments<'runtime>(
         self,
-        cx: &mut ConversionContext<'_>,
-        expected: &[TypeArgument],
-    ) -> NativeResult<RootSet> {
-        Self::check_types(cx, expected)?;
+        cx: &mut ConversionContext<'runtime>,
+        prepared: &PreparedArguments<'_, Self>,
+        writer: &mut ArgumentWriter<'_, '_, 'runtime>,
+    ) -> NativeResult<()> {
+        let expected = prepared.types();
         cx.argument_scope(|cx| {
-            let receiver = cx.encode_prepared(&expected[0], self.receiver)?;
-            let arguments = self.arguments.into_arguments(cx, &expected[1..])?;
-            let mut values = Vec::new();
-            values
-                .try_reserve_exact(expected.len())
-                .map_err(|_| RuntimeError::resource_limit("method arguments"))?;
-            values.push(receiver);
-            for slot in 0..expected.len() - 1 {
-                values.push(
-                    arguments
-                        .get(cx.runtime().gc(), slot)
-                        .ok_or_else(|| RuntimeError::module_validation("method argument root"))?,
-                );
-            }
-            cx.runtime()
-                .gc()
-                .root_execution_values(values)
-                .ok_or_else(|| RuntimeError::module_validation("method argument retention"))
+            writer.encode_prepared(cx, 0, self.receiver)?;
+            let suffix = PreparedArguments::from_checked(&expected[1..]);
+            self.arguments
+                .write_prepared_arguments(cx, &suffix, &mut writer.suffix(1)?)
         })
     }
 }

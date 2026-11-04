@@ -6,11 +6,15 @@ mod references;
 mod tasks;
 #[cfg(test)]
 mod tests;
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
     execution_metadata::{MetadataEdge, MetadataRoot},
     frame::{
+        arguments::InvocationArguments,
         types::{
             TypeEnvironment,
             arguments::{ScopedSignature, TypeArgument},
@@ -239,8 +243,14 @@ pub enum ScriptCall<'target> {
     Interface(&'target RootedInterfaceMethod),
 }
 
+/// Execute one synchronous selection using the caller-protected argument source.
+///
+/// The backend must finish the return handoff without collection or reentry
+/// between retiring its result protection and returning the Value. The caller
+/// publishes that Value into its own result protection before further GC service.
+/// Argument coordinates retain no bank borrow across execution.
 pub type ScriptInvoker =
-    fn(&Runtime, &ExecutableModule, ScriptCall<'_>, &[Value]) -> NativeResult<Value>;
+    fn(&Runtime, &ExecutableModule, ScriptCall<'_>, InvocationArguments<'_>) -> NativeResult<Value>;
 
 pub struct CallContext<'call> {
     pub(crate) runtime: &'call Runtime,
@@ -515,6 +525,8 @@ impl<'call> CallContext<'call> {
     }
 
     pub fn argument(&self, index: usize) -> NativeResult<Value> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::NativeArgumentRead);
         self.arguments
             .get(index)
             .ok_or_else(|| RuntimeError::module_validation("native argument slot"))
@@ -596,7 +608,7 @@ impl<'call> CallContext<'call> {
                     self.runtime,
                     &owner,
                     ScriptCall::Pinned(&prepared),
-                    arguments,
+                    InvocationArguments::from_values(arguments),
                 )?
             }
         };

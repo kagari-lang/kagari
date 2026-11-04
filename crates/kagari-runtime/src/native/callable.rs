@@ -4,6 +4,7 @@ use crate::{
     closure::ClosureValueSnapshot,
     error::RuntimeError,
     execution_metadata::MetadataEdge,
+    frame::arguments::InvocationArguments,
     gc::{GcObjectKind, roots::RootedValue},
     native::{
         arguments::CallArguments,
@@ -92,7 +93,7 @@ impl PreparedClosure {
             cx.runtime,
             &owner,
             ScriptCall::Closure(&prepared),
-            arguments,
+            InvocationArguments::from_values(arguments),
         )
     }
 

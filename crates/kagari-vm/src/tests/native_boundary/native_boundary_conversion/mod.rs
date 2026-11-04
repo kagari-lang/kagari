@@ -1,5 +1,6 @@
 mod dto;
 mod host_adapter;
+mod prepared_entry;
 mod scoped_capabilities;
 mod scoped_pairs;
 mod scoped_struct;
@@ -15,7 +16,7 @@ use kagari_common::{
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::types::arguments::TypeArgument,
+    frame::{call_slots::ArgumentWriter, types::arguments::TypeArgument},
     gc::{GcHeapConfig, roots::RootedValue},
     module::{Program, entry::ProgramEntry},
     native::{
@@ -25,10 +26,12 @@ use kagari_runtime::{
         collections::vector::ScriptVec,
         conversion::{
             FromKagari, IntoKagari, KagariType,
+            arguments::{IntoKagariArguments, KagariArguments, PreparedArguments},
             context::{ConversionContext, ConversionLimits},
         },
         declarations::FunctionDecl,
         declarations::MethodDecl,
+        function_handle::Function,
         module::NativeModule,
         objects::Object,
         typed::NativeContext,
@@ -551,6 +554,25 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
 fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     struct RetainedVec(RootedValue);
 
+    struct CollectInput;
+
+    impl KagariType for CollectInput {
+        fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+            Vec::<i32>::kagari_type(catalog)
+        }
+    }
+
+    impl IntoKagari for CollectInput {
+        fn into_kagari(
+            self,
+            cx: &mut ConversionContext<'_>,
+            expected: &TypeArgument,
+        ) -> NativeResult<Value> {
+            cx.runtime().collect_garbage()?;
+            vec![7i32].into_kagari(cx, expected)
+        }
+    }
+
     impl KagariType for RetainedVec {
         fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
             Vec::<i32>::kagari_type(catalog)
@@ -564,6 +586,7 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
             _: &TypeArgument,
             value: &Value,
         ) -> NativeResult<Self> {
+            cx.runtime().collect_garbage()?;
             cx.runtime()
                 .root_value(*value)
                 .map(Self)
@@ -581,6 +604,7 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
         r#"
         pub fn echo(value: Result<Option<Vec<(String, i32)>>, String>) -> Result<Option<Vec<(String, i32)>>, String> { value }
         pub fn retain(value: Vec<i32>) -> Vec<i32> { value }
+        pub fn first(value: Vec<i32>, other: Vec<i32>) -> Vec<i32> { value }
         pub fn tuple(value: (i32, i32)) -> (i32, i32) { value }
         pub fn unit() {}
     "#,
@@ -610,10 +634,77 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     assert_eq!(vm.runtime().gc().sequence_get(id, 1), Some(Value::I32(22)));
     drop(retained);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    let function: Function<(Vec<i32>, CollectInput), RetainedVec> = vm
+        .runtime()
+        .bind_function(&_loaded_program.root(), "first")
+        .unwrap();
+    let retained = function
+        .prepare_call(vm.runtime())
+        .unwrap()
+        .call_with_options(
+            &mut vm.context(&loaded).unwrap(),
+            (vec![20, 22], CollectInput),
+            Default::default(),
+        )
+        .unwrap();
+    let Value::GcHandle(id) = retained.0.value(vm.runtime().gc()).unwrap() else {
+        panic!("array")
+    };
+    assert_eq!(vm.runtime().gc().sequence_get(id, 1), Some(Value::I32(22)));
+    drop(retained);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
 fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_them() {
+    static MAPPINGS: AtomicUsize = AtomicUsize::new(0);
+
+    struct IncompleteArguments;
+
+    impl KagariArguments for IncompleteArguments {
+        fn argument_types(catalog: &DeclarationCatalog) -> NativeResult<Vec<Type>> {
+            <((),)>::argument_types(catalog)
+        }
+    }
+
+    impl IntoKagariArguments for IncompleteArguments {
+        fn write_prepared_arguments<'runtime>(
+            self,
+            _: &mut ConversionContext<'runtime>,
+            _: &PreparedArguments<'_, Self>,
+            _: &mut ArgumentWriter<'_, '_, 'runtime>,
+        ) -> NativeResult<()> {
+            Ok(())
+        }
+    }
+
+    struct Input(bool);
+
+    impl KagariType for Input {
+        fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+            i32::kagari_type(catalog)
+        }
+
+        fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
+            MAPPINGS.fetch_add(1, Ordering::SeqCst);
+            cx.check_type::<i32>(expected)
+        }
+    }
+
+    impl IntoKagari for Input {
+        fn into_kagari(
+            self,
+            _: &mut ConversionContext<'_>,
+            _: &TypeArgument,
+        ) -> NativeResult<Value> {
+            Ok(if self.0 {
+                Value::Bool(true)
+            } else {
+                Value::I32(42)
+            })
+        }
+    }
+
     struct Fails;
 
     impl KagariType for Fails {
@@ -658,6 +749,7 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
         r#"
         use example::typed::effect;
         pub fn run(value: i32) -> i32 { effect(); value }
+        pub fn with_unit(value: ()) -> i32 { effect(); 42 }
     "#,
         &module,
     );
@@ -681,6 +773,41 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
         42
     );
     assert_eq!(effects.load(Ordering::SeqCst), 2);
+    let function: Function<(Input,), Fails> = vm
+        .runtime()
+        .bind_function(&_loaded_program.root(), "run")
+        .unwrap();
+    let checked = MAPPINGS.load(Ordering::SeqCst);
+    assert_eq!(checked, 1);
+    let prepared = function.prepare_call(vm.runtime()).unwrap();
+    let mut cx = vm.context(&loaded).unwrap();
+    for _ in 0..2 {
+        assert!(
+            prepared
+                .call_with_options(&mut cx, (Input(false),), Default::default())
+                .is_err()
+        );
+    }
+    assert_eq!(effects.load(Ordering::SeqCst), 4);
+    assert!(
+        prepared
+            .call_with_options(&mut cx, (Input(true),), Default::default())
+            .is_err()
+    );
+    assert_eq!(effects.load(Ordering::SeqCst), 4);
+    assert_eq!(MAPPINGS.load(Ordering::SeqCst), checked);
+    let incomplete: Function<IncompleteArguments, i32> = vm
+        .runtime()
+        .bind_function(&_loaded_program.root(), "with_unit")
+        .unwrap();
+    assert!(
+        incomplete
+            .prepare_call(vm.runtime())
+            .unwrap()
+            .call_with_options(&mut cx, IncompleteArguments, Default::default())
+            .is_err()
+    );
+    assert_eq!(effects.load(Ordering::SeqCst), 4);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 

@@ -1,8 +1,60 @@
 //! Argument sources feed one checked frame admission and publication protocol.
 use crate::{
-    Runtime, error::RuntimeError, frame::values::FrameSlots, module::execution::layout::Location,
+    Runtime,
+    error::RuntimeError,
+    frame::values::FrameSlots,
+    module::execution::{OperandSlot, layout::Location},
     value::Value,
 };
+use kagari_abi::representation::ValueType;
+
+/// Read-only argument sources for synchronous backend entry.
+///
+/// Slice sources must stay protected by their supplying caller until publication.
+/// Window sources borrow their scoped owner and retain coordinates, never a bank
+/// borrow. Backend admission validates source identities and actual values.
+#[derive(Clone, Copy)]
+pub struct InvocationArguments<'args> {
+    pub(crate) source: FrameArguments<'args>,
+}
+
+impl<'args> InvocationArguments<'args> {
+    /// Borrow values whose supplying caller owns protection until frame entry.
+    pub fn from_values(values: &'args [Value]) -> Self {
+        Self {
+            source: FrameArguments::plain(values),
+        }
+    }
+
+    /// Number of arguments, including an attached receiver/capture prefix.
+    pub fn len(self) -> usize {
+        self.source.len()
+    }
+
+    /// Whether this source supplies no arguments.
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
+    /// Copy one argument without retaining a bank borrow or adding a root lease.
+    /// Rejects an invalid index, foreign window or expired window generation.
+    pub fn get(self, runtime: &Runtime, index: usize) -> Result<Value, RuntimeError> {
+        match self.source.iter().nth(index) {
+            Some(ArgumentSource::Value(value)) => Ok(*value),
+            Some(ArgumentSource::Window(location)) => self
+                .source
+                .window()
+                .and_then(|slots| slots.with_location(runtime.gc(), location, Value::clone))
+                .ok_or_else(|| RuntimeError::module_validation("invalid argument window")),
+            None => Err(RuntimeError::module_validation("argument index")),
+        }
+    }
+
+    pub(crate) fn with_prefix(mut self, prefix: &'args [Value]) -> Result<Self, RuntimeError> {
+        self.source = self.source.with_prefix(prefix)?;
+        Ok(self)
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum ArgumentSource<'a> {
@@ -13,7 +65,60 @@ pub(crate) enum ArgumentSource<'a> {
 #[derive(Clone, Copy)]
 enum ExplicitArguments<'a> {
     Values(&'a [Value]),
-    Window(FrameSlots, &'a [Location]),
+    Window(&'a WindowArguments<'a>),
+}
+
+/// Caller-owned coordinates for one window argument source.
+///
+/// FrameArguments only borrows this description. Locations are prepared code
+/// metadata or an implicit dense prefix, never a reference into the value banks.
+pub(crate) struct WindowArguments<'locations> {
+    slots: FrameSlots,
+    projection: WindowProjection<'locations>,
+}
+
+enum WindowProjection<'locations> {
+    Mapped(&'locations [Location]),
+    Contiguous(usize),
+}
+
+impl<'locations> WindowArguments<'locations> {
+    pub(crate) fn mapped(slots: FrameSlots, locations: &'locations [Location]) -> Self {
+        Self {
+            slots,
+            projection: WindowProjection::Mapped(locations),
+        }
+    }
+
+    pub(crate) fn contiguous(slots: FrameSlots, count: usize) -> Self {
+        Self {
+            slots,
+            projection: WindowProjection::Contiguous(count),
+        }
+    }
+
+    pub(crate) fn slots(&self) -> FrameSlots {
+        self.slots
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        match &self.projection {
+            WindowProjection::Mapped(locations) => locations.len(),
+            WindowProjection::Contiguous(count) => *count,
+        }
+    }
+
+    fn location(&self, index: usize) -> Location {
+        match &self.projection {
+            WindowProjection::Mapped(locations) => locations[index],
+            WindowProjection::Contiguous(_) => Location {
+                operand: OperandSlot::new(index, true),
+                representation: ValueType::Generic,
+                semantic: None,
+                borrowed_receiver: false,
+            },
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -32,11 +137,11 @@ impl<'args> FrameArguments<'args> {
         }
     }
 
-    pub(crate) fn frame(slots: FrameSlots, sources: &'args [Location]) -> Self {
+    pub(crate) fn frame(source: &'args WindowArguments<'args>) -> Self {
         Self {
             prefix: &[],
-            explicit: ExplicitArguments::Window(slots, sources),
-            count: sources.len(),
+            explicit: ExplicitArguments::Window(source),
+            count: source.len(),
         }
     }
 
@@ -79,7 +184,7 @@ impl<'args> FrameArguments<'args> {
     ) -> Result<bool, RuntimeError> {
         let storage = match self.explicit {
             ExplicitArguments::Values(_) => None,
-            ExplicitArguments::Window(..) => {
+            ExplicitArguments::Window(_) => {
                 Some(runtime.resources().frame_values.try_borrow().map_err(|_| {
                     runtime
                         .resources()
@@ -133,11 +238,14 @@ impl<'args> FrameArguments<'args> {
     pub(crate) fn window(self) -> Option<FrameSlots> {
         match self.explicit {
             ExplicitArguments::Values(_) => None,
-            ExplicitArguments::Window(slots, _) => Some(slots),
+            ExplicitArguments::Window(source) => Some(source.slots()),
         }
     }
 
     pub(crate) fn iter(self) -> impl Iterator<Item = ArgumentSource<'args>> + Clone {
+        // Private constructors establish the complete range once. Single public
+        // reads use this same iterator's checked nth; bulk admission retains the
+        // original bounded iteration without per-element Option discovery.
         (0..self.count).map(move |index| {
             if index < self.prefix.len() {
                 return ArgumentSource::Value(&self.prefix[index]);
@@ -145,7 +253,7 @@ impl<'args> FrameArguments<'args> {
             let index = index - self.prefix.len();
             match self.explicit {
                 ExplicitArguments::Values(values) => ArgumentSource::Value(&values[index]),
-                ExplicitArguments::Window(_, locations) => ArgumentSource::Window(locations[index]),
+                ExplicitArguments::Window(source) => ArgumentSource::Window(source.location(index)),
             }
         })
     }

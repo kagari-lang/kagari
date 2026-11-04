@@ -1,8 +1,11 @@
 //! Authoritative typed working slots, scanned directly by RootDriver.
 
-use crate::native::managed::{
-    payload::NativeObject,
-    value::{Repr, StoredValue, Value},
+use crate::native::{
+    managed::{
+        payload::NativeObject,
+        value::{Repr, StoredValue, Value},
+    },
+    scalar::{NativeScalar, ScalarCodec},
 };
 use kagari_gc::{
     access::Scope,
@@ -47,10 +50,6 @@ pub struct Optional<T: Plain>(PhantomData<T>);
 /// Non-optional kinds supported by the optional working-slot projection.
 pub trait Plain: Kind {}
 
-impl Plain for u64 {}
-
-impl Plain for () {}
-
 impl<P: GcObject> Plain for Object<NativeObject<P>> {}
 
 impl<T: Plain> private::Sealed for Optional<T> {}
@@ -79,10 +78,6 @@ impl<T: Plain> Kind for Optional<T> {
 pub struct Object<T: GcObject>(PhantomData<T>);
 
 impl<T: GcObject> private::Sealed for Object<T> {}
-
-impl private::Sealed for u64 {}
-
-impl private::Sealed for () {}
 
 /// Protected slot coordinates. They contain no managed pointer or root lease.
 pub struct Local<'call, T: Kind> {
@@ -140,7 +135,13 @@ impl<'gc> SlotRegion<'_, 'gc> {
             Repr::Empty => return Err(GcError::Storage("uninitialized slot")),
             Repr::Absent => Repr::Absent,
             Repr::Unit => Repr::Unit,
+            Repr::Bool(value) => Repr::Bool(*value),
+            Repr::Char(value) => Repr::Char(*value),
+            Repr::I32(value) => Repr::I32(*value),
+            Repr::I64(value) => Repr::I64(*value),
             Repr::U64(value) => Repr::U64(*value),
+            Repr::F32(value) => Repr::F32(*value),
+            Repr::F64(value) => Repr::F64(*value),
             Repr::Object(edge) => {
                 // SAFETY: the paired authoritative source retains this edge.
                 Repr::Object(unsafe { self.scope.source_get(edge)? })
@@ -160,7 +161,13 @@ impl<'gc> SlotRegion<'_, 'gc> {
             Repr::Empty => return Err(GcError::Storage("cannot publish an uninitialized value")),
             Repr::Absent => Repr::Absent,
             Repr::Unit => Repr::Unit,
+            Repr::Bool(value) => Repr::Bool(value),
+            Repr::Char(value) => Repr::Char(value),
+            Repr::I32(value) => Repr::I32(value),
+            Repr::I64(value) => Repr::I64(value),
             Repr::U64(value) => Repr::U64(value),
+            Repr::F32(value) => Repr::F32(value),
+            Repr::F64(value) => Repr::F64(value),
             Repr::Object(value) => {
                 // SAFETY: immediately commit the published edge to this source.
                 Repr::Object(unsafe { self.scope.source_edge(value)? })
@@ -171,45 +178,48 @@ impl<'gc> SlotRegion<'_, 'gc> {
     }
 }
 
-impl Kind for u64 {
-    type View<'gc> = u64;
+macro_rules! scalar_kinds {
+    ($($rust:ty),+ $(,)?) => { $(
+        impl private::Sealed for $rust {}
 
-    fn scalar_type() -> Option<BuiltinType> {
-        Some(BuiltinType::U64)
-    }
+        impl Plain for $rust {}
 
-    fn lower<'gc>(value: u64) -> Value<'gc> {
-        Value {
-            repr: Repr::U64(value),
+        impl Kind for $rust {
+            type View<'gc> = Self;
+
+            fn scalar_type() -> Option<BuiltinType> {
+                Some(Self::abi_type())
+            }
+
+            #[inline]
+            fn lower<'gc>(value: Self) -> Value<'gc> {
+                Value { repr: Repr::from_scalar(value.encode_scalar()) }
+            }
+
+            #[inline]
+            fn admit<'gc>(_: &Scope<'gc>, value: Value<'gc>) -> Result<Self, GcError> {
+                let value = value.repr.scalar().ok_or(GcError::Representation)?;
+                Self::decode_scalar(value).map_err(|_| GcError::Representation)
+            }
         }
-    }
-
-    fn admit<'gc>(_: &Scope<'gc>, value: Value<'gc>) -> Result<u64, GcError> {
-        match value.repr {
-            Repr::U64(value) => Ok(value),
-            _ => Err(GcError::Representation),
-        }
-    }
+    )+ };
 }
 
-impl Kind for () {
-    type View<'gc> = ();
-
-    fn scalar_type() -> Option<BuiltinType> {
-        Some(BuiltinType::Unit)
-    }
-
-    fn lower<'gc>((): ()) -> Value<'gc> {
-        Value { repr: Repr::Unit }
-    }
-
-    fn admit<'gc>(_: &Scope<'gc>, value: Value<'gc>) -> Result<(), GcError> {
-        match value.repr {
-            Repr::Unit => Ok(()),
-            _ => Err(GcError::Representation),
-        }
-    }
-}
+scalar_kinds!(
+    (),
+    bool,
+    char,
+    i8,
+    i16,
+    i32,
+    i64,
+    u8,
+    u16,
+    u32,
+    u64,
+    f32,
+    f64
+);
 
 impl<P: GcObject> Kind for Object<NativeObject<P>> {
     type View<'gc> = Gc<'gc, NativeObject<P>>;

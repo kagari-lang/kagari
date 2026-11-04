@@ -1,8 +1,10 @@
 //! The outer Rust tuple is an argument list; its elements each convert one value.
 use crate::{
     error::RuntimeError,
-    frame::types::arguments::TypeArgument,
-    gc::roots::RootSet,
+    frame::{
+        call_slots::{ArgumentReader, ArgumentWriter, CallSlots},
+        types::arguments::TypeArgument,
+    },
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -11,6 +13,44 @@ use crate::{
     },
     value::Value,
 };
+use std::marker::PhantomData;
+
+/// A checked Rust argument mapping for one immutable scoped signature.
+///
+/// Construction checks the complete pack before any converter runs. This proof
+/// does not validate actual values or authorize access to another Runtime; the
+/// encoder still checks values and protects them through allocating conversion.
+pub struct PreparedArguments<'signature, A> {
+    expected: &'signature [TypeArgument],
+    mapping: PhantomData<fn(A)>,
+}
+
+impl<'signature, A: KagariArguments> PreparedArguments<'signature, A> {
+    /// Check the whole Rust mapping, rejecting arity/type mismatch before effects.
+    pub fn check(
+        cx: &ConversionContext<'_>,
+        expected: &'signature [TypeArgument],
+    ) -> NativeResult<Self> {
+        A::check_types(cx, expected)?;
+        Ok(Self::from_checked(expected))
+    }
+}
+
+impl<'signature, A> PreparedArguments<'signature, A> {
+    /// Inspect the supplied script types when implementing a custom pack adapter.
+    pub fn types(&self) -> &'signature [TypeArgument] {
+        self.expected
+    }
+
+    /// The owning typed Function has already checked this A against its frozen
+    /// declaration. Reload transports that contract into the selected signature.
+    pub(in crate::native) fn from_checked(expected: &'signature [TypeArgument]) -> Self {
+        Self {
+            expected,
+            mapping: PhantomData,
+        }
+    }
+}
 
 pub trait KagariArguments {
     fn argument_types(catalog: &DeclarationCatalog) -> NativeResult<Vec<Type>>;
@@ -27,11 +67,35 @@ pub trait KagariArguments {
 
 pub trait IntoKagariArguments: KagariArguments + Sized {
     /// Checks the entire declared pack before converting its first argument.
-    fn into_arguments(
+    fn into_arguments<'runtime>(
         self,
-        cx: &mut ConversionContext<'_>,
+        cx: &mut ConversionContext<'runtime>,
         expected: &[TypeArgument],
-    ) -> NativeResult<RootSet>;
+    ) -> NativeResult<CallSlots<'runtime>> {
+        let prepared = PreparedArguments::<Self>::check(cx, expected)?;
+        self.into_prepared_arguments(cx, &prepared)
+    }
+
+    /// Encode with the supplied mapping proof, retaining actual-value checks.
+    fn into_prepared_arguments<'runtime>(
+        self,
+        cx: &mut ConversionContext<'runtime>,
+        prepared: &PreparedArguments<'_, Self>,
+    ) -> NativeResult<CallSlots<'runtime>> {
+        let mut slots = CallSlots::new(cx.runtime(), cx.owner(), prepared.types().len())?;
+        self.write_prepared_arguments(cx, prepared, &mut slots.writer(prepared.types())?)?;
+        slots.finish_arguments()?;
+        Ok(slots)
+    }
+
+    /// Publish each converted argument through the bounded writer. No bank loan
+    /// may cross user conversion, collection or reentry.
+    fn write_prepared_arguments<'runtime>(
+        self,
+        cx: &mut ConversionContext<'runtime>,
+        prepared: &PreparedArguments<'_, Self>,
+        writer: &mut ArgumentWriter<'_, '_, 'runtime>,
+    ) -> NativeResult<()>;
 }
 
 pub trait FromKagariArguments: KagariArguments + Sized {
@@ -40,29 +104,45 @@ pub trait FromKagariArguments: KagariArguments + Sized {
         cx: &mut ConversionContext<'_>,
         expected: &[TypeArgument],
         values: &[Value],
+    ) -> NativeResult<Self> {
+        let prepared = PreparedArguments::<Self>::check(cx, expected)?;
+        check_arity(expected, values.len())?;
+        let slots = CallSlots::snapshot(cx.runtime(), cx.owner(), values.len(), |index| {
+            Ok(values[index])
+        })?;
+        Self::from_prepared_arguments(cx, &prepared, &slots.reader())
+    }
+
+    /// Decode an already admitted Rust mapping from a protected snapshot.
+    fn from_prepared_arguments<'runtime>(
+        cx: &mut ConversionContext<'runtime>,
+        prepared: &PreparedArguments<'_, Self>,
+        reader: &ArgumentReader<'_, 'runtime>,
+    ) -> NativeResult<Self> {
+        check_arity(prepared.types(), reader.len())?;
+        Self::read_prepared_arguments(cx, prepared, reader)
+    }
+
+    /// Implement the pack's conversion policy using bounded, protected reads.
+    /// The supplied mapping covers this pack; actual value checks and conversion
+    /// limits still belong to its read/decode operations.
+    fn read_prepared_arguments<'runtime>(
+        cx: &mut ConversionContext<'runtime>,
+        prepared: &PreparedArguments<'_, Self>,
+        reader: &ArgumentReader<'_, 'runtime>,
     ) -> NativeResult<Self>;
 }
 
 /// Own the argument roots until the backend result has been retained or decoded.
-pub(crate) fn encode_arguments<A: IntoKagariArguments>(
-    cx: &mut ConversionContext<'_>,
+pub(crate) fn encode_arguments<'runtime, A: IntoKagariArguments>(
+    cx: &mut ConversionContext<'runtime>,
     expected: &[TypeArgument],
     arguments: A,
-) -> NativeResult<(RootSet, Vec<Value>)> {
+) -> NativeResult<(CallSlots<'runtime>, Vec<Value>)> {
     let roots = arguments
         .into_arguments(cx, expected)
         .map_err(|error| cx.runtime().resources().admit_execution_error(error))?;
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(expected.len())
-        .map_err(|_| cx.runtime().resources().limit("typed call arguments"))?;
-    for slot in 0..expected.len() {
-        values.push(
-            roots
-                .get(cx.runtime().gc(), slot)
-                .ok_or_else(|| RuntimeError::module_validation("typed call argument root"))?,
-        );
-    }
+    let values = roots.values()?;
     Ok((roots, values))
 }
 
@@ -73,13 +153,6 @@ fn check_arity(expected: &[TypeArgument], actual: usize) -> NativeResult<()> {
         ));
     }
     Ok(())
-}
-
-pub(crate) fn check_types<A: KagariArguments>(
-    cx: &ConversionContext<'_>,
-    expected: &[TypeArgument],
-) -> NativeResult<()> {
-    A::check_types(cx, expected)
 }
 
 macro_rules! arguments {
@@ -97,36 +170,26 @@ macro_rules! arguments {
         }
 
         impl<$($ty: IntoKagari),*> IntoKagariArguments for ($($ty,)*) {
-            fn into_arguments(self, cx: &mut ConversionContext<'_>, expected: &[TypeArgument]) -> NativeResult<RootSet> {
-                check_arity(expected, $count)?;
-                $(cx.check_type::<$ty>(&expected[$slot])?;)*
+            fn write_prepared_arguments<'runtime>(self, cx: &mut ConversionContext<'runtime>, prepared: &PreparedArguments<'_, Self>, _writer: &mut ArgumentWriter<'_, '_, 'runtime>) -> NativeResult<()> {
+                let expected = prepared.types();
+                debug_assert_eq!(expected.len(), $count);
                 cx.check_elements($count)?;
-                cx.argument_scope(|cx| {
-                    let values = vec![$(cx.encode_value(&expected[$slot], self.$slot)?),*];
-                    cx.runtime().gc().root_execution_values(values)
-                        .ok_or_else(|| RuntimeError::module_validation("typed argument roots"))
+                cx.argument_scope(|_cx| {
+                    $(_writer.encode_prepared(_cx, $slot, self.$slot)?;)*
+                    Ok(())
                 })
             }
         }
 
         impl<$($ty: FromKagari),*> FromKagariArguments for ($($ty,)*) {
-            fn from_arguments(cx: &mut ConversionContext<'_>, expected: &[TypeArgument], values: &[Value]) -> NativeResult<Self> {
-                check_arity(expected, $count)?;
-                if values.len() != $count { return Err(RuntimeError::module_validation("typed input argument count")); }
-                $(cx.check_type::<$ty>(&expected[$slot])?;)*
+            fn read_prepared_arguments<'runtime>(cx: &mut ConversionContext<'runtime>, prepared: &PreparedArguments<'_, Self>, reader: &ArgumentReader<'_, 'runtime>) -> NativeResult<Self> {
+                let expected = prepared.types();
+                debug_assert_eq!(expected.len(), $count);
                 cx.check_elements($count)?;
-                for (ty, value) in expected.iter().zip(values) { cx.check_value(ty, value)?; }
-                let roots = cx.runtime().gc().root_execution_values(values.to_vec())
-                    .ok_or_else(|| RuntimeError::module_validation("typed input argument roots"))?;
-                let result = cx.argument_scope(|_cx| {
-                    Ok(($({
-                        let value = roots.get(_cx.runtime().gc(), $slot)
-                            .ok_or_else(|| RuntimeError::module_validation("typed input argument slot"))?;
-                        _cx.decode_value::<$ty>(&expected[$slot], &value)?
-                    },)*))
-                });
-                drop(roots);
-                result
+                reader.check_values(cx, expected)?;
+                cx.argument_scope(|_cx| {
+                    Ok(($(reader.decode_prepared::<$ty>(_cx, &expected[$slot], $slot)?,)*))
+                })
             }
         }
     };

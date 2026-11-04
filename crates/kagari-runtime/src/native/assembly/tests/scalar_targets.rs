@@ -1,7 +1,7 @@
 //! Scalar declarations own checked targets; Rust algorithm reuse is not target sharing.
 use crate::{
     Runtime,
-    frame::driver::ReturnAction,
+    frame::{arguments::InvocationArguments, driver::ReturnAction},
     module::ExecutableModule,
     native::{
         assembly::{ModuleAssembly, ModuleDefinition, ModuleSetBuilder},
@@ -66,7 +66,7 @@ fn no_script_reentry(
     _: &Runtime,
     _: &ExecutableModule,
     _: ScriptCall<'_>,
-    _: &[Value],
+    _: InvocationArguments<'_>,
 ) -> NativeResult<Value> {
     panic!("scalar identity does not reenter script")
 }

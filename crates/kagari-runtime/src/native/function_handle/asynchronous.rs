@@ -13,7 +13,7 @@ use crate::{
         composition::future_output,
         conversion::{
             FromKagari, KagariType,
-            arguments::{IntoKagariArguments, KagariArguments, encode_arguments},
+            arguments::{IntoKagariArguments, KagariArguments},
             context::ConversionContext,
         },
         function_handle::Function,
@@ -74,7 +74,7 @@ impl<A, R> AsyncFunction<A, R> {
         runtime: &Runtime,
         function: Function<A, FutureOutput<R>>,
     ) -> NativeResult<Self> {
-        let prepared = function.prepare_call(runtime)?;
+        let prepared = function.prepare_selection(runtime)?;
         future_output(runtime, prepared.owner(), &prepared.signature.result)?;
         Ok(Self { function })
     }
@@ -103,18 +103,19 @@ impl<A: IntoKagariArguments, R: FromKagari + Send + 'static> AsyncFunction<A, R>
         let external = options.cancellation.clone();
         options.cancellation = Default::default();
         let prepared = self.function.prepare_call(runtime)?;
-        let output = future_output(runtime, prepared.owner(), &prepared.signature.result)?;
-        let session = runtime.begin_pinned_execution_with_options(&prepared, options)?;
+        let selected = &prepared.selection;
+        let output = future_output(runtime, prepared.owner(), &selected.signature.result)?;
+        let session = runtime.begin_pinned_execution_with_options(selected, options)?;
         let execution = runtime.initialize_owned_factory(session, external, || {
             let mut cx = ConversionContext::new(runtime, prepared.owner())?;
-            let (roots, values) = encode_arguments(&mut cx, &prepared.signature.params, arguments)?;
+            let (roots, values) = prepared.encode_arguments(&mut cx, arguments)?;
             runtime.gc().validate_async_values(&values)?;
             cx.poll()?;
             Ok(QueuedFactory {
                 owner: prepared.owner().clone(),
-                future: prepared.signature.result.clone(),
+                future: selected.signature.result.clone(),
                 entry: FactoryEntry::Pinned {
-                    function: prepared.clone(),
+                    function: selected.clone(),
                     arguments: values,
                     roots,
                 },

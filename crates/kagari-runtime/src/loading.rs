@@ -1,3 +1,6 @@
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     PreparedReload, Runtime, StagedLoad, StagedReload,
     error::{RuntimeError, RuntimeErrorKind},
@@ -106,6 +109,8 @@ impl Runtime {
         &self,
         module: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ModuleValidation);
         self.resources().ensure_execution_allowed()?;
         if !module.belongs_to(self.host.owner()) {
             return Err(RuntimeError::new(

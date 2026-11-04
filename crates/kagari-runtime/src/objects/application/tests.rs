@@ -5,6 +5,7 @@ use crate::{
         MetadataRoot, application_key::ApplicationArguments, call_contracts::InterfaceCallSite,
     },
     frame::{
+        arguments::InvocationArguments,
         driver::ReturnAction,
         transfer::ReturnValue,
         types::{
@@ -620,7 +621,7 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
         .push_interface_method(
             &runtime,
             method.clone(),
-            &[Value::I32(0), Value::I32(7)],
+            InvocationArguments::from_values(&[Value::I32(0), Value::I32(7)]),
             None,
         )
         .unwrap();
@@ -656,7 +657,7 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
         .push_interface_method(
             &runtime,
             retained.clone(),
-            &[Value::I32(1), Value::I32(7)],
+            InvocationArguments::from_values(&[Value::I32(1), Value::I32(7)]),
             None,
         )
         .unwrap();
