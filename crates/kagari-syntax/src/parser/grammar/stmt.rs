@@ -1,260 +1,361 @@
-//! Block contents and statement-versus-tail classification.
-//!
-//! A block retains statements and an optional direct tail expression. Assignment
-//! and expression statements wrap an already-parsed expression using a checkpoint;
-//! a tail is left unwrapped. Bare blocks/ifs before another statement can omit `;`.
-//! Missing tokens produce diagnostics; explicit error-token consumption ensures
-//! progress through unexpected block contents. See [`crate::ast::stmt`] and
-//! [`crate::ast::expr::BlockExpr`] for the trees consumers inspect.
+//! Block ownership, tail classification and syntactically spelled assignments.
+
+use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{
+    ast::{
+        expr::{BinaryOp, BlockExpr, Expr},
+        misc::{BindingKeyword, Writeability},
+        site::Required,
+        stmt::{
+            AssignStmt, AssignmentOp, BindingStmt, BreakStmt, ContinueStmt, ExprStmt, ForStmt,
+            Initializer, LoopStmt, ReturnStmt, Stmt, WhileStmt,
+        },
+    },
     kind::SyntaxKind,
-    parser::core::{Checkpoint, Parser},
+    parser::core::{Built, Parser},
     token::TokenKind,
 };
-use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
-impl<'a> Parser<'a> {
-    /// Enters a guarded block parse, preserving braces and statement/tail distinctions.
-    pub(crate) fn parse_block(&mut self) {
-        self.with_nesting(Self::parse_block_nested);
+impl Parser<'_> {
+    pub(crate) fn parse_block(&mut self) -> Built<BlockExpr> {
+        self.with_nesting(Self::parse_block_inner)
+            .unwrap_or_else(|| Built::missing(self.anchor()))
     }
 
-    fn parse_block_nested(&mut self) {
-        self.start_node(SyntaxKind::BlockExpr);
-        if !self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedFunctionBodyStart) {
-            self.finish_node();
-            return;
+    fn parse_block_inner(&mut self) -> Built<BlockExpr> {
+        if !self.at(TokenKind::LBrace) {
+            self.error_here(DiagnosticKind::ExpectedFunctionBodyStart);
+            return Built::missing(self.anchor());
         }
-
-        self.bump_trivia();
+        let mark = self.begin();
+        let open = Required::Present(self.take());
+        let mut statements = Vec::new();
+        let mut tail = None;
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            match self.current_kind() {
-                Some(TokenKind::StaticKw | TokenKind::Hash | TokenKind::PubKw)
-                    if self.attributed_item_kind() == Some(TokenKind::StaticKw) =>
-                {
-                    self.reject_static()
+            self.position(1, statements.len());
+            let before = self.cursor();
+            let statement = match self.current_kind() {
+                TokenKind::FnKw => Some(self.local_function()),
+                TokenKind::AsyncKw if self.nth_nontrivia_kind(1) == Some(TokenKind::FnKw) => {
+                    Some(self.local_function())
                 }
-                Some(TokenKind::FnKw) => self.parse_function(),
-                Some(TokenKind::AsyncKw) if self.nth_nontrivia_kind(1) == Some(TokenKind::FnKw) => {
-                    self.parse_function()
-                }
-                Some(TokenKind::Hash | TokenKind::PubKw)
+                TokenKind::Hash | TokenKind::PubKw
                     if matches!(
                         self.attributed_item_kind(),
                         Some(TokenKind::FnKw | TokenKind::AsyncKw)
                     ) =>
                 {
-                    self.parse_function()
+                    Some(self.local_function())
                 }
-                Some(TokenKind::ValKw | TokenKind::VarKw) => self.parse_binding_stmt(),
-                Some(TokenKind::ReturnKw) => self.parse_return_stmt(),
-                Some(TokenKind::WhileKw) => self.parse_while_stmt(),
-                Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
-                Some(TokenKind::ForKw) => self.parse_for_stmt(),
-                Some(TokenKind::BreakKw) => self.parse_break_stmt(),
-                Some(TokenKind::ContinueKw) => self.parse_continue_stmt(),
-                Some(_) if self.expr_starts() => {
-                    if self.parse_expr_stmt_or_tail() {
+                TokenKind::StaticKw | TokenKind::Hash | TokenKind::PubKw
+                    if self.attributed_item_kind() == Some(TokenKind::StaticKw) =>
+                {
+                    self.error_here(DiagnosticKind::UnexpectedToken);
+                    let rejected = self.parse_static();
+                    Some(Built::present(
+                        Stmt::Error(rejected.site),
+                        self.completed_depth,
+                    ))
+                }
+                TokenKind::ValKw | TokenKind::VarKw => Some(self.parse_binding_stmt()),
+                TokenKind::ReturnKw => Some(self.parse_return()),
+                TokenKind::WhileKw => Some(self.parse_while()),
+                TokenKind::LoopKw => Some(self.parse_loop_stmt()),
+                TokenKind::ForKw => Some(self.parse_for()),
+                TokenKind::BreakKw => Some(self.parse_break()),
+                TokenKind::ContinueKw => Some(self.parse_continue()),
+                _ if self.expr_starts() => {
+                    let bare_block = self.at_any(&[TokenKind::IfKw, TokenKind::LBrace]);
+                    let expression = self.parse_expr();
+                    if self.assignment_operator().is_some() {
+                        Some(self.parse_assignment(expression))
+                    } else if self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
+                        tail = match expression.node {
+                            Required::Present(expr) => Some(expr),
+                            Required::Missing { .. } => None,
+                        };
                         break;
+                    } else {
+                        let mark = self.begin_at(self.first(&expression, before), expression.depth);
+                        let terminator = if self.at(TokenKind::Semi) {
+                            Some(Required::Present(self.take()))
+                        } else if bare_block {
+                            None
+                        } else {
+                            Some(self.expect(
+                                TokenKind::Semi,
+                                DiagnosticKind::ExpectedStatementTerminator,
+                            ))
+                        };
+                        let site = self.end(mark);
+                        Some(Built::present(
+                            Stmt::ExprStmt(Box::new(ExprStmt {
+                                site,
+                                expression: expression.node,
+                                terminator,
+                            })),
+                            self.completed_depth,
+                        ))
                     }
                 }
-                Some(TokenKind::Unknown) => {
-                    self.error_here(DiagnosticKind::UnexpectedToken);
+                _ => {
+                    self.error_here(if self.at(TokenKind::Unknown) {
+                        DiagnosticKind::UnexpectedToken
+                    } else {
+                        DiagnosticKind::ExpectedExpression
+                    });
                     self.bump_as_error();
+                    None
                 }
-                Some(_) => {
-                    self.error_here(DiagnosticKind::ExpectedExpression);
-                    self.bump_as_error();
-                }
-                None => break,
+            };
+            if let Some(statement) = statement
+                && let Required::Present(statement) = statement.node
+            {
+                statements.push(statement);
             }
-            self.bump_trivia();
+            if self.cursor() == before && !self.at(TokenKind::Eof) {
+                self.bump_as_error();
+            }
         }
-
-        if self.at(TokenKind::RBrace) {
-            self.bump();
-        } else {
-            self.push_diagnostic(
-                Diagnostic::error(DiagnosticKind::ExpectedBlockEnd)
-                    .with_span(self.peek().map(|token| token.span).unwrap_or_default()),
-            );
-        }
-
-        self.finish_node();
+        let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
+        let site = self.end(mark);
+        statements.shrink_to_fit();
+        Built::present(
+            BlockExpr {
+                site,
+                open,
+                statements,
+                tail,
+                close,
+            },
+            self.completed_depth,
+        )
     }
 
-    pub(crate) fn parse_binding_stmt(&mut self) {
-        self.start_node(SyntaxKind::BindingStmt);
-        self.parse_binding_kind();
-        self.parse_binding_pattern();
-        self.bump_trivia();
-        if self.at(TokenKind::Pipe) {
-            // Retain forbidden alternatives without letting block recovery parse a closure.
-            self.error_here(DiagnosticKind::UnexpectedToken);
-            self.start_node(SyntaxKind::Error);
-            while self.at(TokenKind::Pipe) {
-                self.bump();
-                self.bump_trivia();
-                self.parse_binding_pattern();
-                self.bump_trivia();
-            }
-            self.finish_node();
+    fn local_function(&mut self) -> Built<Stmt> {
+        let function = self.parse_function();
+        Built {
+            depth: function.depth,
+            node: match function.node {
+                Required::Present(function) => Required::Present(Stmt::FnDef(Box::new(function))),
+                Required::Missing { at } => Required::Missing { at },
+            },
         }
-        if self.at(TokenKind::Colon) {
-            self.bump();
-            self.parse_type_ref();
-        }
-        self.bump_trivia();
-        if self.at(TokenKind::Eq) {
-            self.bump();
-            self.parse_expr();
-            self.bump_trivia();
-        }
-        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
-        self.finish_node();
     }
 
-    pub(crate) fn parse_binding_kind(&mut self) {
-        self.bump_trivia();
+    pub(crate) fn parse_binding_kind(
+        &mut self,
+        diagnostic: DiagnosticKind,
+    ) -> Required<BindingKeyword> {
         if self.at_any(&[TokenKind::ValKw, TokenKind::VarKw]) {
-            self.bump();
+            let writeability = if self.at(TokenKind::ValKw) {
+                Writeability::Val
+            } else {
+                Writeability::Var
+            };
+            Required::Present(BindingKeyword {
+                writeability,
+                token: self.take(),
+            })
         } else {
-            self.error_here(DiagnosticKind::ExpectedBindingKeyword);
+            self.error_here(diagnostic);
+            Required::Missing { at: self.anchor() }
         }
-        self.bump_trivia();
     }
 
-    fn parse_return_stmt(&mut self) {
-        self.start_node(SyntaxKind::ReturnStmt);
-        self.expect(TokenKind::ReturnKw, DiagnosticKind::ExpectedReturnKeyword);
-        self.bump_trivia();
-        if !self.at(TokenKind::Semi) {
-            self.parse_expr();
-            self.bump_trivia();
+    fn parse_binding_stmt(&mut self) -> Built<Stmt> {
+        let mark = self.begin();
+        let binding = self.parse_binding_kind(DiagnosticKind::ExpectedBindingKeyword);
+        let pattern = self.parse_binding_pattern();
+        if self.at(TokenKind::Pipe) {
+            self.position(2, 0);
+            self.error_here(DiagnosticKind::UnexpectedToken);
+            while !self.at_any(&[
+                TokenKind::Colon,
+                TokenKind::Eq,
+                TokenKind::Semi,
+                TokenKind::RBrace,
+                TokenKind::Eof,
+            ]) {
+                self.bump_as_error();
+            }
         }
-        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
-        self.finish_node();
+        let annotation = self.parse_annotation();
+        let initializer = self.eat(TokenKind::Eq).map(|equal| {
+            let expression = self.parse_expr();
+            Initializer {
+                equal,
+                expression: expression.node,
+            }
+        });
+        let terminator = self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        let site = self.end(mark);
+        Built::present(
+            Stmt::BindingStmt(Box::new(BindingStmt {
+                site,
+                binding,
+                pattern: pattern.node,
+                annotation,
+                initializer,
+                terminator,
+            })),
+            self.completed_depth,
+        )
     }
 
-    /// Wraps the expression since `checkpoint` as an assignment if an assignment token follows.
-    /// Returns false without wrapping when no such operator is present.
-    pub(crate) fn finish_assignment(&mut self, checkpoint: Checkpoint) -> bool {
-        if !self.at_any(&[
-            TokenKind::Eq,
-            TokenKind::PlusEq,
-            TokenKind::MinusEq,
-            TokenKind::StarEq,
-            TokenKind::SlashEq,
-            TokenKind::PercentEq,
-            TokenKind::AmpEq,
-            TokenKind::PipeEq,
-            TokenKind::CaretEq,
-        ]) && !matches!(
-            self.joint_shift(),
-            Some(SyntaxKind::ShlEq | SyntaxKind::ShrEq)
-        ) {
-            return false;
-        }
-        self.start_node_at(checkpoint, SyntaxKind::AssignStmt);
-        if self.joint_shift().is_some() {
-            self.bump_joint_shift();
-        } else {
-            self.bump();
-        }
-        self.parse_expr();
-        self.bump_trivia();
-        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
-        self.finish_node();
-        true
+    fn parse_return(&mut self) -> Built<Stmt> {
+        let mark = self.begin();
+        let keyword = self.take();
+        let value = (!self.at(TokenKind::Semi)).then(|| self.parse_expr());
+        let value = value.and_then(|value| match value.node {
+            Required::Present(value) => Some(value),
+            Required::Missing { .. } => None,
+        });
+        let terminator = self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        let site = self.end(mark);
+        Built::present(
+            Stmt::ReturnStmt(Box::new(ReturnStmt {
+                site,
+                keyword,
+                value,
+                terminator,
+            })),
+            self.completed_depth,
+        )
     }
 
-    pub(crate) fn parse_while_stmt(&mut self) {
-        self.start_node(SyntaxKind::WhileStmt);
-        self.expect(TokenKind::WhileKw, DiagnosticKind::ExpectedWhileKeyword);
-        self.parse_condition();
-        self.bump_trivia();
-        self.parse_block();
-        self.finish_node();
+    fn assignment_operator(&self) -> Option<(AssignmentOp, usize)> {
+        let operation = match self.current_kind() {
+            TokenKind::Eq => return Some((AssignmentOp::Assign, 1)),
+            TokenKind::PlusEq => BinaryOp::Add,
+            TokenKind::MinusEq => BinaryOp::Subtract,
+            TokenKind::StarEq => BinaryOp::Multiply,
+            TokenKind::SlashEq => BinaryOp::Divide,
+            TokenKind::PercentEq => BinaryOp::Remainder,
+            TokenKind::AmpEq => BinaryOp::BitAnd,
+            TokenKind::PipeEq => BinaryOp::BitOr,
+            TokenKind::CaretEq => BinaryOp::BitXor,
+            _ => {
+                return match self.joint_shift() {
+                    Some(SyntaxKind::ShlEq) => {
+                        Some((AssignmentOp::Compound(BinaryOp::ShiftLeft), 2))
+                    }
+                    Some(SyntaxKind::ShrEq) => {
+                        Some((AssignmentOp::Compound(BinaryOp::ShiftRight), 2))
+                    }
+                    _ => None,
+                };
+            }
+        };
+        Some((AssignmentOp::Compound(operation), 1))
     }
 
-    pub(crate) fn parse_loop_stmt(&mut self) {
-        self.start_node(SyntaxKind::LoopStmt);
-        self.expect(TokenKind::LoopKw, DiagnosticKind::ExpectedLoopKeyword);
-        self.bump_trivia();
-        self.parse_block();
-        self.finish_node();
+    fn parse_assignment(&mut self, target: Built<Expr>) -> Built<Stmt> {
+        let mark = self.begin_at(self.first(&target, self.cursor()), target.depth);
+        let (operation, pieces) = self.assignment_operator().expect("recognized assignment");
+        let operator = Required::Present(self.operator(operation, pieces));
+        let value = self.parse_expr();
+        let terminator = self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        let site = self.end(mark);
+        Built::present(
+            Stmt::AssignStmt(Box::new(AssignStmt {
+                site,
+                target: target.node,
+                operator,
+                value: value.node,
+                terminator,
+            })),
+            self.completed_depth,
+        )
     }
 
-    fn parse_for_stmt(&mut self) {
-        self.start_node(SyntaxKind::ForStmt);
-        self.expect(TokenKind::ForKw, DiagnosticKind::UnexpectedToken);
-        self.bump_trivia();
-        self.parse_match_pattern();
-        self.bump_trivia();
-        self.expect(TokenKind::InKw, DiagnosticKind::UnexpectedToken);
-        self.parse_condition_expr();
-        self.bump_trivia();
-        self.parse_block();
-        self.finish_node();
+    fn parse_while(&mut self) -> Built<Stmt> {
+        let mark = self.begin();
+        let keyword = self.take();
+        let condition = self.parse_condition();
+        let body = self.parse_block();
+        let site = self.end(mark);
+        Built::present(
+            Stmt::WhileStmt(Box::new(WhileStmt {
+                site,
+                keyword,
+                condition: condition.node,
+                body: body.node,
+            })),
+            self.completed_depth,
+        )
     }
 
-    fn parse_break_stmt(&mut self) {
-        self.start_node(SyntaxKind::BreakStmt);
-        self.expect(TokenKind::BreakKw, DiagnosticKind::ExpectedBreakKeyword);
-        self.bump_trivia();
-        if !self.at(TokenKind::Semi) {
-            self.parse_expr();
-            self.bump_trivia();
-        }
-        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
-        self.finish_node();
+    fn parse_loop_stmt(&mut self) -> Built<Stmt> {
+        let mark = self.begin();
+        let keyword = self.take();
+        let body = self.parse_block();
+        let site = self.end(mark);
+        Built::present(
+            Stmt::LoopStmt(Box::new(LoopStmt {
+                site,
+                keyword,
+                body: body.node,
+            })),
+            self.completed_depth,
+        )
     }
 
-    fn parse_continue_stmt(&mut self) {
-        self.start_node(SyntaxKind::ContinueStmt);
-        self.expect(
-            TokenKind::ContinueKw,
-            DiagnosticKind::ExpectedContinueKeyword,
-        );
-        self.bump_trivia();
-        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
-        self.finish_node();
+    fn parse_for(&mut self) -> Built<Stmt> {
+        let mark = self.begin();
+        let keyword = self.take();
+        let pattern = self.parse_match_pattern();
+        let in_keyword = self.expect(TokenKind::InKw, DiagnosticKind::UnexpectedToken);
+        let iterable = self.parse_condition_expr();
+        let body = self.parse_block();
+        let site = self.end(mark);
+        Built::present(
+            Stmt::ForStmt(Box::new(ForStmt {
+                site,
+                keyword,
+                pattern: pattern.node,
+                in_keyword,
+                iterable: iterable.node,
+                body: body.node,
+            })),
+            self.completed_depth,
+        )
     }
 
-    /// Returns true when a direct tail expression ends block-content parsing.
-    fn parse_expr_stmt_or_tail(&mut self) -> bool {
-        let checkpoint = self.checkpoint();
-        let bare_block_statement = self.at_any(&[TokenKind::LBrace, TokenKind::IfKw]);
-        self.parse_expr();
-        self.bump_trivia();
-
-        if self.finish_assignment(checkpoint) {
-            return false;
-        }
-
-        if self.at(TokenKind::Semi) {
-            self.finish_expr_stmt(checkpoint);
-            return false;
-        }
-
-        if self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            return true;
-        }
-
-        if bare_block_statement {
-            self.start_node_at(checkpoint, SyntaxKind::ExprStmt);
-            self.finish_node();
-            return false;
-        }
-
-        self.error_here(DiagnosticKind::ExpectedStatementTerminator);
-        false
+    fn parse_break(&mut self) -> Built<Stmt> {
+        let mark = self.begin();
+        let keyword = self.take();
+        let value = (!self.at(TokenKind::Semi)).then(|| self.parse_expr());
+        let value = value.and_then(|value| match value.node {
+            Required::Present(value) => Some(value),
+            Required::Missing { .. } => None,
+        });
+        let terminator = self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        let site = self.end(mark);
+        Built::present(
+            Stmt::BreakStmt(Box::new(BreakStmt {
+                site,
+                keyword,
+                value,
+                terminator,
+            })),
+            self.completed_depth,
+        )
     }
 
-    pub(crate) fn finish_expr_stmt(&mut self, checkpoint: Checkpoint) {
-        self.start_node_at(checkpoint, SyntaxKind::ExprStmt);
-        self.bump();
-        self.finish_node();
+    fn parse_continue(&mut self) -> Built<Stmt> {
+        let mark = self.begin();
+        let keyword = self.take();
+        let terminator = self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        let site = self.end(mark);
+        Built::present(
+            Stmt::ContinueStmt(Box::new(ContinueStmt {
+                site,
+                keyword,
+                terminator,
+            })),
+            self.completed_depth,
+        )
     }
 }

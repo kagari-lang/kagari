@@ -52,9 +52,9 @@ pub(crate) fn recover_invalid_identity(
     let parsed =
         parse_with_limits(source, Default::default(), &cancel).expect("uncancelled recovery parse");
     let syntax = match source.inline_range() {
-        Some(range) => ModuleSyntax::at_content_range(&parsed.syntax(), range)
+        Some(range) => ModuleSyntax::at_content_range(&parsed, range)
             .ok_or(AnalysisError::InvalidSourceRange(source.id()))?,
-        None => parsed.syntax().into(),
+        None => parsed.module(),
     };
     let lowered = Arc::new(lower_module_controlled(
         Arc::new(source.clone()),

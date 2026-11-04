@@ -2,8 +2,8 @@
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_syntax::{
+    ast::visit::{LexicalToken, NodeRef},
     kind::SyntaxKind,
-    syntax_node::{SyntaxNode, SyntaxToken},
 };
 use std::collections::BTreeMap;
 
@@ -18,13 +18,12 @@ pub(crate) struct Comments(BTreeMap<usize, Attachment>);
 
 impl Comments {
     pub fn collect(
-        root: &SyntaxNode,
+        root: NodeRef<'_>,
         source: &str,
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         let tokens: Vec<_> = root
-            .descendants_with_tokens()
-            .filter_map(|element| element.into_token())
+            .tokens()
             .filter(|token| token.kind() != SyntaxKind::Whitespace)
             .collect();
         let mut attachments = BTreeMap::new();
@@ -35,10 +34,9 @@ impl Comments {
             }
             let previous = index.checked_sub(1).map(|index| &tokens[index]);
             let next = tokens.get(index + 1);
-            let start = usize::from(token.text_range().start());
-            let same_line = previous.is_some_and(|previous| {
-                !source[usize::from(previous.text_range().end())..start].contains(['\r', '\n'])
-            });
+            let start = token.span().start;
+            let same_line = previous
+                .is_some_and(|previous| !source[previous.span().end..start].contains(['\r', '\n']));
             let after_open = previous.is_some_and(|token| {
                 matches!(
                     token.kind(),
@@ -63,10 +61,8 @@ impl Comments {
         Ok(Self(attachments))
     }
 
-    pub fn attachment(&self, token: &SyntaxToken) -> Option<Attachment> {
-        self.0
-            .get(&usize::from(token.text_range().start()))
-            .copied()
+    pub fn attachment(&self, token: &LexicalToken<'_>) -> Option<Attachment> {
+        self.0.get(&token.span().start).copied()
     }
 }
 
@@ -78,18 +74,17 @@ pub(crate) fn is_comment(kind: SyntaxKind) -> bool {
 mod tests {
     use super::*;
     use kagari_source::source::SourceFile;
-    use kagari_syntax::{ast::traits::AstNode, parser::parse};
+    use kagari_syntax::parser::parse;
 
     #[test]
     fn attachment_uses_source_neighbors_and_preserves_nested_text() {
         let text = "// leading\nfn run() { /* dangling /* inner */ */ } // trailing";
         let parsed = parse(&SourceFile::new("comments.kgr", text));
-        let root = parsed.syntax();
-        let comments = Comments::collect(root.syntax(), text, &Default::default()).unwrap();
+        let module = parsed.module();
+        let root = NodeRef::ModuleBody(module.body());
+        let comments = Comments::collect(root, text, &Default::default()).unwrap();
         let actual: Vec<_> = root
-            .syntax()
-            .descendants_with_tokens()
-            .filter_map(|item| item.into_token())
+            .tokens()
             .filter_map(|token| comments.attachment(&token))
             .collect();
         assert_eq!(

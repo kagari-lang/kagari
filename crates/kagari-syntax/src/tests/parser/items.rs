@@ -1,8 +1,9 @@
+use crate::ast::visit::NodeRef;
+
+use crate::ast::views::ItemView;
+
 use crate::{
-    ast::{
-        item::{Item, TypeAliasDef, Visibility},
-        traits::AstNode,
-    },
+    ast::{borrow::AstNode, item::VisibilityKind},
     kind::SyntaxKind,
     tests::common,
 };
@@ -12,16 +13,15 @@ use kagari_source::diagnostic::{DiagnosticKind, Severity};
 fn parses_module_type_aliases_with_lossless_metadata() {
     let text = "/// Items in order.\r\n#[tag] pub type Items<T: Read + Write> = Vec<T> where T: Clone,;\r\nmod nested { type Count = i32; pub(super) type Shared = super::Items<i32>; pub(crate) type Pair = (i32, bool); }";
     let module = common::parse_ok(text);
-    assert_eq!(module.syntax().text().to_string(), text);
+    assert_eq!(module.text().to_owned(), text);
     let items = module.items().collect::<Vec<_>>();
-    let Item::TypeAliasDef(alias) = &items[0] else {
+    let ItemView::TypeAlias(alias) = &items[0] else {
         panic!("expected alias")
     };
-    assert_eq!(alias.syntax().kind(), SyntaxKind::TypeAliasDef);
-    assert!(TypeAliasDef::cast(alias.syntax().clone()).is_some());
+    assert_eq!(NodeRef::from(*alias).kind(), SyntaxKind::TypeAliasDef);
     assert_eq!(alias.name_text().as_deref(), Some("Items"));
-    assert_eq!(alias.visibility(), Visibility::Public);
-    assert_eq!(items[0].documentation(text), "Items in order.");
+    assert_eq!(alias.visibility(), VisibilityKind::Public);
+    assert_eq!(items[0].documentation(), "Items in order.");
     assert_eq!(
         items[0].attributes().next().unwrap().name_text().as_deref(),
         Some("tag")
@@ -30,31 +30,26 @@ fn parses_module_type_aliases_with_lossless_metadata() {
     assert_eq!(params.len(), 1);
     assert_eq!(params[0].name_text().as_deref(), Some("T"));
     assert_eq!(
-        params[0]
-            .bounds()
-            .unwrap()
-            .syntax()
-            .text()
-            .to_string()
-            .trim(),
+        params[0].bounds().unwrap().source_text().to_owned().trim(),
         "Read + Write"
     );
     assert_eq!(
-        alias.ty().unwrap().syntax().text().to_string().trim(),
+        alias.ty().unwrap().source_text().to_owned().trim(),
         "Vec<T>"
     );
     assert_eq!(alias.where_clause().unwrap().predicates().count(), 1);
 
-    let Item::ModuleDef(nested) = &items[1] else {
+    let ItemView::ModuleDef(nested) = &items[1] else {
         panic!("expected module")
     };
-    let nested_items = nested.block().unwrap().items().collect::<Vec<_>>();
+    let nested = nested.body().unwrap();
+    let nested_items = nested.items().collect::<Vec<_>>();
     for (item, visibility) in nested_items.iter().zip([
-        Visibility::Private,
-        Visibility::PublicSuper,
-        Visibility::PublicCrate,
+        VisibilityKind::Private,
+        VisibilityKind::PublicSuper,
+        VisibilityKind::PublicCrate,
     ]) {
-        let Item::TypeAliasDef(alias) = item else {
+        let ItemView::TypeAlias(alias) = item else {
             panic!("expected nested alias")
         };
         assert_eq!(alias.visibility(), visibility);
@@ -71,8 +66,8 @@ fn type_aliases_reuse_where_and_target_type_syntax() {
         "type Callback = fn([i32], (bool, i32)) -> Option<Vec<i32>>;",
     ] {
         let module = common::parse_ok(text);
-        assert_eq!(module.syntax().text().to_string(), text);
-        let Item::TypeAliasDef(alias) = module.items().next().unwrap() else {
+        assert_eq!(module.text().to_owned(), text);
+        let ItemView::TypeAlias(alias) = module.items().next().unwrap() else {
             panic!("expected alias")
         };
         assert!(alias.ty().is_some());
@@ -108,11 +103,12 @@ fn type_alias_recovery_retains_following_items() {
             "{text}: {:?}",
             parsed.diagnostics()
         );
-        assert_eq!(parsed.syntax().syntax().text().to_string(), text);
-        let items = parsed.syntax().items().collect::<Vec<_>>();
+        assert_eq!(parsed.module().text().to_owned(), text);
+        let module = parsed.module();
+        let items = module.items().collect::<Vec<_>>();
         assert_eq!(items.len(), 2, "{text}");
-        assert!(matches!(items[0], Item::TypeAliasDef(_)));
-        assert!(matches!(items[1], Item::FnDef(_)));
+        assert!(matches!(items[0], ItemView::TypeAlias(_)));
+        assert!(matches!(items[1], ItemView::FnDef(_)));
     }
 }
 
@@ -122,20 +118,23 @@ fn type_aliases_do_not_replace_associated_types() {
         "type Count = i32; trait Read { type Output; } impl Read for Counter { type Output = Count; }",
     );
     let items = module.items().collect::<Vec<_>>();
-    assert!(matches!(items[0], Item::TypeAliasDef(_)));
-    let Item::TraitDef(trait_def) = &items[1] else {
+    assert!(matches!(items[0], ItemView::TypeAlias(_)));
+    let ItemView::TraitDef(trait_def) = &items[1] else {
         panic!("expected trait")
     };
-    let Item::ImplBlock(impl_def) = &items[2] else {
+    let ItemView::ImplBlock(impl_def) = &items[2] else {
         panic!("expected impl")
     };
     let declaration = trait_def.associated_types().next().unwrap();
     let definition = impl_def.associated_types().next().unwrap();
-    assert_eq!(declaration.syntax().kind(), SyntaxKind::AssociatedType);
-    assert!(declaration.ty().is_none());
-    assert_eq!(definition.syntax().kind(), SyntaxKind::AssociatedType);
     assert_eq!(
-        definition.ty().unwrap().name_text().as_deref(),
+        NodeRef::from(declaration).kind(),
+        SyntaxKind::AssociatedType
+    );
+    assert!(declaration.ty().is_none());
+    assert_eq!(NodeRef::from(definition).kind(), SyntaxKind::AssociatedType);
+    assert_eq!(
+        common::type_name(definition.ty().unwrap()).as_deref(),
         Some("Count")
     );
 }
@@ -155,13 +154,13 @@ fn parses_struct_definition_with_fields() {
     assert!(fields[0].is_val());
     assert_eq!(fields[0].name_text().as_deref(), Some("hp"));
     assert_eq!(
-        fields[0].ty().and_then(|ty| ty.name_text()).as_deref(),
+        fields[0].ty().and_then(common::type_name).as_deref(),
         Some("i32")
     );
     assert!(fields[1].is_var());
     assert_eq!(fields[1].name_text().as_deref(), Some("name"));
     assert_eq!(
-        fields[1].ty().and_then(|ty| ty.name_text()).as_deref(),
+        fields[1].ty().and_then(common::type_name).as_deref(),
         Some("string")
     );
 }
@@ -200,10 +199,10 @@ fn parses_public_const_item() {
     let module = common::parse_ok("pub const VERSION: i32 = 1;");
     let const_def = common::first_const(&module);
 
-    assert!(const_def.visibility() == Visibility::Public);
+    assert!(const_def.visibility() == VisibilityKind::Public);
     assert_eq!(const_def.name_text().as_deref(), Some("VERSION"));
     assert_eq!(
-        const_def.ty().and_then(|ty| ty.name_text()).as_deref(),
+        const_def.ty().and_then(common::type_name).as_deref(),
         Some("i32")
     );
     assert!(const_def.initializer().is_some());

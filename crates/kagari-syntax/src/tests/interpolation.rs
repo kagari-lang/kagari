@@ -1,5 +1,5 @@
+use crate::ast::visit::NodeRef;
 use crate::{
-    ast::traits::AstNode,
     kind::SyntaxKind,
     lexer::lex,
     parser::{ParseLimits, parse, parse_with_limits},
@@ -24,19 +24,17 @@ fn interpolation_is_lossless_with_names_multiline_text_and_escapes() {
         "{:?}",
         parsed.diagnostics()
     );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
-    let syntax = parsed.syntax();
+    assert_eq!(parsed.module().text().to_owned(), source.text());
+    let syntax = parsed.module();
     assert_eq!(
-        syntax
-            .syntax()
+        NodeRef::ModuleBody(syntax.body())
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::InterpolatedString)
             .count(),
         1
     );
     assert_eq!(
-        syntax
-            .syntax()
+        NodeRef::ModuleBody(syntax.body())
             .descendants()
             .filter(|n| n.kind() == SyntaxKind::Interpolation)
             .count(),
@@ -85,8 +83,8 @@ fn interpolation_rejects_expressions_whitespace_keywords_and_old_prefixes() {
         );
         let parsed = parse(&source);
         assert!(parsed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLiteral { reason } if reason.contains("bind expressions outside"))), "{hole:?}: {:?}", parsed.diagnostics());
-        assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
-        assert_eq!(parsed.syntax().items().count(), 2, "{hole:?}");
+        assert_eq!(parsed.module().text().to_owned(), source.text());
+        assert_eq!(parsed.module().items().count(), 2, "{hole:?}");
     }
     for literal in [r#"f"old""#, r#"f"{name}""#, r#"fr"raw""#, r#"rb"raw""#] {
         let source = SourceFile::new("prefix.kgr", format!("fn main() {{ {literal}; }}"));
@@ -108,7 +106,7 @@ fn incomplete_interpolation_and_invalid_text_report_diagnostics() {
         let source = SourceFile::new("invalid.kgr", format!("fn main() {{ {literal}; }}"));
         let parsed = parse(&source);
         assert!(!parsed.diagnostics().is_empty(), "{literal}");
-        assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+        assert_eq!(parsed.module().text().to_owned(), source.text());
     }
 }
 
@@ -172,7 +170,7 @@ fn interpolation_recovery_is_bounded_and_cancellable() {
             .iter()
             .any(|d| matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. }))
     );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+    assert_eq!(parsed.module().text().to_owned(), source.text());
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(parse_with_limits(&source, Default::default(), &cancel).is_err());

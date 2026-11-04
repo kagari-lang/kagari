@@ -314,7 +314,7 @@ fn type_alias_declaration_mode_rejects_native_only_attributes() {
             "{:?}",
             parsed.diagnostics()
         );
-        let mut lowered = lower_module_controlled(source, &parsed.syntax().into(), &cancel);
+        let mut lowered = lower_module_controlled(source, &parsed.module(), &cancel);
         // Even an attribute allowlisted by registration cannot give an alias
         // native storage identity. Exercise signature validation independently
         // of the stricter native source/registration correspondence gate.

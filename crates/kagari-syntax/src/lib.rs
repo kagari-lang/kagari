@@ -1,8 +1,8 @@
 //! Lossless parsing and typed syntax views for one Kagari source file.
 //!
-//! [`lexer`] produces token kinds and byte ranges. [`parser`] builds a concrete
-//! syntax tree (CST) retaining punctuation, whitespace, comments and erroneous
-//! text. [`ast`] supplies typed views over that same tree. Name resolution and
+//! [`lexer`] produces token kinds and byte ranges. [`parser`] directly constructs
+//! the owned grammar fields in [`ast`], retaining punctuation, missing roles and
+//! skipped input beside a shared source-backed lexical table. Name resolution and
 //! type checking belong to the subsequent HIR analysis, not to this crate.
 //!
 //! Start with [`parser::parse`] for recoverable syntax or [`parser::parse_module`]
@@ -13,12 +13,13 @@
 //!
 //! ```
 //! use kagari_source::source::SourceFile;
-//! use kagari_syntax::{ast::item::Item, parser::parse};
+//! use kagari_syntax::{ast::views::ItemView, parser::parse};
 //!
 //! let source = SourceFile::new("sum.kgr", "fn total() -> i32 { 1 + 2 }");
 //! let parsed = parse(&source);
 //! assert!(parsed.diagnostics().is_empty());
-//! let Some(Item::FnDef(function)) = parsed.syntax().items().next() else {
+//! let module = parsed.module();
+//! let Some(ItemView::FnDef(function)) = module.items().next() else {
 //!     panic!("the example contains one function");
 //! };
 //! assert_eq!(function.name_text().as_deref(), Some("total"));
@@ -31,8 +32,8 @@ use smallvec::SmallVec;
 pub mod ast;
 pub mod kind;
 pub mod lexer;
+mod lexical;
 pub mod parser;
-pub mod syntax_node;
 pub mod token;
 
 /// Ordered lexer output; 64 tokens fit inline, with heap growth beyond that.

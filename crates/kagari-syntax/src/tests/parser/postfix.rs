@@ -1,4 +1,4 @@
-use crate::{ast::expr::Expr, kind::SyntaxKind, tests::common};
+use crate::{ast::expr::BinaryOp, ast::views::ExprView, tests::common};
 
 #[test]
 fn parses_call_field_and_index_chain() {
@@ -9,14 +9,14 @@ fn parses_call_field_and_index_chain() {
     let expr = body.tail_expr().expect("expected tail expr");
 
     match expr {
-        Expr::IndexExpr(index) => {
+        ExprView::IndexExpr(index) => {
             match index.receiver().expect("expected receiver") {
-                Expr::FieldExpr(field) => {
+                ExprView::FieldExpr(field) => {
                     assert_eq!(field.name_text().as_deref(), Some("bar"));
                     match field.receiver().expect("expected field receiver") {
-                        Expr::CallExpr(call) => {
+                        ExprView::CallExpr(call) => {
                             match call.callee().expect("expected callee") {
-                                Expr::PathExpr(path) => {
+                                ExprView::PathExpr(path) => {
                                     assert_eq!(path.name_text().as_deref(), Some("foo"))
                                 }
                                 other => panic!("unexpected callee: {other:?}"),
@@ -25,13 +25,13 @@ fn parses_call_field_and_index_chain() {
                             let args: Vec<_> = call.args().collect();
                             assert_eq!(args.len(), 2);
                             match &args[0] {
-                                Expr::Literal(literal) => {
+                                ExprView::Literal(literal) => {
                                     assert_eq!(literal.text().as_deref(), Some("1"))
                                 }
                                 other => panic!("unexpected arg0: {other:?}"),
                             }
                             match &args[1] {
-                                Expr::Literal(literal) => {
+                                ExprView::Literal(literal) => {
                                     assert_eq!(literal.text().as_deref(), Some("2"))
                                 }
                                 other => panic!("unexpected arg1: {other:?}"),
@@ -44,7 +44,7 @@ fn parses_call_field_and_index_chain() {
             }
 
             match index.index().expect("expected index expr") {
-                Expr::Literal(literal) => assert_eq!(literal.text().as_deref(), Some("0")),
+                ExprView::Literal(literal) => assert_eq!(literal.text().as_deref(), Some("0")),
                 other => panic!("unexpected index expr: {other:?}"),
             }
         }
@@ -61,10 +61,10 @@ fn postfix_binds_tighter_than_binary_operators() {
     let expr = body.tail_expr().expect("expected tail expr");
 
     match expr {
-        Expr::BinaryExpr(binary) => {
-            assert_eq!(binary.operator(), Some(SyntaxKind::Plus));
-            assert!(matches!(binary.lhs(), Some(Expr::CallExpr(_))));
-            assert!(matches!(binary.rhs(), Some(Expr::IndexExpr(_))));
+        ExprView::BinaryExpr(binary) => {
+            assert_eq!(binary.operator(), Some(BinaryOp::Add));
+            assert!(matches!(binary.lhs(), Some(ExprView::CallExpr(_))));
+            assert!(matches!(binary.rhs(), Some(ExprView::IndexExpr(_))));
         }
         other => panic!("unexpected top-level expr: {other:?}"),
     }

@@ -1,4 +1,4 @@
-//! Pure lossless-CST formatting with separate syntax, comment and layout owners.
+//! Pure lossless typed-AST formatting with separate syntax, comment and layout owners.
 //! No filesystem operations or semantic analysis occur in this crate.
 
 mod comments;
@@ -11,10 +11,12 @@ use crate::comments::Comments;
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_source::{presentation::DiagnosticRecord, source::SourceFile};
 use kagari_syntax::{
-    ast::traits::AstNode, kind::SyntaxKind, lexer::lex_with_cancellation,
-    parser::parse_with_cancellation, syntax_node::SyntaxNode, token::TokenKind,
+    ast::visit::{ElementRef, NodeRef},
+    kind::SyntaxKind,
+    lexer::lex_with_cancellation,
+    parser::parse_with_cancellation,
+    token::TokenKind,
 };
-use rowan::WalkEvent;
 
 /// Layout choices; width is a target and never splits literal or comment text.
 #[derive(Debug, Clone, Copy)]
@@ -58,7 +60,7 @@ impl From<Cancelled> for FormatError {
     }
 }
 
-/// Formats one captured source, verifying reparse, token and CST preservation.
+/// Formats one captured source, verifying reparse, token and typed grammar preservation.
 /// Syntax errors retain original revision-bound diagnostics. Semantic errors are
 /// irrelevant to formatting. Cancellation and failed preservation return no text.
 pub fn format(
@@ -80,9 +82,10 @@ pub fn format(
                 .collect(),
         ));
     }
-    let root = parsed.syntax();
-    let attached = Comments::collect(root.syntax(), source.text(), cancel)?;
-    let doc = syntax::document(root.syntax(), &attached, cancel)?;
+    let module = parsed.module();
+    let root = NodeRef::ModuleBody(module.body());
+    let attached = Comments::collect(root, source.text(), cancel)?;
+    let doc = syntax::document(root, &attached, cancel)?;
     let newline = match options.newline {
         Newline::Lf => "\n",
         Newline::Crlf => "\r\n",
@@ -108,7 +111,7 @@ pub fn format(
     )?;
     let reparsed = parse_with_cancellation(&SourceFile::new(source.name(), &output), cancel)?;
     if !reparsed.diagnostics().is_empty()
-        || shape(root.syntax(), cancel)? != shape(reparsed.syntax().syntax(), cancel)?
+        || shape(root, cancel)? != shape(NodeRef::ModuleBody(reparsed.module().body()), cancel)?
         || tokens(source.text(), cancel)? != tokens(&output, cancel)?
     {
         return Err(FormatError::Preservation);
@@ -130,25 +133,33 @@ fn tokens(text: &str, cancel: &CancellationToken) -> Result<Vec<(TokenKind, Stri
 }
 
 fn shape(
-    root: &SyntaxNode,
+    root: NodeRef<'_>,
     cancel: &CancellationToken,
 ) -> Result<Vec<(bool, SyntaxKind, String)>, Cancelled> {
-    let mut shape = Vec::new();
-    for event in root.preorder_with_tokens() {
+    fn visit(
+        node: NodeRef<'_>,
+        cancel: &CancellationToken,
+        shape: &mut Vec<(bool, SyntaxKind, String)>,
+    ) -> Result<(), Cancelled> {
         cancel.check()?;
-        match event {
-            WalkEvent::Enter(element) if element.kind() != SyntaxKind::Whitespace => shape.push((
-                true,
-                element.kind(),
-                element
-                    .as_token()
-                    .map_or(String::new(), |token| token.text().into()),
-            )),
-            WalkEvent::Leave(element) if element.as_node().is_some() => {
-                shape.push((false, element.kind(), String::new()))
+        shape.push((true, node.kind(), String::new()));
+        for element in node.elements() {
+            match element {
+                ElementRef::Node(child) => visit(child, cancel, shape)?,
+                ElementRef::Token(token) if token.kind() != SyntaxKind::Whitespace => {
+                    shape.push((true, token.kind(), token.text().into()))
+                }
+                ElementRef::Operator(operator) => {
+                    shape.push((true, operator.kind(), operator.text().into()))
+                }
+                ElementRef::Missing { .. } => unreachable!("formatter rejects malformed source"),
+                _ => {}
             }
-            _ => {}
         }
+        shape.push((false, node.kind(), String::new()));
+        Ok(())
     }
+    let mut shape = Vec::new();
+    visit(root, cancel, &mut shape)?;
     Ok(shape)
 }

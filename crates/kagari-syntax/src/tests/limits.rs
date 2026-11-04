@@ -1,7 +1,6 @@
-use crate::{
-    ast::traits::AstNode,
-    parser::{ParseLimits, parse, parse_with_limits},
-};
+use crate::ast::visit::NodeRef;
+
+use crate::parser::{ParseLimits, parse, parse_with_limits};
 
 use {
     kagari_common::cancellation::CancellationToken,
@@ -37,11 +36,10 @@ fn parser_diagnostic_budget_stops_recovery_and_preserves_lossless_suffix() {
             );
             let span = last.span.unwrap();
             assert_eq!(&source.text()[span.start..span.end], "@");
-            assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+            assert_eq!(parsed.module().text().to_owned(), source.text());
             assert!(
                 !parsed
-                    .syntax()
-                    .syntax()
+                    .module()
                     .descendants()
                     .any(|node| node.kind() == crate::kind::SyntaxKind::FnDef
                         && node.text().to_string().contains("later")),
@@ -165,7 +163,7 @@ fn recursive_grammar_families_stop_at_nesting_budget() {
                 },
                 "case {index}"
             );
-            assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+            assert_eq!(parsed.module().text().to_owned(), source.text());
         }
     }
 }
@@ -231,8 +229,8 @@ fn iterative_expression_chains_obey_tree_depth_budget() {
                 limit: 24
             }
         );
-        assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
-        let nodes = parsed.syntax().syntax().descendants().count();
+        assert_eq!(parsed.module().text().to_owned(), source.text());
+        let nodes = parsed.module().descendants().count();
         assert!(nodes < 200, "chain kept growing: {suffix}, {nodes}");
     }
 }
@@ -248,13 +246,11 @@ fn tree_depth_accounts_for_wrappers_and_not_sibling_width() {
         let source = SourceFile::new("depth.kgr", text);
         let baseline = parse(&source);
         assert!(baseline.diagnostics().is_empty());
-        let tree = baseline.syntax();
-        let depth = tree
-            .syntax()
-            .descendants()
-            .map(|node| node.ancestors().count())
-            .max()
-            .unwrap();
+        let tree = baseline.module();
+        fn depth(node: NodeRef<'_>) -> usize {
+            1 + node.children().map(depth).max().unwrap_or(0)
+        }
+        let depth = depth(NodeRef::ModuleBody(tree.body()));
         let exact = parse_with_limits(
             &source,
             ParseLimits {

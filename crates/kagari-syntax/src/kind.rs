@@ -1,38 +1,9 @@
-//! Kinds shared by CST nodes and tokens; AST accessors select by these tags.
-//!
-//! Lexer kinds map here through [`crate::token::TokenKind::to_syntax_kind`].
-//! Shift operators are combined by the parser; declaration/expression kinds
-//! describe grouping nodes and have no single lexer token.
+//! Derived grammar tags and lexical categories used by read-only traversal.
+//! The stored AST alternatives and fields own grammar structure.
 
-// Keep discriminants and checked raw decoding in one declaration. The macro only
-// accepts implicit, contiguous discriminants, and decoding never constructs an enum
-// from an unchecked integer.
-macro_rules! syntax_kinds {
-    (
-        $(#[$enum_attribute:meta])*
-        pub enum SyntaxKind {
-            $($(#[$variant_attribute:meta])* $variant:ident,)*
-        }
-    ) => {
-        $(#[$enum_attribute])*
-        pub enum SyntaxKind {
-            $($(#[$variant_attribute])* $variant,)*
-        }
-
-        impl SyntaxKind {
-            pub(crate) fn from_raw(raw: u16) -> Option<Self> {
-                const KINDS: &[SyntaxKind] = &[$(SyntaxKind::$variant,)*];
-                KINDS.get(usize::from(raw)).copied()
-            }
-        }
-    };
-}
-
-syntax_kinds! {
 /// The tag of a concrete syntax node or token, independent of resolved meaning.
 ///
 /// Token variants give their spelling; node variants link to their typed views.
-/// Raw Rowan kinds are checked against this declaration before conversion.
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SyntaxKind {
@@ -228,11 +199,11 @@ pub enum SyntaxKind {
     FatArrow,
     /// Unrecognized or malformed lexical input retained with its source range.
     Unknown,
-    /// The root syntax node for one parsed source text. See [`SourceFile`](crate::ast::item::SourceFile).
+    /// The root syntax node for one parsed source text. See [`ModuleBody`](crate::ast::item::ModuleBody).
     SourceFile,
     /// An inline `mod name { ... }` or external `mod name;` declaration. See [`ModuleDef`](crate::ast::item::ModuleDef).
     ModuleDef,
-    /// The braced declarations of an inline module. See [`ModuleBlock`](crate::ast::item::ModuleBlock).
+    /// The braced declarations of an inline module. See [`ModuleBody`](crate::ast::item::ModuleBody).
     ModuleBlock,
     /// A `use` declaration with an optional visibility prefix. See [`UseDecl`](crate::ast::item::UseDecl).
     UseDecl,
@@ -262,15 +233,15 @@ pub enum SyntaxKind {
     TraitBoundList,
     /// A trait path with generic arguments or callable input/output syntax. See [`TraitRef`](crate::ast::misc::TraitRef).
     TraitRef,
-    /// A module-level transparent type alias. See [`TypeAliasDef`](crate::ast::item::TypeAliasDef).
+    /// A module-level transparent type alias. See [`TypeAlias`](crate::ast::item::TypeAlias).
     TypeAliasDef,
-    /// An associated type or declaration-mode opaque type. See [`AssociatedType`](crate::ast::item::AssociatedType).
+    /// An associated type. See [`AssociatedType`](crate::ast::item::AssociatedType).
     AssociatedType,
     /// An associated-type equality inside generic arguments. See [`AssociatedTypeBinding`](crate::ast::misc::AssociatedTypeBinding).
     AssociatedTypeBinding,
     /// A `<Receiver as Trait>::Member` spelling with optional member arguments. See [`QualifiedType`](crate::ast::ty::QualifiedType).
     QualifiedType,
-    /// Comma-separated type spellings; delimiters belong to its parent. See [`TypeList`](crate::ast::misc::TypeList).
+    /// Comma-separated type spellings; delimiters belong to its parent. See [`CallableTrait`](crate::ast::misc::CallableTrait) and [`TuplePayload`](crate::ast::misc::TuplePayload).
     TypeList,
     /// A function declaration and its optional generic/signature components. See [`FnDef`](crate::ast::item::FnDef).
     FnDef,
@@ -284,19 +255,19 @@ pub enum SyntaxKind {
     EnumDef,
     /// One identifier or special path segment, without name resolution. See [`Name`](crate::ast::misc::Name).
     Name,
-    /// Function or method parameters; parentheses belong to the declaration. See [`ParamList`](crate::ast::misc::ParamList).
+    /// Function or method parameters; parentheses are stored by this list. See [`ParamList`](crate::ast::misc::ParamList).
     ParamList,
     /// One named parameter, including the special method receiver `self`. See [`Param`](crate::ast::misc::Param).
     Param,
-    /// Struct fields in source order; braces belong to the struct declaration. See [`FieldList`](crate::ast::misc::FieldList).
+    /// Struct fields in source order; braces are stored by this list. See [`FieldList`](crate::ast::misc::FieldList).
     FieldList,
     /// A struct field with visibility, writeability, name and type spelling. See [`Field`](crate::ast::misc::Field).
     Field,
-    /// Enum variants in source order; braces belong to the enum declaration. See [`VariantList`](crate::ast::misc::VariantList).
+    /// Enum variants in source order; braces are stored by this list. See [`VariantList`](crate::ast::misc::VariantList).
     VariantList,
     /// A unit variant or a variant with parenthesized payload types. See [`Variant`](crate::ast::misc::Variant).
     Variant,
-    /// A type spelling wrapper, not a resolved semantic type. See [`TypeRef`](crate::ast::ty::TypeRef).
+    /// A type spelling wrapper, not a resolved semantic type. See [`TypeSyntax`](crate::ast::ty::TypeSyntax).
     TypeRef,
     /// A tuple type, distinguished from grouping by a comma or empty parentheses. See [`TupleType`](crate::ast::ty::TupleType).
     TupleType,
@@ -406,7 +377,6 @@ pub enum SyntaxKind {
     ByteChar,
     /// A cooked/raw byte string without interpolation, retaining its source spelling.
     ByteString,
-}
 }
 
 impl SyntaxKind {

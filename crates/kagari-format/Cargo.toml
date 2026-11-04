@@ -8,7 +8,6 @@ license.workspace = true
 kagari-common.workspace = true
 kagari-source.workspace = true
 kagari-syntax.workspace = true
-rowan = "0.17.0"
 
 [dev-dependencies]
 rstest.workspace = true

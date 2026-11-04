@@ -7,11 +7,11 @@ use crate::{
     },
     lower::context::{Lowerer, syntax_span, token_span},
 };
-use kagari_syntax::ast::expr::{Pattern, PatternBound as AstPatternBound};
+use kagari_syntax::ast::{borrow::Ast, expr::Pattern, views::PatternBoundView};
 
 impl Lowerer {
     /// Collapses grouping, allocates nested patterns/local IDs and preserves constructor/name sites for later resolution.
-    pub(crate) fn lower_pattern(&mut self, pattern: &Pattern) -> PatternId {
+    pub(crate) fn lower_pattern(&mut self, pattern: &Ast<'_, Pattern>) -> PatternId {
         if pattern.is_grouped() {
             return pattern
                 .elements()
@@ -29,10 +29,10 @@ impl Lowerer {
             )
         } else if let Some(inclusive) = pattern.range_inclusive() {
             let mut bounds = pattern.range_bounds().map(|bound| match bound {
-                AstPatternBound::Literal(literal) => {
+                PatternBoundView::Literal(literal) => {
                     PatternBound::Literal(self.lower_literal(&literal))
                 }
-                AstPatternBound::Path(path) => {
+                PatternBoundView::Path(path) => {
                     PatternBound::Path(path.name_text().unwrap_or_default())
                 }
             });

@@ -1,8 +1,7 @@
+use crate::ast::views::ItemView;
+
 use crate::{
-    ast::{
-        item::{AssociatedType, Item},
-        traits::AstNode,
-    },
+    ast::borrow::AstNode,
     parser::{ParseLimits, parse, parse_declarations},
 };
 
@@ -23,17 +22,18 @@ fn declaration_mode_preserves_signatures_docs_and_source() {
         "{:?}",
         parsed.diagnostics()
     );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), text);
-    let items = parsed.syntax().items().collect::<Vec<_>>();
-    let Item::FnDef(get) = &items[0] else {
+    assert_eq!(parsed.module().text().to_owned(), text);
+    let module = parsed.module();
+    let items = module.items().collect::<Vec<_>>();
+    let ItemView::FnDef(get) = &items[0] else {
         panic!()
     };
     assert!(get.body().is_none());
     assert_eq!(
-        get.documentation(text),
+        get.documentation(),
         "Read one element.\nReturns None outside the array."
     );
-    assert_eq!(items[1].documentation(text), "The next operation.");
+    assert_eq!(items[1].documentation(), "The next operation.");
     assert!(!parse(&source).diagnostics().is_empty());
 }
 
@@ -62,16 +62,18 @@ fn declaration_mode_distinguishes_aliases_from_opaque_types() {
         "{:?}",
         parsed.diagnostics()
     );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), text);
-    let items = parsed.syntax().items().collect::<Vec<_>>();
-    assert!(matches!(items[0], Item::TypeDecl(_)));
-    assert!(matches!(items[1], Item::TypeAliasDef(_)));
-    let Item::ModuleDef(module) = &items[2] else {
+    assert_eq!(parsed.module().text().to_owned(), text);
+    let module = parsed.module();
+    let items = module.items().collect::<Vec<_>>();
+    assert!(matches!(items[0], ItemView::OpaqueTypeDef(_)));
+    assert!(matches!(items[1], ItemView::TypeAlias(_)));
+    let ItemView::ModuleDef(module) = &items[2] else {
         panic!("expected module")
     };
-    let nested = module.block().unwrap().items().collect::<Vec<_>>();
-    assert!(matches!(nested[0], Item::TypeDecl(_)));
-    assert!(matches!(nested[1], Item::TypeAliasDef(_)));
+    let body = module.body().unwrap();
+    let nested = body.items().collect::<Vec<_>>();
+    assert!(matches!(nested[0], ItemView::OpaqueTypeDef(_)));
+    assert!(matches!(nested[1], ItemView::TypeAlias(_)));
 }
 
 #[test]
@@ -85,8 +87,9 @@ fn declaration_mode_retains_native_alias_attributes_for_validation() {
         "{:?}",
         parsed.diagnostics()
     );
-    let item = parsed.syntax().items().next().unwrap();
-    assert!(matches!(item, Item::TypeAliasDef(_)));
+    let module = parsed.module();
+    let item = module.items().next().unwrap();
+    assert!(matches!(item, ItemView::TypeAlias(_)));
     // Native interface validation must reject this attribute on an alias rather
     // than accepting it as an opaque declaration with a discarded definition.
     assert_eq!(
@@ -108,13 +111,12 @@ fn opaque_native_types_are_restricted_to_declaration_mode() {
         "{:?}",
         parsed.diagnostics()
     );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+    assert_eq!(parsed.module().text().to_owned(), source.text());
     assert!(
         parsed
-            .syntax()
-            .syntax()
-            .children()
-            .any(|node| AssociatedType::cast(node).is_some())
+            .module()
+            .items()
+            .any(|item| matches!(item, ItemView::OpaqueTypeDef(_)))
     );
     assert!(!parse(&source).diagnostics().is_empty());
 }

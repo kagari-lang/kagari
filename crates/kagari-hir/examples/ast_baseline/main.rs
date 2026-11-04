@@ -1,6 +1,7 @@
 //! Representation migration benchmark. See docs/typed-ast-design.md.
 
 mod allocation;
+mod layout;
 mod memory;
 mod workloads;
 
@@ -18,7 +19,7 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_hir::lower::lower_module;
 use kagari_source::source::SourceFile;
 use kagari_syntax::{
-    ast::{expr::Expr, traits::AstNode},
+    ast::{module::ModuleSyntax, views::ExprView, visit::NodeRef},
     lexer::lex,
     parser::{Parse, ParseLimits, parse, parse_declarations},
 };
@@ -39,16 +40,14 @@ fn parse_source(workload: &Workload, source: &SourceFile) -> Parse {
     }
 }
 
-fn selected_expressions(parsed: &Parse) -> Vec<Expr> {
-    parsed
-        .syntax()
-        .syntax()
+fn selected_expressions(module: &ModuleSyntax) -> Vec<ExprView<'_>> {
+    NodeRef::ModuleBody(module.body())
         .descendants()
-        .filter_map(Expr::cast)
+        .filter_map(NodeRef::expression)
         .filter(|expr| {
             matches!(
                 expr,
-                Expr::BinaryExpr(_) | Expr::CallExpr(_) | Expr::IfExpr(_)
+                ExprView::BinaryExpr(_) | ExprView::CallExpr(_) | ExprView::IfExpr(_)
             )
         })
         .collect()
@@ -56,19 +55,19 @@ fn selected_expressions(parsed: &Parse) -> Vec<Expr> {
 
 // Stable logical field work, independent of raw node kinds/counts. Discovery is
 // deliberately outside this microbenchmark; parse_hir includes actual traversal.
-fn read_fields(expressions: &[Expr]) -> usize {
+fn read_fields(expressions: &[ExprView<'_>]) -> usize {
     expressions
         .iter()
         .map(|expr| match expr {
-            Expr::BinaryExpr(node) => {
+            ExprView::BinaryExpr(node) => {
                 11 + usize::from(node.lhs().is_some())
                     + 2 * usize::from(node.operator().is_some())
                     + 3 * usize::from(node.rhs().is_some())
             }
-            Expr::CallExpr(node) => {
+            ExprView::CallExpr(node) => {
                 23 + usize::from(node.callee().is_some()) + 3 * node.args().count()
             }
-            Expr::IfExpr(node) => {
+            ExprView::IfExpr(node) => {
                 37 + usize::from(node.condition().is_some())
                     + 2 * usize::from(node.then_branch().is_some())
                     + 3 * usize::from(node.else_branch().is_some())
@@ -99,13 +98,9 @@ fn verify(workload: &Workload) -> Value {
         assert_eq!(position, source.text().len());
         tokens += lexical.len();
         let parsed = parse_source(workload, source);
-        assert_eq!(
-            parsed.syntax().syntax().text().to_string(),
-            source.text(),
-            "lossless parse"
-        );
+        assert_eq!(parsed.module().text(), source.text(), "lossless parse");
         diagnostics += parsed.diagnostics().len();
-        fields += read_fields(&selected_expressions(&parsed));
+        fields += read_fields(&selected_expressions(&parsed.module()));
         if !workload.erroneous && !workload.declarations {
             functions += lower_module(source).module.functions.len();
         }
@@ -128,7 +123,12 @@ fn verify(workload: &Workload) -> Value {
     json!({"diagnostics": diagnostics, "lexical_tokens": tokens, "field_checksum": fields, "functions": functions})
 }
 
-fn batch(workload: &Workload, stage: &str, iterations: usize, fields: &[Expr]) -> (f64, f64) {
+fn batch(
+    workload: &Workload,
+    stage: &str,
+    iterations: usize,
+    fields: &[ExprView<'_>],
+) -> (f64, f64) {
     let start = Instant::now();
     let mut construct = Duration::ZERO;
     let mut destroy = Duration::ZERO;
@@ -168,7 +168,7 @@ fn batch(workload: &Workload, stage: &str, iterations: usize, fields: &[Expr]) -
 fn measure(
     workload: &Workload,
     stage: &str,
-    fields: &[Expr],
+    fields: &[ExprView<'_>],
     warmups: usize,
     samples: usize,
 ) -> Value {
@@ -196,11 +196,17 @@ fn measure(
 fn main() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     assert!(
-        args.iter()
-            .all(|arg| matches!(arg.as_str(), "--check" | "--memory" | "--inputs")),
-        "usage: ast_baseline [--check | --memory | --inputs]"
+        args.iter().all(|arg| matches!(
+            arg.as_str(),
+            "--check" | "--memory" | "--inputs" | "--layout"
+        )),
+        "usage: ast_baseline [--check | --memory | --inputs | --layout]"
     );
     let check_only = args.iter().any(|arg| arg == "--check");
+    if args.iter().any(|arg| arg == "--layout") {
+        println!("{}", layout::report());
+        return;
+    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let workloads = workloads::load(&root);
     if args.iter().any(|arg| arg == "--inputs") {
@@ -232,10 +238,14 @@ fn main() {
             }
             if !workload.erroneous && !workload.declarations {
                 stages.push(measure(workload, "parse_hir_drop", &[], 3, 11));
-                let fields = workload
+                let modules = workload
                     .sources
                     .iter()
-                    .flat_map(|source| selected_expressions(&parse_source(workload, source)))
+                    .map(|source| parse_source(workload, source).module())
+                    .collect::<Vec<_>>();
+                let fields = modules
+                    .iter()
+                    .flat_map(selected_expressions)
                     .collect::<Vec<_>>();
                 if !fields.is_empty() {
                     stages.push(measure(workload, "field_read", &fields, 3, 11));

@@ -1,7 +1,12 @@
-//! Unresolved type construction and separate path/name/terminal navigation ranges.
+//! Exhaustive typed-syntax lowering and separate path/name/terminal navigation sites.
 
-use kagari_syntax::ast::{misc::GenericArgList, ty::TypeRef};
-
+use kagari_common::span::Span;
+use kagari_syntax::ast::{
+    borrow::Ast,
+    misc::{GenericArgList, Name, Path},
+    ty::{QualifiedType, TypeSyntax},
+    views::TypeView,
+};
 use smallvec::SmallVec;
 
 use crate::{
@@ -13,123 +18,141 @@ use crate::{
 };
 
 impl Lowerer {
-    /// Lowers type applications/projections and source path sites, collapsing grouping and retaining missing-type placeholders.
-    pub(crate) fn lower_type(&mut self, ty: &TypeRef) -> TypeRefId {
-        if let Some(inner) = ty.grouped_type() {
-            return self.lower_type(&inner);
-        }
-        let kind = if let Some(qualified) = ty.qualified_type() {
-            TypeKind::Projection {
-                arguments: qualified
-                    .generic_args()
-                    .map(|args| args.args().map(|arg| self.lower_type(&arg)).collect())
-                    .unwrap_or_default(),
-                receiver: qualified
-                    .receiver()
-                    .map(|ty| self.lower_type(&ty))
-                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
-                trait_ref: qualified
-                    .trait_ref()
-                    .map(|ty| self.lower_trait_ref(&ty).ty)
-                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
-                member: qualified
-                    .member()
-                    .and_then(|name| name.text())
-                    .unwrap_or_default(),
+    pub(crate) fn lower_type(&mut self, ty: &Ast<'_, TypeSyntax>) -> TypeRefId {
+        let (kind, path, terminal) = match ty.view() {
+            TypeView::Grouped(grouped) => {
+                return grouped
+                    .ty()
+                    .map(|inner| self.lower_type(&inner))
+                    .unwrap_or_else(|| {
+                        self.alloc_type(
+                            syntax_span(ty),
+                            TypeData {
+                                kind: TypeKind::Named("<missing>".into()),
+                            },
+                        )
+                    });
             }
-        } else if let Some(name) = ty.name_text() {
-            let args = ty
-                .generic_args()
-                .map(|args| {
-                    args.args()
-                        .map(|arg| self.lower_type(&arg))
-                        .collect::<SmallVec<[_; 4]>>()
-                })
-                .unwrap_or_default();
-            if ty.generic_args().is_none() {
-                TypeKind::Named(name)
-            } else {
-                let list = ty.generic_args().expect("generic argument list");
-                let bindings = self.lower_associated_bindings(&list);
-                TypeKind::Generic {
-                    name,
-                    args,
-                    bindings,
+            TypeView::Named(path) => (
+                TypeKind::Named(path.text().unwrap_or_default()),
+                Some(path),
+                None,
+            ),
+            TypeView::Applied(applied) => {
+                let arguments = applied.arguments();
+                let path = applied.path();
+                let kind = TypeKind::Generic {
+                    name: path.and_then(|path| path.text()).unwrap_or_default(),
+                    args: arguments.args().map(|ty| self.lower_type(&ty)).collect(),
+                    bindings: self.lower_associated_bindings(&arguments),
                     callable_syntax: false,
-                    positional_after_binding: list.positional_after_binding(),
-                }
+                    positional_after_binding: arguments.positional_after_binding(),
+                };
+                (kind, path, None)
             }
-        } else if let Some(tuple) = ty.tuple_type() {
-            TypeKind::Tuple(
-                tuple
-                    .element_types()
-                    .map(|element| self.lower_type(&element))
-                    .collect::<SmallVec<[_; 4]>>(),
-            )
-        } else if let Some(array) = ty.array_type() {
-            TypeKind::Array(
-                array
-                    .element_type()
-                    .map(|element| self.lower_type(&element))
-                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
-            )
-        } else if let Some(function) = ty.function_type() {
-            TypeKind::Function {
-                params: function
-                    .params()
-                    .map(|param| self.lower_type(&param))
-                    .collect(),
-                result: function
-                    .result()
-                    .map(|result| self.lower_type(&result))
-                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+            TypeView::Never(_) => (TypeKind::Named("!".into()), None, None),
+            TypeView::Tuple(tuple) => (
+                TypeKind::Tuple(
+                    tuple
+                        .element_types()
+                        .map(|ty| self.lower_type(&ty))
+                        .collect::<SmallVec<[_; 4]>>(),
+                ),
+                None,
+                None,
+            ),
+            TypeView::Array(array) => (
+                TypeKind::Array(
+                    array
+                        .element_type()
+                        .map(|ty| self.lower_type(&ty))
+                        .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                ),
+                None,
+                None,
+            ),
+            TypeView::Function(function) => (
+                TypeKind::Function {
+                    params: function.params().map(|ty| self.lower_type(&ty)).collect(),
+                    result: function
+                        .result()
+                        .map(|ty| self.lower_type(&ty))
+                        .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+                },
+                None,
+                None,
+            ),
+            TypeView::Qualified(qualified) => {
+                (self.projection_kind(&qualified), None, qualified.member())
             }
-        } else {
-            TypeKind::Named("<missing>".to_string())
+            TypeView::Error(_) => (TypeKind::Named("<missing>".into()), None, None),
         };
+        self.written_type(kind, syntax_span(ty), path, terminal)
+    }
 
-        let id = self.alloc_type(syntax_span(ty), TypeData { kind });
+    pub(crate) fn lower_qualified_type(&mut self, qualified: &Ast<'_, QualifiedType>) -> TypeRefId {
+        let kind = self.projection_kind(qualified);
+        self.written_type(kind, syntax_span(qualified), None, qualified.member())
+    }
+
+    fn projection_kind(&mut self, qualified: &Ast<'_, QualifiedType>) -> TypeKind {
+        TypeKind::Projection {
+            arguments: qualified
+                .generic_args()
+                .map(|arguments| arguments.args().map(|ty| self.lower_type(&ty)).collect())
+                .unwrap_or_default(),
+            receiver: qualified
+                .receiver()
+                .map(|ty| self.lower_type(&ty))
+                .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+            trait_ref: qualified
+                .trait_ref()
+                .map(|reference| self.lower_trait_ref(&reference).ty)
+                .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+            member: qualified
+                .member()
+                .and_then(|name| name.text())
+                .unwrap_or_default(),
+        }
+    }
+
+    fn written_type(
+        &mut self,
+        kind: TypeKind,
+        span: Span,
+        path: Option<Ast<'_, Path>>,
+        terminal: Option<Ast<'_, Name>>,
+    ) -> TypeRefId {
+        let id = self.alloc_type(span, TypeData { kind });
         let mut prefix = String::new();
         let mut sites = Vec::new();
-        let segments = ty
-            .path()
-            .map(|path| path.segments().collect::<Vec<_>>())
-            .unwrap_or_default()
-            .into_iter()
-            .chain(ty.name());
-        for segment in segments {
-            if let Some(name) = segment.text() {
-                if !prefix.is_empty() {
-                    prefix.push_str("::");
+        if let Some(path) = path {
+            for segment in path.segments() {
+                if let Some(name) = segment.text() {
+                    if !prefix.is_empty() {
+                        prefix.push_str("::");
+                    }
+                    prefix.push_str(&name);
+                    sites.push((prefix.clone(), token_span(&segment)));
                 }
-                prefix.push_str(&name);
-                sites.push((prefix.clone(), token_span(&segment)));
             }
         }
         self.source_map.insert_type_path(id, sites);
-        if let Some(name) = ty
-            .path()
+        if let Some(span) = path
             .map(|path| token_span(&path))
-            .or_else(|| ty.name().map(|name| token_span(&name)))
-            .or_else(|| ty.qualified_type()?.member().map(|name| token_span(&name)))
+            .or_else(|| terminal.map(|name| token_span(&name)))
         {
-            self.source_map.insert_type_name(id, name);
+            self.source_map.insert_type_name(id, span);
         }
-        if let Some(name) = ty
-            .path()
-            .and_then(|path| path.segments().last())
-            .or_else(|| ty.name())
-            .or_else(|| ty.qualified_type()?.member())
-        {
+        if let Some(name) = path.and_then(|path| path.segments().last()).or(terminal) {
             self.source_map.insert_type_terminal(id, token_span(&name));
         }
         id
     }
 
-    /// Collects associated-name/type pairs in source order, preserving missing values as type placeholders.
     pub(crate) fn lower_associated_bindings(
         &mut self,
-        list: &GenericArgList,
+        list: &Ast<'_, GenericArgList>,
     ) -> Vec<(String, TypeRefId)> {
         list.bindings()
             .map(|binding| {

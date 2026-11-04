@@ -1,7 +1,7 @@
 # Strongly Typed AST Replacement
 
-Status: TA1–TA4 implementation authorized on 2026-11-05; TA1 in progress.
-The production AST replacement is not yet implemented. This document
+Status: TA1–TA3 integrated on 2026-11-05; TA4 local acceptance in progress.
+The production parser and consumers use the strongly typed AST. This document
 owns its finite migration, performance contract and progress ledger; the
 [roadmap](implementation-roadmap.md) owns activation. It does not activate a wider
 HIR/compiler/runtime rewrite or the GC integration plan.
@@ -511,8 +511,8 @@ roadmap and remove this completed plan. Do not leave a parallel progress queue.
 - [x] Add a reproducible current-implementation timing harness with fixed workloads.
 - [x] Complete seven-process baseline, A/A repeat, evidence review and tooling validation.
 - [x] Prepare the single-branch goal contract, fixed decisions, baseline prerequisites and completion gate.
-- [ ] TA1 memory baseline and bounded representation proof.
-- [ ] TA2/TA3 implementation and coherent consumer migration (typed declarations being authored; production cutover pending).
+- [x] TA1 memory baseline and bounded representation proof.
+- [x] TA2/TA3 implementation and coherent consumer migration.
 - [ ] TA4 paired performance and integration acceptance; exhaustive CI remains pending.
 
 ### TA1 execution ledger (2026-11-05)
@@ -585,6 +585,135 @@ roadmap and remove this completed plan. Do not leave a parallel progress queue.
   grammar tree or parent table. Module declarations name private body-table IDs.
   Recursive expression alternatives are boxed to keep simple literals compact;
   admission must bound completed-chain depth before attaching each new wrapper.
+- TA2 in progress after baseline checkpoint `e1b38ebb`: production parser/storage
+  now construct typed expression, statement, pattern, type, attribute, signature,
+  declaration and module-body fields. `cargo check -p kagari-syntax --lib` passes
+  while borrowed access/derived traversal are being completed. It currently emits
+  unused-import/docs and not-yet-read traversal/recovery-field warnings; these are
+  carried integration work, not accepted warnings. Syntax tests still use the old
+  API and have not passed this cutover. The TA1 test-only proof is still present
+  until those contracts migrate to their production owners.
+- Attempted consumer boundary: `cargo check -p kagari-hir --lib` fails on seven
+  removed imports (`ast::traits`, `TypeAliasDef`, `ty::TypeRef`). This is expected
+  TA3 API migration debt; all raw traversal, lowering sites and borrowed signatures
+  must migrate before repeating this boundary. No downstream acceptance is claimed.
+- The initial HIR import failures are resolved. HIR now borrows typed fields,
+  exhaustively lowers `TypeView`, reads constant-time sites, lowers ordered string
+  parts, and gathers attributes from their known owner without parent traversal.
+  Shared physical source preparation, declaration correspondence and package module
+  discovery use the retained module table. `cargo check -p kagari-hir --lib` and
+  `cargo check -p kagari-package --lib` pass without warnings. Analyzer has only a
+  binary target (`cargo check -p kagari-analyzer --lib` is inapplicable); its binary
+  integration remains part of TA3. Existing syntax/HIR unit test APIs and formatter
+  are still being migrated; no complete integration claim is made.
+- Five production contract tests pass via `cargo test -p kagari-syntax --test
+  typed_fields`: recovered field roles/else presence, missing list entries versus
+  unexpected separator-boundary input/trailing commas, trivia/source sharing,
+  child-view lifetime/foreign locator rejection and iterative chain exhaustion/drop.
+  The old TA1 proof remains pending removal after all syntax tests migrate.
+- Candidate harness `--check` matches **all** frozen identities/evidence, including
+  corpus checksum 4360, corpus function count 29, recovery diagnostics 128/checksum
+  896 and limits diagnostics 1. The unchanged workloads have not been replaced.
+- First candidate allocation diagnosis (not acceptance): retained bytes are 2735,
+  421703, 6730820, 430919, 129314, 65485, 5934, 198745 and 225029 for small,
+  medium, large, trivia, corpus, recovery, limits, declarations and inline retention.
+  All four repeated lifecycles release to zero. Peaks are below the baseline, but
+  medium/large/trivia/recovery/declarations/inline retained budgets fail. Ordinary
+  struct/enumeration layout embeds large absent optional payloads; the declaration
+  row also loses Rowan's shared repeated signature nodes while retaining separate
+  physical sites as required. Before optimization, quantify actual field layouts
+  and compact the typed ownership model; do not add caching/interned node graphs,
+  relax memory budgets or change the source corpus. TA4 owns this unresolved gate.
+
+### Integrated implementation and storage diagnosis (2026-11-05)
+
+- All production consumers compile through typed borrows: HIR lowering, source
+  preparation/reuse, native interface admission, package discovery, lint and
+  formatter. Rowan dependencies, green/raw construction and the bounded test
+  prototype have been removed. The physical diagnostic gate remains authoritative.
+- Named `Required` slots preserve malformed roles. The resource frame accumulates
+  real child depths, including signatures and iterative wrappers; all six existing
+  resource contract tests pass. Five selected recovery failures were resolved
+  through the intended typed model, including rejected entries after struct update
+  and duplicate pattern-rest delimiters. Obsolete positional/CST assertions now
+  inspect typed missing slots and explicit fields; following siblings/tails remain
+  asserted. The type-alias model retains leading/trailing `where` placement.
+- Measured layout identified absent optional payloads, vector headers and the
+  lexical full-extent table as retained costs. Ordinary boxes isolate rare clauses;
+  separated lists are immutable slices; absent attached attributes cost one pointer.
+  Sites use ordered lexical coordinates or a private reversed-pair sparse recovery
+  reference (8 bytes). Real token indices use nonzero encoding (4 bytes).
+- Lexical starts use a source-length-proven 16/32-bit choice. A sparse immutable
+  exception hash table retains non-default trivia splits with expected constant-time
+  reads; no body/site getter scans tokens or text. Both storage widths retain UTF-8
+  byte semantics and the existing source backing/projections. This replaces the
+  first candidate's 4-byte boundary on every token; no node interning/cache or
+  custom allocator was added.
+- Comparative layout references: syn ItemFn documentation served 3.0.9 uses a boxed
+  block; TypeParam 3.0.6 owns punctuation/bounds; ReturnType 3.0.9 explicitly models
+  absence versus arrow/type. These support isolating payloads without copying syn's
+  token-stream/trivia semantics. See [ItemFn](https://docs.rs/syn/latest/syn/struct.ItemFn.html),
+  [TypeParam](https://docs.rs/syn/latest/syn/struct.TypeParam.html),
+  [ReturnType](https://docs.rs/syn/latest/syn/enum.ReturnType.html).
+  [OpenJDK JDK 9 release notes, JEP 254](https://www.oracle.com/java/technologies/javase/9-relnotes.html)
+  document content-proven storage width behind one logical API. Kagari applies
+  that mechanism only to immutable numeric offsets, not character encoding or
+  JVM allocation; source text stays UTF-8 and all external coordinates stay bytes.
+  No speed result is inferred from these references.
+- Focused local evidence: 35/40 selected initial syntax contracts passed; after
+  batched repairs the five failing cases passed. Twenty-eight of 29 additional
+  grammar/attribute contracts passed, with the remaining full-physical attribute
+  traversal corrected and passing separately. Six production typed-field tests
+  pass, including both offset widths. HIR lowering/source preparation had 12/13
+  pass initially; the exact attribute site was corrected and passes. Eight native
+  admission/inline/attribute checks, seven documentation/location queries, eight
+  lint fixture/policy checks and one package external/inline visibility check pass.
+  The analyzer `navigation` filter selected zero tests and is not evidence; actual
+  HIR navigation cases are selected separately. Formatter's 18 preservation checks
+  and representative expected-output cases pass, including both alias placements.
+- Required structure, formatting and workspace/all-target Clippy are exercised at
+  this integration boundary; final outcome is recorded below. Unchanged passing
+  contract selections are retained as evidence. Complete grammar inventories,
+  workspace tests, feature/backend/platform coverage remain CI-only.
+- Memory after compaction has all nine retained/peak rows inside the frozen budget;
+  all four repeated lifecycles return to zero. Exact final values and contemporary
+  seven-pair timing/noise acceptance remain TA4 work; isolated diagnostic runs do
+  not establish timing acceptance.
+
+### TA4 first paired outcome and noise diagnosis
+
+The seven-pair image comparison at UTC 20261104T181937587757Z passed every
+numerical time/memory budget but failed the unchanged 10% process-spread gate
+for `small/field_read`. That candidate row runs at about 17 ns/read and reaches
+the frozen 100,000-iteration cap, giving batches of about 1.7 ms; process medians
+varied 16.78–19.29 ns. This is unresolved measurement noise, not acceptance.
+No timing thresholds, input bytes, warmups/samples or iteration cap were changed.
+A new complete seven-pair comparison uses identical inherited application,
+throughput/latency tier-zero policy for both images, with idle sleep inhibited:
+`/usr/sbin/taskpolicy -a -t 0 -l 0 /usr/bin/caffeinate -i uv run python scripts/benchmark_ast.py --baseline-executable target/ast-baseline/20261104T161411058915Z/ast_baseline`.
+The macOS taskpolicy(8) manual states that children inherit these policies.
+This isolates a process scheduling condition without modifying either timed image.
+The first report remains failed evidence; the new complete result is pending.
+
+Remaining focused selections now pass: seven cancellation/postfix/error tests,
+two explicit HIR annotation/alias navigation tests, 22 formatter comment/layout/
+preservation cases (one matching complete-inventory case remained CI-ignored),
+two syntax Rustdoc examples and 13 fail-closed benchmark-tool tests. The broad
+analyzer navigation-name filter selected zero tests; HIR owns the actual analysis
+navigation implementation and the two named cases establish that boundary.
+Workspace all-target Clippy, structure (1812 files, zero exceptions), format and
+diff checks passed. No full workspace test or complete feature matrix ran locally.
+
+### Cancellation review before final image freeze
+
+The scheduling-policy rerun was interrupted after three complete pairs and is
+not acceptance evidence. Manual review identified an asynchronous race in the
+new `take`: its assertion consulted the cancellation-masked logical EOF after a
+branch had admitted a real token. It now checks physical lexical EOF, completing
+the admitted read before the controlled entrypoint rejects cancellation. No host
+callback or partial success is introduced. The eight selected cancellation and
+resource tests pass again. The final image must be rebuilt and measured from a
+fresh complete seven-pair run; earlier image results cannot accept this change.
 
 ### Baseline measured on 2026-11-04
 

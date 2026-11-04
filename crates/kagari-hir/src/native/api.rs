@@ -30,7 +30,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_syntax::{
-    ast::traits::AstNode,
+    ast::visit::NodeRef,
     parser::{Parse, ParseLimits, parse_declarations},
 };
 use kagari_types::{
@@ -98,7 +98,7 @@ pub(crate) fn import_source(
         )));
     }
     validate_view(metadata, providers, &parsed, limits, cancel)?;
-    let mut lowered = lower_module_controlled(source, &parsed.syntax().into(), cancel);
+    let mut lowered = lower_module_controlled(source, &parsed.module(), cancel);
     lowered.registered_native_api = true;
     lowered.native_definitions = Some(definitions.clone());
     lowered.language_foundation = language::is_language_module(&definition.identity);
@@ -150,14 +150,13 @@ fn validate_view(
     .map_err(|_| DeclarationError("native declaration correspondence cancelled".into()))?;
     let tokens = |parsed: &Parse| {
         parsed
-            .syntax()
+            .module()
             .items()
             .map(|item| {
-                item.syntax()
-                    .descendants_with_tokens()
-                    .filter_map(|element| element.into_token())
+                NodeRef::from(item)
+                    .tokens()
                     .filter(|token| !token.kind().is_trivia())
-                    .map(|token| (token.kind(), token.text().to_string()))
+                    .map(|token| (token.kind(), token.text().to_owned()))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>()

@@ -1,6 +1,6 @@
 //! Separate lifecycle and independently retained inline-module allocation probes.
 
-use kagari_syntax::ast::{item::Item, module::ModuleSyntax};
+use kagari_syntax::ast::views::ItemView;
 use serde_json::{Value, json};
 
 use crate::{allocation, parse_source, workloads::Workload};
@@ -14,11 +14,11 @@ pub fn measure(workload: &Workload, inline: bool) -> Value {
     }
     let parsed = allocation::snapshot();
     let view = inline.then(|| {
-        let root = parses[0].syntax();
-        let Some(Item::ModuleDef(module)) = root.items().next() else {
+        let root = parses[0].module();
+        let Some(ItemView::ModuleDef(module)) = root.items().next() else {
             panic!("inline workload starts with a module");
         };
-        ModuleSyntax::Inline(module.block().expect("inline body"))
+        module.body().expect("inline body")
     });
     let retained_view = allocation::snapshot();
     parses.clear();

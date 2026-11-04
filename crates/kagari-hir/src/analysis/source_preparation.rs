@@ -13,8 +13,8 @@ use kagari_source::{
 };
 use kagari_syntax::{
     ast::{
-        item::Item,
         module::{ModuleLocation, ModuleSyntax},
+        views::ItemView,
     },
     parser::{Parse, parse_with_limits},
 };
@@ -34,7 +34,7 @@ pub(crate) struct ParsedModule {
 impl ParsedModule {
     pub(crate) fn root(parsed: Parse) -> Self {
         Self {
-            location: ModuleSyntax::from(parsed.syntax()).location(),
+            location: parsed.module().location(),
             diagnostics: (0..parsed.diagnostics().len()).collect(),
             physical: Arc::new(parsed),
         }
@@ -42,7 +42,7 @@ impl ParsedModule {
 
     pub(crate) fn syntax(&self) -> ModuleSyntax {
         self.location
-            .resolve(&self.physical.syntax())
+            .resolve(&self.physical)
             .expect("retained module locator")
     }
 
@@ -85,9 +85,9 @@ pub(super) fn prepare(
             None => Arc::new(parse_with_limits(physical, db.parse_limits, cancel)?),
         };
         let syntax = match physical.inline_range() {
-            Some(range) => ModuleSyntax::at_content_range(&parsed.syntax(), range)
+            Some(range) => ModuleSyntax::at_content_range(&parsed, range)
                 .ok_or(AnalysisError::InvalidSourceRange(physical.id()))?,
-            None => ModuleSyntax::from(parsed.syntax()),
+            None => parsed.module(),
         };
         let mut pending = VecDeque::from([(physical.clone(), syntax)]);
         let mut generated = HashSet::new();
@@ -96,13 +96,13 @@ pub(super) fn prepare(
             cancel.check()?;
             for item in syntax.items() {
                 cancel.check()?;
-                let Item::ModuleDef(module) = item else {
+                let ItemView::ModuleDef(module) = item else {
                     continue;
                 };
-                let (Some(name), Some(block)) = (module.name_text(), module.block()) else {
+                let (Some(name), Some(block)) = (module.name_text(), module.body()) else {
                     continue;
                 };
-                let child = ModuleSyntax::from(block);
+                let child = block;
                 let Some(range) = child.content_range() else {
                     continue;
                 };

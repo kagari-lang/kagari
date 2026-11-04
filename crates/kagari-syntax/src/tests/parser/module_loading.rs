@@ -1,8 +1,7 @@
+use crate::ast::views::ItemView;
+
 use crate::{
-    ast::{
-        expr::Expr,
-        item::{Item, Visibility},
-    },
+    ast::{item::VisibilityKind, views::ExprView},
     tests::common,
 };
 
@@ -21,19 +20,19 @@ pub mod ui {
     assert_eq!(items.len(), 2);
 
     match &items[0] {
-        Item::ModuleDef(module_def) => {
-            assert!(module_def.visibility() == Visibility::Private);
+        ItemView::ModuleDef(module_def) => {
+            assert!(module_def.visibility() == VisibilityKind::Private);
             assert_eq!(module_def.name_text().as_deref(), Some("gameplay"));
-            assert!(module_def.block().is_none());
+            assert!(module_def.body().is_none());
         }
         other => panic!("unexpected first item: {other:?}"),
     }
 
     match &items[1] {
-        Item::ModuleDef(module_def) => {
-            assert!(module_def.visibility() == Visibility::Public);
+        ItemView::ModuleDef(module_def) => {
+            assert!(module_def.visibility() == VisibilityKind::Public);
             assert_eq!(module_def.name_text().as_deref(), Some("ui"));
-            let block = module_def.block().expect("expected inline module body");
+            let block = module_def.body().expect("expected inline module body");
             assert_eq!(block.items().count(), 1);
         }
         other => panic!("unexpected second item: {other:?}"),
@@ -43,21 +42,22 @@ pub mod ui {
 #[test]
 fn parses_scoped_visibility_and_rejects_unimplemented_scopes() {
     for (scope, expected) in [
-        ("super", Visibility::PublicSuper),
-        ("crate", Visibility::PublicCrate),
+        ("super", VisibilityKind::PublicSuper),
+        ("crate", VisibilityKind::PublicCrate),
     ] {
         let module = common::parse_ok(&format!(
             "pub({scope}) mod child {{ pub({scope}) fn read() -> i32 {{ 1 }} pub({scope}) struct Data {{ pub({scope}) val value: i32 }} }}",
         ));
         let child = match module.items().next().unwrap() {
-            Item::ModuleDef(child) => child,
+            ItemView::ModuleDef(child) => child,
             other => panic!("{other:?}"),
         };
         assert_eq!(child.visibility(), expected);
-        let items = child.block().unwrap().items().collect::<Vec<_>>();
-        assert!(matches!(&items[0], Item::FnDef(item) if item.visibility() == expected));
+        let body = child.body().unwrap();
+        let items = body.items().collect::<Vec<_>>();
+        assert!(matches!(&items[0], ItemView::FnDef(item) if item.visibility() == expected));
         assert!(
-            matches!(&items[1], Item::StructDef(item) if item.visibility() == expected && item.field_list().unwrap().fields().next().unwrap().visibility() == expected)
+            matches!(&items[1], ItemView::StructDef(item) if item.visibility() == expected && item.field_list().unwrap().fields().next().unwrap().visibility() == expected)
         );
     }
     assert!(
@@ -80,8 +80,8 @@ use {std::math, super::util as util};
     assert_eq!(items.len(), 2);
 
     match &items[0] {
-        Item::UseDecl(use_decl) => {
-            assert!(use_decl.visibility() == Visibility::Public);
+        ItemView::UseDecl(use_decl) => {
+            assert!(use_decl.visibility() == VisibilityKind::Public);
             let tree = use_decl.tree().expect("expected use tree");
             assert_eq!(
                 tree.path().and_then(|path| path.text()).as_deref(),
@@ -106,8 +106,8 @@ use {std::math, super::util as util};
     }
 
     match &items[1] {
-        Item::UseDecl(use_decl) => {
-            assert!(use_decl.visibility() == Visibility::Private);
+        ItemView::UseDecl(use_decl) => {
+            assert!(use_decl.visibility() == VisibilityKind::Private);
             let tree = use_decl.tree().expect("expected use tree");
             let nested = tree.nested_trees().collect::<Vec<_>>();
             assert_eq!(nested.len(), 2);
@@ -142,14 +142,14 @@ fn main() -> crate::math::Number {
     assert_eq!(
         function
             .return_type()
-            .and_then(|ty| ty.name_text())
+            .and_then(common::type_name)
             .as_deref(),
         Some("crate::math::Number")
     );
 
     let body = function.body().expect("expected function body");
     match body.tail_expr().expect("expected tail expression") {
-        Expr::PathExpr(path) => {
+        ExprView::PathExpr(path) => {
             assert_eq!(path.name_text().as_deref(), Some("crate::math::zero"));
         }
         other => panic!("unexpected tail expression: {other:?}"),

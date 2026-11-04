@@ -4,10 +4,7 @@ use crate::{error::PackageError, path};
 use kagari_common::{cancellation::CancellationToken, identity::MAX_IDENTITY_PATH_SEGMENTS};
 use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
 use kagari_syntax::{
-    ast::{
-        item::{Item, ModuleDef},
-        traits::AstNode,
-    },
+    ast::{borrow::Ast, item::ModuleDef, views::ItemView},
     parser::parse_with_cancellation,
 };
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
@@ -301,19 +298,19 @@ impl<T: SourceInput> Loader<'_, T> {
                 .push((captured, parsed.diagnostics().to_vec()));
             return Ok(());
         }
-        self.items(parsed.syntax().items(), &module, file, directory)
+        self.items(parsed.module().items(), &module, file, directory)
     }
 
-    fn items(
+    fn items<'a>(
         &mut self,
-        items: impl Iterator<Item = Item>,
+        items: impl Iterator<Item = ItemView<'a>>,
         parent: &[String],
         file: &str,
         directory: &str,
     ) -> Result<(), PackageError> {
         for item in items {
             self.cancel.check()?;
-            let Item::ModuleDef(declaration) = item else {
+            let ItemView::ModuleDef(declaration) = item else {
                 continue;
             };
             let result = self.module(declaration, parent, file, directory);
@@ -335,7 +332,7 @@ impl<T: SourceInput> Loader<'_, T> {
 
     fn module(
         &mut self,
-        declaration: ModuleDef,
+        declaration: Ast<'_, ModuleDef>,
         parent: &[String],
         file: &str,
         directory: &str,
@@ -346,13 +343,13 @@ impl<T: SourceInput> Loader<'_, T> {
         let mut module = parent.to_vec();
         module.push(name.clone());
         let child_directory = path::join(directory, &name, file)?;
-        if let Some(block) = declaration.block() {
-            let range = declaration.syntax().text_range();
+        if let Some(block) = declaration.body() {
+            let range = declaration.body_span();
             self.register(
                 module.clone(),
                 ModuleSource {
                     file: file.into(),
-                    inline_range: Some(usize::from(range.start())..usize::from(range.end())),
+                    inline_range: Some(range.start..range.end),
                 },
             )?;
             self.items(block.items(), &module, file, &child_directory)?;

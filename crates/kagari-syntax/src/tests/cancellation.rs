@@ -1,4 +1,4 @@
-use crate::{ast::traits::AstNode, parser::parse};
+use crate::parser::parse;
 
 use {kagari_common::cancellation::CancellationToken, kagari_source::source::SourceFile};
 
@@ -25,7 +25,7 @@ fn multibyte_whitespace_is_lossless_and_does_not_split_utf8() {
         "{:?}",
         parsed.diagnostics()
     );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
+    assert_eq!(parsed.module().text().to_owned(), source.text());
     for token in crate::lexer::lex(source.text()) {
         assert!(source.text().is_char_boundary(token.span.start));
         assert!(source.text().is_char_boundary(token.span.end));
