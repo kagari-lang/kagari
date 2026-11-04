@@ -1,4 +1,4 @@
-//! Representation migration benchmark. See docs/typed-ast-design.md.
+//! Representation migration benchmark. See docs/performance-baseline.md.
 
 mod allocation;
 mod layout;

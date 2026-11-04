@@ -22,26 +22,29 @@ snapshots and generation-pinned execution remain separate contracts. See
 [definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
 
-## Strongly typed AST design and baseline
+## Strongly typed syntax CI acceptance
 
-The [typed AST design](typed-ast-design.md) owns the proposed replacement of
-Rowan positional views with explicit Rust node fields, lossless lexical storage,
-stable recovery roles and the syntax-to-HIR handoff. The current authorized scope
-is design, consumer review and measurement of the existing parser; production
-replacement remains unstarted. Incremental parsing, LSP expansion and broader
-HIR/runtime redesign are outside this work.
+The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
+Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
+sharing, retained inline views, source provenance, explicit recovered roles and
+checked executable admission remain implemented contracts.
 
-Branch `refactor/typed-ast` holds the prepared checkpoint. The plan supplies one
-continuous TA1-TA4 goal objective, fixed implementation defaults, baseline/memory
-prerequisites, temporary build policy and explicit local completion criteria.
-No per-phase approval or separate-branch migration is required; starting that
-implementation goal remains the next action.
+[Local performance and memory acceptance](performance-baseline.md#strongly-typed-ast-replacement-macos-2026-11-05)
+passes all required rows: each of the four primary parse lifecycles improves by
+at least 20%, lowering/field reads meet their budgets, both-image required noise
+is below 10%, and all nine allocation lifecycles meet peak/retained limits and
+release to zero. The report records the field-only calibration correction applied
+identically to the unchanged Rowan control and candidate, with the original
+baseline retained. Focused contracts, structure, fmt, workspace all-target Clippy
+and diff checks pass.
 
-The plan freezes parse/teardown/field-read/parse-to-HIR workloads and per-row
-performance budgets before implementation. Memory instrumentation and a bounded
-storage/recovery proof precede the production cutover. Existing physical parse
-sharing, inline-module provenance, formatter preservation and checked executable
-acceptance remain required.
+Complete CI remains pending under the [existing workflow](../.github/workflows/ci.yml):
+workspace tests, complete ignored formatter and editor/syntax inventories,
+standalone SDK feature/source-free consumers, JIT/AOT and Windows/platform
+contracts. Browser/feature coverage also remains in its existing CI scope. Local
+acceptance does not claim these matrices ran or passed. The completed TA1–TA4 plan
+and its phase ledger are retained in Git history. Incremental parsing, LSP
+expansion and broader HIR/runtime redesign were outside this replacement.
 
 ## Package acceptance and follow-ups
 

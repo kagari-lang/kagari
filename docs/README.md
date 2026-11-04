@@ -49,6 +49,7 @@ below; the public Pages site has not been activated by this work.
 - [Editor tooling and installation](../editors/README.md): standalone Zed/VS Code
   syntax adapters and the separate [stdio analyzer foundation](architecture.md#language-server-foundation).
 - [Performance measurements](performance-baseline.md), including the completed
+  [typed AST acceptance](performance-baseline.md#strongly-typed-ast-replacement-macos-2026-11-05),
   [runtime storage evaluation](performance-baseline.md#runtime-storage-2026-10-16) and
   [object overhead evaluation](performance-baseline.md#object-storage-overhead-2026-10-18), and
   [Kagari/Lua benchmark instructions](../benchmarks/lua-comparison/README.md).
@@ -58,11 +59,6 @@ below; the public Pages site has not been activated by this work.
 ## Active and queued work
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
-
-- [Strongly typed AST design and baseline](typed-ast-design.md): explicit syntax
-  fields, lossless recovery/source ownership, HIR and formatter handoff, and
-  measured parser performance budgets. Design and baseline only; replacement
-  and incremental parsing are not implemented by this checkpoint.
 
 - [Standalone GC redesign](gc-redesign-plan.md): independent `kagari-gc` allocation,
   rooting, field access and incremental collection, with standalone tests and
