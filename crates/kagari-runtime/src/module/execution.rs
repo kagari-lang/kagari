@@ -26,7 +26,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Slot},
+    instruction::{BytecodeInstruction, ConstantOperand, JumpTarget, Slot},
     module::{BytecodeModule, CallableTarget},
     suspension::AwaitLiveness,
 };
@@ -146,7 +146,6 @@ pub(crate) struct ExecutionFunction {
     pub calls: Box<[PreparedCall]>,
     pub fields: Box<[PreparedFieldOperation]>,
     pub indices: Box<[PreparedIndexOperation]>,
-    pub native_calls: usize,
     pub has_call_contracts: bool,
     has_linked_constants: bool,
     pub(crate) has_layout_operands: bool,
@@ -154,10 +153,7 @@ pub(crate) struct ExecutionFunction {
 
 impl ExecutionFunction {
     pub(crate) fn needs_runtime_links(&self) -> bool {
-        self.has_call_contracts
-            || self.has_linked_constants
-            || self.has_layout_operands
-            || self.native_calls != 0
+        self.has_call_contracts || self.has_linked_constants || self.has_layout_operands
     }
 }
 
@@ -210,7 +206,6 @@ impl ExecutionModule {
                         })
                         .collect();
                     let mut sites = OperationTables::default();
-                    let mut native_calls = 0;
                     let mut layout_sites = 0;
                     let instructions: Box<[_]> = function
                         .instructions
@@ -234,7 +229,6 @@ impl ExecutionModule {
                                 module,
                                 &mut sites.fields,
                                 &mut sites.indices,
-                                &mut native_calls,
                             )
                         })
                         .collect();
@@ -254,7 +248,6 @@ impl ExecutionModule {
                         has_layout_operands: layout_sites != 0,
                         fields: sites.fields.into_boxed_slice(),
                         indices: sites.indices.into_boxed_slice(),
-                        native_calls,
                         has_call_contracts: false,
                     }
                 })
@@ -271,7 +264,6 @@ impl ExecutionInstruction {
         module: &BytecodeModule,
         fields: &mut Vec<PreparedFieldOperation>,
         indices: &mut Vec<PreparedIndexOperation>,
-        native_calls: &mut usize,
     ) -> Self {
         let location = |register: Slot| {
             slot_layout
@@ -281,14 +273,6 @@ impl ExecutionInstruction {
         let slot = |register: Slot| location(register).operand;
 
         match *instruction {
-            BytecodeInstruction::Call {
-                callee: CallTarget::Native(_),
-                ..
-            } => {
-                let index = *native_calls;
-                *native_calls += 1;
-                Self::managed(ManagedOperation::Native { index })
-            }
             BytecodeInstruction::LoadConst { dst, constant } => {
                 let value = match module.constants[constant.index()] {
                     ConstantOperand::Unit => Value::Unit,
@@ -394,10 +378,10 @@ mod tests {
             cursor::kernel::{RegionError, RegionExit},
         },
         module::linked_execution::{
-            LinkedFunction, LinkedNativeCall,
+            LinkedFunction,
             layouts::{AggregateLayout, AppliedLayouts, FunctionLayouts},
         },
-        native::primitive::PrimitiveResult,
+        native::binding::NativeResult,
     };
     use std::{mem::size_of, sync::OnceLock};
 
@@ -412,10 +396,9 @@ mod tests {
             size_of::<OnceLock<AggregateLayout>>()
         );
         eprintln!(
-            "linked native bytes: slot={}, operand={}, result={}",
-            size_of::<LinkedNativeCall>(),
+            "native operand bytes: operand={}, result={}",
             size_of::<Location>(),
-            size_of::<PrimitiveResult>()
+            size_of::<NativeResult<Value>>()
         );
         eprintln!(
             "region bytes: error={}, exit={}, result={}",

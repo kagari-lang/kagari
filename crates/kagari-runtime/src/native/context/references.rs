@@ -4,39 +4,60 @@ use crate::diagnostics::{self, Event};
 
 use crate::{
     error::RuntimeError,
-    native::{binding::NativeResult, context::CallContext},
+    frame::types::arguments::ScopedSignature,
+    native::{
+        binding::{LinkedNativeFunction, NativeResult, SharedParameter},
+        context::CallContext,
+    },
     value::Value,
 };
 use kagari_types::{declaration::host::HostPassingStyle, reference::ReferenceAccess, ty::Ty};
 
+impl LinkedNativeFunction {
+    pub(crate) fn prepare_shared_parameters(
+        &self,
+        signature: &ScopedSignature,
+    ) -> Box<[(usize, SharedParameter)]> {
+        signature
+            .params
+            .iter()
+            .enumerate()
+            .filter_map(|(index, parameter)| {
+                let external_shared = self.binding.host_policy.as_ref().is_some_and(|policy| {
+                    policy.passing.get(index) == Some(&HostPassingStyle::SharedBorrow)
+                        && matches!(parameter.ty(), Ty::Host(_))
+                });
+                if external_shared {
+                    Some((index, SharedParameter::Host))
+                } else if matches!(
+                    parameter.ty(),
+                    Ty::Reference {
+                        access: ReferenceAccess::Shared,
+                        ..
+                    }
+                ) || (index == 0
+                    && self.binding.receiver_access == Some(ReferenceAccess::Shared))
+                {
+                    Some((index, SharedParameter::Scoped))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
 impl CallContext<'_> {
-    pub(crate) fn narrow_arguments(&self) -> NativeResult<Self> {
-        let mut arguments = self.arguments.clone();
+    pub(crate) fn narrow_arguments(&mut self) -> NativeResult<()> {
+        let prepared =
+            self.function.prepared_signature.get().ok_or_else(|| {
+                RuntimeError::module_validation("native signature is not prepared")
+            })?;
         let signature = self.function.type_signature()?;
-        for (index, parameter) in signature.params.iter().enumerate() {
+        for &(index, role) in &prepared.shared_parameters {
             #[cfg(feature = "execution-diagnostics")]
             diagnostics::record(Event::NativeParameterScan);
-            let external_shared =
-                self.function
-                    .binding
-                    .host_policy
-                    .as_ref()
-                    .is_some_and(|policy| {
-                        policy.passing.get(index) == Some(&HostPassingStyle::SharedBorrow)
-                            && matches!(parameter.ty(), Ty::Host(_))
-                    });
-            let shared = matches!(
-                parameter.ty(),
-                Ty::Reference {
-                    access: ReferenceAccess::Shared,
-                    ..
-                }
-            ) || (index == 0
-                && self.function.binding.receiver_access == Some(ReferenceAccess::Shared))
-                || external_shared;
-            if !shared {
-                continue;
-            }
+            let parameter = &signature.params[index];
             let original = self.argument(index)?;
             if !matches!(original, Value::Ephemeral(_) | Value::HostPathView(_)) {
                 continue;
@@ -44,7 +65,7 @@ impl CallContext<'_> {
             // Validate the live capability before boolean type matching can
             // erase an expired/foreign borrow's diagnostic. The alias remains
             // inert until the declaration check succeeds and it is rooted below.
-            let narrowed = if external_shared {
+            let narrowed = if matches!(role, SharedParameter::Host) {
                 self.runtime.narrow_host_argument(&original)?
             } else {
                 self.runtime
@@ -62,31 +83,15 @@ impl CallContext<'_> {
                 return Err(invalid());
             }
             if let Some(narrowed) = narrowed {
-                if arguments.narrowed.is_none() {
-                    let values = (0..arguments.len())
-                        .map(|slot| arguments.get(slot).ok_or_else(invalid))
-                        .collect::<NativeResult<Vec<_>>>()?;
-                    arguments.narrowed = Some(
-                        self.heap()
-                            .root_execution_values(values)
-                            .ok_or_else(invalid)?,
-                    );
-                }
-                arguments
-                    .narrowed
-                    .as_ref()
-                    .ok_or_else(invalid)?
-                    .set(self.heap(), index, narrowed)
+                // Only this callee's frozen parameter is narrowed. The caller's
+                // original capability and other aliases remain unchanged.
+                self.arguments
+                    .frame
+                    .set(self.heap(), index + 1, narrowed)
                     .ok_or_else(invalid)?;
             }
         }
-        Ok(Self {
-            runtime: self.runtime,
-            owner: self.owner,
-            function: self.function,
-            arguments,
-            invoke_script: self.invoke_script,
-        })
+        Ok(())
     }
 }
 

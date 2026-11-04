@@ -108,7 +108,7 @@ impl<'locations> WindowArguments<'locations> {
         }
     }
 
-    fn location(&self, index: usize) -> Location {
+    pub(super) fn location(&self, index: usize) -> Location {
         match &self.projection {
             WindowProjection::Mapped(locations) => locations[index],
             WindowProjection::Contiguous(_) => Location {

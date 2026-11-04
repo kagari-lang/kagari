@@ -6,7 +6,6 @@ use crate::{
         cursor::kernel::{PreparedTransition, RegionError, RegionExit},
     },
     module::execution::indices::IndexAccess,
-    native::context::ScriptInvoker,
     value::Value,
 };
 
@@ -18,13 +17,8 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         transition: PreparedTransition,
-        invoke_script: ScriptInvoker,
     ) -> Result<RegionExit, RegionError> {
         match transition {
-            PreparedTransition::Native { index } => {
-                self.invoke_prepared_native(runtime, index, invoke_script)?;
-                Ok(RegionExit::Safepoint)
-            }
             PreparedTransition::Call { index } => {
                 Ok(RegionExit::Call(self.push_prepared_call(runtime, index)?))
             }

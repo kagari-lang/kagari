@@ -12,7 +12,7 @@ mod tests;
 
 use crate::{
     Runtime, StagedReload,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     host::HostRegistryId,
     module::{
         ExecutableModule, InstallationId, ModuleKey, Program,
@@ -83,6 +83,7 @@ pub enum CallRouteKind {
 pub struct CallRoute {
     scope: Arc<PublicationDefinitions>,
     origin: ModuleKey,
+    module: ModuleRef,
     target: CallableTarget,
     selection: RouteSelection,
 }
@@ -128,7 +129,7 @@ impl CallRoute {
 pub struct SelectedTarget {
     owner: ExecutableModule,
     target: CallableTarget,
-    mapping: PublicationMapping,
+    source: Arc<PublicationDefinitions>,
 }
 
 impl SelectedTarget {
@@ -144,8 +145,11 @@ impl SelectedTarget {
         self.owner.publication_token()
     }
 
-    pub fn mapping(&self) -> &PublicationMapping {
-        &self.mapping
+    /// Prepare transport only when a consumer needs declaration/type evidence.
+    /// Plain calls select a body without constructing an unused binder map.
+    /// Ambiguous or foreign mappings fail before the consuming preparation runs.
+    pub fn mapping(&self) -> Result<PublicationMapping, RuntimeError> {
+        self.mapping_from(self.source.clone())
     }
 
     pub fn signature(&self) -> &Signature {
@@ -224,6 +228,7 @@ impl ExecutableModule {
         Ok(CallRoute {
             scope: self.publication_definitions(),
             origin: self.key(),
+            module: self.slot(),
             target,
             selection: record.selection.clone(),
         })
@@ -262,8 +267,15 @@ impl Runtime {
             .installations
             .get(&token.installation)
             .ok_or_else(|| invalid("retired callable installation"))?;
-        self.modules
-            .validate_installation(installation, self.host.owner())?;
+        // This reference came from this store's registration table. Its registry
+        // remains checked, but looking it up again to compare Arc identities adds
+        // no authority. External installation handles still use that full check.
+        if installation.registry_owner != self.host.owner() {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::StaleHandle,
+                "foreign or unregistered installation",
+            ));
+        }
         if token.registry != self.host.owner() {
             return Err(invalid("foreign callable installation"));
         }
@@ -271,6 +283,7 @@ impl Runtime {
             (session.options.phase == ExecutionPhase::CandidateInitialization)
                 .then(|| session.root.clone())
         });
+        let is_candidate = candidate.is_some();
         let root = if let Some(candidate) = candidate {
             if candidate.publication_token() != token {
                 return Err(RuntimeError::execution_phase_violation(
@@ -290,11 +303,18 @@ impl Runtime {
         // A linked route already names the exact target in its publication. Only
         // crossing publications needs declaration correspondence and selection.
         let (owner, target) = if root.publication_token() == token {
-            let owner = self
-                .modules
-                .loaded(route.origin)
-                .filter(|owner| owner.publication_token() == token)
-                .ok_or_else(|| invalid("linked callable body was released"))?;
+            let owner = if is_candidate {
+                // Candidate availability can be revoked independently of its
+                // immutable descriptors. Keep the staged-record admission.
+                self.modules.loaded(route.origin)
+            } else {
+                // The captured current publication owns every installed member.
+                // Its checked route already carries the member ordinal; ordinary
+                // selection needs no second lookup through the module-key map.
+                root.member(route.module)
+            }
+            .filter(|owner| owner.key() == route.origin && owner.publication_token() == token)
+            .ok_or_else(|| invalid("linked callable body was released"))?;
             (owner, route.target)
         } else {
             match &route.selection {
@@ -320,21 +340,20 @@ impl Runtime {
                 }
             }
         };
-        self.validate_executable_module(&owner)?;
-        let record = owner
+        // This selection already checked the registry/installation and either
+        // resolved an available retained record or captured the live publication.
+        // Its members are installed atomically and remain present through this
+        // callback-free operation. Revalidating the same installation here would
+        // repeat its map lookup and publication lock without adding authority.
+        owner
             .program
             .dispatch
             .target(owner.slot(), target)
             .ok_or_else(|| invalid("current target contract"))?;
-        let mapping = PublicationMapping::new(
-            route.scope.clone(),
-            owner.publication_definitions(),
-            record.binders.iter().copied(),
-        )?;
         Ok(SelectedTarget {
             owner,
             target,
-            mapping,
+            source: route.scope.clone(),
         })
     }
 }

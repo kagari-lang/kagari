@@ -3,8 +3,8 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{
-        ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments, driver::ReturnAction,
-        transfer::ReturnValue,
+        ExecutionStack, FrameDispatch, FrameEntry, FrameTarget, arguments::FrameArguments,
+        driver::ReturnAction, transfer::ReturnValue,
     },
 };
 use kagari_bytecode::{
@@ -40,8 +40,7 @@ impl ExecutionStack<'_> {
         let recipe = attempt.recipe().clone();
         self.push_admitted_arguments(
             runtime,
-            recipe.module,
-            CallableTarget::Script(recipe.function),
+            FrameTarget::Exact(recipe.module, CallableTarget::Script(recipe.function)),
             FrameArguments::plain(&[]),
             None,
             FrameDispatch {

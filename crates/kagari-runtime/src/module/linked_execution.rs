@@ -2,7 +2,6 @@
 pub(crate) mod builtin_results;
 pub(crate) mod calls;
 pub(crate) mod layouts;
-mod native_calls;
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -13,14 +12,12 @@ use crate::{
         ExecutableModule, ModuleStore,
         constants::ConstantPool,
         descriptor_index::DescriptorIndex,
-        execution::layout::Location,
         linked_execution::{
             builtin_results::BuiltinResults,
             calls::LinkedCall,
             layouts::{AppliedLayouts, FunctionLayouts},
         },
     },
-    native::{binding::LinkedNativeFunction, primitive::NativePrimitive},
 };
 use kagari_contract::ids::FunctionRef;
 use std::sync::Arc;
@@ -30,41 +27,10 @@ pub(crate) struct LinkedFunction {
     pub(crate) constants: Arc<ConstantPool>,
     calls: Arc<[LinkedCall]>,
     pub(crate) layouts: Option<Arc<FunctionLayouts>>,
-    native_calls: Arc<[LinkedNativeCall]>,
     pub(crate) applied_layouts: Option<Arc<AppliedLayouts>>,
 }
 
-#[derive(Debug)]
-pub(crate) struct LinkedNativeCall {
-    pub(crate) body: LinkedNativeBody,
-    pub(crate) destination: Option<Location>,
-}
-
-#[derive(Debug)]
-pub(crate) enum LinkedNativeBody {
-    StringByteLength(Location),
-    Vector(LinkedVectorPrimitive),
-    Callback(LinkedNativeCallback),
-}
-
-#[derive(Debug)]
-pub(crate) struct LinkedNativeCallback {
-    pub(crate) arguments: Box<[Location]>,
-    pub(crate) function: Arc<LinkedNativeFunction>,
-}
-
-#[derive(Debug)]
-pub(crate) struct LinkedVectorPrimitive {
-    pub(crate) operation: NativePrimitive,
-    pub(crate) arguments: Box<[Location]>,
-    pub(crate) function: Arc<LinkedNativeFunction>,
-}
-
 impl LinkedFunction {
-    pub(crate) fn native_call(&self, index: usize) -> Option<&LinkedNativeCall> {
-        self.native_calls.get(index)
-    }
-
     pub(crate) fn call(&self, index: usize) -> Option<&Arc<ScopedInterfaceCall>> {
         self.calls.get(index)?.interface()
     }
@@ -117,7 +83,6 @@ impl Runtime {
             }
             let calls = self.link_calls(owner, function, prepared)?;
             functions.push(Some(Arc::new(LinkedFunction {
-                native_calls: self.link_native_calls(owner, function, prepared)?.into(),
                 layouts: FunctionLayouts::link(self, owner, function, prepared)?,
                 applied_layouts: None,
                 constants: constants.clone(),

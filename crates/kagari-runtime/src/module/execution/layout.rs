@@ -81,7 +81,7 @@ impl FrameLayout {
     pub(super) fn native(import: &NativeImport) -> Self {
         let mut scalar_count = 0;
         let mut managed_count = 0;
-        let locations = iter::once(&import.signature.result)
+        let mut locations: Vec<_> = iter::once(&import.signature.result)
             .chain(import.signature.params.iter())
             .enumerate()
             .map(|(index, ty)| {
@@ -94,12 +94,21 @@ impl FrameLayout {
                     ),
                     representation,
                     semantic: builtin(Some(ty)),
-                    borrowed_receiver: index == 1 && import.receiver_access.is_some(),
+                    borrowed_receiver: (index == 1 && import.receiver_access.is_some())
+                        || (index > 0 && matches!(ty, Ty::Reference { .. })),
                 }
             })
             .collect();
+        if import.result_adapter.is_some() {
+            locations.push(Location {
+                operand: allocate(true, &mut scalar_count, &mut managed_count),
+                representation: ValueType::Generic,
+                semantic: None,
+                borrowed_receiver: false,
+            });
+        }
         Self {
-            locations,
+            locations: locations.into_boxed_slice(),
             count: 0,
             scalar_count,
             managed_count,

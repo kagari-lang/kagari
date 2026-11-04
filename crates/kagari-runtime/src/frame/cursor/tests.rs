@@ -181,9 +181,7 @@ fn native_publication_exposes_first_definitions_only_after_success() {
         }
         assert_eq!(calls.load(Ordering::Relaxed), 2);
         if !fail_second {
-            let RegionExit::Return(value) = stack
-                .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!())
-                .unwrap()
+            let RegionExit::Return(value) = stack.execute_region(&runtime, &mut None).unwrap()
             else {
                 panic!("native caller returns");
             };
@@ -220,10 +218,7 @@ fn native_without_destination_finishes_once_before_the_successor() {
             BytecodeInstruction::Call { dst: None, .. }
         ));
     }
-    let RegionExit::Return(value) = stack
-        .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!())
-        .unwrap()
-    else {
+    let RegionExit::Return(value) = stack.execute_region(&runtime, &mut None).unwrap() else {
         panic!("discarding caller returns");
     };
     assert_eq!(value.materialize(), Some(Value::Unit));
@@ -238,10 +233,12 @@ fn complete_native_call(
     runtime: &Runtime,
 ) -> Result<RegionExit, RegionError> {
     assert!(matches!(
-        stack.execute_region(runtime, &mut None, |_, _, _, _| unreachable!())?,
+        stack.execute_region(runtime, &mut None)?,
         RegionExit::Call(ExecutionAction::NativeEntry)
     ));
-    if let Err(error) = stack.start_native_entry(runtime, |_, _, _, _| unreachable!()) {
+    if let Err(error) =
+        stack.start_native_entry(runtime, |_, _, _, _| unreachable!("no script callback"))
+    {
         stack.pop()?;
         return Err(error.into());
     }
@@ -298,13 +295,7 @@ fn collection_during_an_operand_borrow_quarantines_without_further_execution() {
     );
     assert!(frame.read_slot(&runtime, Slot::new(0)).is_err());
     drop(frame);
-    assert!(
-        stack
-            .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!(
-                "quarantined execution cannot invoke script"
-            ))
-            .is_err()
-    );
+    assert!(stack.execute_region(&runtime, &mut None).is_err());
     drop(stack);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);

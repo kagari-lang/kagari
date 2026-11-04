@@ -163,6 +163,27 @@ impl GcHeap {
         id: HeapObjectId,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,
     ) -> NativeResult<R> {
+        self.with_native_object(id, |object| {
+            let payload = object.payload::<S>()?;
+            if object
+                .payload::<SequencePayload>()
+                .is_ok_and(|sequence| sequence.detached)
+            {
+                return Err(RuntimeError::module_validation(
+                    "sequence storage is exclusively borrowed",
+                ));
+            }
+            access(payload)
+        })
+    }
+
+    /// Native record inspection and payload access share one guarded borrow.
+    /// Callers validate their declared type/layout before exposing a payload view.
+    pub(super) fn with_native_object<R>(
+        &self,
+        id: HeapObjectId,
+        access: impl for<'payload> FnOnce(&'payload NativeObject) -> NativeResult<R>,
+    ) -> NativeResult<R> {
         self.ensure_execution_allowed()?;
         let objects = self
             .objects
@@ -173,18 +194,9 @@ impl GcHeap {
                 "invalid native storage receiver",
             ));
         };
-        let payload = object.payload::<S>()?;
-        if object
-            .payload::<SequencePayload>()
-            .is_ok_and(|sequence| sequence.detached)
-        {
-            return Err(RuntimeError::module_validation(
-                "sequence storage is exclusively borrowed",
-            ));
-        }
         self.native_borrows.set(self.native_borrows.get() + 1);
         let _borrow = NativeBorrow(&self.native_borrows);
-        access(payload)
+        access(object)
     }
 
     pub(crate) fn push_sequence_value(

@@ -75,7 +75,7 @@ fn ordinary_binding_survives_alias_retarget_and_old_code_collection() {
     );
     let original = bound.application().unwrap().declaration;
     assert_eq!(
-        selected.mapping().map(original).unwrap(),
+        selected.mapping().unwrap().map(original).unwrap(),
         current_a.application().unwrap().declaration
     );
     assert!(Runtime::default().select_call_route(&bound).is_err());
@@ -303,7 +303,7 @@ fn semantic_impl_order_and_additions_preserve_original_binder_transport() {
             .parent(fresh.application().unwrap().declaration)
             .unwrap();
         assert_eq!(
-            old_parent.map(|id| selected.mapping().map(id).unwrap()),
+            old_parent.map(|id| selected.mapping().unwrap().map(id).unwrap()),
             new_parent
         );
         let old_selected = old
@@ -315,6 +315,7 @@ fn semantic_impl_order_and_additions_preserve_original_binder_transport() {
         if let Some(generic) = &old_selected.generic {
             let mapped = selected
                 .mapping()
+                .unwrap()
                 .remap(generic, &Default::default())
                 .unwrap();
             assert_eq!(Some(mapped.records()), selected.generic());

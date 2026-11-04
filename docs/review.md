@@ -959,14 +959,13 @@ records those limits and pending exhaustive CI.
 Static review confirms the following remaining preparation costs. These are
 code-derived costs, not benchmark results or speedup claims:
 
-- [Typed native invocation](../crates/kagari-runtime/src/native/typed.rs) builds a
-  `Vec<Value>`; [argument decoding](../crates/kagari-runtime/src/native/conversion/arguments.rs)
-  copies it into rooted storage and creates a root lease even for scalar packs.
-  Mapping checks recur at pack and element conversion boundaries. Value/handle
-  copying here is not necessarily a deep object copy. Individual scalar conversion
-  avoids an object root, which does not eliminate the pack-level allocation.
+- [Typed native invocation](../crates/kagari-runtime/src/native/typed.rs) now borrows
+  the actual Native frame slots. Engine-issued scalar conversion evidence avoids
+  recursive conversion state; arbitrary Rust converters retain actual-value checks.
+  Host conversion still owns a temporary window. Remaining activation and callback
+  costs are measured in the [active plan](gc-redesign-plan.md#native-activation-implementation-ledger).
 
-- [Native call-site linking](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs)
+- [Call lowering](../crates/kagari-runtime/src/module/execution/calls.rs)
   validates arity and prepares physical argument locations, while the common
   [linked invocation entry](../crates/kagari-runtime/src/native/binding.rs) repeats
   the arity check per call. Audit which callers possess the prepared call-site

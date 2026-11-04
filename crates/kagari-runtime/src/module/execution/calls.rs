@@ -166,9 +166,6 @@ impl ExecutionModule {
                 });
             }
             prepared.calls = calls.into_boxed_slice();
-            // Native imports use the same current-selection/exact-admission path.
-            // Do not retain an old callback in the caller's physical fast path.
-            prepared.native_calls = 0;
         }
     }
 }

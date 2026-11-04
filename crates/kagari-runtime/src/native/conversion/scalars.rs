@@ -5,7 +5,7 @@ use crate::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
-        scalar::NativeScalar,
+        scalar::{NativeScalar, ScalarConversion},
         types::Type,
     },
     value::Value,
@@ -15,6 +15,10 @@ use kagari_types::scalar::BuiltinType;
 macro_rules! scalar {
     ($($ty:ty),+) => { $(
         impl KagariType for $ty {
+            fn scalar_conversion() -> Option<ScalarConversion<Self>> {
+                Some(ScalarConversion::new())
+            }
+
             fn kagari_type(_: &DeclarationCatalog) -> NativeResult<Type> {
                 Ok(Type::scalar(<Self as NativeScalar>::abi_type()))
             }

@@ -542,7 +542,11 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
     assert!(environment.types.matches(body));
     for (old_parameter, parameter) in old_body.parameters.iter().zip(&body.parameters) {
         assert_eq!(
-            view.selected.mapping().map(old_parameter.owner).unwrap(),
+            view.selected
+                .mapping()
+                .unwrap()
+                .map(old_parameter.owner)
+                .unwrap(),
             parameter.owner
         );
     }
@@ -558,6 +562,7 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
     let requirement = view
         .selected
         .mapping()
+        .unwrap()
         .remap(&operation.requirement, &Default::default())
         .unwrap()
         .into_records();

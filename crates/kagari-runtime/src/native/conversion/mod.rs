@@ -12,7 +12,8 @@ use crate::{
     frame::types::arguments::TypeArgument,
     native::{
         binding::NativeResult, catalog::DeclarationCatalog, conversion::context::ConversionContext,
-        projection::GeneratedField, schema::TypeRegistration, types::Type,
+        projection::GeneratedField, scalar::ScalarConversion, schema::TypeRegistration,
+        types::Type,
     },
     value::Value,
 };
@@ -20,6 +21,16 @@ use crate::{
 /// Resolve the Rust boundary type through the installed declaration catalog.
 /// This describes a type, never a sample value or a second declaration registry.
 pub trait KagariType {
+    /// Engine-issued scalar transport evidence; custom converters use the checked
+    /// conversion boundary. This hook cannot be used to assert arbitrary purity.
+    #[doc(hidden)]
+    fn scalar_conversion() -> Option<ScalarConversion<Self>>
+    where
+        Self: Sized,
+    {
+        None
+    }
+
     /// Describe this Rust type's stable mapping in the installed catalog.
     /// Live value/lifecycle admission belongs to conversion, not this declaration.
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type>;

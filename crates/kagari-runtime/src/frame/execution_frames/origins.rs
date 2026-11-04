@@ -100,7 +100,7 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
             None,
         )
         .unwrap();
-    let Err(error) = stack.execute_region(&runtime, &mut None, |_, _, _, _| unreachable!()) else {
+    let Err(error) = stack.execute_region(&runtime, &mut None) else {
         panic!("the selected negation must overflow");
     };
     assert!(

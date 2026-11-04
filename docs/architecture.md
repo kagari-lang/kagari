@@ -1167,19 +1167,42 @@ bounded ArgumentReader; unprepared callers share a checked snapshot wrapper.
 Nested/composite converters and custom per-value decode operations may still
 check their own mappings; this does not make all host conversion precomputed.
 
-Synchronous typed callbacks publish arguments and one result into a uniquely owned
-CallSlots window in the existing execution root bank. Each argument is published
-before its next safepoint, so a later converter can collect or reenter safely.
+A synchronous Native frame owns its frozen argument pack and protected result in
+the existing execution root bank. Typed callbacks borrow a CallSlots projection
+of that frame instead of copying the pack into another window. An interface result
+adapter uses one additional generic scratch slot in the same frame to protect the
+concrete output until adaptation. Each managed result is published before its next
+safepoint, so converters can collect or reenter safely. Sealed scalar codecs need
+no recursive conversion context or intermediate result root; the common Native
+return transition publishes their result once. Arbitrary custom packs/converters
+retain checked conversion, including actual output validation.
+RuntimeError owns its diagnostic record through one concrete Box. Successful
+Result transport carries no inline message, trace or task provenance; failures
+retain their original codes, formatting, trace precedence and independent clone
+semantics. Task payload accounting includes the owned record and message capacity,
+while shared trace metadata retains its existing separate attribution. Primitive
+and region entries use this common carrier without another error wrapper allocation.
 Prepared Function conversion borrows the exact PreparedFunction's existing
 program lease; its context cannot outlive that selection. Independent contexts
-still own their own lease. Both constructors retain the same Runtime, borrow,
-execution-state and executable-owner admission checks.
+still own their own lease. Native conversion consumes its admitted frame's exact
+owner and lazily creates recursive conversion state on first use. The Native entry
+checks for outstanding payload access before constructing its context. No bank or
+payload loan crosses conversion, a script callback or collection.
+CallContext::read_sequence lends a nonescaping SequenceRead through the common
+native-record borrow guard. Declared nominal/application identity, family, layout
+and payload availability are checked in that one access; length and element reads
+share it. Callbacks require ending the loan and reacquiring afterward. Copied
+elements acquire no root of their own, so retain/protect them before callbacks
+that can remove them through another alias. Structural edits keep their separate
+mutation/commit protocol and cannot run under a read loan.
 InvocationArguments lends source coordinates to the shared frame admission path;
 no bank/payload borrow crosses user conversion or execution. After backend return,
 the closed return transition performs no allocation or GC before the caller
 publishes the result into its window, which remains alive through decoding.
-Dropping the guard releases the exact generational window on success, error or
-unwind, using existing out-of-order release/compaction. Sequential publication
+Host-to-script conversion still owns a temporary CallSlots window. Dropping an
+owning guard releases that exact generational window on success, error or unwind,
+using existing out-of-order release/compaction. Borrowed Native projections leave
+cleanup with their execution frame. Sequential publication
 rejects incomplete/custom packs even when an unwritten slot's initial Unit would
 match the declared type. Async queues materialize owning roots at their actual
 escape boundary. Enum payloads and contiguous builtin/host ingress ABIs may still
@@ -1207,13 +1230,15 @@ closed bindings populate it after staging establishes exact program provenance a
 candidate publication; applied generic bindings populate it during application preparation.
 Typed bindings attach a monomorphized preparation function to that existing cell.
 It checks the Rust argument/result correspondence after concrete signature and
-selected-operation preparation, then builds the execution-only input/result root
-layout. Failure publishes neither a partial mapping nor an admitted application.
-Invocation freezes the complete input pack into CallSlots before any converter,
-then decodes through bounded readers without rebuilding a Vec/RootSet pack or
-repeating the standard tuple/receiver mapping checks. Declared receiver/reference
-positions admit scoped aliases in this layout; ordinary value slots still reject
-them. Runtime owner/generation, actual value, scoped capability and loan checks
+selected-operation preparation and records the shared-access parameter positions.
+The execution layout owns Native parameter/result storage; conversion preparation
+does not construct another layout. Failure publishes neither a partial mapping nor
+an admitted application. Frame admission freezes the complete pack before any
+converter, then typed decoding uses bounded readers without a second Vec/RootSet
+pack or repeated standard tuple/receiver mapping checks. Shared capabilities are
+narrowed in the callee's slots without changing the caller's original capability.
+Declared receiver/reference positions admit scoped aliases; ordinary value slots
+still reject them. Runtime owner/generation, actual value, scoped capability and loan checks
 remain at their consuming boundaries. Input roots survive result conversion;
 completed native effects remain observable if result conversion fails.
 Signature consumers only read prepared facts. Preparation failure abandons the candidate
@@ -1745,7 +1770,7 @@ ObjectType can still retain more executable payload than logically needed. Clean
 releases records after their actual owners end; namespace completion does not claim
 that split or the separate [multi-Runtime sharing work](multi-runtime-sharing-plan.md).
 
-The ownership precedents are [JVMS 25 §5.3](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-5.html#jvms-5.3)
+The ownership precedents are [JVMS 25 搂5.3](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-5.html#jvms-5.3)
 (defining owner plus name), the [Rust Reference's public aliases](https://doc.rust-lang.org/reference/items/use-declarations.html)
 (canonical item authority distinct from its containing path), and the stable
 [Rust Mutex contract](https://doc.rust-lang.org/std/sync/struct.Mutex.html)

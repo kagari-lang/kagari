@@ -62,7 +62,7 @@ impl EntryBinding {
         let signature = match &shared {
             Some(contract) => contract.signature.clone(),
             None => selected
-                .mapping()
+                .mapping()?
                 .remap(&self.signature, &Default::default())?
                 .into_records(),
         };

@@ -4,7 +4,7 @@ use crate::{
     closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, RuntimeErrorKind},
     frame::{
-        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry,
+        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, FrameTarget,
         arguments::{FrameArguments, InvocationArguments},
         driver::ExecutionAction,
     },
@@ -94,8 +94,7 @@ impl ExecutionStack<'_> {
                 let environment = closure.environment.clone();
                 return self.push_admitted_arguments(
                     runtime,
-                    owner,
-                    target,
+                    FrameTarget::Exact(owner, target),
                     explicit,
                     return_dst,
                     FrameDispatch {
@@ -157,8 +156,10 @@ impl ExecutionStack<'_> {
         }
         self.push_admitted_arguments(
             runtime,
-            closure.implementation.clone(),
-            CallableTarget::Script(script_function),
+            FrameTarget::Exact(
+                closure.implementation.clone(),
+                CallableTarget::Script(script_function),
+            ),
             all,
             return_dst,
             FrameDispatch {

@@ -168,7 +168,7 @@ fn consumed_scalar_alias_changes_owner_only_after_a_successful_write() {
             .unwrap();
         assert_eq!(stack.current().unwrap().physical_slot_count(), 1);
         assert!(matches!(
-            stack.execute_region(&runtime, &mut Some(1), |_, _, _, _| unreachable!()),
+            stack.execute_region(&runtime, &mut Some(1)),
             Ok(RegionExit::Slice)
         ));
         {
@@ -185,7 +185,7 @@ fn consumed_scalar_alias_changes_owner_only_after_a_successful_write() {
                     .is_err()
             );
         }
-        let result = stack.execute_region(&runtime, &mut Some(1), |_, _, _, _| unreachable!());
+        let result = stack.execute_region(&runtime, &mut Some(1));
         {
             let mut frame = stack.current_mut().unwrap();
             if input == 7 {
@@ -248,7 +248,7 @@ fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry(
         );
     }
     assert!(matches!(
-        stack.execute_region(&runtime, &mut Some(1), |_, _, _, _| unreachable!()),
+        stack.execute_region(&runtime, &mut Some(1)),
         Ok(RegionExit::Slice)
     ));
     {
@@ -291,7 +291,7 @@ fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry(
         );
     }
     assert!(matches!(
-        stack.execute_region(&runtime, &mut Some(1), |_, _, _, _| unreachable!()),
+        stack.execute_region(&runtime, &mut Some(1)),
         Ok(RegionExit::Slice)
     ));
     {

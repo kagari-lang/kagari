@@ -7,11 +7,9 @@ use crate::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        context::{
-            ArgumentSlots, ArgumentView, CallContext, CallableOwner, LinkedCallable,
-            LinkedOperation, ScriptCall,
-        },
+        context::{CallableOwner, LinkedCallable, LinkedOperation, ScriptCall},
         declarations::FunctionDecl,
+        function_handle::PreparedFunction,
         storage::{NativeStorage, StorageContext},
         types::Type,
     },
@@ -52,23 +50,19 @@ fn call_scalar_equal(
     owner: &ExecutableModule,
     target: &LinkedCallable,
 ) -> NativeResult<bool> {
-    let CallableTarget::Native(import) = target.target else {
-        unreachable!()
-    };
-    let function = runtime.modules.native_binding(owner, import).unwrap();
-    let mut context = CallContext {
+    let selected = target.select_current(runtime, owner)?;
+    let selected_owner = selected.owner(owner)?;
+    let prepared = PreparedFunction::selected(runtime, &selected_owner, selected)?;
+    let value = invoke_stored(
         runtime,
-        owner,
-        function: &function,
-        arguments: ArgumentView {
-            heap: runtime.gc(),
-            frame: None,
-            slots: ArgumentSlots::Scalars(&[]),
-            narrowed: None,
-        },
-        invoke_script: |_, _, _, _| panic!("scalar native callback must use direct entry"),
-    };
-    context.call(target, (7_i32, 7_i32))
+        &selected_owner,
+        ScriptCall::Pinned(&prepared),
+        InvocationArguments::from_values(&[Value::I32(7), Value::I32(7)]),
+    )?;
+    match value {
+        Value::Bool(value) => Ok(value),
+        _ => panic!("scalar equality result"),
+    }
 }
 
 #[rstest]

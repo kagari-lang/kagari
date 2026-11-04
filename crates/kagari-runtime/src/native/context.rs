@@ -15,6 +15,7 @@ use crate::{
     execution_metadata::{MetadataEdge, MetadataRoot},
     frame::{
         arguments::InvocationArguments,
+        call_slots::CallSlots,
         types::{
             TypeEnvironment,
             arguments::{ScopedSignature, TypeArgument},
@@ -23,7 +24,7 @@ use crate::{
         values::FrameSlots,
     },
     gc::{GcCollection, GcHeap, HeapObjectId, custom_keys::KeyLookupRoots, roots::RootSet},
-    module::{ExecutableModule, execution::layout::Location},
+    module::{ExecutableModule, execution::layout::FrameLayout},
     native::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
@@ -46,79 +47,48 @@ use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{slice, sync::Arc};
 
+/// Frozen callee parameters; reads never retain a storage loan across user code.
 #[derive(Clone, Copy)]
-pub(crate) enum ArgumentSlots<'call> {
-    Prepared(&'call [Location]),
-    Contiguous {
-        start: usize,
-        count: usize,
-    },
-    /// Only sealed scalar argument packs can construct this unrooted view.
-    Scalars(&'call [Value]),
-}
-
-#[derive(Clone)]
 pub struct ArgumentView<'call> {
     heap: &'call GcHeap,
-    frame: Option<FrameSlots>,
-    slots: ArgumentSlots<'call>,
-    narrowed: Option<RootSet>,
+    frame: FrameSlots,
+    layout: &'call FrameLayout,
+    count: usize,
 }
 
 impl<'call> ArgumentView<'call> {
     pub(crate) fn frame(
         heap: &'call GcHeap,
         frame: FrameSlots,
-        slots: ArgumentSlots<'call>,
+        layout: &'call FrameLayout,
+        count: usize,
     ) -> Self {
         Self {
             heap,
-            frame: Some(frame),
-            slots,
-            narrowed: None,
+            frame,
+            layout,
+            count,
         }
     }
 
     pub fn len(&self) -> usize {
-        match self.slots {
-            ArgumentSlots::Prepared(slots) => slots.len(),
-            ArgumentSlots::Contiguous { count, .. } => count,
-            ArgumentSlots::Scalars(values) => values.len(),
-        }
+        self.count
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.count == 0
     }
 
     pub(crate) fn contains(&self, index: usize) -> bool {
-        if let Some(roots) = &self.narrowed {
-            return roots.contains_slot(self.heap, index);
-        }
-        if let ArgumentSlots::Scalars(values) = self.slots {
-            return index < values.len();
-        }
         self.with_value(index, |_| ()).is_some()
     }
 
-    /// Read rooted immutable slot data without an owning clone. The closure cannot
-    /// retain a slot reference; it must not reenter while this borrow is active.
+    /// Borrow a protected parameter only for this closed read operation.
     pub fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
-        if let Some(roots) = &self.narrowed {
-            return roots.with_value(self.heap, index, read);
+        if index >= self.count {
+            return None;
         }
-        match self.slots {
-            ArgumentSlots::Scalars(values) => values.get(index).map(read),
-            ArgumentSlots::Prepared(slots) => {
-                self.frame?
-                    .with_location(self.heap, *slots.get(index)?, read)
-            }
-            ArgumentSlots::Contiguous { start, count } if index < count => {
-                self.frame?
-                    .with_value(self.heap, start.checked_add(index)?, read)
-            }
-            ArgumentSlots::Contiguous { .. } => None,
-        }
+        self.frame.with_value(self.heap, index + 1, read)
     }
 
     pub fn get(&self, index: usize) -> Option<Value> {
@@ -267,9 +237,7 @@ impl<'call> CallContext<'call> {
 
     /// Root a key and block structural mutation until its synchronous lookup ends.
     pub fn begin_key_lookup(&self, index: usize) -> NativeResult<NativeKeyLookupGuard<'call>> {
-        let roots = self.arguments.frame.ok_or_else(|| {
-            RuntimeError::module_validation("key lookup requires rooted frame arguments")
-        })?;
+        let roots = self.arguments.frame;
         Ok(NativeKeyLookupGuard {
             _guard: self
                 .heap()
@@ -521,7 +489,7 @@ impl<'call> CallContext<'call> {
     }
 
     pub fn arguments(&self) -> ArgumentView<'call> {
-        self.arguments.clone()
+        self.arguments
     }
 
     pub fn argument(&self, index: usize) -> NativeResult<Value> {
@@ -631,33 +599,19 @@ impl<'call> CallContext<'call> {
             ));
         }
         arguments.with_values(|arguments| {
-            if target.primitive.is_none()
-                && target.environment.is_none()
-                && let CallableTarget::Native(import) = target.target
-            {
-                let owner = target.owner(self.owner)?;
-                let function = self
-                    .runtime
-                    .modules
-                    .native_binding(&owner, import)
-                    .ok_or_else(|| RuntimeError::module_validation("unlinked native callback"))?;
-                let mut context = CallContext {
-                    runtime: self.runtime,
-                    owner: &owner,
-                    function: &function,
-                    arguments: ArgumentView {
-                        heap: self.heap(),
-                        frame: None,
-                        slots: ArgumentSlots::Scalars(arguments),
-                        narrowed: None,
-                    },
-                    invoke_script: self.invoke_script,
-                };
-                return function.invoke(&mut context).and_then(R::decode);
-            }
             self.call_selected_values(&target, arguments)
                 .and_then(R::decode)
         })
+    }
+
+    pub(crate) fn conversion_slots(&self) -> CallSlots<'call> {
+        CallSlots::native(
+            self.runtime,
+            self.arguments.frame,
+            self.arguments.layout,
+            self.arguments.count,
+            self.function.result_adapter.is_some(),
+        )
     }
 
     pub fn poll(&self) -> NativeResult<()> {

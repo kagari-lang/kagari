@@ -6,13 +6,36 @@ use crate::{
         binding::NativeResult,
         context::{ArgumentView, CallContext},
         scalar::NativeScalar,
-        sequence::{NativeElement, SequencePayload},
+        sequence::{NativeElement, SequencePayload, SequenceStorage},
         sequence_edit::SequenceEdit,
         storage::NativePayload,
     },
     value::Value,
 };
 use kagari_types::ty::Ty;
+
+/// A short read loan of checked sequence storage. Collection, mutation and script
+/// reentry are excluded until this view's callback returns. Copied elements need
+/// explicit protection before a later callback can remove them through an alias.
+pub struct SequenceRead<'payload> {
+    pub(crate) values: &'payload SequenceStorage,
+}
+
+impl SequenceRead<'_> {
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Copy an element; absence includes positions outside the current length.
+    /// This copy does not create an independent root.
+    pub fn get(&self, index: usize) -> Option<Value> {
+        self.values.get(index)
+    }
+}
 
 /// A generic value keeps the exact closed Kagari type of its rooted argument.
 /// Use a scalar copy or an explicit owning root when retaining it in Rust.

@@ -68,11 +68,7 @@ pub(crate) fn dedup(
 }
 
 pub(crate) fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let id = cx.sequence_argument(0)?;
-    cx.heap()
-        .sequence_len(id)
-        .map(NativeScalar::encode)
-        .ok_or_else(|| RuntimeError::module_validation("Vec handle length"))
+    cx.read_sequence(0, |values| Ok(values.len().encode()))
 }
 
 pub(crate) fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -81,8 +77,10 @@ pub(crate) fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 fn element(cx: &CallContext<'_>) -> NativeResult<Option<Value>> {
-    let id = cx.sequence_argument(0)?;
-    cx.heap().sequence_element(id, index_argument(cx, 1)?)
+    cx.read_sequence(0, |values| {
+        let index = usize::try_from(index_argument(cx, 1)?).ok();
+        Ok(index.and_then(|index| values.get(index)))
+    })
 }
 
 pub(crate) fn get(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {

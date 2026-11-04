@@ -47,28 +47,48 @@ impl RuntimeErrorKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{message}")]
+/// Owned diagnostic details behind a compact failure carrier. Successful runtime
+/// results do not carry inline message, trace or asynchronous provenance storage.
+#[derive(Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{}", .data.message)]
 pub struct RuntimeError {
+    data: Box<RuntimeErrorData>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct RuntimeErrorData {
     kind: RuntimeErrorKind,
     message: String,
     trace: Option<Arc<ErrorTrace>>,
     task_origin: Option<TaskFailureOrigin>,
 }
 
+impl fmt::Debug for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RuntimeError")
+            .field("kind", &self.data.kind)
+            .field("message", &self.data.message)
+            .field("trace", &self.data.trace)
+            .field("task_origin", &self.data.task_origin)
+            .finish()
+    }
+}
+
 impl RuntimeError {
-    /// Owned message capacity for heap payload attribution; shared trace metadata
+    /// Owned backing for heap payload attribution; shared trace metadata
     /// is deliberately excluded, including when several task failures retain it.
-    pub(crate) fn message_capacity(&self) -> usize {
-        self.message.capacity()
+    pub(crate) fn owned_bytes(&self) -> usize {
+        size_of::<RuntimeErrorData>() + self.data.message.capacity()
     }
 
     pub fn new(kind: RuntimeErrorKind, message: impl Into<String>) -> Self {
         Self {
-            kind,
-            message: message.into(),
-            trace: None,
-            task_origin: None,
+            data: Box::new(RuntimeErrorData {
+                kind,
+                message: message.into(),
+                trace: None,
+                task_origin: None,
+            }),
         }
     }
 
@@ -150,25 +170,26 @@ impl RuntimeError {
     }
 
     pub(crate) fn at_conversion(mut self, location: impl fmt::Display) -> Self {
-        self.message = format!("{location}: {}", self.message);
+        self.data.message = format!("{location}: {}", self.data.message);
         self
     }
 
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
-        self.trace.as_ref()
+        self.data.trace.as_ref()
     }
 
     pub fn task_origin(&self) -> Option<TaskFailureOrigin> {
-        self.task_origin
+        self.data.task_origin
     }
 
     pub(crate) fn with_task_origin(mut self, origin: TaskFailureOrigin) -> Self {
-        self.task_origin.get_or_insert(origin);
+        self.data.task_origin.get_or_insert(origin);
         self
     }
 
     pub(crate) fn with_async_boundary(mut self, boundary: AsyncBoundary) -> Self {
         let trace = self
+            .data
             .trace
             .get_or_insert_with(|| Arc::new(ErrorTrace::default()));
         Arc::make_mut(trace).append_async(boundary);
@@ -176,7 +197,7 @@ impl RuntimeError {
     }
 
     pub fn with_trace(mut self, trace: Arc<ErrorTrace>) -> Self {
-        if let Some(previous) = &mut self.trace
+        if let Some(previous) = &mut self.data.trace
             && previous.frames.is_empty()
             && !previous.async_boundaries.is_empty()
         {
@@ -187,25 +208,26 @@ impl RuntimeError {
             return self;
         }
         if self
+            .data
             .trace
             .as_ref()
             .is_none_or(|previous| previous.frames.is_empty())
         {
-            self.trace = Some(trace);
+            self.data.trace = Some(trace);
         }
         self
     }
 
     pub fn kind(&self) -> RuntimeErrorKind {
-        self.kind
+        self.data.kind
     }
 
     pub fn code(&self) -> &'static str {
-        self.kind.code()
+        self.data.kind.code()
     }
 
     pub fn message(&self) -> &str {
-        &self.message
+        &self.data.message
     }
 }
 

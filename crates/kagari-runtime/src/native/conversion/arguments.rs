@@ -98,7 +98,26 @@ pub trait IntoKagariArguments: KagariArguments + Sized {
     ) -> NativeResult<()>;
 }
 
+/// A decoder assembled only from engine-issued scalar conversion evidence.
+/// Its bounded reads retain physical type/narrowing checks without recursive
+/// conversion state. Custom argument packs cannot construct this evidence.
+pub struct ScalarArguments<A> {
+    read: fn(&ArgumentReader<'_, '_>) -> NativeResult<A>,
+}
+
+impl<A> ScalarArguments<A> {
+    pub(crate) fn read(&self, reader: &ArgumentReader<'_, '_>) -> NativeResult<A> {
+        (self.read)(reader)
+    }
+}
+
 pub trait FromKagariArguments: KagariArguments + Sized {
+    /// Engine-issued scalar pack evidence; arbitrary packs retain full conversion.
+    #[doc(hidden)]
+    fn scalar_arguments() -> Option<ScalarArguments<Self>> {
+        None
+    }
+
     /// Retains a snapshot of the entire pack before user-defined conversion runs.
     fn from_arguments(
         cx: &mut ConversionContext<'_>,
@@ -182,6 +201,16 @@ macro_rules! arguments {
         }
 
         impl<$($ty: FromKagari),*> FromKagariArguments for ($($ty,)*) {
+            fn scalar_arguments() -> Option<ScalarArguments<Self>> {
+                $($ty::scalar_conversion()?;)*
+                Some(ScalarArguments { read: |reader| {
+                    if reader.len() != $count {
+                        return Err(RuntimeError::module_validation("scalar argument count"));
+                    }
+                    Ok(($($ty::scalar_conversion().expect("sealed scalar mapping").decode(reader.get($slot)?)?,)*))
+                } })
+            }
+
             fn read_prepared_arguments<'runtime>(cx: &mut ConversionContext<'runtime>, prepared: &PreparedArguments<'_, Self>, reader: &ArgumentReader<'_, 'runtime>) -> NativeResult<Self> {
                 let expected = prepared.types();
                 debug_assert_eq!(expected.len(), $count);

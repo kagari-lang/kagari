@@ -245,10 +245,7 @@ fn execute_main(runtime: &Runtime, loaded: &ExecutableModule) -> Value {
                 runtime
                     .observe_execution(ExecutionEvent::BeforeInstruction)
                     .unwrap();
-                match stack
-                    .execute_region(runtime, &mut None, invoke_selected)
-                    .unwrap()
-                {
+                match stack.execute_region(runtime, &mut None).unwrap() {
                     RegionExit::Return(value) => stack.finish_return(runtime, value).unwrap(),
                     RegionExit::Call(_) | RegionExit::Safepoint => continue,
                     RegionExit::Boundary => panic!("unexpected script boundary"),

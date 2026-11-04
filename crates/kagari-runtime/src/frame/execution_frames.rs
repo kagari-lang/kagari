@@ -3,7 +3,7 @@ use crate::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{
-        ExecutionFrame, FrameDispatch, FrameEntry,
+        ExecutionFrame, FrameDispatch, FrameEntry, FrameTarget,
         arguments::{FrameArguments, WindowArguments},
     },
     module::{
@@ -311,8 +311,7 @@ fn heap_rejection_does_not_skip_later_argument_window_validation() {
     let error = stack
         .push_admitted_arguments(
             &runtime,
-            module.clone(),
-            CallableTarget::Script(FunctionRef::new(0)),
+            FrameTarget::Exact(module.clone(), CallableTarget::Script(FunctionRef::new(0))),
             arguments,
             None,
             FrameDispatch {

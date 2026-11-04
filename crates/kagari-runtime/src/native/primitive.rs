@@ -6,17 +6,14 @@ use crate::{
     gc::GcHeap,
     module::ExecutableModule,
     native::{
-        binding::{BindingEntry, Codec, LinkedNativeFunction, NativeBinding, NativeResult},
-        context::operations::check_sequence_argument,
+        binding::{BindingEntry, Codec, NativeBinding, NativeResult},
+        context::operations::{check_sequence_argument, read_sequence_argument},
         scalar::NativeScalar,
         types::Type,
     },
     value::Value,
 };
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
-
-// A fixed kernel's successful result must not carry the cold diagnostic payload.
-pub(crate) type PrimitiveResult = Result<Value, Box<RuntimeError>>;
 
 /// Selecting a primitive installs its fixed implementation, never an arbitrary
 /// callback annotated with a purity claim. Registration checks its exact codecs.
@@ -68,23 +65,6 @@ impl NativeBinding {
     }
 }
 
-impl LinkedNativeFunction {
-    /// Selected operations and result adapters retain their ordinary boundary.
-    /// Names, source syntax and host callback bodies do not confer this authority.
-    pub(crate) fn closed_primitive(&self) -> Option<NativePrimitive> {
-        self.prepared_signature.get()?;
-        let BindingEntry::Primitive(primitive) = self.binding.entry else {
-            return None;
-        };
-        if !self.selected.is_empty() || self.result_adapter.is_some() {
-            return None;
-        }
-        primitive
-            .accepts_signature(&self.signature)
-            .then_some(primitive)
-    }
-}
-
 impl NativePrimitive {
     /// The relationship between element, value and result types is part of the
     /// body contract, including in generic declarations before specialization.
@@ -125,22 +105,25 @@ impl NativePrimitive {
         owner: &ExecutableModule,
         signature: &ScopedSignature,
         argument: impl Fn(usize) -> NativeResult<Value>,
-    ) -> PrimitiveResult {
+    ) -> NativeResult<Value> {
         let heap = runtime.gc();
         match self {
             Self::StringByteLength => string_byte_length(heap, argument(0)?),
-            Self::VecIndex => {
-                let base = argument(0)?;
-                let id =
-                    check_sequence_argument(runtime, owner, &signature.params[0], || Ok(base))?;
-                let index = u64::decode(argument(1)?)?;
-                heap.sequence_element(id, index)?.ok_or_else(|| {
-                    Box::new(RuntimeError::new(
-                        RuntimeErrorKind::IndexOutOfBounds,
-                        "list index is out of bounds",
-                    ))
-                })
-            }
+            Self::VecIndex => read_sequence_argument(
+                runtime,
+                owner,
+                &signature.params[0],
+                || argument(0),
+                |values| {
+                    let index = usize::try_from(u64::decode(argument(1)?)?).ok();
+                    index.and_then(|index| values.get(index)).ok_or_else(|| {
+                        RuntimeError::new(
+                            RuntimeErrorKind::IndexOutOfBounds,
+                            "list index is out of bounds",
+                        )
+                    })
+                },
+            ),
             Self::VecSet | Self::VecSetFluent => {
                 let base = argument(0)?;
                 let id =
@@ -150,8 +133,7 @@ impl NativePrimitive {
                 if !signature.params[2].matches(runtime, &value, owner) {
                     return Err(RuntimeError::module_validation(
                         "native argument differs from its declared type",
-                    )
-                    .into());
+                    ));
                 }
                 // Match the SDK setter: argument conversion precedes callback
                 // exclusion and bounds; no assignment occurs until all pass.
@@ -173,9 +155,9 @@ impl NativePrimitive {
 
 /// This closed scalar result needs no element-type signature or argument table.
 #[inline(always)]
-pub(crate) fn string_byte_length(heap: &GcHeap, value: Value) -> PrimitiveResult {
+pub(crate) fn string_byte_length(heap: &GcHeap, value: Value) -> NativeResult<Value> {
     let Value::Str(id) = value else {
-        return Err(RuntimeError::module_validation("string argument").into());
+        return Err(RuntimeError::module_validation("string argument"));
     };
     let text = heap
         .string(id)

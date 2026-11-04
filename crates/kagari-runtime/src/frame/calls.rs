@@ -7,7 +7,7 @@ use crate::{
     error::RuntimeError,
     execution_metadata::call_contracts::InterfaceCallSite,
     frame::{
-        ExecutionStack, FrameDispatch, FrameEntry,
+        ExecutionStack, FrameDispatch, FrameEntry, FrameTarget,
         arguments::{FrameArguments, WindowArguments},
         driver::ExecutionAction,
     },
@@ -148,8 +148,7 @@ impl ExecutionStack<'_> {
                 // the receiver alive until the callee publishes its own dependencies.
                 return self.push_admitted_arguments(
                     runtime,
-                    loaded,
-                    target,
+                    FrameTarget::Exact(loaded, target),
                     arguments,
                     None,
                     FrameDispatch {
@@ -162,8 +161,6 @@ impl ExecutionStack<'_> {
             }
         };
         let selected = runtime.select_call_route(route)?;
-        let loaded = selected.owner().clone();
-        let target = selected.target();
         let source = WindowArguments::mapped(slots, &call.arguments);
         let arguments = FrameArguments::frame(&source);
         let environment = if let Some(contract) = shared {
@@ -204,8 +201,7 @@ impl ExecutionStack<'_> {
         };
         self.push_admitted_arguments(
             runtime,
-            loaded,
-            target,
+            FrameTarget::Selected(&selected),
             arguments,
             None,
             FrameDispatch {

@@ -1,4 +1,5 @@
 //! Concrete Rust callbacks share the checked conversion boundary with host access.
+mod conversion;
 mod loan_arguments;
 pub mod loans;
 mod preparation;
@@ -6,7 +7,6 @@ mod receiver;
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::call_slots::CallSlots,
     gc::GcCollection,
     module::ExecutableModule,
     native::{
@@ -17,7 +17,7 @@ use crate::{
             arguments::{FromKagariArguments, PreparedArguments},
             context::ConversionContext,
         },
-        typed::receiver::ReceiverArguments,
+        typed::{conversion::NativeConversion, receiver::ReceiverArguments},
     },
     value::Value,
 };
@@ -27,7 +27,7 @@ use kagari_types::declaration::NativeDeclaration;
 /// One synchronous native invocation. Arguments are owned Rust data or retained
 /// handles; no argument-slot or payload borrow spans the callback.
 pub struct NativeContext<'call> {
-    pub(crate) conversion: ConversionContext<'call>,
+    pub(crate) conversion: NativeConversion<'call>,
     pub(crate) invoke_script: Option<ScriptInvoker>,
     pub(crate) function: Option<&'call LinkedNativeFunction>,
 }
@@ -36,7 +36,7 @@ impl<'call> NativeContext<'call> {
     /// Open a synchronous host access scope for a retained program version.
     pub fn new(runtime: &'call Runtime, owner: &'call ExecutableModule) -> NativeResult<Self> {
         Ok(Self {
-            conversion: ConversionContext::new(runtime, owner)?,
+            conversion: NativeConversion::owned(ConversionContext::new(runtime, owner)?),
             invoke_script: None,
             function: None,
         })
@@ -50,7 +50,7 @@ impl<'call> NativeContext<'call> {
         invoke_script: ScriptInvoker,
     ) -> NativeResult<Self> {
         Ok(Self {
-            conversion: ConversionContext::new(runtime, owner)?,
+            conversion: NativeConversion::owned(ConversionContext::new(runtime, owner)?),
             invoke_script: Some(invoke_script),
             function: None,
         })
@@ -133,6 +133,7 @@ impl NativeBinding {
             invoke(call, &entry)
         });
         binding.conversion_preparation = Some(preparation::prepare::<A, R>);
+        binding.converted_result = true;
         binding
     }
 }
@@ -142,7 +143,7 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
     entry: &impl Fn(&mut NativeContext<'_>, A) -> NativeResult<R>,
 ) -> NativeResult<Value> {
     let mut context = NativeContext {
-        conversion: ConversionContext::in_native_call(call)?,
+        conversion: NativeConversion::in_call(call),
         invoke_script: Some(call.invoke_script),
         function: Some(call.function),
     };
@@ -152,7 +153,7 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
     // callback. The final value is still checked: user adapters are not trusted.
     let types = &signature.params;
     // Availability errors precede receiver-capability checks. No user conversion
-    // or GC can change these source coordinates before the snapshot is published.
+    // or GC can change these frozen Native-frame coordinates.
     for slot in 0..call.arguments.len() {
         call.argument(slot)?;
     }
@@ -170,22 +171,25 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
     )?;
     // Keep the complete pack through result conversion as well as decoding and
     // payload access. A loan ends before the result's first allocation/safepoint.
-    let mut slots = CallSlots::snapshot_prepared(
-        call.runtime,
-        call.owner,
-        call.arguments.len(),
-        call.function.input_layout()?,
-        |index| call.argument(index),
-    )?;
+    let mut slots = call.conversion_slots();
     let prepared = PreparedArguments::from_checked(types);
-    let arguments =
-        A::from_prepared_arguments(&mut context.conversion, &prepared, &slots.reader())?;
+    let arguments = match A::scalar_arguments() {
+        Some(decoder) => decoder.read(&slots.reader())?,
+        None => A::from_prepared_arguments(&mut context.conversion, &prepared, &slots.reader())?,
+    };
     let result = entry(&mut context, arguments)?;
     let result_index = slots.result_index();
-    context
-        .conversion
-        .encode_into(result_type, result, &mut slots, result_index)?;
-    slots.read_result()
+    match R::scalar_conversion() {
+        // Scalars have no GC edges. The common Native return transition publishes
+        // them once; no intermediate root write/read is needed.
+        Some(codec) => Ok(codec.encode(result)),
+        None => {
+            context
+                .conversion
+                .encode_into(result_type, result, &mut slots, result_index)?;
+            slots.read_result()
+        }
+    }
     // No safepoint occurs between dropping this scope and the caller publishing
     // the returned value. LinkedResultAdapter protects it before allocating.
 }

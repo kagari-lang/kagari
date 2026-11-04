@@ -7,17 +7,16 @@ use crate::{
         cursor::kernel::{CursorExit, RegionError, RegionExit},
         values::operands::OperandWindow,
     },
-    module::{ExecutableModule, execution::ExecutionFunction, linked_execution::LinkedFunction},
-    native::context::ScriptInvoker,
+    module::{execution::ExecutionFunction, linked_execution::LinkedFunction},
     session::SessionState,
 };
 use kagari_bytecode::module::CallableTarget;
+
 use std::ptr;
 
 mod indices;
 pub mod kernel;
 mod objects;
-mod primitives;
 mod scalars;
 #[cfg(test)]
 mod tests;
@@ -26,7 +25,6 @@ mod transitions;
 /// All references live inside execute_region. No caller callback or supplied Value
 /// can intervene while admission is reused; exits release the frame and bank borrows.
 struct ExecutionCursor<'a> {
-    loaded: &'a ExecutableModule,
     function: &'a ExecutionFunction,
     links: Option<&'a LinkedFunction>,
     ip: &'a mut usize,
@@ -38,14 +36,12 @@ struct ExecutionCursor<'a> {
 
 impl ExecutionStack<'_> {
     /// Execute prepared operations, releasing transient views before callbacks or transitions.
-    /// The driver has already polled and observed the first logical instruction.
-    /// `invoke_script` supplies synchronous native-to-script reentry and never runs
-    /// while the cursor retains a frame, session-state or operand-bank borrow.
+    /// The driver prepares the first logical instruction boundary before entry.
+    /// Native reentry occurs after every cursor storage loan ends.
     pub fn execute_region(
         &self,
         runtime: &Runtime,
         remaining: &mut Option<usize>,
-        invoke_script: ScriptInvoker,
     ) -> Result<RegionExit, RegionError> {
         if !ptr::eq(runtime.resources(), self.session.resources) {
             return Err(RuntimeError::module_validation(
@@ -55,9 +51,7 @@ impl ExecutionStack<'_> {
         }
         match self.execute_admitted_region(runtime, remaining)? {
             CursorExit::Region(exit) => Ok(exit),
-            CursorExit::Transition(transition) => {
-                self.complete_transition(runtime, transition, invoke_script)
-            }
+            CursorExit::Transition(transition) => self.complete_transition(runtime, transition),
         }
     }
 
@@ -108,7 +102,6 @@ impl ExecutionStack<'_> {
             .get(function.index())
             .ok_or_else(|| runtime.resources().quarantine("invalid execution function"))?;
         let result = ExecutionCursor {
-            loaded,
             function,
             links: links.as_deref(),
             ip,

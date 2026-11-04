@@ -119,6 +119,12 @@ mod tests {
             let mut message = String::with_capacity(4096);
             message.push_str("failure");
             let capacity = message.capacity();
+            let error = RuntimeError::new(RuntimeErrorKind::ScriptTrap, message);
+            let backing = error.owned_bytes();
+            assert!(
+                backing > capacity,
+                "owned diagnostic record is also charged"
+            );
             match state {
                 "terminated" => {
                     heap.resource_limit("fixture termination");
@@ -133,7 +139,7 @@ mod tests {
                 id,
                 task,
                 Err(TaskFailure {
-                    error: RuntimeError::new(RuntimeErrorKind::ScriptTrap, message),
+                    error,
                     source_task: task,
                     cancellation: None,
                 }),
@@ -142,7 +148,7 @@ mod tests {
             assert_eq!(heap.stats().current_heap_units, before.current_heap_units);
             assert_eq!(
                 heap.stats().current_retained_bytes,
-                before.current_retained_bytes + capacity as u128
+                before.current_retained_bytes + backing as u128
             );
             let committed = heap.stats();
             assert!(

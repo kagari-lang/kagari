@@ -670,9 +670,15 @@ impl Runtime {
     }
 
     pub fn gc_safepoint(&self) -> Result<(), RuntimeError> {
+        self.resources().poll_execution()?;
+        self.service_gc()
+    }
+
+    /// Service collection after the owning boundary has polled execution.
+    /// The caller must not run user code between polling and this service.
+    pub(crate) fn service_gc(&self) -> Result<(), RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::GcSafepoint);
-        self.resources().poll_execution()?;
         let collection_due = if self.gc.collection_due() {
             true
         } else if self.gc.automatic_collection_enabled() {

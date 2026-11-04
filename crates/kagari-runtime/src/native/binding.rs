@@ -9,7 +9,7 @@ use crate::{
         TypeEnvironment, arguments::ScopedSignature, compatibility::TypeView,
         operations::OperationBindings,
     },
-    module::{ExecutableModule, execution::layout::FrameLayout},
+    module::ExecutableModule,
     native::{
         catalog::DeclarationCatalog,
         context::{CallContext, LinkedCallable, LinkedOperation},
@@ -41,11 +41,8 @@ pub type NativeResult<T> = Result<T, RuntimeError>;
 pub type NativeEntry =
     dyn for<'call> Fn(&mut CallContext<'call>) -> NativeResult<Value> + Send + Sync;
 
-pub(crate) type ConversionPreparation = fn(
-    &ConversionContext<'_>,
-    &ScopedSignature,
-    Option<ReferenceAccess>,
-) -> NativeResult<Arc<FrameLayout>>;
+pub(crate) type ConversionPreparation =
+    fn(&ConversionContext<'_>, &ScopedSignature) -> NativeResult<()>;
 
 /// Exact conversions retain scoped semantic types; generic views inherit their declared slot.
 #[derive(Debug, Clone)]
@@ -260,7 +257,14 @@ pub struct LinkedNativeFunction {
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedNativeSignature {
     signature: ScopedSignature,
-    input_layout: Option<Arc<FrameLayout>>,
+    pub(crate) shared_parameters: Box<[(usize, SharedParameter)]>,
+}
+
+/// A prepared parameter role; live capabilities are narrowed at invocation.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum SharedParameter {
+    Host,
+    Scoped,
 }
 
 impl LinkedNativeFunction {
@@ -277,11 +281,11 @@ impl LinkedNativeFunction {
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("native result type scope"))?;
         let signature = ScopedSignature { params, result };
-        let input_layout = self.prepare_conversions(runtime, owner, &signature)?;
+        self.prepare_conversions(runtime, owner, &signature)?;
         self.prepared_signature
             .set(PreparedNativeSignature {
+                shared_parameters: self.prepare_shared_parameters(&signature),
                 signature,
-                input_layout,
             })
             .map_err(|_| RuntimeError::module_validation("duplicate native signature preparation"))
     }
@@ -291,12 +295,12 @@ impl LinkedNativeFunction {
         runtime: &Runtime,
         owner: &ExecutableModule,
         signature: &ScopedSignature,
-    ) -> NativeResult<Option<Arc<FrameLayout>>> {
+    ) -> NativeResult<()> {
         if let Some(prepare) = self.binding.conversion_preparation {
             let context = ConversionContext::new(runtime, owner)?;
-            return prepare(&context, signature, self.binding.receiver_access).map(Some);
+            return prepare(&context, signature);
         }
-        Ok(None)
+        Ok(())
     }
 
     pub(crate) fn type_signature(&self) -> NativeResult<&ScopedSignature> {
@@ -304,13 +308,6 @@ impl LinkedNativeFunction {
             .get()
             .map(|prepared| &prepared.signature)
             .ok_or_else(|| RuntimeError::module_validation("native signature is not prepared"))
-    }
-
-    pub(crate) fn input_layout(&self) -> NativeResult<&Arc<FrameLayout>> {
-        self.prepared_signature
-            .get()
-            .and_then(|prepared| prepared.input_layout.as_ref())
-            .ok_or_else(|| RuntimeError::module_validation("native input layout is not prepared"))
     }
 
     pub(crate) fn check_requirement(
@@ -405,12 +402,12 @@ impl LinkedNativeFunction {
                 .into_boxed_slice(),
         };
         let signature = ScopedSignature { params, result };
-        let input_layout = applied.prepare_conversions(runtime, owner, &signature)?;
+        applied.prepare_conversions(runtime, owner, &signature)?;
         applied
             .prepared_signature
             .set(PreparedNativeSignature {
+                shared_parameters: applied.prepare_shared_parameters(&signature),
                 signature,
-                input_layout,
             })
             .map_err(|_| RuntimeError::module_validation("duplicate applied native signature"))?;
         Ok(applied)
@@ -427,7 +424,7 @@ impl LinkedNativeFunction {
         context.poll()?;
         let result = context
             .narrow_arguments()
-            .and_then(|mut narrowed| self.invoke_narrowed(&mut narrowed));
+            .and_then(|()| self.invoke_narrowed(context));
         result.map_err(|error| context.runtime.resources().admit_execution_error(error))
     }
 
@@ -435,11 +432,11 @@ impl LinkedNativeFunction {
         let signature = self.type_signature()?;
         let result = match &self.binding.entry {
             BindingEntry::Callback(entry) => entry(context),
-            BindingEntry::Primitive(primitive) => primitive
-                .execute(context.runtime, context.owner, signature, |index| {
+            BindingEntry::Primitive(primitive) => {
+                primitive.execute(context.runtime, context.owner, signature, |index| {
                     context.argument(index)
                 })
-                .map_err(|error| *error),
+            }
         }
         .map_err(|error| context.runtime.resources().admit_execution_error(error));
         context.poll()?;

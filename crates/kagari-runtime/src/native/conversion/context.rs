@@ -123,12 +123,21 @@ impl<'runtime> ConversionContext<'runtime> {
         runtime: &'runtime Runtime,
         owner: &'runtime ExecutableModule,
     ) -> NativeResult<Self> {
-        #[cfg(feature = "execution-diagnostics")]
-        diagnostics::record(Event::ConversionContext);
+        Self::validate_entry(runtime, owner)?;
+        Ok(Self::admitted(runtime, owner))
+    }
+
+    pub(crate) fn validate_entry(runtime: &Runtime, owner: &ExecutableModule) -> NativeResult<()> {
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
-        runtime.validate_executable_module(owner)?;
-        Ok(Self {
+        runtime.validate_executable_module(owner)
+    }
+
+    /// The owning interaction admitted entry and retains its exact executable.
+    pub(crate) fn admitted(runtime: &'runtime Runtime, owner: &'runtime ExecutableModule) -> Self {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ConversionContext);
+        Self {
             runtime,
             owner,
             _program: None,
@@ -138,7 +147,7 @@ impl<'runtime> ConversionContext<'runtime> {
             string_bytes: 0,
             active: HashSet::new(),
             roots: Vec::new(),
-        })
+        }
     }
 
     pub fn runtime(&self) -> &'runtime Runtime {

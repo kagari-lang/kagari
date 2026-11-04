@@ -9,6 +9,7 @@ use crate::{
     gc::CollectionMutation,
     module::{
         ExecutableModule,
+        dispatch::SelectedTarget,
         execution::{
             calls::PreparedCall,
             layout::{AccessPhase, FrameLayout, Location},
@@ -224,8 +225,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         // The host lease remains alive until the window has published all edges.
         self.push_admitted_arguments(
             runtime,
-            loaded,
-            target,
+            FrameTarget::Exact(loaded, target),
             arguments,
             return_dst,
             FrameDispatch {
@@ -273,8 +273,14 @@ impl<'runtime> ExecutionStack<'runtime> {
         dispatch: FrameDispatch<'_>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
-        self.push_admitted_arguments(runtime, loaded, target, args, return_dst, dispatch)
-            .map(|_| ())
+        self.push_admitted_arguments(
+            runtime,
+            FrameTarget::Exact(loaded, target),
+            args,
+            return_dst,
+            dispatch,
+        )
+        .map(|_| ())
     }
 
     pub fn pop(&self) -> Result<(), RuntimeError> {
@@ -386,6 +392,14 @@ enum FrameEntry {
     Call,
     Await,
     StaticInitializer(StaticInitialization),
+}
+
+/// Immediate selected bodies carry admission through the callback-free frame
+/// transaction. Exact/queued/host entries must validate their owner at admission.
+/// This type is private to frame construction and cannot be retained by callers.
+enum FrameTarget<'selection> {
+    Exact(ExecutableModule, CallableTarget),
+    Selected(&'selection SelectedTarget),
 }
 
 struct FrameDispatch<'call> {

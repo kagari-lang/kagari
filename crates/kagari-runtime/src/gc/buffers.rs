@@ -63,24 +63,9 @@ impl GcHeap {
         self.with_buffer(id, SequenceStorage::len)
     }
 
-    pub(crate) fn buffer_snapshot(&self, id: HeapObjectId) -> Option<Vec<Value>> {
-        self.with_buffer(id, SequenceStorage::snapshot)
-    }
-
     pub(crate) fn buffer_get(&self, id: HeapObjectId, index: impl TryInto<usize>) -> Option<Value> {
         let index = index.try_into().ok()?;
         self.with_buffer(id, |values| values.get(index)).flatten()
-    }
-
-    /// Distinguish absence from unavailable storage, including a detached edit buffer.
-    pub(crate) fn buffer_element(
-        &self,
-        id: HeapObjectId,
-        index: impl TryInto<usize>,
-    ) -> Result<Option<Value>, RuntimeError> {
-        let index = index.try_into().ok();
-        self.with_buffer(id, |values| values.get(index?))
-            .ok_or_else(|| RuntimeError::module_validation("array handle length"))
     }
 
     /// Shared SDK/native setter preflight. A later conversion may reenter, so
@@ -107,17 +92,7 @@ impl GcHeap {
     pub(crate) fn buffer_contract(&self, id: HeapObjectId) -> Option<Arc<StorageType>> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::SequenceContractRead);
-        let objects = self.objects.borrow();
-        let object = self.native_ref(&objects, id)?;
-        if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
-            || !matches!(
-                object.storage.layout(),
-                NativeStorageLayout::Sequence { .. }
-            )
-        {
-            return None;
-        }
-        Some(object.payload::<SequencePayload>().ok()?.contract.clone())
+        self.with_buffer_payload(id, |_, sequence| sequence.contract.clone())
     }
 
     pub(super) fn validate_buffer_value(
@@ -264,6 +239,19 @@ impl GcHeap {
         id: HeapObjectId,
         f: impl FnOnce(&SequenceStorage) -> R,
     ) -> Option<R> {
+        self.with_buffer_payload(id, |_, sequence| {
+            (!sequence.detached).then(|| f(&sequence.values))
+        })?
+    }
+
+    /// One storage borrow owns identity, family, layout and payload inspection.
+    /// Internal readers cannot call script or retain this borrow. Detached-buffer
+    /// policy belongs to the operation: contract inspection remains available.
+    pub(super) fn with_buffer_payload<R>(
+        &self,
+        id: HeapObjectId,
+        read: impl FnOnce(&Ty, &SequencePayload) -> R,
+    ) -> Option<R> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::SequencePayloadRead);
         let objects = self.objects.borrow();
@@ -277,10 +265,7 @@ impl GcHeap {
             return None;
         }
         let sequence = object.payload::<SequencePayload>().ok()?;
-        if sequence.detached {
-            return None;
-        }
-        Some(f(&sequence.values))
+        Some(read(&object.ty, sequence))
     }
 
     pub(super) fn with_buffer_mut<R>(

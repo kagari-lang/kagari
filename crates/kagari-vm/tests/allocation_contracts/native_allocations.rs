@@ -195,9 +195,7 @@ fn sample(
             .jump_to(runtime, site.pc)
             .unwrap();
         assert!(matches!(
-            stack
-                .execute_region(runtime, &mut Some(1), unexpected_callback)
-                .unwrap(),
+            stack.execute_region(runtime, &mut Some(1)).unwrap(),
             RegionExit::Call(ExecutionAction::NativeEntry)
         ));
         assert_eq!(
@@ -323,9 +321,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         )
         .unwrap();
     assert!(matches!(
-        stack
-            .execute_region(&runtime, &mut None, unexpected_callback)
-            .unwrap(),
+        stack.execute_region(&runtime, &mut None).unwrap(),
         RegionExit::Call(ExecutionAction::Script)
     ));
     for (index, expected) in [11, 20, 11].into_iter().enumerate() {
@@ -338,10 +334,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             Value::I32(expected)
         );
     }
-    let RegionExit::Return(value) = stack
-        .execute_region(&runtime, &mut None, unexpected_callback)
-        .unwrap()
-    else {
+    let RegionExit::Return(value) = stack.execute_region(&runtime, &mut None).unwrap() else {
         panic!("concrete scalar callee must remain in its prepared region");
     };
     stack.finish_return(&runtime, value).unwrap();
@@ -354,7 +347,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         stack.current_mut().unwrap().jump_to(&runtime, pc).unwrap();
         assert!(matches!(
             stack
-                .execute_region(black_box(&runtime), &mut None, unexpected_callback)
+                .execute_region(black_box(&runtime), &mut None)
                 .unwrap(),
             RegionExit::Call(ExecutionAction::Script)
         ));
@@ -375,9 +368,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     .unwrap();
             }
             enter();
-            let RegionExit::Return(value) = stack
-                .execute_region(&runtime, &mut None, unexpected_callback)
-                .unwrap()
+            let RegionExit::Return(value) = stack.execute_region(&runtime, &mut None).unwrap()
             else {
                 panic!("scalar return");
             };

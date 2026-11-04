@@ -6,7 +6,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{
-        ExecutionStack, ReturnDestination,
+        ExecutionStack, NativeEntryState, ReturnDestination,
         driver::{ExecutionAction, ReturnAction},
         transfer::ReturnValue,
     },
@@ -52,7 +52,21 @@ impl ExecutionStack<'_> {
     pub fn finish_return(
         &self,
         runtime: &Runtime,
-        mut packet: ReturnValue,
+        packet: ReturnValue,
+    ) -> Result<ReturnAction, RuntimeError> {
+        self.finish_frame(runtime, Some(packet))
+    }
+
+    /// Consume the completed Native result under the common return admission.
+    /// The slot remains rooted across slicing; it is read only when retiring.
+    pub fn finish_native_return(&self, runtime: &Runtime) -> Result<ReturnAction, RuntimeError> {
+        self.finish_frame(runtime, None)
+    }
+
+    fn finish_frame(
+        &self,
+        runtime: &Runtime,
+        packet: Option<ReturnValue>,
     ) -> Result<ReturnAction, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallReturn);
@@ -71,6 +85,21 @@ impl ExecutionStack<'_> {
             .last()
             .filter(|_| frames.len() > self.base)
             .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
+        let mut packet = match packet {
+            Some(packet) => packet,
+            None => {
+                if !matches!(frame.native_entry, NativeEntryState::Complete) {
+                    return Err(runtime
+                        .resources()
+                        .quarantine("native return before completion"));
+                }
+                let value = frame
+                    .slots
+                    .get(&runtime.gc, 0)
+                    .ok_or_else(|| runtime.resources().quarantine("invalid native return slot"))?;
+                ReturnValue::general(value)
+            }
+        };
         if frame.environment.is_some() || frame.invocation.is_some() {
             drop(frames);
             packet = self.adapt_return(runtime, packet)?;

@@ -28,6 +28,35 @@ pub trait NativeScalar: sealed::Scalar + Sized + 'static {
     fn encode(self) -> Value;
 }
 
+/// Engine-issued evidence that a Rust type uses the sealed scalar codec.
+///
+/// Private construction prevents custom conversion implementations from claiming
+/// effect-free transport. The codec retains checked narrowing on input and cannot
+/// manufacture managed references. Ordinary Native authors do not construct it.
+pub struct ScalarConversion<T> {
+    encode: fn(T) -> Value,
+    decode: fn(Value) -> NativeResult<T>,
+}
+
+impl<T: NativeScalar> ScalarConversion<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            encode: T::encode,
+            decode: T::decode,
+        }
+    }
+}
+
+impl<T> ScalarConversion<T> {
+    pub(crate) fn encode(self, value: T) -> Value {
+        (self.encode)(value)
+    }
+
+    pub(crate) fn decode(self, value: Value) -> NativeResult<T> {
+        (self.decode)(value)
+    }
+}
+
 /// One scalar codec; production Value and scoped transport only adapt carriers.
 pub(crate) trait ScalarCodec: Sized {
     fn decode_scalar(value: ScalarValue) -> Result<Self, ScalarError>;

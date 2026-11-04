@@ -6,7 +6,7 @@ use crate::{
     frame::{
         arguments::{FrameArguments, InvocationArguments, WindowArguments},
         types::arguments::TypeArgument,
-        values::FrameMetadata,
+        values::{FrameMetadata, FrameSlots},
     },
     gc::roots::RootSet,
     module::{ExecutableModule, execution::layout::FrameLayout},
@@ -16,17 +16,19 @@ use crate::{
     },
     value::Value,
 };
-use std::{ptr, sync::Arc};
+use std::ptr;
 
-/// Unique scoped ownership of argument slots and one result slot.
+/// A scoped projection of argument slots and one result slot.
 ///
-/// Slots are traced with existing execution windows and survive nested GC/reentry.
-/// Dropping the guard releases its exact generational window on all exits. It
-/// lends no payload/bank references and cannot escape the supplying Runtime.
+/// Native adapters borrow their active frame; host conversions own a temporary
+/// window. Both are traced by the execution bank through nested GC/reentry. Only
+/// an owning guard releases a window. No payload/bank reference escapes a read.
 pub struct CallSlots<'runtime> {
     runtime: &'runtime Runtime,
     source: WindowArguments<'runtime>,
     published: usize,
+    result_slot: usize,
+    owned: bool,
 }
 
 /// A bounded argument projection used by custom Rust argument-pack adapters.
@@ -51,15 +53,6 @@ impl<'runtime> CallSlots<'runtime> {
         owner: &ExecutableModule,
         count: usize,
     ) -> NativeResult<Self> {
-        Self::allocate(runtime, owner, count, None)
-    }
-
-    fn allocate(
-        runtime: &'runtime Runtime,
-        owner: &ExecutableModule,
-        count: usize,
-        layout: Option<Arc<FrameLayout>>,
-    ) -> NativeResult<Self> {
         runtime.validate_executable_module(owner)?;
         let width = count
             .checked_add(1)
@@ -78,12 +71,14 @@ impl<'runtime> CallSlots<'runtime> {
                     environment: None,
                     invocation: None,
                 },
-                layout.clone(),
+                None,
             )?;
         Ok(Self {
             runtime,
             source: WindowArguments::contiguous(slots, count),
             published: 0,
+            result_slot: count,
+            owned: true,
         })
     }
 
@@ -101,9 +96,14 @@ impl<'runtime> CallSlots<'runtime> {
     /// Returns None for an absent slot or an invalidated execution window.
     /// The copied value acquires no independent root lease.
     pub fn get(&self, index: usize) -> Option<Value> {
-        (index < self.source.len() && index < self.published)
-            .then(|| self.source.slots().get(self.runtime.gc(), index))
-            .flatten()
+        if index >= self.source.len() || index >= self.published {
+            return None;
+        }
+        self.source.slots().with_location(
+            self.runtime.gc(),
+            self.source.location(index),
+            Value::clone,
+        )
     }
 
     /// Lend read-only coordinates for synchronous backend admission.
@@ -137,16 +137,22 @@ impl<'runtime> CallSlots<'runtime> {
         Self::snapshot_into(Self::new(runtime, owner, count)?, read)
     }
 
-    pub(crate) fn snapshot_prepared(
+    /// Borrow the active Native frame. Its parameters stay frozen until return;
+    /// this view owns neither a second root window nor the frame's cleanup.
+    pub(crate) fn native(
         runtime: &'runtime Runtime,
-        owner: &ExecutableModule,
+        frame: FrameSlots,
+        layout: &'runtime FrameLayout,
         count: usize,
-        layout: &'runtime Arc<FrameLayout>,
-        read: impl FnMut(usize) -> NativeResult<Value>,
-    ) -> NativeResult<Self> {
-        let mut slots = Self::allocate(runtime, owner, count, Some(layout.clone()))?;
-        slots.source = WindowArguments::mapped(slots.source.slots(), &layout.locations[..count]);
-        Self::snapshot_into(slots, read)
+        adapted_result: bool,
+    ) -> Self {
+        Self {
+            runtime,
+            source: WindowArguments::mapped(frame, &layout.locations[1..1 + count]),
+            published: count,
+            result_slot: if adapted_result { count + 1 } else { 0 },
+            owned: false,
+        }
     }
 
     fn snapshot_into(
@@ -173,7 +179,15 @@ impl<'runtime> CallSlots<'runtime> {
         self.ensure_write(index)?;
         self.source
             .slots()
-            .set(self.runtime.gc(), index, value)
+            .set(
+                self.runtime.gc(),
+                if index == self.source.len() {
+                    self.result_slot
+                } else {
+                    index
+                },
+                value,
+            )
             .ok_or_else(|| RuntimeError::module_validation("argument slot publication"))?;
         self.published += 1;
         Ok(())
@@ -210,7 +224,7 @@ impl<'runtime> CallSlots<'runtime> {
         }
         self.source
             .slots()
-            .get(self.runtime.gc(), self.source.len())
+            .get(self.runtime.gc(), self.result_slot)
             .ok_or_else(|| RuntimeError::module_validation("result slot"))
     }
 
@@ -314,6 +328,9 @@ impl<'slots, 'runtime> ArgumentReader<'slots, 'runtime> {
 
 impl Drop for CallSlots<'_> {
     fn drop(&mut self) {
+        if !self.owned {
+            return;
+        }
         match self.runtime.resources().frame_values.try_borrow_mut() {
             Ok(mut storage) => {
                 if storage.release(self.source.slots()).is_none() {

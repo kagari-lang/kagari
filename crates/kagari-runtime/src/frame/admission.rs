@@ -7,11 +7,10 @@ use crate::{
     error::RuntimeError,
     execution_metadata::MetadataRoot,
     frame::{
-        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, NativeEntryState,
+        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, FrameTarget, NativeEntryState,
         ReturnDestination, arguments::FrameArguments, driver::ExecutionAction,
         values::FrameMetadata,
     },
-    module::ExecutableModule,
 };
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 
@@ -20,8 +19,7 @@ impl ExecutionStack<'_> {
     pub(super) fn push_admitted_arguments(
         &self,
         runtime: &Runtime,
-        loaded: ExecutableModule,
-        target: CallableTarget,
+        callee: FrameTarget<'_>,
         args: FrameArguments<'_>,
         return_dst: Option<Slot>,
         dispatch: FrameDispatch<'_>,
@@ -29,6 +27,10 @@ impl ExecutionStack<'_> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallAdmission);
 
+        let (loaded, target, validate_owner) = match callee {
+            FrameTarget::Exact(owner, target) => (owner, target, true),
+            FrameTarget::Selected(selected) => (selected.owner().clone(), selected.target(), false),
+        };
         if let CallableTarget::Script(function) = target
             && loaded.is_static_initializer(function)
             && !matches!(&dispatch.entry, FrameEntry::StaticInitializer(attempt)
@@ -154,7 +156,9 @@ impl ExecutionStack<'_> {
             if !heap_arguments_valid {
                 return Err(RuntimeError::module_validation("invalid heap argument"));
             }
-            runtime.validate_metadata(MetadataRoot::Program(loaded.clone()).edge())?;
+            if validate_owner {
+                runtime.validate_metadata(MetadataRoot::Program(loaded.clone()).edge())?;
+            }
             if let Some(environment) = &environment {
                 runtime.validate_environment(environment.id)?;
             }

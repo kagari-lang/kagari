@@ -124,10 +124,7 @@ fn named_values_and_named_locals_select_current_but_zero_capture_bodies_stay_exa
         if *kind == CallRouteKind::BodyOwned {
             let mut called = false;
             for _ in 0..64 {
-                match stack
-                    .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))
-                    .unwrap()
-                {
+                match stack.execute_region(&runtime, &mut None).unwrap() {
                     RegionExit::Call(ExecutionAction::Script) => {
                         assert_eq!(
                             stack.current().unwrap().loaded().publication_token(),
@@ -235,10 +232,7 @@ fn only_named_value_roots_allow_old_code_collection_and_current_admission() {
             None,
         )
         .unwrap();
-    let RegionExit::Return(result) = stack
-        .execute_region(&runtime, &mut None, |_, _, _, _| panic!("no native calls"))
-        .unwrap()
-    else {
+    let RegionExit::Return(result) = stack.execute_region(&runtime, &mut None).unwrap() else {
         panic!("scalar helper returns directly");
     };
     assert_eq!(

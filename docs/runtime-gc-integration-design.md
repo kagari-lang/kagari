@@ -827,6 +827,177 @@ warm allocations and paired throughput separately from diagnostics; preserve the
 generic/foreign-input boundary tests. The scalar raw control is not a promised
 performance floor for full generic callbacks.
 
+### Native activation and call lifecycle
+
+Review proposal, 2026-11-04, following the user's request for the complete Native
+call model. This refines the existing unified exchange proposal; it does not
+activate production replacement or close the nominal/generic lifetime proofs.
+The [small-call diagnosis](gc-redesign-plan.md#small-native-and-vec-access-diagnosis-2026-11-04)
+shows repeated admission and two logical windows despite zero warmed inner-call
+allocator requests. The design targets ownership and proof reuse, not an assumed
+allocation bottleneck or an unmeasured Lua speedup.
+
+#### One activation owns one invocation
+
+Evolve the existing execution frame into the sole invocation owner. A Native
+activation retains its selected executable/application, depth and trace state,
+frozen parameter locations, protected result location, temporary locals and loan
+cleanup. NativeContext borrows this activation's services; it does not establish
+a second execution session or root window. The linked binding/application owns
+immutable mappings and projections. Modules own route selection, execution owns
+activation state, memory integration owns physical publication, and host storage
+owns Rust-loan admission. These remain ordinary modules rather than new public
+proof types or a parallel registry.
+
+The conceptual transition is:
+
+```text
+prepared route and arguments
+    -> select and admit
+    -> initialize protected callee parameters
+    -> execute adapter/body
+    -> completed protected result
+    -> publish to caller and retire
+
+conversion/body failure or unwind -> release this activation's owners
+nested call -> child activation on the same execution/root source
+```
+
+Selection/admission is a transaction, not a promise that all checks happen once
+for the entire body. Preserve existing pre-effect validation and error order.
+Before any effectful converter, all argument values must be available in frozen,
+call-owned parameter locations; those locations protect the complete pack until
+result adaptation finishes. Reuse the callee's locations once their immutability
+and lifetime are proved. Do not replace this snapshot with live caller operands
+that a converter or reentrant callback can change. Each newly converted managed
+value is published before a later converter can collect.
+
+One authoritative window may contain separate parameter, result and scratch
+slots. It does not mean overwriting an input slot with the result. A destination
+that aliases an input is committed only after argument consumption and successful
+result adaptation. Publication records initialization, including Unit; an initial
+Unit bit pattern is not evidence that a converter wrote a required value.
+
+The adapter writes the protected result before releasing conversion temporaries.
+The ordinary backend return transition publishes it before retiring the Native
+frame. Preserve a completed Native activation when slicing parks at that return
+boundary. An uninterrupted synchronous drive may perform adjacent transitions
+without repeatedly reclassifying the frame, but uses the same cleanup, observation,
+trace and return protocol. It cannot remove the frame from depth or stack traces,
+skip observer/error ordering, or introduce another leaf-call execution engine.
+
+#### Check facts at their invalidation boundaries
+
+| Fact | Owner and validity | Required invalidation handling |
+| --- | --- | --- |
+| Signature, nominal application, Rust mapping and slot projections | Immutable linked binding/concrete application | Prepare before converter/body effects; active frames retain the exact owner; replacements obtain their own matching prepared facts |
+| Selected target and installation admission | Modules/execution at invocation entry | Retain the admitted body; ordinary subsequent calls select current code; never use a retained callback as authority for a new call |
+| Frame identity, initialized input and slot bounds | Execution-owned activation and bounded projections | Reuse within the admitted private transition; reject foreign/stale external coordinates and reacquire storage after reentry |
+| Runtime phase, sticky failure, depth and host loans | Execution/host admission | Check at entry and after arbitrary converters, callbacks, observers or other operations that can invalidate the relevant fact |
+| Object type/access, Present/Taken, bounds and structural revision | Prepared semantic contract plus short object/provider access | Admit actual receiver and changing state at access; release payload loans before GC/reentry and reacquire afterward |
+| Custom or erased value validity | Conversion/ingress adapter | Validate the actual value before publication; a user-implemented mapping trait does not certify its output |
+
+An existing private admitted helper or guard should carry a closed transition's
+proof; do not add an unrestricted reusable `validated` flag. GC need not invalidate
+an immutable signature, while a user callback can invalidate payload availability
+or execution health. Recheck the facts affected by the boundary, rather than
+rerunning every installation/type check indiscriminately. Core Faulted/Closed and
+sticky-failure gates remain effective even when user Rust catches an inner error.
+
+Publication is already prohibited during active synchronous execution. A scoped
+selection owner may exploit that rule to avoid repeated current-publication locks
+inside one admitted transition, but must not hold a mutex guard across user code.
+Park/resume starts fresh admission. Candidate initialization retains its isolated
+routing rules. Any broader reuse across multiple calls requires an explicit proof
+covering publication, installation retirement and reentry; this proposal does not
+add a persistent target cache.
+
+#### Typed transport and effectful conversion
+
+Ordinary scalar and admitted managed-value transport uses the same prepared
+mapping and publication kernel as parameters, returns, fields and containers.
+Sealed scalar codecs and private typed constructors can preserve known type facts
+without constructing a recursive ConversionContext for `() -> i64`. Checked
+narrowing and actual ownership/application admission still occur where required.
+Do not grant this property to arbitrary public From/Into implementations or add
+a user-declared `trusted`, `no_gc` or `no_reentry` performance flag.
+
+Custom Rust/DTO/string/sequence conversion keeps its fallible traversal, limits,
+temporary protection and actual-value validation. Its state belongs to that
+conversion inside the activation and is created only when needed. It consumes
+the common destination writer; it does not manufacture another complete copy of
+the input/result window. Ordinary authors keep returning typed NativeResult<R>,
+with adapters responsible for publication. The exact Rust family/lifetime bounds
+must compile through the real binder, including nominal and generic results.
+
+User-selected default, 2026-11-04: short payload access, release before callback,
+and reacquire only when a subsequent operation needs that payload. A callback-free
+len/get/set operation admits its receiver and dynamic access once for that closed
+operation; internal helpers consume that authority. A short scoped storage body
+can return a scoped value to its adapter, which publishes before leaving the
+region. A callback-bearing body keeps protected Local coordinates while releasing
+all payload/frame-bank/memory-driver loans before calling script. These are
+lifetime adaptations over one activation and exchange contract, not separate
+public fast/slow Native APIs.
+
+Reacquisition validates current payload availability, borrow permission and the
+operation's bounds/revision requirements. It does not repeat stable mapping or
+signature preparation. If the body never accesses that payload again, do not add
+a speculative payload check after its callback; common execution-health and
+return-publication gates still apply. Combine family/contract/payload admission
+inside one short access rather than layering independently checked wrappers.
+
+Enforce local raw-reference exclusion through Rust lifetimes where possible and
+retain dynamic exclusion for alternate aliases/reentry. A live Rust loan cannot
+be made safe by silently releasing its runtime guard. Installed host &T/&mut T
+arguments retain their actual HostScope loan for the declared Rust lifetime;
+conflicting reentry remains rejected. The release/reacquire default concerns
+short managed-payload access and does not revoke or weaken those host loans.
+
+For a fold, protect accumulator and current element in bounded working slots,
+release the vector loan, invoke the reducer through a child activation, then
+reacquire the vector and check its structural revision. Publish the returned
+accumulator before retiring the child result. An alias may mutate or take the
+payload during the callback; readonly access does not freeze that state. Host
+retention is explicit only when values outlive the interaction. Async admission
+moves inputs into scheduler-owned protected storage; neither Local nor a Rust
+payload loan crosses suspension.
+
+#### References, migration and acceptance
+
+The Lua 5.4.8 and Wasmtime 51.0.0-dev references above were checked again for this
+proposal. Lua centralizes frame/stack call transitions; Wasmtime retains typed
+signature evidence while still admitting store/execution state. Neither supplies
+Kagari's complete static nominal, reload and host-loan contract. OpenJDK 21+35
+[Handle and HandleMark](https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/runtime/handles.hpp)
+uses scoped handle locations to retain objects through GC and release temporary
+handle storage by scope. Kagari adopts the distinction between protected locations
+and raw access, not HotSpot's thread-local C++ handle discipline: its generative
+Rust lifetimes, parked execution roots and exclusive Runtime driver remain owners.
+These sources motivate mechanisms and provide no performance prediction.
+
+Implement within the existing GCR00/GCR02 orders 1-3: close real typed binding and
+return-lifetime proofs, make adapters consume authoritative callee storage, then
+consolidate admission/return orchestration. Replace the obsolete duplicate window
+and stale linked-callback path when their consumers migrate. Preserve the existing
+prepared mappings, scalar codecs and reusable execution banks. Complete retention
+proofs and production representation cutover retain orders 4/6 ownership. The
+already selected cancellation removal remains a separate GCR03 change; GC service,
+admission and sticky failure must not disappear with polling.
+
+For warmed `native_zero`, structural acceptance is zero per-call heap allocations
+and independent host roots, zero stable mapping/application preparation, one
+logical Native activation/window, and no recursive conversion context for the
+sealed scalar codec. These are model expectations to verify, not measured results
+or a requirement that all custom converters allocate nothing. Reuse the frozen
+ordinary small-call/vector/fold workloads, separate event counts from throughput,
+and also measure one host call per operation so outer-entry cost stays visible.
+Retain selected tests for converter effects and malformed results, foreign owner/
+application rejection, collecting reentry, result/input aliasing, parked completed
+returns, payload take/revision changes, depth/sticky-failure/unwind cleanup and
+current named versus retained closure code. Full matrices remain CI-owned; no
+numeric speed target is inferred from Lua or from eliminating a counted check.
+
 ### Earliest valid owner for each fact
 
 | Stage | Facts established here | Execution consequence |

@@ -5,10 +5,7 @@ use crate::diagnostics::{self, Event};
 use crate::{
     error::RuntimeError,
     frame::{
-        cursor::{
-            ExecutionCursor, objects::FieldContinuation, primitives::NativeContinuation,
-            scalars::ScalarExit,
-        },
+        cursor::{ExecutionCursor, objects::FieldContinuation, scalars::ScalarExit},
         driver::ExecutionAction,
         transfer::ReturnValue,
     },
@@ -31,9 +28,7 @@ pub enum RegionExit {
 #[derive(Debug, thiserror::Error)]
 pub enum RegionError {
     #[error(transparent)]
-    // Detailed runtime failures are cold, owned data. Keep their message/trace
-    // payload out of every successful region return and managed-operation result.
-    Runtime(Box<RuntimeError>),
+    Runtime(RuntimeError),
     #[error("{0}")]
     TypeMismatch(&'static str),
     #[error("invalid index: {0}")]
@@ -42,7 +37,7 @@ pub enum RegionError {
 
 impl From<RuntimeError> for RegionError {
     fn from(error: RuntimeError) -> Self {
-        Self::Runtime(Box::new(error))
+        Self::Runtime(error)
     }
 }
 
@@ -53,7 +48,6 @@ pub(super) enum CursorExit {
 
 pub(super) enum PreparedTransition {
     Call { index: usize },
-    Native { index: usize },
     Constant { dst: Location, constant: ConstantId },
     Field { index: usize },
     TupleWrite { operation: usize, index: u64 },
@@ -154,13 +148,6 @@ impl ExecutionCursor<'_> {
                 })) => {
                     if let Some(exit) = self.execute_index(index)? {
                         return Ok(exit);
-                    }
-                }
-                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Native {
-                    index,
-                })) => {
-                    if let NativeContinuation::Callback = self.execute_native(index)? {
-                        return Ok(CursorExit::Transition(PreparedTransition::Native { index }));
                     }
                 }
             }

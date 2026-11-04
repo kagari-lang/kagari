@@ -135,6 +135,19 @@ authorization to skip the existing retention/cutover prerequisites. Next proofs
 must bind nominal/generic values and demonstrate host -> script -> Native ->
 script -> host with GC/reentry and source-free admission on the shared owners.
 
+Design review, 2026-11-04: the requested complete Native call model is specified
+as the [activation and lifecycle proposal](runtime-gc-integration-design.md#native-activation-and-call-lifecycle).
+One existing execution-frame owner retains selection, frozen parameters, result,
+locals and cleanup; typed adapters consume its protected storage. The proposal
+assigns checks to their invalidation boundaries and distinguishes sealed typed
+transport from arbitrary effectful conversion. It preserves parked completed
+returns, current-code selection, host loans and collecting reentry. Lua 5.4.8,
+Wasmtime 51.0.0-dev and OpenJDK 21+35 mechanisms and differing assumptions are
+recorded with the design. This is a GCR00/GCR02 review input, not implemented
+replacement or authorization to advance orders 4-8. Real nominal/generic binding,
+Rust lifetime proofs, selected behavioral coverage and unchanged-source paired
+measurements remain required. No new timing result or performance gain is claimed.
+
 User direction, 2026-11-04: standard-library efficiency is a design/acceptance
 constraint on that same exchange model. The [hot-path cost contract](runtime-gc-integration-design.md#standard-library-hot-path-cost-contract)
 requires prepared stable facts, direct scalar/protected-location transport,
@@ -183,6 +196,323 @@ record the exact shared migration checkpoint there when implementation starts.
 Do not make full NC completion, derive tooling, compact Option encoding, full R13
 resolution or a general-purpose container framework prerequisites for these
 proofs. Do not silently drop supported collection behavior at cutover either.
+
+### Native call-model change sequence
+
+Planning update, 2026-11-04: the user selected short payload borrows, release before
+script callbacks and on-demand reacquisition, and requested this change breakdown.
+The [activation design](runtime-gc-integration-design.md#native-activation-and-call-lifecycle)
+owns the contract. This sequence refines orders 1-3; it does not restart completed
+preparation/storage work or authorize the later whole-Runtime cutover. All
+implementation states are tracked in the ledger below. The sequence remains open;
+documentation changes alone establish no implementation or performance acceptance.
+
+| Sequence / state | Change and existing owners | Exit evidence |
+| --- | --- | --- |
+| 1. Partial: production binding and baseline complete; scoped binder open | Reuse native binding/application preparation and the actual ModuleBuilder::bind route. Prove scalar, nominal/generic and scoped result shapes plus callback-bearing Local results; keep one public exchange model. Reproduce the existing native_zero/len/get/fold controls before implementation, retaining source/image hashes and environment. | Stable mapping failures precede converter/body effects; generic/nominal identity survives source-free linking and GC; ordinary authors need no Kind/View or result-slot protocol. Existing diagnostic counts are reproduced or discrepancies explained. |
+| 2. Implemented and locally validated for production representation | Evolve frame admission, call_slots, Native entry/return, typed/conversion adapters and their argument projections. The Native frame owns the frozen complete input pack, protected result and bounded scratch. Typed conversion borrows these locations rather than making a second full window. Use common scalar codecs; instantiate recursive conversion state only for conversions that require it. | Effectful converters cannot observe later inputs changing through caller slots; every managed intermediate is protected before collection; malformed/custom results still fail. Input/result aliasing, unwritten Unit, failed conversion and unwind preserve error order and cleanup. Warm scalar entry has one logical Native frame/window and no independent root registration or recursive conversion context. |
+| 3. Partial: parameter roles and shared short reads implemented; write/fold provider consolidation open | Native context/managed access, host-loan adapters and stdlib provider operations share short checked access. Precompute parameter roles in the existing binding/application; apply actual narrowing/borrow checks at admission. Reuse bounded fold locals and the actual provider storage. | len/get/set admit one closed access without repeated family/payload wrappers. Payload/bank/driver loans end before script calls. Collecting callbacks keep outer roots alive; alias mutation/take is detected on subsequent access. A return-only continuation does not probe an unused payload. Existing Rust host loans remain valid and reject conflicting reentry. |
+| 4. Partial: Native entry/return admission consolidated | frame calls/admission/native/returns and the VM driver consume established selection and frame authority inside callback-free transitions. Ordinary calls still select current code; use the same activation protocol for SDK entry and Native script reentry. | No second session or call kernel; repeated module/state checks are removed only with a documented validity interval. Depth, observer/trap order, completed parked results and sticky inner failures retain their semantics. Named calls follow current code while closures retain exact bodies. No publication lock or raw storage loan crosses arbitrary user code. |
+| 5. Partial: obsolete routes removed; parity remains open | Update affected SDK/stdlib consumers and existing boundary tests; remove the replaced snapshot orchestration and unused stale callback route, keeping no compatibility forwarding API or selectable alternate semantics. Compare unchanged production workloads when their owning path is integrated. | Focused contracts and required local quality checks pass. Count allocations, roots, windows, preparation and admissions separately from ordinary timing; record cold preparation, warmed throughput and remaining regressions. Host-per-operation measurements expose outer SDK cost. Complete workspace/backend/platform acceptance remains CI-owned. |
+
+Implementation owners:
+
+- Binding and conversion: native/binding.rs, native/typed/preparation.rs,
+  native/typed.rs, native/conversion and native/context/references.rs. Retain
+  actual value/capability validation while relocating stable parameter-role work.
+- Activation and transport: frame/admission.rs, frame/call_slots.rs,
+  frame/native.rs, frame/returns.rs and kagari-vm's executor/driver.rs. Use the
+  existing execution banks and the single common return/cleanup protocol.
+- Scoped access and provider proof: native/managed/{call,entry,slots}.rs,
+  native/context operations, existing host borrow owners and kagari-stdlib's
+  managed vector/fold. Current-collector corrections can land while it remains
+  the only production collector; candidate-heap references remain confined to
+  their reviewed prototype until orders 4/6 close retention and cutover.
+
+Reuse the existing VM prepared-entry tests for prepared mappings, actual-result
+rejection and pre-effect source-free mismatch rejection, and the managed_gc
+collecting/reentrant fold proof. Select existing host-borrow, native frame/return,
+module dispatch and cleanup cases for each changed boundary. Add only distinct
+missing contracts (for example, a newly exposed alias/take or lifetime escape),
+not another parallel smoke suite. Relevant initial filters are:
+
+```text
+cargo test -p kagari-vm --lib prepared_entry
+cargo test -p kagari-vm --lib managed_fold_calls_real_script_with_collection_and_synchronous_reentry
+```
+
+These filters are a starting subset, not complete acceptance for later frame/host
+changes. Choose the remaining small affected set after implementation inspection;
+run structure, fmt, workspace all-target Clippy and diff checks at implementation
+acceptance. Do not run the full workspace/backend matrix locally. Keep each
+current-representation checkpoint building; if a later representation change
+requires a broken intermediate boundary, record its exact failures and repair
+owner under the existing GCR03 policy before beginning that cutover.
+
+Cancellation removal stays in order 5/GCR03 and is measured independently. Core
+GC scheduling, sticky failure, host loans and bounds are not cancellation polls.
+Complete collection migration, new Option encoding, global target caches,
+thread/concurrency changes and broader JIT support are outside this sequence.
+Actual ABI/backend consumers of any changed internal contract must still be
+updated at its owning checkpoint. A missed timing gate requires renewed path
+attribution, not a container-specific unchecked API or weaker assertions.
+
+### Native activation implementation ledger
+
+2026-11-04: implementation of the ordered Native change sequence is now requested.
+The user sets Lua parity as the performance objective; no parity is established.
+The initial comparable gate is the unchanged native_zero same-Rust-helper route,
+with len/get/fold and host entry retained as distinct checks rather than substitutes.
+The production binding/application mapping proofs are reused and parameter-access
+classification now belongs to those immutable owners.
+Remaining nominal/generic scoped binding and lifetime work is not marked complete.
+
+Baseline: 01f5edbb production sources, with only AGENTS/design/plan edits; Windows
+11 10.0.26300, i9-12900K, 24 logical CPUs, 64 GiB; rustc 1.99.1 (58cf8f9c3),
+LLVM 23.1.1, x86_64 MSVC. Workspace release/default target/default parallelism,
+source/native and mlua lua54/vendored; interpreter execution, no automatic GC,
+untimed full collection per batch. Seven sequential fresh processes, three
+warmups and eleven samples; compilation/preparation excluded. Build took 31.407 s.
+All checksums and mutation postconditions passed. Median batch microseconds:
+
+| Workload | Kagari | Lua | Ratio of reported medians |
+| --- | ---: | ---: | ---: |
+| native_zero (5000 calls) | 4976.4 | 108.4 | 45.91 |
+| loop_control | 37.2 | 23.9 | 1.56 |
+| vec_len | 4186.2 | 50.3 | 83.22 |
+| vec_get | 4389.3 | 58.5 | 75.03 |
+| fold_scalar | 16742.8 | 43.6 | 384.01 |
+| fold_references | 20148.1 | 48.0 | 419.75 |
+
+Reproduce using the existing driver: `uv run python scripts/benchmark_lua.py
+--stdlib-ops --runs 7 --freeze-baseline NEW_IMAGE_PATH`. The local frozen image is
+under target/lua-comparison/native-activation-before; executable SHA-256
+`eedf41d4f0679a34508283e81368f617b1205820d244b83bb8739d6cd9cc2071`,
+workload SHA-256 `55898e479498738810ca8ab429daf33be7133edf85ddd04ceb21fd52b540278b`.
+These timings include loop and outer SDK entry; they are not isolated FFI latency
+or directly comparable to the earlier i7-10700F measurements. No concurrent
+build/check ran during the timing processes. Final focused local and CI acceptance
+are reported below; the baseline measurement alone was not implementation evidence.
+
+Production Native checkpoint:
+
+- Replaced typed callback snapshots with a projection of the admitted Native
+  frame. Parameters remain frozen; concrete interface-adapted results use one
+  generic scratch slot in that same window. Host-to-script conversion still owns
+  its temporary window. This is not the candidate-heap cutover.
+- Prepared shared-access parameter roles once per closed/applied binding; narrowed
+  actual scoped capabilities in callee slots without replacing caller capabilities.
+- Added engine-issued scalar conversion evidence backed by the existing sealed
+  NativeScalar codec. Scalar packs retain physical/narrowing checks; custom packs
+  retain their effectful conversion. Scalar output is published by the common
+  Native return transition. Recursive conversion state is created only on use.
+- Reused admitted Native-frame owner authority for conversion. Route selection
+  already checks the installation and available/current publication, so it no
+  longer repeats executable installation validation within that closed operation.
+  Frame admission still validates metadata before publishing roots. Native return
+  consumes the completed result under one common frame-retirement admission.
+- Removed the unreachable retained-native cursor path and its linked descriptors;
+  removed the direct scalar callback bypass. Selected callbacks use the normal
+  execution frame, current-route selection, depth, observer and cleanup protocol.
+- No payload reference is held across user conversion or reentry. The candidate
+  managed short-region/reentrant fold proof remains intact; nominal/generic Local
+  binding and production provider consolidation remain open steps 1/3. The whole
+  call-transition consolidation in step 4 is not complete.
+
+Focused validation already observed: 38 VM tests selected by Native conversion,
+callback and control owners, the collecting/reentrant managed fold, and the admitted
+Native/current-callback regression; 11 runtime tests for cursor return publication,
+stored hash selections, and argument admission precedence. Initial runtime test
+compilation exposed a missing ScriptInvoker argument in a migrated cursor fixture;
+the fixture was repaired and the selected tests rerun successfully. No assertion
+was weakened. Four dispatch-selection tests and six additional VM boxed-Native/host-boundary
+tests also passed, including completed Native results surviving parked execution
+and collection. Workspace all-target Clippy found five stale execute_region
+arguments in the allocation-contract harness; those callers were migrated without
+changing assertions. Both selected allocation-contract tests then passed, retaining
+zero warmed allocation/release requirements. Workspace all-target Clippy passed after that harness repair. The 61 selected
+contract tests, repository structure check, cargo fmt check and git diff check
+passed. Production imports/ownership were reviewed: no new unsafe code, re-exports,
+compatibility entrypoints, handwritten include or structural exception was added.
+The complete feature/backend/platform matrix remains CI-owned and unrun locally.
+
+Initial three-pair throughput probe passed every checksum. Native zero was
+3570.5 us / 5000 calls versus Lua 101.2 us (35.28x); it predates the final duplicate
+entry/return-validation consolidation and is not the final timing result. Other
+stdlib workloads showed no broad improvement. This falsifies any claim that
+removing typed snapshots alone closes the gap: repeated general activation,
+selection, return and conversion work still dominates. Reattribute the remaining
+path before selecting further changes; do not add a separate unchecked callback
+kernel or claim Lua parity from this checkpoint.
+
+Final ordinary timing, seven interleaved baseline/candidate process pairs, same
+machine/toolchain/profile/features/workload hash as above; three warmups and eleven
+samples per route; no compilation or tests overlapped timing. Build: 29.001 s.
+All checksums and mutation postconditions passed. The frozen baseline was rerun,
+so the comparison below uses paired-run medians rather than the first baseline:
+
+| Workload | Baseline Kagari us | Candidate Kagari us | Candidate Lua us |
+| --- | ---: | ---: | ---: |
+| loop_control | 38.6 | 36.0 | 26.0 |
+| native_zero | 4993.9 | 2878.6 | 106.2 |
+| vec_len | 4254.9 | 3935.2 | 50.2 |
+| vec_get | 4400.3 | 4159.7 | 58.3 |
+| vec_set_get | 9661.3 | 9194.9 | 80.7 |
+| vec_pop_push | 13160.1 | 12744.1 | 377.1 |
+| fold_scalar | 16646.6 | 16768.0 | 43.7 |
+| fold_references | 20364.0 | 20283.3 | 48.3 |
+
+Native zero workload time decreased 42.36%, but remains 27.11x Lua. Fold has no
+established improvement; the small scalar-fold median regression is retained
+rather than presented as a win. Neither the Native sequence nor Lua parity is
+complete. Candidate executable SHA-256:
+`d9295da68d0054afeb7c910283ab24165b8564487018e207e8a20664df3d1a90`.
+Reproduce with `uv run python scripts/benchmark_lua.py --stdlib-ops --runs 7
+--baseline-executable FROZEN_BASELINE_EXE` and its matching stdlib report.
+
+Separate diagnostic build: `cargo run --release -p kagari-lua-benchmark --features
+diagnostics -- --stdlib-ops --diagnostics --check`. Subtracting warmed loop-control
+counts from native_zero and dividing by 5000 gives one selection/admission/return,
+one window, one module validation, nine polls, ten state guards and two GC service
+points per inner invocation. Added recursive conversion contexts, Rust allocation
+requests, roots, heap objects, collections, mapping/value matchers and preparations
+are all zero. Whole-batch outer SDK cost remains 35 allocation requests, 2256 requested
+bytes, two conversion contexts and one root-pack registration, also present in the
+loop control. The diagnostic build supplies counts, never throughput evidence.
+
+This attribution leaves a concrete next owner: the shared selection/frame/driver
+activation lifecycle still performs nine polls and ten guards for each empty body.
+The conversion layer is no longer the source of those counts. Sequence len/get
+still admit family/contract twice per access; fold still crosses the full callback
+conversion/entry protocol. Finish the pending scoped binding/provider work and
+consolidate those established activation boundaries before any collector cutover;
+benchmark the same production workloads again. No unchecked special entry,
+changed workload, removed cancellation contract or permanent global target cache
+is justified by the missed target.
+
+Continuation: current-target selection now prepares binder transport only when a
+consumer requests it. Immediate frame admission consumes the selected authority
+inside a private, callback-free transaction; exact host/queued entries retain
+their independent metadata validation. The current publication resolves its own
+member ordinal directly, while candidates and retained old bodies still consult
+record availability. Registry checks remain; an installation already obtained
+from this Runtime's table does not repeat the same table lookup for Arc equality.
+
+The runtime now owns the shared instruction-entry prelude (poll, diagnostic PC,
+GC service, observation). The VM preserves prelude errors outside the operation's
+Trap notification boundary. Resumed/parked slices still poll, as do Native entry,
+post-callback and return boundaries. This consolidates duplicate polling without
+activating GCR03's separately scoped cancellation-policy removal. A first
+three-pair probe before the member-lookup change passed all checksums: native_zero
+2531.0 us versus Lua 111.2 us, 22.76x. Same machine/toolchain/profile and workload
+as above; build 30.059 s excluded. It remains a missed performance gate.
+Separate counts now show six polls and zero extra module validations per empty
+call; ten execution guards remain. These counts do not establish each guard's
+individual timing cost.
+
+Buffer family/layout/payload inspection now shares one internal borrowed record.
+Length/snapshot read under that borrow; contract-only admission no longer clones
+an Arc merely to check availability. Host TryInto index conversion retains its
+original receiver-admission order and runs outside all payload borrows, followed
+by reacquisition. Fixed-array/nominal-family rejection and detached-edit semantics
+remain unchanged. That internal kernel introduces no unchecked library path.
+Seven runtime buffer/accounting tests and seven VM partial-edit, detached-cursor,
+alias extraction and conversion tests passed. The corrected instruction prelude
+passed fourteen Native control/boxing/preparation tests. All twelve selected
+dispatch/application tests passed after the member-lookup change.
+
+The next bounded investigation is the common failure carrier: successful Native
+and frame APIs still return a full inline RuntimeError, whereas two older local
+workarounds box that same error in primitive and region paths. Measure its actual
+ABI width before deciding whether to centralize cold error ownership and remove
+those wrappers. This concerns successful boundary transport, not weaker checks or
+changed failure behavior. A representation change must preserve codes/messages,
+trace/task provenance, first-failure precedence and task heap accounting. Relevant
+mature reference: [anyhow 1.0.104 Error](https://docs.rs/anyhow/1.0.104/anyhow/struct.Error.html)
+keeps the error carrier one word; Kagari can use an ordinary owned concrete Box
+instead of its dynamic type erasure, backtrace policy or unsafe pointer machinery.
+No timing improvement is inferred from that reference.
+
+The ABI probe measured RuntimeError / Result<(), RuntimeError> /
+Result<Value, RuntimeError> at 72/72/72 bytes before the carrier change and
+8/8/16 afterward on the same x86_64 toolchain. The probe was removed after use.
+RuntimeError now owns its complete concrete diagnostic record through Box;
+clones still independently own messages and share only the existing trace Arc.
+The primitive-only result alias and region error Box were removed. Task charge
+includes the diagnostic record's backing as well as message capacity; its
+running/terminated/quarantined cleanup test retains exact accounting assertions.
+Seven runtime error/buffer/accounting tests and thirteen VM cancellation, observer,
+reentry and failure-precedence tests pass. A new buffer-owner case establishes
+that arbitrary host index conversion runs after family admission, outside a loan,
+and its completed mutation is seen by the subsequent read.
+
+Three interleaved process pairs against the immediately preceding frozen image
+passed all checksums. Native zero was 2080.8 us versus Lua 102.8 us (20.24x);
+build 31.216 s excluded. The original environment/profile/workload applies.
+This modest result does not close the lifecycle gap. The carrier is a shared
+transport correction, replacing the two local wrappers, not an empty-call bypass.
+
+Production library length/get and primitive indexing now consume one short
+SequenceRead loan through CallContext::read_sequence and the shared native-record
+borrow owner. That access checks generation, nominal/application type, storage
+family, payload and detached state once. The loan cannot escape or permit script
+reentry/collection; later access reacquires and checks the actual object. Values
+copied out still need explicit protection before alias-mutating callbacks.
+Write/edit operations retain their existing mutation/commit protocol; arbitrary
+host TryInto conversion retains its separate admission/reacquisition boundary.
+Eight selected VM detached-buffer/partial-edit/extraction/trace tests pass with
+this read path. General scoped nominal bindings and write/fold consolidation
+remain open; this is not acceptance of the entire Native sequence.
+
+Latest ordinary gate: seven interleaved process pairs against the original frozen
+baseline, same machine/toolchain/default release profile/features/workload hash,
+three warmups and eleven samples per process. No builds/checks overlapped timing.
+All checksums and mutation postconditions passed in all fourteen processes;
+build 31.162 s excluded. Median complete-workload microseconds:
+
+| Workload | Baseline Kagari us | Candidate Kagari us | Candidate Lua us |
+| --- | ---: | ---: | ---: |
+| loop_control | 38.7 | 36.0 | 31.7 |
+| native_zero | 5018.8 | 2079.6 | 110.8 |
+| vec_len | 4297.9 | 2842.3 | 51.6 |
+| vec_get | 4372.7 | 3013.9 | 59.7 |
+| vec_set_get | 9546.6 | 6791.5 | 79.3 |
+| vec_pop_push | 13128.4 | 10430.8 | 356.7 |
+| fold_scalar | 16571.2 | 15843.7 | 44.8 |
+| fold_references | 20406.0 | 19406.5 | 50.6 |
+
+Native zero is 58.56% lower than the rerun baseline but remains 18.77x Lua.
+Candidate image SHA-256:
+`eee26f6e1dc0cf5ea777d901f0f940baa169d518b0a131f857c2de2012b71ace`.
+Reproduction remains `uv run python scripts/benchmark_lua.py --stdlib-ops --runs 7
+--baseline-executable FROZEN_BASELINE_EXE`. Ratios include loop/outer host entry;
+no isolated FFI latency, full Lua parity or collector-cutover win is claimed.
+
+Separate diagnostic run confirms empty-call deltas of six polls, ten state guards,
+zero module validations, two GC service points and one admitted frame/window.
+Warm allocation requests, independent roots and conversion contexts add zero.
+Length/index reads now have one family admission, one payload read and no contract
+Arc clone. Their eleven state guards include the real short-loan entry gate.
+Whole-batch outer SDK cost remains 35 allocation requests, now 2064 requested
+bytes, two conversion contexts and one root-pack registration. Those outer costs
+are also present in loop_control and are not per-inner-call costs.
+
+Remaining architectural diagnosis: the empty body still crosses current selection,
+frame admission, observed Native entry and common retirement; duplicate conversion
+storage is no longer the cause. The six polls/ten guards belong to that distributed
+control path, not to payload access. Fold still crosses full callback conversion
+and activation for each element. The existing sequence's shared activation and
+scoped binding/write/fold work remains required; neither more unchecked per-method
+variants nor cancellation removal under this checkpoint is justified. No global
+target cache, changed workload or unrun CI result is used to claim acceptance.
+
+Latest local acceptance: workspace all-target Clippy with denied warnings, fmt,
+whole-repository structure (1814 files, zero violations) and diff checks passed.
+The new short-read compile-fail example rejects escaping its payload lifetime.
+Both selected scoped-host capability/revocation tests and both warmed Native
+allocation-contract tests also passed after the shared borrow-owner change.
+All selected runtime/VM tests described above passed. Full workspace tests and
+the complete feature/backend/platform matrix remain CI-only and unrun locally.
 
 ### GCR03 migration and build boundary
 
@@ -1550,9 +1880,8 @@ The actual paths explain those counts:
 
 - [Call lowering](../crates/kagari-runtime/src/module/execution/calls.rs) routes
   Native imports through ordinary current-target selection and exact admission,
-  and sets `native_calls` to zero. The old
-  [linked Native fast path](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs)
-  is therefore not used by these scripts. This was an ownership correction for
+  rather than the former retained Native fast path (removed at the activation
+  checkpoint above). That path was not used by these scripts. This was an ownership correction for
   reload: a caller must not silently keep using an obsolete callback. Reusing
   that old retained callback would lose the current-selection guarantee.
 - [Prepared calls](../crates/kagari-runtime/src/frame/calls.rs),

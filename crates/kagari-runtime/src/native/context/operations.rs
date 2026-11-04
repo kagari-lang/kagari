@@ -9,6 +9,7 @@ use crate::{
         binding::NativeResult,
         context::{CallContext, LinkedCallable},
         sequence_edit::SequenceEdit,
+        views::SequenceRead,
     },
     value::Value,
 };
@@ -34,6 +35,35 @@ impl LinkedCallable {
 }
 
 impl<'call> CallContext<'call> {
+    /// Validate the declared sequence and lend its payload in one short access.
+    /// No payload loan survives the callback. Reacquire after calling script so
+    /// alias mutation or extraction cannot leave a stale view in native code.
+    ///
+    /// ```compile_fail
+    /// use kagari_runtime::native::{binding::NativeResult, context::CallContext, views::SequenceRead};
+    /// fn escape(cx: &CallContext<'_>) -> NativeResult<SequenceRead<'static>> {
+    ///     cx.read_sequence(0, |values| Ok(values))
+    /// }
+    /// ```
+    pub fn read_sequence<R>(
+        &self,
+        index: usize,
+        read: impl for<'payload> FnOnce(SequenceRead<'payload>) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        let signature = self.function.type_signature()?;
+        let expected = signature
+            .params
+            .get(index)
+            .ok_or_else(|| RuntimeError::module_validation("native sequence argument slot"))?;
+        read_sequence_argument(
+            self.runtime,
+            self.owner,
+            expected,
+            || self.argument(index),
+            read,
+        )
+    }
+
     /// Read an existing argument root with its prepared closed type. This does
     /// not create an owning Rust handle or convert the value through host storage.
     pub fn checked_argument(&self, index: usize) -> NativeResult<Value> {
@@ -100,6 +130,27 @@ impl<'call> CallContext<'call> {
         };
         result.parameter(self.runtime, &owner, index)
     }
+}
+
+/// Primitive and library reads use the same checked, nonescaping storage loan.
+pub(crate) fn read_sequence_argument<R>(
+    runtime: &Runtime,
+    owner: &ExecutableModule,
+    expected: &TypeArgument,
+    argument: impl FnOnce() -> NativeResult<Value>,
+    read: impl for<'payload> FnOnce(SequenceRead<'payload>) -> NativeResult<R>,
+) -> NativeResult<R> {
+    if !matches!(expected.ty(), Ty::NativeObject(_)) {
+        return Err(RuntimeError::module_validation(
+            "native sequence argument type",
+        ));
+    }
+    let Value::GcHandle(id) = argument()? else {
+        return Err(RuntimeError::module_validation(
+            "native argument differs from its declared type",
+        ));
+    };
+    runtime.gc().read_sequence(id, expected.view(owner), read)
 }
 
 /// Shared admission for rooted native arguments and closed primitive operands.

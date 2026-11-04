@@ -2,6 +2,43 @@ use super::*;
 use crate::{Runtime, test_support::layouts::allocation_owner};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
+struct ReentrantIndex<'heap> {
+    heap: &'heap GcHeap,
+    array: HeapObjectId,
+}
+
+impl TryInto<usize> for ReentrantIndex<'_> {
+    type Error = RuntimeError;
+
+    fn try_into(self) -> Result<usize, Self::Error> {
+        self.heap.array_set(self.array, 0, Value::I32(42))?;
+        Ok(0)
+    }
+}
+
+#[test]
+fn index_conversion_runs_after_family_admission_without_a_payload_borrow() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let array = runtime
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
+        .unwrap();
+    let heap = runtime.gc();
+    // A rejected receiver must not invoke arbitrary host conversion code.
+    assert!(
+        heap.sequence_element(array, ReentrantIndex { heap, array })
+            .is_err()
+    );
+    assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
+    // A valid read observes the completed write made by conversion, after
+    // reacquiring storage. Holding even a shared storage loan would reject it.
+    assert_eq!(
+        heap.array_element(array, ReentrantIndex { heap, array })
+            .unwrap(),
+        Some(Value::I32(42))
+    );
+}
+
 #[test]
 fn bulk_failure_preserves_slots_and_releases_preparation_resources() {
     let mut runtime = Runtime::default();

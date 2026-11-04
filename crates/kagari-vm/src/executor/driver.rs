@@ -30,7 +30,11 @@ impl Executor<'_> {
         // transitions provide their established action without another lookup.
         let mut action = None;
         loop {
-            self.runtime.resources().poll_execution()?;
+            // Instruction entry and return own their boundary polls. A parked
+            // slice or newly activated driver still needs admission before use.
+            if action.is_none() || remaining == Some(0) {
+                self.runtime.resources().poll_execution()?;
+            }
             if action.is_none() {
                 action = Some(self.stack().next_action(self.runtime)?);
             }
@@ -69,9 +73,7 @@ impl Executor<'_> {
                     if let Some(remaining) = &mut remaining {
                         *remaining = remaining.saturating_sub(1);
                     }
-                    self.runtime.gc_safepoint()?;
-                    self.runtime
-                        .observe_execution(ExecutionEvent::BeforeInstruction)?;
+                    self.stack().prepare_instruction_boundary(self.runtime)?;
                     let result = self
                         .stack()
                         .start_native_entry(self.runtime, native::invoke_script)
@@ -88,14 +90,10 @@ impl Executor<'_> {
                     ));
                 }
             }
-            self.current_frame_mut()?.prepare_instruction();
-            self.runtime.gc_safepoint().map_err(VmError::RuntimeError)?;
-            self.runtime
-                .observe_execution(ExecutionEvent::BeforeInstruction)?;
-
+            self.stack().prepare_instruction_boundary(self.runtime)?;
             let result = self
                 .stack()
-                .execute_region(self.runtime, &mut remaining, native::invoke_script)
+                .execute_region(self.runtime, &mut remaining)
                 .map_err(VmError::from);
             let progress = match self.report_operation(result)? {
                 RegionExit::Safepoint | RegionExit::Slice => continue,
