@@ -22,6 +22,27 @@ snapshots and generation-pinned execution remain separate contracts. See
 [definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
 
+## Strongly typed AST design and baseline
+
+The [typed AST design](typed-ast-design.md) owns the proposed replacement of
+Rowan positional views with explicit Rust node fields, lossless lexical storage,
+stable recovery roles and the syntax-to-HIR handoff. The current authorized scope
+is design, consumer review and measurement of the existing parser; production
+replacement remains unstarted. Incremental parsing, LSP expansion and broader
+HIR/runtime redesign are outside this work.
+
+Branch `refactor/typed-ast` holds the prepared checkpoint. The plan supplies one
+continuous TA1-TA4 goal objective, fixed implementation defaults, baseline/memory
+prerequisites, temporary build policy and explicit local completion criteria.
+No per-phase approval or separate-branch migration is required; starting that
+implementation goal remains the next action.
+
+The plan freezes parse/teardown/field-read/parse-to-HIR workloads and per-row
+performance budgets before implementation. Memory instrumentation and a bounded
+storage/recovery proof precede the production cutover. Existing physical parse
+sharing, inline-module provenance, formatter preservation and checked executable
+acceptance remain required.
+
 ## Package acceptance and follow-ups
 
 [Source packages and workspaces](spec/packages.md) define the implemented local and

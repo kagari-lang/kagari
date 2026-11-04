@@ -59,6 +59,11 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Strongly typed AST design and baseline](typed-ast-design.md): explicit syntax
+  fields, lossless recovery/source ownership, HIR and formatter handoff, and
+  measured parser performance budgets. Design and baseline only; replacement
+  and incremental parsing are not implemented by this checkpoint.
+
 - [Standalone GC redesign](gc-redesign-plan.md): independent `kagari-gc` allocation,
   rooting, field access and incremental collection, with standalone tests and
   benchmarks. The [implementation design](gc-implementation-design.md) owns its
