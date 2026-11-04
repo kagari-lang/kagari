@@ -38,6 +38,19 @@ fn functions(count: usize, trivia: bool) -> String {
     text
 }
 
+pub fn inline_retention() -> Workload {
+    let mut text = String::new();
+    for index in 0..32 {
+        writeln!(text, "mod child{index} {{\n{} }}", functions(4, true)).unwrap();
+    }
+    Workload {
+        name: "inline_retention",
+        sources: vec![SourceFile::new("inline_retention", text)],
+        declarations: false,
+        erroneous: false,
+    }
+}
+
 pub fn load(root: &Path) -> Vec<Workload> {
     let mut workloads = Vec::new();
     for (name, count, trivia) in [

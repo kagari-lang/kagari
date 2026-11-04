@@ -1,6 +1,11 @@
 //! Representation migration benchmark. See docs/typed-ast-design.md.
 
+mod allocation;
+mod memory;
 mod workloads;
+
+#[global_allocator]
+static ALLOCATOR: allocation::Allocator = allocation::Allocator;
 
 use std::{
     env,
@@ -168,7 +173,14 @@ fn measure(
     samples: usize,
 ) -> Value {
     let probe = batch(workload, stage, 1, fields).0.max(1.0);
-    let iterations = (20_000_000.0 / probe).ceil().clamp(1.0, 100_000.0) as usize;
+    // Field reads are short enough to expose process scheduling variation at
+    // 20 ms. Freeze longer batches on both images before production cutover.
+    let target_ns = if stage == "field_read" {
+        100_000_000.0
+    } else {
+        20_000_000.0
+    };
+    let iterations = (target_ns / probe).ceil().clamp(1.0, 100_000.0) as usize;
     for _ in 0..warmups {
         black_box(batch(workload, stage, iterations, fields));
     }
@@ -184,12 +196,32 @@ fn measure(
 fn main() {
     let args = env::args().skip(1).collect::<Vec<_>>();
     assert!(
-        args.iter().all(|arg| matches!(arg.as_str(), "--check")),
-        "usage: ast_baseline [--check]"
+        args.iter()
+            .all(|arg| matches!(arg.as_str(), "--check" | "--memory" | "--inputs")),
+        "usage: ast_baseline [--check | --memory | --inputs]"
     );
     let check_only = args.iter().any(|arg| arg == "--check");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let workloads = workloads::load(&root);
+    if args.iter().any(|arg| arg == "--inputs") {
+        let rows = workloads
+            .iter()
+            .chain([&workloads::inline_retention()])
+            .map(|workload| {
+                json!({"name": workload.name, "blake3": workload.hash(),
+                "sources": workload.sources.iter().map(|source| source.text()).collect::<Vec<_>>()})
+            })
+            .collect::<Vec<_>>();
+        println!("{}", json!(rows));
+        return;
+    }
+    if args.iter().any(|arg| arg == "--memory") {
+        println!(
+            "{}",
+            memory::report(&workloads, &workloads::inline_retention())
+        );
+        return;
+    }
     let mut rows = Vec::new();
     for workload in &workloads {
         let evidence = verify(workload);

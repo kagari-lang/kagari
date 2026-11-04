@@ -1,14 +1,13 @@
 # Strongly Typed AST Replacement
 
-Status: design and current-implementation timing baseline authorized on 2026-11-04.
-The AST replacement is proposed, not implemented by this checkpoint. This document
+Status: TA1–TA4 implementation authorized on 2026-11-05; TA1 in progress.
+The production AST replacement is not yet implemented. This document
 owns its finite migration, performance contract and progress ledger; the
 [roadmap](implementation-roadmap.md) owns activation. It does not activate a wider
 HIR/compiler/runtime rewrite or the GC integration plan.
 
-Execution preparation: branch `refactor/typed-ast` contains the design and baseline
-checkpoint. A later goal can execute TA1 through TA4 continuously on this branch.
-Preparing/committing this plan does not itself start that implementation goal.
+Execution branch: `refactor/typed-ast`. TA1 through TA4 execute continuously under
+the current goal, with complete CI explicitly handed off after local acceptance.
 
 ## 1. Problem and scope
 
@@ -288,7 +287,8 @@ below and are **unmeasured**, not zero or passing.
 
 Measure seven fresh processes for baseline characterization. Candidate acceptance
 uses seven alternating baseline/candidate process pairs, three warmup batches and
-eleven measured batches per stage/process. Batch size targets 20 ms using an
+eleven measured batches per stage/process. Batch size targets 20 ms (100 ms for
+field reads, frozen in TA1) using an
 untimed probe, bounded to 1..100,000 iterations. Record actual iterations; a sample
 is a batch mean, not individual-operation latency. Report median of process
 medians, process min/max, ns/file or ns/workload and MiB/s for parse rows.
@@ -512,8 +512,79 @@ roadmap and remove this completed plan. Do not leave a parallel progress queue.
 - [x] Complete seven-process baseline, A/A repeat, evidence review and tooling validation.
 - [x] Prepare the single-branch goal contract, fixed decisions, baseline prerequisites and completion gate.
 - [ ] TA1 memory baseline and bounded representation proof.
-- [ ] TA2/TA3 implementation and coherent consumer migration (not started).
+- [ ] TA2/TA3 implementation and coherent consumer migration (typed declarations being authored; production cutover pending).
 - [ ] TA4 paired performance and integration acceptance; exhaustive CI remains pending.
+
+### TA1 execution ledger (2026-11-05)
+
+- Production remains Rowan-backed while baseline instrumentation is frozen.
+  The diagnostic allocator forwards to `System`, counts successful allocation and
+  reallocation requests/bytes and frees, accounts growth/shrink, and reports live
+  and peak requested bytes. Thread-local accounting is disabled in ordinary timing.
+  Source construction, probe vectors and JSON reporting are outside the window.
+  Each of nine rows repeats four complete lifecycles, requiring identical counts
+  and zero net owned bytes after releasing every parse/view.
+- The additional ownership workload is 32 inline modules with four frozen
+  trivia-bearing routine functions each; the retained first child exposes four
+  items after the caller drops every root parse. This adds no timing row.
+- On Apple M1 Max / aarch64 macOS, rustc 1.99.1 (`58cf8f9c3`), workspace release,
+  default features/parallelism, one measurement thread, warmed resident inputs,
+  the first seven-process archive is `20261104T160538438452Z` (host UTC stamp).
+  No builds/tests overlapped measurements. Required field-read process spread was
+  19.3% for medium. A pre-cutover sampling adjustment increases only field-read
+  batches to 100 ms on both images. The next seven-process characterization
+  (`20261104T161030135308Z`) still has one medium field-read outlier (18.4% spread);
+  this is unresolved noise, not acceptance. Seven A/A pairs in
+  `20261104T161411058915Z` stabilize both images' field reads: candidate/baseline
+  spreads are 5.5/1.7%, 4.1/1.4%, 3.4/2.1%, 3.4/2.1% and 3.9/3.2% for the
+  five valid rows. Parse lifecycle ratios range from 0.9986 to 1.0141. One large
+  baseline parse/HIR row remains noisy (10.6%); split-drop auxiliary spreads also
+  remain visible and cannot establish attribution. TA4 must repeat contemporary
+  pairs until every required row meets its noise rule. A/A naturally fails the
+  replacement's 20% improvement gate and is not candidate acceptance.
+  The final frozen baseline image SHA-256 is
+  `270fd10917c9f2592f1f41c8add05d1d6c7ccd7ee2099400a5434c8cdbe8557f`.
+  Its archive includes exact input bytes and harness sources. The inline probe
+  is 17,558 bytes with length-delimited BLAKE3
+  `3125435cdfe3c659afecef0da93e5dbe944d66a9da28e3da9026bb7c5d49b2fb`.
+- Additional heap baseline (bytes; source backing excluded):
+
+  | Row | Peak during parsing | Retained after parsing | Child-only retained | Parse requests |
+  | --- | ---: | ---: | ---: | ---: |
+  | small | 4592 | 3456 | n/a | 88 |
+  | medium | 764768 | 333936 | n/a | 6235 |
+  | large | 12207968 | 5310576 | n/a | 98415 |
+  | trivia | 805864 | 350456 | n/a | 6239 |
+  | syntax_corpus | 164888 | 141168 | n/a | 3418 |
+  | recovery | 113304 | 54952 | n/a | 764 |
+  | limits | 32848 | 7888 | n/a | 77 |
+  | declarations | 321664 | 87440 | n/a | 2629 |
+  | inline_retention | 572936 | 174488 | 174064 | 3103 |
+
+- The bounded, test-only representation proof constructs binary/call/if fields
+  without a second parser. Missing condition/operand/delimiter anchors, a missing
+  argument, trailing comma and sparse skipped input are independent fields. Its
+  32-bit token-reference layout measures site 12 B, expression 16 B, required
+  expression 16 B, separated entry 24 B, binary 56 B, call 72 B and if 56 B.
+  Boxed recursive alternatives avoid expanding every literal to the largest
+  expression payload. Production layout and retained memory still require TA2/TA4
+  measurement; this proof is not production parser or recovery acceptance.
+- The runner now archives the exact harness sources, executable, lockfile and
+  frozen input bytes, and adds fail-closed timing/memory acceptance. It checks
+  seven pairs, both-image process spread, all budgets, independent near-threshold
+  repeats, workload equality and nonzero consistent counters. Missing data,
+  leaked backing and absent view retention cannot pass. Auxiliary spread remains
+  separately visible. Thirteen tooling tests and two layout/recovery proofs pass;
+  structure, workspace all-target Clippy, formatting and diff checks pass at the
+  instrumentation checkpoint. No production consumer/build failures are carried.
+- TA2 source ownership refinement: ordinary nodes are owned structs/enums, exposed
+  through immutable borrows. A single generic borrowed carrier pairs a node with
+  its parse for spelling/site access; it owns no `Arc`, text or tree cursor.
+  Only retained module views clone the parse owner. Read-only expression/statement
+  alternatives and visitors are derived from typed fields, with no second stored
+  grammar tree or parent table. Module declarations name private body-table IDs.
+  Recursive expression alternatives are boxed to keep simple literals compact;
+  admission must bound completed-chain depth before attaching each new wrapper.
 
 ### Baseline measured on 2026-11-04
 

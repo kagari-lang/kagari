@@ -6,7 +6,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmark_ast import NAMES, VALID, aggregate, compare_locks, validate
+from benchmark_ast import NAMES, VALID, acceptance, aggregate, compare_locks, validate, validate_memory
 
 
 def report(scale=1.0):
@@ -63,6 +63,63 @@ class EvidenceTests(unittest.TestCase):
     def test_unpaired_characterization_does_not_claim_speedup(self):
         for row in aggregate([{"candidate": report()}]):
             self.assertIsNone(row["paired_ratio"])
+
+    def test_acceptance_requires_pairs_memory_budgets_and_noise(self):
+        baseline, candidate = report(), report(0.7)
+        memory = {name: memory_report() for name in ("candidate", "baseline")}
+        runs = [{"candidate": candidate, "baseline": baseline} for _ in range(7)]
+        self.assertTrue(acceptance(runs, memory)["passed"])
+        self.assertFalse(acceptance(runs[:1], memory)["passed"])
+        slow = [{"candidate": report(0.9), "baseline": baseline} for _ in range(7)]
+        self.assertFalse(acceptance(slow, memory)["passed"])
+        noisy = deepcopy(runs)
+        noisy[0]["baseline"] = report(1.3)
+        self.assertFalse(acceptance(noisy, memory)["passed"])
+        inflated = deepcopy(memory)
+        for stage in ("parsed", "with_view", "parse_released", "released"):
+            inflated["candidate"]["workloads"][0][stage] = counters(10000, 10000 if stage in ("parsed", "with_view") else 0)
+        self.assertFalse(acceptance(runs, inflated)["passed"])
+
+    def test_near_threshold_requires_independent_passing_repeat(self):
+        memory = {name: memory_report() for name in ("candidate", "baseline")}
+        runs = [{"candidate": report(0.79), "baseline": report()} for _ in range(7)]
+        first = acceptance(runs, memory)
+        self.assertFalse(first["passed"])
+        first["failures"] = []
+        self.assertTrue(acceptance(runs, memory, first)["passed"])
+        first["failures"] = ["unresolved noise"]
+        self.assertFalse(acceptance(runs, memory, first)["passed"])
+
+    def test_unimplemented_leaked_or_missing_memory_cannot_pass(self):
+        for mutation in ("missing", "zero", "leak", "nonfinite", "no_view"):
+            data = memory_report()
+            if mutation == "missing":
+                data["workloads"].pop()
+            elif mutation == "zero":
+                data["workloads"][0]["parsed"] = counters(0, 0)
+            elif mutation == "leak":
+                data["workloads"][0]["released"] = counters(100, 10)
+            elif mutation == "nonfinite":
+                data["workloads"][0]["parsed"]["peak_bytes"] = math.inf
+            else:
+                data["workloads"][-1]["parse_released"] = counters(100, 0)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                validate_memory(data)
+
+
+def counters(requested, live):
+    return {"requests": int(requested > 0), "requested_bytes": requested,
+            "frees": int(requested > live), "freed_bytes": requested - live,
+            "live_bytes": live, "peak_bytes": requested}
+
+
+def memory_report():
+    return {"schema": 1, "diagnostic_only": True, "lifecycles": 4, "workloads": [
+        {"name": name, "bytes": 100, "blake3": "a" * 64,
+         "parsed": counters(100, 80), "with_view": counters(100, 80),
+         "parse_released": counters(100, 70 if name == "inline_retention" else 0),
+         "released": counters(100, 0)}
+        for name in (*NAMES, "inline_retention")]}
 
 
 class DependencyTests(unittest.TestCase):

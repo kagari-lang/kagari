@@ -11,3 +11,4 @@ mod limits;
 mod parser;
 
 mod interpolation;
+mod typed_proof;

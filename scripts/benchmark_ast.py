@@ -144,9 +144,10 @@ def aggregate(runs: list[dict]) -> list[dict]:
             if identity(run["baseline"]) != reference:
                 raise ValueError("baseline workload/evidence mismatch")
         for key, value in candidate.items():
-            row = series.setdefault(key, {"candidate": [], "ratios": []})
+            row = series.setdefault(key, {"candidate": [], "baseline": [], "ratios": []})
             row["candidate"].append(value)
             if baseline is not None:
+                row["baseline"].append(baseline[key])
                 row["ratios"].append(value / baseline[key])
     result = []
     for (name, stage), values in series.items():
@@ -154,8 +155,104 @@ def aggregate(runs: list[dict]) -> list[dict]:
         ratios = values["ratios"]
         result.append({"workload": name, "stage": stage, "median_ns": median(timings),
                        "min_process_ns": min(timings), "max_process_ns": max(timings),
+                       "candidate_spread": (max(timings) - min(timings)) / median(timings),
+                       "baseline_spread": ((max(values["baseline"]) - min(values["baseline"]))
+                                           / median(values["baseline"])) if ratios else None,
                        "paired_ratio": median(ratios) if ratios else None})
     return result
+
+
+def validate_memory(report: dict) -> dict:
+    if (report["schema"], report["diagnostic_only"], report["lifecycles"]) != (1, True, 4):
+        raise ValueError("unexpected memory configuration")
+    if tuple(row["name"] for row in report["workloads"]) != (*NAMES, "inline_retention"):
+        raise ValueError("missing memory workload")
+    result = {}
+    keys = {"requests", "requested_bytes", "frees", "freed_bytes", "live_bytes", "peak_bytes"}
+    for row in report["workloads"]:
+        if type(row["bytes"]) is not int or row["bytes"] <= 0 or len(row["blake3"]) != 64:
+            raise ValueError("invalid memory workload identity")
+        previous = {key: 0 for key in keys}
+        for stage in ("parsed", "with_view", "parse_released", "released"):
+            counts = row[stage]
+            if set(counts) != keys or any(type(v) is not int or v < 0 for v in counts.values()):
+                raise ValueError("invalid allocation counters")
+            if (counts["live_bytes"] != counts["requested_bytes"] - counts["freed_bytes"]
+                    or counts["peak_bytes"] < counts["live_bytes"]):
+                raise ValueError("inconsistent allocation accounting")
+            if any(counts[key] < previous[key] for key in keys - {"live_bytes"}):
+                raise ValueError("nonmonotonic cumulative allocation counters")
+            previous = counts
+        if row["parsed"]["requests"] == 0 or row["parsed"]["live_bytes"] == 0:
+            raise ValueError("unmeasured parser allocations")
+        if row["released"]["live_bytes"] != 0:
+            raise ValueError("leaked parse/view backing")
+        if row["name"] == "inline_retention" and row["parse_released"]["live_bytes"] == 0:
+            raise ValueError("unmeasured retained view")
+        result[row["name"]] = row
+    return result
+
+
+def acceptance(runs: list[dict], memory: dict, confirmed: dict | None = None) -> dict:
+    """Fail closed: required noise, budgets, memory and independent repeats all matter."""
+    summary = aggregate(runs)
+    failures, repeats, timing = [], [], []
+    if len(runs) != 7 or any("baseline" not in run for run in runs):
+        failures.append("seven paired processes required")
+    for row in summary:
+        stage, name, ratio = row["stage"], row["workload"], row["paired_ratio"]
+        budget = None
+        if stage == "parse_drop":
+            budget = 0.80 if name in ("medium", "large", "trivia", "syntax_corpus") else 1.05
+        elif stage == "parse_hir_drop":
+            budget = 1.05
+        elif stage == "field_read":
+            budget = 1.00
+        if budget is None:
+            continue
+        key = f"{name}/{stage}"
+        noisy = row["candidate_spread"] > 0.10 or row["baseline_spread"] is None or row["baseline_spread"] > 0.10
+        if noisy:
+            failures.append(f"{key}: unresolved process noise")
+        if ratio is None or ratio > budget:
+            failures.append(f"{key}: timing budget {budget}")
+        elif abs(ratio - budget) <= 0.02:
+            repeats.append(key)
+        timing.append({**row, "budget": budget, "noisy": noisy})
+    if set(memory) != {"candidate", "baseline"}:
+        raise ValueError("both memory images required")
+    candidate, baseline = (validate_memory(memory[name]) for name in ("candidate", "baseline"))
+    identities = {row["name"]: row for row in identity(runs[0]["candidate"])}
+    memory_rows, allocations = [], []
+    for name, row in candidate.items():
+        previous = baseline[name]
+        if any(row[key] != previous[key] for key in ("bytes", "blake3")):
+            raise ValueError("memory workload mismatch")
+        if name in identities and any(row[key] != identities[name][key] for key in ("bytes", "blake3")):
+            raise ValueError("memory/timing workload mismatch")
+        for stage, metric in (("released", "peak_bytes"), ("parsed", "live_bytes"),
+                              ("parse_released", "live_bytes")):
+            value, before = row[stage][metric], previous[stage][metric]
+            budget = before + max(0.10 * before, 4096)
+            if value > budget:
+                failures.append(f"{name}/{stage}/{metric}: memory budget {budget}")
+            memory_rows.append({"workload": name, "stage": stage, "metric": metric,
+                                "baseline": before, "candidate": value, "budget": budget})
+        for image, counts in (("candidate", row), ("baseline", previous)):
+            prior = {key: 0 for key in ("requests", "requested_bytes", "frees", "freed_bytes")}
+            for stage in ("parsed", "with_view", "parse_released", "released"):
+                current = counts[stage]
+                allocations.append({"workload": name, "image": image, "stage": stage,
+                                    **{key: current[key] - prior[key] for key in prior}})
+                prior = {key: current[key] for key in prior}
+    if confirmed is not None:
+        # The first report must independently meet budgets and noise requirements.
+        if confirmed.get("failures") or not confirmed.get("timing") or not confirmed.get("memory"):
+            failures.append("confirmation report did not independently pass")
+    elif repeats:
+        failures.append("independent complete paired repeat required")
+    return {"passed": not failures, "failures": failures, "near_threshold": repeats,
+            "timing": timing, "memory": memory_rows, "allocations": allocations}
 
 
 def main() -> None:
@@ -164,6 +261,7 @@ def main() -> None:
     parser.add_argument("--executable", type=Path, default=ROOT / f"target/release/examples/ast_baseline{suffix}")
     parser.add_argument("--baseline-executable", type=Path)
     parser.add_argument("--runs", type=int, default=7)
+    parser.add_argument("--confirm-report", type=Path, help="first paired report directory for required independent repeat")
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive; acceptance requires seven pairs")
@@ -206,6 +304,11 @@ def main() -> None:
     # The frozen image remains usable after the next cargo build overwrites target/release.
     shutil.copy2(images["candidate"], output / images["candidate"].name)
     shutil.copy2(ROOT / "Cargo.lock", output / "Cargo.lock")
+    for relative in metadata["harness_sha256"]:
+        archived = output / "harness" / relative
+        archived.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, archived)
+    (output / "inputs.json").write_text(command(str(images["candidate"]), "--inputs"), encoding="utf-8")
     runs = []
     for index in range(args.runs):
         order = list(images) if index % 2 == 0 else list(reversed(images))
@@ -225,7 +328,31 @@ def main() -> None:
     for row in summary:
         if row["stage"] == "parse_drop":
             print(f"{row['workload']}: {row['median_ns'] / 1000:.3f} us; paired ratio={row['paired_ratio']}")
-    print("Timing evidence only. No aggregate acceptance verdict or memory claim.")
+    memory = {name: json.loads(command(str(image), "--memory")) for name, image in images.items()}
+    for name, report in memory.items():
+        validate_memory(report)
+        (output / f"memory-{name}.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if "baseline" in images:
+        confirmed = None
+        if args.confirm_report:
+            previous = args.confirm_report
+            old_metadata = json.loads((previous / "metadata.json").read_text(encoding="utf-8"))
+            if old_metadata["executable_sha256"] != hashes:
+                raise ValueError("confirmation uses different images")
+            prior_runs = [{name: json.loads((previous / f"{i:02}-{name}.json").read_text(encoding="utf-8"))
+                           for name in images} for i in range(7)]
+            prior_memory = {name: json.loads((previous / f"memory-{name}.json").read_text(encoding="utf-8"))
+                            for name in images}
+            confirmed = acceptance(prior_runs, prior_memory)
+            # A missing repeat alone is not a failed first run.
+            confirmed["failures"] = [f for f in confirmed["failures"] if f != "independent complete paired repeat required"]
+        verdict = acceptance(runs, memory, confirmed)
+        (output / "acceptance.json").write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+        print(json.dumps({key: verdict[key] for key in ("passed", "failures", "near_threshold")}, indent=2))
+        if not verdict["passed"]:
+            raise SystemExit(1)
+    else:
+        print("Baseline characterization and memory evidence; no candidate acceptance claim.")
 
 
 if __name__ == "__main__":
