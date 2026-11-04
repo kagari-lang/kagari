@@ -281,7 +281,7 @@ Run `git diff --check` at every checkpoint; preserve repository line endings.
   carried errors change; do not create parallel progress/decision queues.
 - On completion, report changes, actual validation and remaining limits. Do not mark
   goals complete with required work or final integration failures outstanding.
-- Commit coherent authorized checkpoints using Conventional Commits:
+- When committing, use Conventional Commits:
   `<type>(optional-scope): <description>`. Prefer imperative subjects under 72 characters
   and `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci` or `chore`.
 - Mark breaking API/format changes with `!`, explain their impact and include active
