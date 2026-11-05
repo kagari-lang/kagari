@@ -8,9 +8,45 @@ compiler handoff. Detailed contracts and source-to-field diagrams live beside
 the code; [engineering rules](../../AGENTS.md#documentation-maintenance) define
 the documentation conventions.
 
-The [active HIR execution plan](../hir-architecture-design.md) records the migration
-and measurements in Chinese. This guide describes the implemented ownership and
-compiler handoff; unfinished experiments remain in that plan.
+## Choose an entry point
+
+| Reader's question | Start here |
+| --- | --- |
+| Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then `hir::Body` and `SourceMap`. |
+| How does a source expression acquire a type and a selected call? | [One function through the tables](#one-function-through-the-tables), then `ModuleFacts` and `TypeTable`. |
+| Which work does an editor query trigger or reuse? | [Query work, reuse and publication](#query-work-reuse-and-publication), then `AnalysisDatabase` and `FunctionAnalysis`. |
+| What does the compiler receive? | [Checked handoff](#checked-handoff-and-registered-inputs), then the runnable `CheckedCompilation` rustdoc example. |
+| Why do definition references need visitors? | [Storage and IDs](#storage-and-ids): validation of scoped references and explicit import of reusable facts are different capabilities. |
+
+Build the navigable API guide with
+`cargo doc -p kagari-hir --no-deps --document-private-items`; start at
+`target/doc/kagari_hir/index.html`. The source links below point to the owners of
+each contract. The [performance record](../performance-baseline.md#hir-architecture-and-candidate-filtering-macos-2026-11-06)
+keeps workloads, measurement boundaries and limitations separate from API guarantees.
+
+## Module responsibilities
+
+| Owner | Input and output |
+| --- | --- |
+| `hir`, `lower`, `source_map` | AST becomes owner-qualified structural nodes plus source sites; lowering does not infer types. |
+| `declarations`, `resolver`, `imports` | Declaration identities, lexical bindings and cross-module namespaces. |
+| `aggregates`, `semantic` | Shared nominal/signature contracts and immutable published body facts. |
+| `typeck` | Temporary inference and constraint state produces those facts and positive completion evidence. |
+| `analysis`, `program` | Snapshot/query work, reuse, diagnostics, cancellation publication and complete checked dependency closures. |
+| `compile_input` | Admits matching declaration environments, body roots/facts and provenance for the compiler. |
+| `update_source`, `source_inspection` | Authored identities, static-initializer comparison evidence and exact source packaging. |
+| Compiler `source::elaborate` | Expands an admitted source body into temporary semantic operations. |
+| Compiler `source::lower::instances` | Applies generic arguments and selects implementation/ABI recipes. |
+| Compiler `source::lower` emission | Evaluates operands and commits effects in order, building MIR from those operations and recipes. |
+
+Private tests live under their owning module's `tests/` or `tests.rs`, using
+ordinary Rust modules. Public semantic cases remain in the crate's `tests/`
+tree. Production directories no longer mix in flat sibling `*_tests.rs` files;
+this organization preserves access to private contracts without widening APIs.
+
+The body arena is still physically shared at module granularity. Logical body
+views enforce owner boundaries; they do not promise per-function allocation or
+fine-grained incremental invalidation. Those are separate storage/query decisions.
 
 ## Storage and IDs
 
@@ -323,11 +359,10 @@ qualification.
 
 [ModuleFacts](../../crates/kagari-hir/src/semantic/body.rs) publishes the shared
 signatures, constant results and node-keyed facts through read-only accessors.
-Writers are internal to HIR; the former `typeck::TypedModule` is removed.
-[FunctionAnalysis](../../crates/kagari-hir/src/analysis/body_queries.rs) already
+Writers are internal to HIR.
+[FunctionAnalysis](../../crates/kagari-hir/src/analysis/body_queries.rs)
 owns the selected function, lowering, signature snapshot, environment, bindings,
-diagnostics and result. It serves as the selected-body result rather than adding
-a second wrapper called `BodyAnalysis`. `eligibility()` uses positive body evidence
+diagnostics and result. `eligibility()` uses positive body evidence
 and shared-input validity, independently of diagnostic display truncation.
 Unrequested/bodyless functions return no selected result, recovery returns facts
 with unavailable completion evidence, and cancellation returns an error before
@@ -799,6 +834,13 @@ across all normally completing arms before choosing a unique most-specific resul
 ambiguous intermediate pairs cannot discard a candidate needed by a later arm.
 
 Method selection and implementation counts use the catalog's shared bounded search.
+The aggregate matcher charges each visited candidate, then rejects a different
+trait identity or argument arity before canonicalizing nested value types. That
+canonicalization cannot change either root property. Matching headers still use
+the shared precise matcher, including generic/blanket constraints, associated
+outputs and ambiguity checks. There is no persistent result cache or receiver
+index; the optimization changes preparation cost, not candidate order or budgets.
+
 `ImplementationSearchContext` carries the caller's generic assumptions, candidate/
 depth limits and cancellation token. Searches check cancellation even when there
 are no candidates, and distinguish no unique match from cancellation or exhaustion.

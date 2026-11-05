@@ -414,6 +414,51 @@ impl<'a> CheckedModule<'a> {
 ///
 /// This is the HIR-to-elaboration contract; the compiler's short-lived expanded
 /// body is a separate representation for MIR construction.
+///
+/// # Examples
+///
+/// Read a function's structural tail expression, checked type and original source
+/// from the same admitted body. `echo` has a block root; the parameter reference
+/// `value` is its tail expression. The type is a separate fact keyed by that
+/// expression's ID, and its span indexes the retained source revision.
+///
+/// ```
+/// use kagari_common::cancellation::CancellationToken;
+/// use kagari_hir::{
+///     analysis::AnalysisDatabase,
+///     compile_input::{body::BodyRoot, program::CheckedCompilation},
+///     hir::ids::BodyOwner,
+///     types::TypeId,
+/// };
+/// use kagari_source::source_database::{SourceDatabase, SourceLayer};
+/// use kagari_types::scalar::BuiltinType;
+///
+/// let mut sources = SourceDatabase::default();
+/// let file = sources.set(
+///     "echo.kgr",
+///     "fn echo(value: i32) -> i32 { value }".into(),
+///     SourceLayer::Base,
+/// ).unwrap();
+/// let cancel = CancellationToken::default();
+/// let mut database = AnalysisDatabase::default();
+/// let snapshot = database.snapshot(sources.snapshot(), &cancel).unwrap();
+/// let program = snapshot.check_program(file, &cancel).unwrap();
+/// let input = CheckedCompilation::from_program(&program, &cancel).unwrap();
+/// let module = input.module(input.root()).unwrap();
+/// let function = module.headers().functions.iter()
+///     .find(|function| function.name == "echo").unwrap();
+/// let body = module.body_for(BodyOwner::Function(function.id)).unwrap();
+/// let BodyRoot::Block(root) = body.root() else { panic!("function block") };
+/// let tail = body.block(root).unwrap().tail_expr.unwrap();
+/// assert_eq!(body.expression_facts(tail).unwrap().ty,
+///            Some(TypeId::Builtin(BuiltinType::I32)));
+/// let span = body.expression_span(tail).unwrap();
+/// assert_eq!(&module.source().text()[span.start..span.end], "value");
+/// ```
+///
+/// Recovery analysis can still expose useful facts after errors, but cannot create
+/// this input. Node lookups through an admitted body reject IDs from foreign owners
+/// and arenas instead of interpreting their numeric slots in the current module.
 pub struct CheckedCompilation<'a> {
     context: DefinitionContext,
     modules: Vec<CheckedModule<'a>>,
@@ -427,8 +472,13 @@ impl<'a> CheckedCompilation<'a> {
     ///
     /// # Errors
     ///
-    /// Returns cancellation or missing/inconsistent completion, signature or body
-    /// ownership evidence. It never drops invalid unreachable bodies to admit a program.
+    /// Returns [`AdmissionError::Cancelled`] if interrupted, or an invalid-module/body
+    /// error for inconsistent completion, signature or ownership evidence. Static
+    /// provenance validation shares one traversal budget across the closure; invalid
+    /// scoped references or exhaustion return [`AdmissionError::Provenance`].
+    ///
+    /// Failure returns no partial input. Admission never drops invalid unreachable
+    /// bodies to admit a program, and does not repeat source type checking.
     pub fn from_program(
         program: &'a CheckedProgram,
         cancel: &CancellationToken,

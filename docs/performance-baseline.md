@@ -21,6 +21,191 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## HIR architecture and candidate filtering, macOS 2026-11-06
+
+### Ownership change and workload
+
+The architecture comparison uses `2c1fcf9b` (HA0) and `188ac472` (HA3).
+HA3 separates checker workspace from retained facts, shares normalized signature
+contracts, and admits a fixed dependency closure for per-body elaboration and
+instance planning. Temporary expanded bodies are dropped with their MIR builder.
+The [HIR guide](architecture/hir.md) owns those contracts; these measurements do
+not imply a general incremental-compilation improvement.
+
+Apple M1 Max, 10 logical CPUs, 32 GiB, macOS 26.6.2 (25G83);
+Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), aarch64-apple-darwin. Both revisions use
+the workspace release profile, default target/build parallelism and compiler's
+default source feature. Measurement drivers are single-threaded. Native providers
+from `kagari_stdlib::catalog::shared()` are initialized before timing. Compilation
+of Rust, correctness tests and other local builds finish before measurements.
+No CPU affinity or frequency control is applied.
+
+Create `profile.kgr` in a fresh `SourceDatabase`. Generate 96 public functions,
+substituting `i = 0..96` into the name:
+
+```text
+pub fn f{i}(x: i32) -> i32 {
+    val a = x + 0; val b = a + 1; val c = b + 2;
+    val d = c + 3; val e = d + 4; val f = e + 5; f
+}
+```
+
+The generic variant prepends the declarations below and replaces every function's
+tail with `read(Boxed { n: f })`:
+
+```text
+trait Read { fn read(self) -> i32; }
+struct Boxed { val n: i32 }
+impl Read for Boxed { fn read(self) -> i32 { self.n } }
+fn read<T: Read>(x: T) -> i32 { x.read() }
+```
+
+Each sample installs the same shared providers into a fresh `AnalysisDatabase`.
+Time these operations in order, retaining the database caches between steps:
+
+```text
+declarations(source_snapshot)
+signatures(source_snapshot)
+snapshot(source_snapshot) -> retain old analysis snapshot
+old_snapshot.check_program(root) -> retain checked program
+CheckedCompilation::from_program(checked) -> admitted input [HA3 onward]
+lower_program_to_mir(input) -> consume/drop MIR and admitted input
+snapshot(unchanged source_snapshot) -> consume/drop warm query
+replace first "x + 0" with "x + 9" in an Overlay
+snapshot(edited source_snapshot) -> retain new snapshot
+```
+
+The HA0 compiler receives its checked program directly. `MIR` time below includes
+HA3 admission, elaboration, planning, verification and input destruction, so that
+its scope matches HA0's whole compiler call. The total is the sum of these measured
+stages, excluding diagnostic/assertion bookkeeping between them. Admission is additionally timed inside
+that interval; elaboration, instance planning and MIR emission are not separately
+isolated in these results. Each sample requires empty diagnostics, one rechecked
+body after editing, 95/97 reused bodies and 1,824/2,117 root expression nodes
+(plain/generic). The whole closure includes provider analysis: this is not a
+measurement of only 96 user functions.
+
+Temporary compiler examples were built with
+`cargo build -p kagari-compiler --example hir_profile --example hir_memory --release`
+and their executables run directly. Use the API sequence and generation rules above
+to reconstruct the driver; temporary source/log files are not documentation inputs.
+For timing, each fresh process runs two samples and discards the first as warmup.
+Run seven process pairs per workload, alternating revision order on each pair.
+Medians and median absolute deviations (MAD) use the seven retained samples.
+
+### Architecture comparison
+
+| Stage, ms (median ± MAD) | Plain HA0 | Plain HA3 | Generic HA0 | Generic HA3 |
+| --- | --- | --- | --- | --- |
+| Declarations/parse/lower/import | 18.954 ± 0.067 | 18.839 ± 0.196 | 18.905 ± 0.086 | 18.669 ± 0.032 |
+| Signatures | 84.337 ± 0.635 | 85.325 ± 0.412 | 84.274 ± 0.148 | 83.914 ± 0.188 |
+| Snapshot/body checking | 4,064.276 ± 7.245 | 4,078.070 ± 6.062 | 4,272.194 ± 20.901 | 4,291.671 ± 11.738 |
+| Checked-program gate | 10.826 ± 0.155 | 9.299 ± 0.051 | 10.980 ± 0.040 | 9.716 ± 0.130 |
+| MIR, including admission | 317.989 ± 0.463 | 308.177 ± 1.005 | 318.746 ± 3.254 | 307.478 ± 0.587 |
+| First declarations through MIR | 4,498.285 ± 6.858 | 4,499.828 ± 5.508 | 4,710.951 ± 31.373 | 4,711.124 ± 12.531 |
+| Warm snapshot | 129.790 ± 0.394 | 129.916 ± 1.295 | 128.485 ± 0.272 | 128.050 ± 0.373 |
+| Single-body edit snapshot | 173.145 ± 0.422 | 173.609 ± 1.025 | 174.475 ± 0.531 | 174.012 ± 0.375 |
+
+First declarations through MIR has paired median changes of +0.14% (plain) and
++0.00% (generic), with ranges −0.25%..+0.46% and −1.28%..+1.11%. Neither crosses
+the predeclared 5% regression investigation threshold. Small stage differences
+are not evidence of a general speedup.
+
+Memory uses a separate executable and seven alternating pairs, one fresh-database
+sample per process with no warmup. Its `System` allocator wrapper counts successful
+allocation requests and live/peak requested bytes; `realloc` uses the wrapper's
+default allocate/copy/free implementation. Counts therefore depend on this wrapper,
+and are not production allocator syscall counts. Timings from this instrumented
+executable are excluded from speed comparisons. Byte values subtract live bytes after provider construction, root-source creation
+and empty analysis-database creation, before installing providers into that database.
+They are neither RSS nor allocator-reserved pages.
+
+| Requested bytes or requests (median ± MAD) | Plain HA0 | Plain HA3 | Generic HA0 | Generic HA3 |
+| --- | --- | --- | --- | --- |
+| Peak bytes | 111,605,799 ± 33,608 | 101,694,078 ± 30,048 | 113,190,914 ± 2,992 | 103,636,193 ± 2,800 |
+| Old/new snapshots and checked program retained | 76,230,676 ± 21,752 | 75,386,300 ± 20,248 | 78,085,383 ± 1,264 | 77,241,819 ± 2,112 |
+| After dropping old snapshot and checked program | 46,004,262 ± 10,552 | 46,122,554 ± 9,800 | 46,894,595 ± 632 | 47,013,711 ± 1,056 |
+| After dropping new snapshot and analysis DB | 13,792 ± 0 | 13,792 ± 0 | 15,780 ± 0 | 15,780 ± 0 |
+| Successful allocation requests | 133,316,817 ± 375 | 132,926,369 ± 311 | 139,803,909 ± 198 | 139,414,125 ± 651 |
+
+Peak requested bytes fall by paired medians of 8.91%/8.47%; old/new retained bytes
+fall by 1.13%/1.11%. After dropping the old snapshot, retained bytes increase by
+0.24%/0.23%, below the investigation threshold. The final residual includes the
+source database, output and shared process facilities; it does not establish a leak.
+
+### One bounded candidate experiment
+
+The retained candidate is `491f7057` (HA4), compared with `188ac472` (HA3).
+The measurement uses the production guard plus temporary drivers; subsequent
+documentation changes do not change its algorithm.
+
+The migration does not remove repeated trait-search preparation. Observational
+counters from declarations through the first snapshot record 7,417,649 matcher
+calls for plain and 7,986,353 for generic. Of those, 5,857,566 (78.97%) and
+6,411,006 (80.27%) have a mismatching root trait identity or argument arity.
+Previously all four type inputs were cloned/canonicalized before the matcher
+rejected those headers. Canonicalization preserves both root identity and arity.
+
+The single experiment moves only that rejection ahead of canonicalization, after
+`SearchBudget::check_candidate`. The fixed catalog still owns candidates; no index,
+cache, new identity or lifetime is introduced. Candidate order, exact work limits,
+cancellation, generic/blanket matching, associated outputs and ambiguity detection
+retain their existing owners. Rust 1.85.1's
+[trait-indexed candidate search](https://github.com/rust-lang/rust/blob/4eb161250e340c8f48f66e2b929ef4a5bed7c181/compiler/rustc_middle/src/ty/trait_def.rs)
+first selects a trait and conservatively filters receiver shapes while retaining
+blanket impls. This experiment borrows only impossible-candidate rejection, not
+rustc's indexing/query machinery or its different resource policy.
+
+Before implementation, acceptance was fixed at at least 10% lower snapshot/body
+median time in **both** workloads, beyond paired noise, with no greater-than-5%
+significant regression in end-to-end time or retained bytes. Allocation reductions
+are supporting evidence, not a replacement target. The comparison uses the same
+seven-pair protocol against saved uninstrumented HA3 binaries.
+
+| Stage, ms (median ± MAD) | Plain HA3 | Plain candidate | Generic HA3 | Generic candidate |
+| --- | --- | --- | --- | --- |
+| Declarations/parse/lower/import | 18.626 ± 0.062 | 18.757 ± 0.157 | 18.701 ± 0.094 | 18.787 ± 0.050 |
+| Signatures | 84.114 ± 0.407 | 70.593 ± 0.235 | 84.003 ± 0.119 | 70.954 ± 0.798 |
+| Snapshot/body checking | 4,058.279 ± 22.204 | 1,095.996 ± 11.077 | 4,260.632 ± 8.613 | 1,121.256 ± 4.901 |
+| Checked-program gate | 9.398 ± 0.103 | 9.414 ± 0.219 | 9.780 ± 0.113 | 9.694 ± 0.152 |
+| MIR, including admission | 309.210 ± 3.029 | 110.086 ± 0.827 | 308.613 ± 2.132 | 112.803 ± 0.309 |
+| Admission alone (included above) | 0.338 ± 0.009 | 0.327 ± 0.002 | 0.335 ± 0.005 | 0.333 ± 0.006 |
+| First declarations through MIR | 4,479.793 ± 26.076 | 1,307.807 ± 10.373 | 4,684.565 ± 7.697 | 1,333.315 ± 6.026 |
+| Warm snapshot | 129.819 ± 0.949 | 112.659 ± 0.105 | 128.672 ± 0.781 | 112.234 ± 0.488 |
+| Single-body edit snapshot | 172.883 ± 1.342 | 126.146 ± 0.422 | 175.125 ± 0.738 | 126.552 ± 0.176 |
+
+| Requested bytes or requests (median ± MAD) | Plain HA3 | Plain candidate | Generic HA3 | Generic candidate |
+| --- | --- | --- | --- | --- |
+| Peak bytes | 101,661,486 ± 1,968 | 101,692,478 ± 2,544 | 103,608,049 ± 3,824 | 103,639,033 ± 32,792 |
+| Old/new snapshots and checked program retained | 75,364,356 ± 1,312 | 75,385,356 ± 1,696 | 77,223,179 ± 2,888 | 77,243,467 ± 21,464 |
+| After dropping old snapshot and checked program | 46,111,906 ± 656 | 46,122,266 ± 848 | 47,004,207 ± 1,040 | 47,014,535 ± 10,592 |
+| After dropping new snapshot and analysis DB | 13,792 ± 0 | 13,792 ± 0 | 15,780 ± 0 | 15,780 ± 0 |
+| Successful allocation requests | 132,926,363 ± 304 | 39,180,431 ± 271 | 139,414,154 ± 304 | 39,671,360 ± 335 |
+
+The candidate is retained. Snapshot/body time falls by paired medians of 73.36%
+(plain, range 72.61%..73.65%) and 73.81% (generic, range 73.49%..74.43%).
+First declarations through MIR falls by 71.17%/71.55%. Both workloads exceed the
+fixed 10% body-time target across every pair. Retained-byte changes remain within
+±0.07%, well below the 5% investigation threshold; allocation requests fall by
+70.53%/71.54%. Avoiding transient preparation does not significantly change retained
+storage. These gains are workload-specific, include provider work and say nothing
+about runtime execution, cold Rust builds or an arbitrary source corpus.
+
+The bounded-search contract test covers mismatching trait identity/arity with exact
+zero/one candidate limits, generic matching, ambiguity and depth exhaustion.
+Selected HIR tests cover cancellation publication, foreign trait identities,
+caller assumptions, associated types and aliased calls; a compiler cross-module
+generic alias case also passes. Workspace all-target Clippy, structure/fmt and
+strict HIR rustdoc pass locally. Full workspace/feature/backend/platform tests
+remain CI-only and were not run for this report.
+
+Deterministic cancellation tests separately interrupt ordinary visits, solver
+constraints, trait candidates, constants, cache comparison and publication. Ordinary
+statement/expression polling batches are bounded at 64 visits; tests retain the old
+cache identity/source and reject interrupted publication. This establishes progress
+and cleanup contracts, not a hard wall-clock cancellation latency. Physical body
+storage, general inference algorithms and R8's finer invalidation remain unchanged.
+
 ## Line-index newline search, Windows 2026-11-05
 
 At `c47e3df6`, a bounded experiment replaces only the newline search in

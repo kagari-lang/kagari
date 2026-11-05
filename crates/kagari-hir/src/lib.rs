@@ -574,7 +574,7 @@ fn analyze_prepared(
 /// let facts = analysis.facts();
 /// let (sum, _) = facts.lowered.module.body.expressions()
 ///     .find(|(_, expr)| matches!(expr.kind, ExprKind::Binary { .. })).unwrap();
-/// assert_eq!(facts.typed.type_table.expr_type(sum), Some(TypeId::Builtin(BuiltinType::I32)));
+/// assert_eq!(facts.typed.type_table().expr_type(sum), Some(TypeId::Builtin(BuiltinType::I32)));
 /// assert!(analysis.into_codegen().is_ok());
 /// ```
 pub fn analyze_source(

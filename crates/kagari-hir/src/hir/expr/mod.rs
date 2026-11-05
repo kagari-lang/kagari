@@ -24,10 +24,13 @@ use smallvec::SmallVec;
 /// one_id -> ExprData { kind: Literal(Literal { kind: Number, text: "1" }) }
 /// ```
 ///
-/// Only `kind` is stored here. The ID/row supply arena and owner; SourceMap
-/// supplies byte sites; ResolvedNames and TypeTable supply binding/type/call facts.
+/// Only `kind` is stored here. The ID/row supply arena and owner;
+/// [`SourceMap`](crate::source_map::SourceMap) supplies byte sites;
+/// [`ResolvedNames`](crate::resolver::resolved::ResolvedNames) and
+/// [`TypeTable`](crate::typeck::table::TypeTable) supply binding/type/call facts.
 /// Expression lowering builds the rows and child links before checking. See
-/// ExprKind for every source shape, and Body for checked lookup and physical storage.
+/// [`ExprKind`] for source shapes, and [`Body`](crate::hir::body::Body) for checked
+/// lookup and physical storage.
 #[derive(Debug, Clone)]
 pub struct ExprData {
     /// Expression form and stored child IDs, before semantic checking.
@@ -38,7 +41,8 @@ pub struct ExprData {
 ///
 /// In these source-to-field mappings, `e_x` denotes the ExprId of source `x`,
 /// `t_i32` denotes its TypeRefId, and `b` denotes a BlockId. IDs are symbolic;
-/// use Body::expr/type_ref/block/pattern to follow the appropriate link. These
+/// use [`Body`](crate::hir::body::Body)'s `expr`, `type_ref`, `block` and `pattern`
+/// accessors to follow the appropriate link. These
 /// are context-dependent source fragments, not claims of successful type checking.
 ///
 /// # Names, calls and projections

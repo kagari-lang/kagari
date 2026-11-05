@@ -494,6 +494,26 @@ frontend work requires a separately authorized scope. Full incremental compilati
 permanent engine reuse, R7/R8 changes, global caches, artifact pruning and AOT
 expansion remain separate.
 
+## HIR ownership and compiler handoff
+
+HIR separates temporary checker state, immutable declaration/body facts and the
+fixed `CheckedCompilation` input. The compiler consumes owner-checked body views,
+expands short-lived semantic operations, plans instantiated calls and constructs
+MIR through one production path. SourceEvidence retains authored/static provenance;
+unused whole-record identity conversion is removed. Private tests are grouped
+under their owning modules, with source-to-data examples and navigable rustdoc.
+The [HIR guide](architecture/hir.md) owns the data flow and read paths; the
+[performance record](performance-baseline.md#hir-architecture-and-candidate-filtering-macos-2026-11-06)
+records workload-specific timing, memory and the single candidate-filter experiment.
+
+Focused boundary tests, HIR doctests, strict rustdoc, rendered documentation,
+structure/fmt and workspace all-target Clippy are locally validated. Full workspace
+and complete feature/backend/platform acceptance remain CI-only and unrun here.
+[R8](review.md#architecture-findings) retains finer semantic versus
+navigation invalidation; physical per-body arenas, union-find, general constraint
+work queues and persistent query frameworks are outside this completed migration.
+No runtime, GC, language or backend ownership change is implied.
+
 ## Compilation cancellation polling
 
 Coarse syntax checkpoints and the unified `parse(source, options, cancel)` API
@@ -503,12 +523,12 @@ owns checkpoint placement, cleanup and exact limits; its entrypoint and AST
 documentation covers options, diagnostics, recovery, retention and traversal.
 The completed plan is retired. Shared token/runtime behavior is unchanged.
 
-The [HIR architecture draft](hir-architecture-design.md#35-hir-协作取消的简化方向)
-now scopes a separate source-analysis simplification within HA0–HA1: make stage
-abort/publication boundaries explicit, consolidate redundant polls and retain
-progress checks in long-running semantic algorithms. This is design-only;
-shared identity API changes require a bounded consumer migration, and runtime
-cancellation and executable-product conversion policy remain unchanged.
+HIR analysis now propagates cancellation through stage results and cache comparison,
+rejects interrupted work before publication, and batches ordinary statement/expression
+polls while retaining internal checkpoints in long algorithms. Exact semantic
+budgets remain independent of polling. The [HIR ownership guide](architecture/hir.md)
+owns these contracts; shared identity/token APIs, runtime cancellation and executable
+product conversion policy remain unchanged.
 
 The previous compiler-lowering/update-budget integration proposal remains deferred,
 not an automatic follow-up. Full workspace and complete feature/backend/platform
@@ -1259,7 +1279,6 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [HIR architecture and compiler handoff](hir-architecture-design.md) | Chinese design requested 2026-11-05, with a second review and executable HA0–HA5 plan prepared on 2026-11-05–06; the user activated the goal on 2026-11-06 and HA0 has recorded consumer contracts and measured baselines; HA1a has removed unused SourceEvidence mapping capabilities and grouped the flat test files; HA1b has separated type-resolution work state from retained tables; signature/body fact ownership remains in progress. HA0–HA3 establish measured baselines, separate checker state from published facts, remove unnecessary identity traversal capabilities, simplify analysis cancellation, and migrate compiler consumers to checked body inputs and explicit elaboration/instance planning. HA4 permits at most one evidence-backed algorithm or storage experiment; HA5 evaluates results and moves lasting contracts into existing documentation. All stages also improve HIR module/model/API rustdoc in Rust standard-library style, with source-to-data examples, ownership/error contracts and validated reading paths; existing retained APIs are included. R8 retains finer invalidation ownership. No language, runtime, GC, backend or general incremental-framework migration is activated. |
 | [Multi-Runtime program sharing](multi-runtime-sharing-plan.md) | MS00-MS05 planned, unstarted: measure current same-product multi-Runtime costs; eliminate whole-code identity remapping copies and duplicated pure link preparation; establish safe cross-thread frozen-product reuse. Keep player heaps/statics/host borrows and installation publication private. MS00 freezes numerical memory/performance gates and preserves the implemented installation identity/current-dispatch contracts before changing shared owners. R13 type-only retention, cross-installation repair linking, global updates and native expansion remain separate. No capacity or speed claim from source LOC or historical tiny-program data. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 | [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan) | PG00-PG06 documented, queued and unstarted: close contracts/baseline with NC01; complete generic provider capabilities and early external proof with NC02; replace physical storage; migrate collections through NC03/NC04; integrate incremental graph/barriers; enable sweep/driver interleaving with NC05; finish joint acceptance with NC06. Standard collections and host adapters must use the same public generic protocol as an independent provider, with no retained privileged paths. Preserve precise tracing, checked identities, compact storage, joint object/program reachability and collecting Native callbacks; no retention prepass for callback-bearing algorithms. PG00 must resolve physical layout, scan/publication, scheduling and numerical acceptance before dependent changes. No measured speedup or hard pause bound is claimed. Existing cancellation policy is unchanged; poll redesign, R13 and concurrent/generational collection remain separate. |
