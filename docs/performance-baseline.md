@@ -21,6 +21,159 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## Line-index newline search, Windows 2026-11-05
+
+At `c47e3df6`, a bounded experiment replaces only the newline search in
+[`LineIndex::new`](../crates/kagari-source/src/line_index.rs) with
+`for offset in memchr_iter(b'\n', text.as_bytes())`. The CRLF end adjustment,
+initial start, final end, push order and vector growth strategy remain unchanged.
+The prototype uses memchr 2.8.3 with default features; this version was already
+in Cargo.lock but was not a direct kagari-source dependency. Production files,
+manifests and lockfile were restored after measurement. No dependency or scanning
+policy change is adopted by this report.
+
+Ownership is already appropriate: `SourceFile::new` builds one immutable physical
+line index, and inline module views share it through `Arc<SourceContent>`. This
+experiment changes local byte search, not source ownership or parser execution.
+The [memchr 2.8.3 documentation](https://docs.rs/memchr/2.8.3/memchr/) describes
+byte-oriented searches and default-feature runtime SIMD detection on x86_64.
+Searching ASCII LF preserves UTF-8 boundaries; CRLF handling still belongs to
+LineIndex. This is a library primitive replacement, not a custom SIMD algorithm.
+
+### Environment and timing scope
+
+Intel Core i7-10700F, 16 logical CPUs, Windows 10 build 19045, x86_64 MSVC;
+Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`). Workspace
+release profile, default features and build parallelism, one measurement thread,
+no affinity/frequency controls. RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS,
+CARGO_PROFILE_RELEASE_LTO and CARGO_PROFILE_RELEASE_CODEGEN_UNITS were unset.
+Builds used `cargo build --offline --release -p kagari-source --example <probe>`
+with temporary examples; compilation and correctness checks are outside timing.
+Input strings are prepared once and resident; code, allocator and data are warm.
+This is neither cold startup nor disk IO measurement.
+
+An initial experiment builds separate baseline and candidate images from the
+actual production constructor, then runs seven alternating process pairs with
+three warmups and eleven samples each. Each timed iteration constructs and drops
+either `LineIndex::new(black_box(text.as_str()))` or
+`SourceFile::new("bench.kgr", black_box(text.as_str()))`, passing the result to
+`black_box` before destruction. SourceFile therefore includes text/name copying,
+identity and Arc creation. A corpus iteration processes every file separately.
+Batch sizes double until the baseline calibration reaches 3 ms, then target
+10 ms per sample. Initial images calibrate independently.
+
+That experiment's A/A control has substantial drift: the corpus SourceFile
+candidate/control paired ratio ranges from 1.0334 to 1.7989 despite identical
+binaries, and the index ratio ranges from 1.1068 to 1.5042. Its observed corpus
+SourceFile ratio of 0.8796 is not accepted as a stable end-to-end improvement.
+Several synthetic rows also fluctuate or reverse. Do not infer parser speedups
+from this noisy whole-SourceFile diagnostic.
+
+The follow-up isolates index construction in one executable: the production
+baseline and a module copy of the candidate constructor share the same harness.
+It runs seven fresh processes, three warmup batches per implementation, and
+21 adjacent sample pairs per workload, alternating baseline/candidate order on
+every pair. Both use the same batch count calibrated from the baseline to 10 ms;
+the faster candidate is deliberately allowed shorter batches. Timing includes
+allocation and destruction, not only scanning. Results can include code-generation
+and allocator effects; they do not identify an isolated instruction cost.
+Three additional A/A processes use the baseline constructor in both slots.
+The full experiment takes 83.3 s for separate images and 52.1 s for paired indexing.
+
+For reproduction, the core timed body is sketched below (setup omitted):
+
+```text
+let start = Instant::now();
+for _ in 0..iterations {
+    for text in texts {
+        // Run the original or candidate constructor in alternating batches.
+        drop(black_box(LineIndex::new(black_box(text.as_str()))));
+    }
+}
+let ns_per_iteration = start.elapsed().as_secs_f64() * 1e9 / iterations as f64;
+```
+
+The candidate is the original constructor with the loop substitution above and
+the enclosing `if byte == b'\n'` removed. No pre-count, reserve, reuse, density
+heuristic or parallel scanning is added. Use the workload recipes below and the
+sampling/calibration policy above; raw local files are not required to define
+the experiment.
+
+### Inputs and paired index results
+
+`line` is the following 77-byte UTF-8 string, including its final LF:
+
+```text
+fn sample(value: i32) -> i32 { value * 17 + 42 } // source indexing workload
+```
+
+| Workload | Recipe | Bytes | Indexed lines |
+| --- | --- | ---: | ---: |
+| empty | Empty string | 0 | 1 |
+| tiny | `x` | 1 | 1 |
+| small | `fn main() -> i32 {\n    42\n}\n` | 28 | 4 |
+| lf_medium | `line.repeat(900)` | 69,300 | 901 |
+| lf_large | `line.repeat(14_000)` | 1,078,000 | 14,001 |
+| crlf_large | lf_large with LF replaced by CRLF | 1,092,000 | 14,001 |
+| utf8_large | `"// 中文 😀 café\r\n".repeat(50_000)` | 1,100,000 | 50,001 |
+| no_newline | `"x".repeat(1_048_576)` | 1,048,576 | 1 |
+| long_lines | `("x".repeat(4095) + "\n").repeat(256)` | 1,048,576 | 257 |
+| short_lines | `"x\n".repeat(32_768)` | 65,536 | 32,769 |
+| dense_newlines | `"\n".repeat(65_536)` | 65,536 | 65,537 |
+| syntax_corpus | All 48 direct `.kgr` children of `examples/syntax`, sorted by path, read as checked out at c47e3df6 | 37,472 | 1,235 |
+
+Times are medians of seven process medians, in microseconds per complete workload.
+Each process ratio is the median of its 21 adjacent candidate/baseline sample
+ratios; the displayed ratio is their median, not the quotient of rounded times.
+The range contains all seven process ratios. A/A is the corresponding median
+over three control processes.
+
+| Workload | Original us | memchr us | Paired ratio | Process ratio range | A/A ratio |
+| --- | ---: | ---: | ---: | --- | ---: |
+| empty | 0.098 | 0.099 | 1.0067 | 1.0055..1.0179 | 0.9969 |
+| tiny | 0.099 | 0.100 | 1.0098 | 1.0035..1.0217 | 0.9938 |
+| small | 0.705 | 0.707 | 1.0038 | 0.9935..1.0065 | 1.0006 |
+| lf_medium | 39.042 | 8.241 | 0.2111 | 0.2071..0.2114 | 0.9973 |
+| lf_large | 679.613 | 193.747 | 0.2825 | 0.2784..0.2923 | 1.0003 |
+| crlf_large | 687.915 | 189.667 | 0.2752 | 0.2654..0.2911 | 0.9979 |
+| utf8_large | 833.292 | 505.500 | 0.6208 | 0.5816..0.6708 | 0.9880 |
+| no_newline | 463.086 | 17.823 | 0.0382 | 0.0378..0.0389 | 1.0009 |
+| long_lines | 473.911 | 22.314 | 0.0476 | 0.0471..0.0481 | 1.0022 |
+| short_lines | 165.987 | 253.079 | 1.5029 | 1.3258..1.6703 | 0.9980 |
+| dense_newlines | 445.072 | 656.067 | 1.4537 | 1.4002..1.5080 | 0.9963 |
+| syntax_corpus | 80.090 | 62.825 | 0.7841 | 0.7798..0.7924 | 0.9990 |
+
+All individual A/A process median ratios in the paired experiment are within
+0.9669..1.0115. This supports the direction of the ordinary-source improvements
+and dense-newline regressions; sub-percent small-file changes are not useful wins.
+The real corpus reduces index construction time by 21.6%, ordinary large LF/CRLF
+inputs by about 72%, and long sparse-newline inputs by about 95%. The workloads
+with one character per line or only empty lines instead increase time by 50.3%
+and 45.4%. These reductions
+and increases use paired ratios. Newline density is therefore material, and a
+universal speedup claim would be false. Allocation/output work remains per line;
+the experiment does not attribute each regression to a particular mechanism.
+
+For typical source files, replacing just the loop is a promising small follow-up.
+Do not add a density detector or a second scanning policy on this evidence alone.
+The real parse/lower pipeline has not been measured here; the index-only gain
+cannot be reported as an overall parsing or compiler improvement. Memory use was
+not instrumented, and no allocation-reduction claim is made.
+
+Correctness compares complete start/end arrays against the original algorithm for
+all workloads and 3,905 generated strings of lengths 1 through 5 over
+`a`, CR, LF, `中` and `😀`, plus the empty workload. This covers leading/trailing
+newlines, adjacent CR/LF combinations and multibyte text. The candidate also passes
+`cargo test --offline -p kagari-source --lib unicode_positions_reject_partial_codepoints_and_crlf`.
+Temporary probes and the candidate dependency were removed. Only this report
+remains changed; complete platform/backend suites were not run for this experiment.
+
+Frozen image SHA-256:
+
+- Separate baseline: `b710508fdc33fa7e9b454ee333cfa8c3babb3fd730256c3a104a92b5c456b139`.
+- Separate memchr candidate: `35533bc15f57c0bc11f137fe183d7f5c02c77be21f225c6c4d62f5346fa74db2`.
+- Paired index probe: `765390db811b1a33631ac15dd5ded74fcb49c64cf0f18fe07a5240faec88da05`.
+
 ## Current typed AST diagnostics, Windows 2026-11-05
 
 This investigation starts from `1d8d00d4`, including the syntax/HIR correctness

@@ -78,7 +78,7 @@ group!(PathMember {
 /// Raw spelling and category resolve through the owning parse; decoding is source-owned.
 #[derive(Debug)]
 pub struct Literal {
-    pub(crate) token: Token<tokens::Lexeme>,
+    pub(crate) token: Token<tokens::LiteralToken>,
 }
 
 node!(ParenExpr {
@@ -286,7 +286,7 @@ node!(ClosureExpr {
 
 #[derive(Debug)]
 pub enum ClosureParams {
-    Empty(Token<tokens::Lexeme>),
+    Empty(Token<tokens::PipePipe>),
     List(ClosureParamList),
 }
 

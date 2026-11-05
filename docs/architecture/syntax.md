@@ -120,6 +120,15 @@ Both paths expose the same checked UTF-8 byte coordinates. Present typed token
 references use one-based nonzero indices, allowing optional tokens to occupy four
 bytes. These indices are private to the physical parse.
 
+Each `Token<K>` marker names a fixed token spelling (`Plus`, `Star`, `PipePipe`)
+or a specific grammar category (`LiteralToken`, `BindingKeywordToken`,
+`VisibilityScopeToken`). For example, `pub(crate)` stores the `crate` keyword as
+`Token<VisibilityScopeToken>` and its parentheses as separate fixed tokens.
+The [marker declarations](../../crates/kagari-syntax/src/ast/tokens.rs) document
+the admitted categories. Parser branches enforce them during construction;
+markers add no stored tag or runtime check, and there is no generic fallback
+marker. Missing required tokens retain the existing `Required::Missing` state.
+
 A `SyntaxSite` normally contains an ordered pair of 32-bit lexical coordinates.
 A reversed pair instead identifies a sparse recovery record containing the real
 coverage and unexpected contents. This private encoding keeps ordinary sites at

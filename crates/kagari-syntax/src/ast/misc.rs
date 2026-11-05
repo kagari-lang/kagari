@@ -49,7 +49,7 @@ pub enum Writeability {
 #[derive(Debug)]
 pub struct BindingKeyword {
     pub writeability: Writeability,
-    pub(crate) token: Token<tokens::Lexeme>,
+    pub(crate) token: Token<tokens::BindingKeywordToken>,
 }
 
 node!(GenericParamList {
@@ -104,7 +104,7 @@ node!(TraitBoundList {
 });
 
 group!(TraitBound {
-    pub(crate) plus: Token<tokens::Lexeme>,
+    pub(crate) plus: Token<tokens::Plus>,
     pub trait_ref: Required<TraitRef>,
 });
 

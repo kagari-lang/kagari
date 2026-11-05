@@ -79,7 +79,7 @@ pub enum VisibilityKind {
 
 group!(VisibilityRestriction {
     pub open: Token<tokens::LParen>,
-    pub scope: Required<Token<tokens::Lexeme>>,
+    pub scope: Required<Token<tokens::VisibilityScopeToken>>,
     pub close: Required<Token<tokens::RParen>>,
 });
 
@@ -196,7 +196,7 @@ pub enum UseSuffix {
     },
     Glob {
         separator: Token<tokens::ColonColon>,
-        star: Required<Token<tokens::Lexeme>>,
+        star: Required<Token<tokens::Star>>,
     },
     Group {
         separator: Option<Token<tokens::ColonColon>>,

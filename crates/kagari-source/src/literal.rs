@@ -13,11 +13,14 @@ pub fn parse_integer_literal(text: &str) -> Result<u64, &'static str> {
 
 /// Separate a primitive type suffix without confusing hexadecimal digits with f32/f64.
 pub fn numeric_literal_parts(text: &str) -> (&str, Option<&str>) {
-    for suffix in [
+    let type_suffixes = [
         "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8", "f32", "f64",
-    ] {
+    ];
+    let non_decimal_prefixes = ["0x", "0o", "0b"];
+
+    for suffix in type_suffixes {
         if suffix.starts_with('f')
-            && ["0x", "0o", "0b"]
+            && non_decimal_prefixes
                 .iter()
                 .any(|prefix| text.starts_with(prefix))
         {
