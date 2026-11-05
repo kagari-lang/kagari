@@ -20,7 +20,7 @@ use kagari_contract::numeric::NumericConversion;
 use kagari_hir::{
     builtin::BuiltinFunction,
     callable::AppliedCallSignature,
-    compile_input::body::{BodyKey, BodyRoot},
+    compile_input::body::{BodyKey, BodyRoot, bindings::BindingId},
     hir::{
         expr::{
             Condition, MatchArm,
@@ -39,7 +39,7 @@ use kagari_hir::{
     },
     types::{NominalType, TypeId},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// An operation index belongs to one expanded body, never to a source arena.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -204,12 +204,12 @@ pub enum CheckedExprKind {
     Closure {
         key: BodyKey,
         is_async: bool,
-        captures: Vec<ResolvedName>,
+        captures: Vec<CheckedCapture>,
         parameters: Vec<CheckedLocal>,
     },
     AsyncBlock {
         key: BodyKey,
-        captures: Vec<ResolvedName>,
+        captures: Vec<CheckedCapture>,
     },
 }
 
@@ -223,6 +223,17 @@ pub enum OperatorSyntax {
 pub enum IndexRead {
     Aggregate,
     Method(Box<CheckedCall>),
+}
+
+/// One captured lexical binding, with the authored range separate from its use site.
+#[derive(Debug, Clone)]
+pub struct CheckedCapture {
+    pub id: BindingId,
+    pub name: String,
+    pub span: Span,
+    pub ty: TypeId,
+    /// Mutable locals share a cell across the owner and every capturing callable.
+    pub by_cell: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +355,10 @@ pub enum CheckedPatternKind {
 pub struct CheckedBody {
     pub key: BodyKey,
     pub root: BodyRoot,
+    /// Incoming bindings for a nested callable, in the resolver's capture order.
+    pub captures: Vec<CheckedCapture>,
+    /// Locals requiring cells in this root, including incoming cell captures.
+    pub cell_locals: HashSet<LocalId>,
     pub operations: Vec<CheckedExpr>,
     /// Raw source-value operation, before implicit conversions.
     pub values: HashMap<ExprId, OperationId>,

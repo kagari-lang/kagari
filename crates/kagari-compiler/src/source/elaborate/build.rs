@@ -5,12 +5,12 @@ mod structure;
 
 use crate::source::elaborate::{
     ElaborationError,
-    model::{CheckedBody, CheckedExpr, CheckedExprKind, OperationId},
+    model::{CheckedBody, CheckedCapture, CheckedExpr, CheckedExprKind, OperationId},
 };
 use kagari_common::{cancellation::CancellationToken, span::Span};
 use kagari_hir::{
     compile_input::{
-        body::{BodyRoot, CheckedBodyInput},
+        body::{BodyRoot, CheckedBodyInput, bindings::BindingId},
         environment::CheckedEnvironment,
     },
     hir::ids::ExprId,
@@ -33,6 +33,8 @@ impl<'a, 'c> Builder<'a, 'c> {
             body: CheckedBody {
                 key: input.key(),
                 root: input.root(),
+                captures: Vec::new(),
+                cell_locals: Default::default(),
                 operations: Vec::new(),
                 values: Default::default(),
                 results: Default::default(),
@@ -46,6 +48,9 @@ impl<'a, 'c> Builder<'a, 'c> {
 
     pub(super) fn finish(mut self) -> Result<CheckedBody, ElaborationError> {
         self.check()?;
+        if let Some(closure) = self.input.key().closure {
+            self.body.captures = self.captures(closure)?;
+        }
         match self.input.root() {
             BodyRoot::Block(id) => self.block(id)?,
             BodyRoot::Expression(id) => {
@@ -54,6 +59,36 @@ impl<'a, 'c> Builder<'a, 'c> {
         }
         self.check()?;
         Ok(self.body)
+    }
+
+    fn captures(&mut self, closure: ExprId) -> Result<Vec<CheckedCapture>, ElaborationError> {
+        let captures = self.require(
+            self.input
+                .captures(closure, self.cancel)
+                .map_err(|_| ElaborationError::Cancelled)?,
+            self.input.expression_span(closure),
+            "missing captured binding contract",
+        )?;
+        let mut result = Vec::with_capacity(captures.len());
+        for capture in captures {
+            self.check()?;
+            let ty = self.valid_type(capture.ty, Some(capture.span))?;
+            let by_cell =
+                matches!(capture.id, BindingId::Local(_)) && capture.writeability.is_var();
+            if let BindingId::Local(id) = capture.id
+                && by_cell
+            {
+                self.body.cell_locals.insert(id);
+            }
+            result.push(CheckedCapture {
+                id: capture.id,
+                name: capture.name.to_owned(),
+                span: capture.span,
+                ty,
+                by_cell,
+            });
+        }
+        Ok(result)
     }
 
     fn check(&self) -> Result<(), ElaborationError> {

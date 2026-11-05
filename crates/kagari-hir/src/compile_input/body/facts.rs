@@ -163,10 +163,4 @@ impl<'a> CheckedBodyInput<'a> {
             .find(|parameter| parameter.id == id)
             .map(|parameter| &parameter.ty)
     }
-
-    /// Borrows the checked capture order for a closure expression in this body.
-    pub fn closure_captures(self, id: ExprId) -> Option<&'a [ResolvedName]> {
-        self.closure(id)?;
-        Some(self.names.closure_captures(id))
-    }
 }

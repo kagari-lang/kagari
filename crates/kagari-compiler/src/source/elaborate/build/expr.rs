@@ -411,13 +411,7 @@ impl Builder<'_, '_> {
             ExprKind::Closure { is_async, .. } => {
                 let input =
                     self.require(self.input.closure(id), Some(span), "missing closure input")?;
-                let captures = self
-                    .require(
-                        self.input.closure_captures(id),
-                        Some(span),
-                        "missing closure captures",
-                    )?
-                    .to_vec();
+                let captures = self.captures(id)?;
                 let parameters = self
                     .require(
                         input.closure_parameters(),
@@ -437,13 +431,7 @@ impl Builder<'_, '_> {
             ExprKind::AsyncBlock { .. } => {
                 let input =
                     self.require(self.input.closure(id), Some(span), "missing async input")?;
-                let captures = self
-                    .require(
-                        self.input.closure_captures(id),
-                        Some(span),
-                        "missing async captures",
-                    )?
-                    .to_vec();
+                let captures = self.captures(id)?;
                 CheckedExprKind::AsyncBlock {
                     key: input.key(),
                     captures,

@@ -1101,7 +1101,7 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
 | HA1a–HA1c | 完成 | 删除非必要身份能力、整理测试；分离工作状态/事实，共享归一化签名；显式取消出口、批次轮询及中途取消不发布验证通过 | 性能整体对照归 HA3–HA4；不承诺固定取消毫秒数 |
-| HA2 | 执行中 | checked 输入绑定固定环境及 owner/arena/完成证据；新增操作事实投影、closure 子根及仅测试使用的 compiler 展开原型 | 捕获/作用域和其他真实消费者元数据、完整操作契约及新旧执行差分仍待验证；不能视为阶段完成 |
+| HA2 | 执行中 | 固定环境/身份/完成证据及操作事实投影；测试用展开原型、closure 子根与完整捕获元数据；捕获存储/来源对照通过 | 正常完成边界、默认方法及 host/propagation 等完整交接契约与执行差分仍待验证；不能视为阶段完成 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
@@ -1202,6 +1202,28 @@ workspace all-target Clippy、结构（1836 文件，零违规/例外）、fmt�
 内修正；Clippy 暴露大 enum 变体，已按上述载荷拆分修复，没有遗留构建失败。
 未运行全 workspace/backend/platform 矩阵，也未宣称新路径执行等价或性能改进；这些分别由
 HA2–HA3 的消费者/执行验证、HA3–HA4 的配对测量和最终 CI 承接。
+
+HA2 第三个检查点：`body::bindings` 发布窄的 BindingId/BindingFacts；capture 记录携带原始名称、
+绑定范围、检查类型和声明可变性，区分 local 与 parameter，拒绝其他 owner/arena 的身份。
+resolver 在原 scope binding 处保留 writeability，并同时建立“已解析 binding ID → 原 scope row”
+目录；其所有者和有效期都是固定的 ResolvedNames，不缓存可见性查询或重新按字符串选声明。
+这是交接查询所需的身份目录，避免每个 capture 再扫描所有 scope；没有据此宣称速度收益，
+新增保留空间计入 HA3–HA4 同负载测量，不另启一项算法实验。
+
+展开结果携带 incoming captures 和 captured mutable local 的 cell 集合，closure 操作也携带
+同一份完整契约。原先 `FunctionLowerer::new` 的全 owner 语句/表达式扫描，以及 `lower_closure`
+的宽 signatures/scopes 查询，HA3 可由这些数据替换。MIR 的词法作用域本来就随结构化控制流建立；
+审计确认旧 source lowerer 对原 resolver scopes 的唯一读取仅用于 capture 名称，因此无须再复制
+整份 scope 图到 CheckedBody。capture 投影按 64 项批次和出口检查取消，不返回半份结果。
+
+本地证据：扩展既有原型测试，使用同名参数/可变局部的 shadowing，对比新 capture 和旧 MIR 的
+顺序、名称、源范围及 value/cell 参数表示；父/子展开共享同一 binding 身份与 cell 标记。
+测试 helper 现递归访问 nested callable roots。复用静态初始化器的 nested closure/async 更新身份
+契约、or-pattern 捕获契约，以及 HIR 的 usage 和 shadowing/navigation 契约。6 个选中测试通过。
+本检查点结构（1837 文件，零违规/例外）、fmt、workspace all-target Clippy、严格 private rustdoc
+和 diff 全部通过；没有遗留构建失败，没有执行全量 CI 矩阵。
+下一步仍是 HA2 的完整操作/正常完成边界、默认方法、host/propagation 和执行差分验证，随后 HA3
+统一切换生产消费者；本次 capture 表示对照不能替代整个新路径的执行等价证明。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 

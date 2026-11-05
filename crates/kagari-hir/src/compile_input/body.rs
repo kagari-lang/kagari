@@ -16,6 +16,7 @@ use crate::{
     source_map::SourceMap,
     typeck::table::TypeTable,
 };
+pub mod bindings;
 pub mod facts;
 
 use kagari_common::{

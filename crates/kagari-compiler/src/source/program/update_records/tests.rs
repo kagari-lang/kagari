@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     bytecode::lower_program_to_bytecode,
+    source::elaborate::tests::assert_expands,
     source::lower::{
         ModuleLowering, ModuleLoweringInputs,
         instances::{MirLoweringOptions, bridge_identities::BridgeIdentities},
@@ -187,6 +188,7 @@ fn initializer_program(text: &str) -> VerifiedBytecodeProgram {
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
+    assert_expands(&checked);
     let mir = crate::source::program::lower_program_to_mir(&checked, &Default::default()).unwrap();
     // Source-free projection carries the preserved MIR and independently checked
     // bytecode recipes, so comparison exercises both executable vocabularies.
