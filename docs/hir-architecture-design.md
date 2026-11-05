@@ -1,6 +1,6 @@
 # HIR 架构与编译交接设计
 
-状态：用户已启动 HA0–HA5 goal，HA0 执行中。2026-11-05–06 核对代码基线为
+状态：用户已启动 HA0–HA5 goal，HA0 已完成，HA1a 执行中。2026-11-05–06 核对代码基线为
 `2c1fcf9b`，工作分支为 `refactor/hir-architecture`；不代表已经完成 HA0 的契约审计和测量。
 本次按用户要求使用中文。文中的新类型名和数据结构均为设计示意，不是已经存在的 API，
 也不是已批准的存储布局。实现启动与范围由[路线图](implementation-roadmap.md#other-queued-designs)管理。
@@ -1098,12 +1098,56 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | 阶段 | 当前状态 | 实际交付/验证/测量 | 未解决问题与负责阶段 |
 | --- | --- | --- | --- |
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
-| HA0 | 执行中 | 已核对分支、代码基线与工作区；正在审计消费者与建立测量输入 | 待消费者矩阵、定稿与基线 |
-| HA1a–HA1c | 未启动 | — | 依赖 HA0 |
+| HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
+| HA1a–HA1c | HA1a 执行中 | 开始删除无生产需求的 SourceEvidence 映射与整理测试归属 | HA1b、HA1c 未开始 |
 | HA2 | 未启动 | — | 依赖 HA1 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
+
+
+### 7.4 HA0 消费者审计与已定稿契约
+
+核对基线 `2c1fcf9b`。下列矩阵按真实读取点合并同类消费者，作为 HA2–HA3 的完整切换清单；
+不是仅以新类型替换旧类型名称的任务。`typeck/table.rs` 的公共读接口与 `ExprKind`、`StmtKind`、
+`PlaceKind`、`PatternKind` 的全部变体共同限定清单，后续修改这几类枚举时同步更新对应展开分支。
+
+| 消费者/旧读取点 | 必须交付的事实与新所有者 | 完整性、身份和来源要求 | 验证与文档所有者 |
+| --- | --- | --- | --- |
+| `lower/expr/calls.rs`、`native_calls.rs`、`local_functions.rs` | 明确的直接/方法/接口/约束/value/helper/终止调用，接收者、参数顺序、应用签名与类型参数；选择事实归 HIR，代入计划归 instances | 方法 callee 的 `Field` 节点不一定是独立可执行值，不要求每个语法节点都有 value type；展开后每个实际值操作必须有合法类型。接收者只能求值一次 | 既有 callable、trait、local function 与跨模块调用契约；call 操作和实例查询 rustdoc |
+| `lower/expr/interfaces.rs`、`shared.rs`、`operators.rs`、`standard.rs`、`equality.rs` | 显式 callable/interface/coercion、已选协议与运算目标；环境提供声明契约 | 保留 generic binder、projection 依据，具体布局依赖的决定留在实例阶段；共享分派不退回字符串搜索 | 泛型/关联类型、接口与标准协议测试；转换及 BoundCall 文档 |
+| `lower/place.rs`、`stmt.rs`、`expr/aggregates.rs` | 字段身份、索引读/写协议、host path、目标及 RHS 顺序；struct/enum 构造及 update-base 字段 | 显式区分准备目标、读取、RHS、检查和提交；按原 trap 时点执行；base 即使没有补字段也要按原语义求值 | 值语义与宿主路径契约；place 和构造节点示例 |
+| `lower/expr/patterns.rs`、`stmt.rs`、`expr.rs` | 模式字段/variant/scalar/range、绑定、迭代契约、结构化分支和循环、终止事实 | or-pattern 的绑定对应一致；guard 与分支按原顺序；不在语义展开再建一套 MIR 基本块 | pattern、match、循环和恢复测试；pattern/iteration 与控制流文档 |
+| `lower/expr/propagation.rs`、`future.rs`、`function.rs` | Result/Option 传播契约、await/Future 结果、closure captures、async/resume 对应 | nested callable root 与父 owner 显式关联；捕获的可变 local cell 与源 binding 相连；生成实例归 planner | propagation、closure、async 与生命周期契约；捕获和生成来源文档 |
+| `lower/expr.rs`、`support.rs`、`debug.rs` | literal、tuple、array/repeat、range、字符串格式化、local/param/const/static 绑定，节点类型与来源 | 字面值解析不再由下游重复；所有生成操作保留对应源范围，UTF-8 偏移仍由物理源解释 | 既有类型/字符串/值语义与调试来源覆盖；基础表达式和 ID 查找文档 |
+| `lower/abi.rs`、`layouts.rs`、`instances/*` | 唯一签名、nominal/associated/native 契约、默认方法来源、const 值与实例需求 | ABI/layout 仍受已检查类型和独立 verifier 约束；全程序 root catalog 可见 caller-private 泛型实参，不缩成单模块环境 | source_programs、ABI/布局与 default method 契约；环境和实例接口文档 |
+| `source/program.rs`、`program/scheduler.rs`、`source_package` | 固定模块图/exports/依赖闭包与 checked body 目录；替换当前先 `to_unverified` 克隆整包再消费的路径 | 保留完整物理 parse 错误和全依赖闭包检查；保留需求用原有有界调度处理，不引入历史源码 fallback | 程序闭包、模块身份、missing dependency 与 update 契约；CheckedCompilation 和入口示例 |
+| `program/update_records.rs`、`update_source` | 按源 owner 收集静态初始化表达式、绑定/类型事实及 token 对应；只读 checked 输入 | 直接 initializer 比较保持，普通 callee body 改动仍不冻结；删除无生产用途的 SourceEvidence 导入能力，不删除真实跨上下文声明映射 | 既有 static evidence 与 provenance 测试；SourceEvidence 能力和生命周期说明 |
+| HIR `analysis/*_queries`、`cache`、`typeck/reuse` | 可恢复只读事实、诊断、独立 source map 和签名环境；不从编译用展开结果反向查询 | 旧快照可读，外来 arena/owner 拒绝；取消/耗尽不能成为可发布成功；R8 的保守失效规则不在本轮放宽 | arena/owner、signature/body reuse、取消与查询测试；模块导览、恢复值及快照契约 |
+
+定稿选择：
+
+1. **逻辑 body 身份。** 保留当前 `HirArenaId` + `BodyOwner` 的校验，函数、const、static 为
+   原始 owner 类别；闭包/async 子 body 额外用其 `ExprId` root 区分，并保留父 owner/captures。
+   本轮不把全模块 arena 下标假装成 body 内下标。`BodyKey` 的 Rust 名称可随实际 API 调整，
+   但上述身份组成与校验不可丢失。
+2. **声明与源码 body 不一一对应。** native 声明和无默认 body 的 trait requirement 是明确的
+   实现类别；const 值归检查结果，static 初始化器仍需执行 body。planner 产生的 adapter/resume
+   实例继续使用其生成身份，不伪造普通源函数身份或因 body 查找失败默认为 native。
+3. **展开节点身份。** 源节点保留现有 scoped ID；一个源节点产生多个操作时使用展开 body 拥有的
+   独立局部操作索引，并携带原 source ID/span。不存在固定的一对一 ID 转换，也不发布跨快照稳定索引。
+4. **展开粒度。** 显式化已选 call、conversion、access 和协议；保留结构化 block/if/match/loop、
+   pattern、propagation 和 await，MIR 负责其控制流与清理。静态标量/目标 facts 来自唯一检查所有者。
+   完整性按操作类别验证，不能遍历所有 HIR 节点并简单要求每个可选表都非空。
+5. **泛型证据。** 普通/默认/native/共享调用都保留已选声明、binder、trait 应用、签名及操作数角色；
+   替换后的实现查询统一归实例规划，调用现有 HIR 语义机制。MIR lowerer 不得重新决定调用类别。
+6. **迁移闭包。** expr/place/pattern、closure/async 与 statement 共用 `FunctionLowerer` 状态，
+   作为 HA3 一个完整 source-body 消费闭包切换；program/ABI/instances 配套改用同一 checked 环境。
+   HA2 新展开仅作私有验证，HA3 删除旧解读分支，不逐个操作添加生产 fallback。
+
+文档缺口已明确：现有模型页多数已有字段/源码示例，优先更新生命周期与新交接关系；
+`FunctionLowerer`/实例查询缺少清楚的职责分工说明，checked wrapper 仍暴露整包 `Deref`，
+SourceEvidence 映射说明没有解释真实消费需求。HA1–HA3 在上述所有者处补齐，HA5 核对完整阅读路径。
 
 ## 8. 验证与评估
 
@@ -1186,6 +1230,90 @@ HA4 在实验前另外固定一个目标，例如目标阶段时间改善至少 
 取消只承诺协作检查和有界批次工作，不承诺某个硬实时毫秒上限。一次复杂操作可能比普通节点慢；
 同时审查批次内算法是否还存在无界内循环，必要时保留内部检查。工作预算的精确计数仍独立于轮询频率。
 
+
+### 8.4 HA0 基线记录（2026-11-06）
+
+代码基线 `2c1fcf9b`；Apple M1 Max、10 logical CPUs、32 GiB、macOS 26.6.2（25G83），
+`rustc 1.99.1 (58cf8f9c3 2026-10-13)`、LLVM 23.1.1、aarch64-apple-darwin。
+使用 workspace 默认 release profile、默认 target/构建并行度，compiler 默认 source feature。
+计时 driver 为单线程，标准库 `catalog::shared()` 在计时前准备；Rust 编译不计入时间。
+未修改产品代码或加入常驻 metrics API，临时插桩和 example 已移除。
+
+可复现输入：在 `SourceDatabase` 中创建 `profile.kgr`，生成 `i = 0..96` 的以下声明：
+
+```text
+pub fn f{i}(x: i32) -> i32 {
+    val a = x + 0; val b = a + 1; val c = b + 2;
+    val d = c + 3; val e = d + 4; val f = e + 5; f
+}
+```
+
+generic 组增加以下声明，并将每个 `f{i}` 的尾表达式改为 `read(Boxed { n: f })`：
+
+```text
+trait Read { fn read(self) -> i32; }
+struct Boxed { val n: i32 }
+impl Read for Boxed { fn read(self) -> i32 { self.n } }
+fn read<T: Read>(x: T) -> i32 { x.read() }
+```
+
+每个样本使用全新 `AnalysisDatabase` 并安装相同的 shared catalog，依次计时
+`declarations`、`signatures`、`snapshot`、`check_program`、`lower_program_to_mir`。
+前两阶段的缓存保留供后续阶段使用；这些是阶段增量时间，不是独立冷启动入口时间。
+随后再次 `snapshot` 测 warm query，只将源码中第一处 `x + 0` 替换为 `x + 9`，
+在保留旧 snapshot 和 checked program 的情况下测新 snapshot。检查无诊断，编辑后仅 1 个
+body 重检；plain/generic 分别复用 95/97 个 body，根源码分别有 1824/2117 个表达式节点。
+使用临时 compiler example 执行 `cargo build -p kagari-compiler --example hir_profile --release`，
+单独运行产出的 executable；每组 8 次，第 0 次预热剔除。HA3 对照时以同样生成规则重建 driver，
+按第 8.3 节与基线代码交替运行；当前尚无新实现，不伪称已经完成配对比较。
+
+| 阶段，毫秒（中位数 ± MAD，7 次） | plain | generic |
+| --- | --- | --- |
+| 声明/parse/lower/import | 19.848 ± 0.343 | 19.060 ± 0.128 |
+| 签名准备 | 88.613 ± 1.508 | 86.914 ± 0.898 |
+| 完整 snapshot/body 检查 | 4143.074 ± 12.923 | 4398.513 ± 45.633 |
+| checked program 资格门 | 10.196 ± 0.594 | 10.016 ± 0.282 |
+| 实例/MIR/验证合计 | 326.853 ± 4.775 | 323.832 ± 2.013 |
+| 未改动 warm snapshot | 135.149 ± 1.679 | 133.536 ± 0.654 |
+| 单 body 编辑后的 snapshot | 179.269 ± 1.913 | 179.973 ± 0.945 |
+
+独立计数运行不用于时间比较：在 `solve_root` 每轮累加 rounds，每次初始/每轮类型表克隆前
+累加所有 map/set 的 `len()`；在 `Solver::resolve` 入口及其结构替换回调分别计数；
+在 `SearchBudget::check_candidate` 入口计数。计数范围从设置 providers 到首次 snapshot 完成，
+包含标准库的相关工作，不能解释为仅 96 个用户函数的成本。
+
+| 计数 | plain | generic |
+| --- | --- | --- |
+| 推导轮数 | 248 | 252 |
+| resolve 调用 / 替换节点访问 | 51,948 / 66,276 | 60,418 / 75,928 |
+| 类型表复制累计条目（非字节） | 624,192 | 685,623 |
+| 实现搜索预算检查（含递归，非不同 impl 数） | 7,431,746 | 8,001,026 |
+
+同一个计数 driver 通过 `System` 包装 allocator 记录成功分配请求、live requested bytes 和 peak；
+alloc 增加 layout size，dealloc 减去 layout size，realloc 由包装 allocator 的默认实现拆成
+分配/释放。因此分配数受该计数实现影响，不能直接当作生产系统 allocator 调用数。
+此处报告相对于 providers 初始化后的起点增加的字节，覆盖首次检查、MIR、warm 和 edit 全过程：
+
+| requested bytes / 计数（单次，尚未建立内存噪声范围） | plain | generic |
+| --- | --- | --- |
+| 峰值增加 | 111,636,543 | 113,222,247 |
+| 保留新旧快照及 checked 输入 | 76,251,036 | 78,108,276 |
+| 释放旧 snapshot 与 checked 输入后 | 46,014,454 | 46,904,456 |
+| 再释放新 snapshot 与 analysis DB 后 | 13,792 | 13,321 |
+| 全过程成功分配请求 | 133,317,193 | 139,804,042 |
+
+最后的少量存活量仍包含 source database 的新源码、输出和进程共享设施；不据此判断泄漏。
+计数数据说明需要检查重复搜索、事实复制及同时保留的生命周期，尚未证明任何优化的耗时收益。
+当前规划/展开/MIR 在旧实现交错，只记录整体时间；HA3 分层后增加相应阶段计时。
+
+取消探针：plain 输入先完成 signatures，再在 snapshot 请求中的第 10,000 次 token check
+触发该 token 取消；结果返回错误，共观察 10,004 次 check。总请求时间 2.8554 ms，
+包含触发前工作，不是取消响应延迟。该点位于复用准备路径，不代表所有长算法已覆盖；
+HA1c 仍需验证 body/循环内部检查和拒绝发布。此探针不修改运行时 token 的最终实现。
+
+回退调查线现固定为：相关端到端时间或保留内存恶化超过 5%，且超过配对样本噪声，必须诊断。
+内存对照补充重复采样后才作显著性判断。HA4 的独立收益目标仍须在选中候选后、实现前固定。
+
 ## 9. 待定问题与设计状态
 
 第二轮评审保留以下执行方向，尚不是已经落地的实现：
@@ -1219,8 +1347,8 @@ HA4 在实验前另外固定一个目标，例如目标阶段时间改善至少 
 - [x] 完成第二轮代码与成熟实现评审，区分现有工作队列、局部算法候选和本轮不做的算法替换。
 - [x] 写出 HA0–HA5 执行依赖、检查点、移除点、测量门槛及后续 goal 入口。
 - [x] 纳入 Rust 标准库风格的 HIR 文档要求，并明确各阶段所有者、示例验证和阅读任务验收。
-- [ ] 架构评审后定稿 HA0 契约和代表性迁移清单。
-- [ ] 启动 HA1–HA5；当前均未实施，也未建立性能基线。
+- [x] 定稿 HA0 契约、消费者清单和代表性基线；测量限制见第 8.4 节。
+- [ ] 完成 HA1–HA5；HA1a 开始实施，其余阶段尚未开始。
 
 实施完成后，将最终行为迁入现有架构/规范，将未完成事项保留在路线图或已有 review 所有者，
 移除本设计执行文档；Git 历史保留阶段记录。本文件是这一重构提案的唯一细化队列，
