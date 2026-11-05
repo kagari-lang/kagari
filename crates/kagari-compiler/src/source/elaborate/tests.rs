@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::source::{
-    elaborate::model::{CheckedExprKind, Conversion},
+    elaborate::model::{CheckedExprKind, CheckedPlaceKind, Conversion, ValueBinding},
     lower::instances::MirLoweringOptions,
     program::lower_program_to_mir,
 };
@@ -12,7 +12,9 @@ use kagari_hir::{
     analysis::AnalysisDatabase,
     compile_input::{body::bindings::BindingId, program::CheckedCompilation},
     program::CheckedProgram,
+    typeck::scalar::ScalarValue,
 };
+use kagari_mir::instruction::{Constant, Instruction};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::collections::HashSet;
 
@@ -35,6 +37,8 @@ fn existing_contracts_expand_without_resolving_source_again() {
     for text in [
         "fn main() -> i32 { val (left, right) = loop {}; 0 }",
         "fn main() -> i32 { -(loop {}) }",
+        "fn main() -> Result<i32, i32> { (loop {})? }",
+        "fn relay(value: Result<i32, i32>) -> Result<i32, i32> { Ok(value? + 1) }",
         include_str!("../../../tests/fixtures/language_foundation/scalar-language.kgr"),
         include_str!(
             "../../../tests/fixtures/language_foundation/collection-interface-iteration.kgr"
@@ -181,4 +185,112 @@ pub(crate) fn assert_expands(program: &CheckedProgram) {
             }
         }
     }
+}
+
+#[test]
+fn imported_constants_and_static_places_keep_canonical_value_contracts() {
+    let program = checked(
+        r#"
+mod data { pub const OFFSET: i32 = 4; pub static var VALUE: i32 = OFFSET; }
+use self::data::OFFSET as STEP;
+use self::data::VALUE as CURRENT;
+fn main() -> i32 { CURRENT += STEP; CURRENT }
+"#,
+    );
+    let legacy = lower_program_to_mir(&program, &Default::default()).unwrap();
+    let compilation = CheckedCompilation::from_program(&program, &Default::default()).unwrap();
+    let module = compilation
+        .modules()
+        .iter()
+        .find(|module| module.handle() == compilation.root())
+        .unwrap();
+    let input = module
+        .bodies()
+        .find(|input| {
+            input
+                .enclosing_signature()
+                .is_some_and(|signature| signature.name == "main")
+        })
+        .unwrap();
+    let body = elaborate(input, &Default::default()).unwrap();
+    let legacy_module = legacy
+        .modules()
+        .iter()
+        .find(|candidate| &candidate.identity == module.source().module_identity())
+        .unwrap();
+    let slot = legacy_module
+        .module_slots
+        .iter()
+        .find(|slot| slot.contract.name == "VALUE")
+        .unwrap();
+    let identity = legacy_module
+        .definitions()
+        .resolve(slot.contract.declaration)
+        .unwrap()
+        .to_path();
+    let mut read = false;
+    let mut constant = false;
+    for operation in &body.operations {
+        match &operation.kind {
+            CheckedExprKind::Read(ValueBinding::Static(declaration)) => {
+                assert_eq!(
+                    input
+                        .environment()
+                        .definitions()
+                        .resolve(*declaration)
+                        .unwrap()
+                        .to_path(),
+                    identity
+                );
+                assert_eq!(
+                    &module.source().text()[operation.span.start..operation.span.end],
+                    "CURRENT"
+                );
+                read = true;
+            }
+            CheckedExprKind::Constant(ScalarValue::Integer { value: 4, .. }) => constant = true,
+            _ => {}
+        }
+    }
+    assert!(read && constant);
+    let target = body
+        .places
+        .values()
+        .find_map(|place| match place.kind {
+            CheckedPlaceKind::Binding(ValueBinding::Static(declaration)) => Some(declaration),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        input
+            .environment()
+            .definitions()
+            .resolve(target)
+            .unwrap()
+            .to_path(),
+        identity
+    );
+    let main = legacy_module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .unwrap();
+    assert!(
+        main.blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::LoadConst {
+                    constant: Constant::I32(4),
+                    ..
+                }
+            ))
+    );
+    assert!(
+        main.blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .any(|instruction| matches!(instruction, Instruction::StoreModule { .. }))
+    );
 }

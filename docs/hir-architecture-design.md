@@ -1101,7 +1101,7 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
 | HA1a–HA1c | 完成 | 删除非必要身份能力、整理测试；分离工作状态/事实，共享归一化签名；显式取消出口、批次轮询及中途取消不发布验证通过 | 性能整体对照归 HA3–HA4；不承诺固定取消毫秒数 |
-| HA2 | 执行中 | 固定环境/身份/完成证据及操作事实投影；测试用展开原型、closure 子根与完整捕获元数据；捕获存储/来源对照通过 | 默认方法及 host/propagation 等完整交接契约与操作差分仍待验证；不能视为阶段完成 |
+| HA2 | 执行中 | 固定环境/身份/事实投影；展开、捕获、const/static 和正常完成前缀；默认方法来源及 host/propagation 交接通过 | 普通方法/callable 字段/泛型约束的目标、签名与操作数角色对照待完成；不能视为阶段完成 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
@@ -1232,6 +1232,33 @@ HA2 正常完成边界复核：在同一原型契约测试中复用“解构绑�
 按第 7.2 节：已选目标、签名、操作数角色和来源；完整新路径执行验证由 HA3 生产切换承接，
 不以在 HA2 再实现另一套 MIR 路径作为前置条件。下一次审计优先核对 const/static 读取的
 canonical binding/value 投影，以及默认方法、host path 和 propagation 的实际所需字段。
+
+HA2 值位置与执行前缀检查点：普通读取/写入只交付 `ValueBinding::{Lexical,Static}`，
+const/import alias 在固定环境中取得已计算标量，static 携带规范声明身份；实例规划继续负责
+运行时槽位和初始化需求。别名 const/static 的来源、值和身份与旧 MIR 对照通过。
+
+新发现的 `(loop {})?` 在旧 MIR 合法，但原型误要求不会执行的 propagation contract。
+已复用 `typeck::completion` 原有显式工作栈；输入从完整 Module 收窄为 Body，检查器仍每次
+用独立 memo，compiler 通过 `BodyCompletion` 在同一不可变输入内复用 memo。它由借用生命周期
+绑定 nodes/names/types，不接受更换环境，不进入发布事实或跨版本缓存；缓存命中也检查取消。
+展开现在只保留操作数的实际求值前缀，在准备目标或 RHS 退出时不要求提交操作；跳过已终止
+block 的后续语句，以及无 guard 的 irrefutable match arm 后续分支。guard 不完成时不展开
+arm body。该复用解决事实消费边界，不是 HA4 的算法优化实验，也不声称性能改善。
+
+验证复用原有语义所有者：3 个展开测试（含正常 Result 传播、non-completing 传播、capture、
+const/static），8 个现有 compiler 契约（aggregate/primitive/place 提前退出、or-pattern capture、
+irrefutable match、2 个 imported default 来源及 host ABI），5 个 completion 算法/取消测试，
+共 16 个选中测试通过。host 样例为现有 external ABI fixture 添加明确声明的读写 path；比较
+新操作与旧 MIR 的路径指纹、数量及 `player.hp` 源范围。默认方法与其内部函数的展开继续绑定
+定义模块，原 portable source ownership 断言保留。最初测试夹具遗漏 host path 声明导致
+`InvalidHostPath`，补全合法声明后通过；没有放宽检查。`for value in loop {}` 被现有检查器
+拒绝为 `InvalidForIterable`，删除该无效探针，本轮不改变语言规则。HIR 测试构造器遗漏的
+Module→Body 字段迁移已修复，无遗留构建失败。
+
+本检查点结构检查（1839 文件，零违规/例外）、fmt、workspace all-target Clippy、严格 private
+rustdoc 和 diff 均通过；全量 workspace/feature/backend/platform CI 未执行。HA2 的剩余核对收敛为普通方法、
+callable 字段和带约束调用的目标/签名/操作数角色对照，随后按第 7.4 节闭包进入 HA3；
+本轮仍不增加第二个生产编译入口。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 

@@ -1,25 +1,28 @@
 //! Body-owned construction state and mandatory semantic-fact validation.
 
+mod completion;
 mod expr;
 mod structure;
 
 use crate::source::elaborate::{
     ElaborationError,
-    model::{CheckedBody, CheckedCapture, CheckedExpr, CheckedExprKind, OperationId},
+    model::{CheckedBody, CheckedCapture, CheckedExpr, CheckedExprKind, OperationId, ValueBinding},
 };
 use kagari_common::{cancellation::CancellationToken, span::Span};
 use kagari_hir::{
     compile_input::{
-        body::{BodyRoot, CheckedBodyInput, bindings::BindingId},
+        body::{BodyRoot, CheckedBodyInput, bindings::BindingId, flow::BodyCompletion},
         environment::CheckedEnvironment,
     },
     hir::ids::ExprId,
+    resolver::resolved::ResolvedName,
     types::TypeId,
 };
 
 pub(super) struct Builder<'a, 'c> {
     input: CheckedBodyInput<'a>,
     environment: CheckedEnvironment<'a>,
+    completion: BodyCompletion<'a>,
     cancel: &'c CancellationToken,
     body: CheckedBody,
 }
@@ -29,6 +32,7 @@ impl<'a, 'c> Builder<'a, 'c> {
         Self {
             input,
             environment: input.environment(),
+            completion: input.completion(),
             cancel,
             body: CheckedBody {
                 key: input.key(),
@@ -89,6 +93,39 @@ impl<'a, 'c> Builder<'a, 'c> {
             });
         }
         Ok(result)
+    }
+
+    fn value_binding(
+        &self,
+        resolved: &ResolvedName,
+        span: Span,
+    ) -> Result<ValueBinding, ElaborationError> {
+        if let Some(binding) = BindingId::from_resolution(resolved) {
+            self.require(
+                self.input.binding(binding),
+                Some(span),
+                "missing lexical binding contract",
+            )?;
+            return Ok(ValueBinding::Lexical(binding));
+        }
+        let declaration = self.require(
+            self.environment.static_declaration(resolved),
+            Some(span),
+            "name is not a checked runtime value location",
+        )?;
+        Ok(ValueBinding::Static(declaration))
+    }
+
+    fn completes(&mut self, id: ExprId) -> Result<bool, ElaborationError> {
+        let result = self
+            .completion
+            .expression(id, self.cancel)
+            .map_err(|_| ElaborationError::Cancelled)?;
+        self.require(
+            result,
+            self.input.expression_span(id),
+            "foreign completion expression",
+        )
     }
 
     fn check(&self) -> Result<(), ElaborationError> {

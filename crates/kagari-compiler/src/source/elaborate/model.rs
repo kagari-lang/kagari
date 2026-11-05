@@ -23,13 +23,12 @@ use kagari_hir::{
     compile_input::body::{BodyKey, BodyRoot, bindings::BindingId},
     hir::{
         expr::{
-            Condition, MatchArm,
+            Condition,
             ops::{BinaryOp, PrefixOp},
         },
         ids::{BlockId, ExprId, FunctionId, LocalId, PatternId, PlaceId, StmtId},
         writeability::Writeability,
     },
-    resolver::resolved::ResolvedName,
     typeck::{
         scalar::ScalarValue,
         table::{
@@ -93,11 +92,20 @@ pub enum Conversion {
     ReadOnly,
 }
 
+/// A runtime value location, with imported statics reduced to their canonical identity.
+/// Constants are emitted as scalar operations; type/function/namespace names cannot
+/// be smuggled into this representation as ordinary reads or mutation roots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueBinding {
+    Lexical(BindingId),
+    Static(DefinitionId),
+}
+
 /// Executable expression meaning, with names/fields/constructors already selected.
 #[derive(Debug, Clone)]
 pub enum CheckedExprKind {
     Constant(ScalarValue),
-    Read(ResolvedName),
+    Read(ValueBinding),
     FunctionValue {
         declaration: DefinitionId,
         arguments: Vec<TypeId>,
@@ -108,8 +116,8 @@ pub enum CheckedExprKind {
         helper: BuiltinFunction,
         operands: Vec<ExprId>,
     },
-    /// The callee terminates; explicit argument syntax contributes no operations.
-    TerminatingCallee(ExprId),
+    /// Evaluate this source-order prefix; its last operand exits before the parent operation.
+    Diverging(Vec<ExprId>),
     Convert {
         value: OperationId,
         conversion: Conversion,
@@ -198,7 +206,7 @@ pub enum CheckedExprKind {
     },
     Match {
         scrutinee: ExprId,
-        arms: Vec<MatchArm>,
+        arms: Vec<CheckedMatchArm>,
     },
     Loop(BlockId),
     Closure {
@@ -211,6 +219,15 @@ pub enum CheckedExprKind {
         key: BodyKey,
         captures: Vec<CheckedCapture>,
     },
+}
+
+/// A pattern decision followed by its conditional guard and reachable value.
+#[derive(Debug, Clone)]
+pub struct CheckedMatchArm {
+    pub pattern: PatternId,
+    pub guard: Option<ExprId>,
+    /// Absent when the guard cannot finish evaluating.
+    pub value: Option<ExprId>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -270,6 +287,13 @@ pub enum CheckedStmtKind {
         op: Option<BinaryOp>,
         value: ExprId,
     },
+    /// Target preparation exits before any RHS or mutation operation.
+    EvaluatePlace(PlaceId),
+    /// Prepare the target, then evaluate an RHS that exits before commit.
+    EvaluateAssignment {
+        target: PlaceId,
+        value: ExprId,
+    },
     Return(Option<ExprId>),
     While {
         condition: Condition,
@@ -291,13 +315,14 @@ pub enum CheckedStmtKind {
 #[derive(Debug, Clone)]
 pub struct CheckedPlace {
     pub span: Span,
+    /// Stored value type, or `Never` when preparation produces no location.
     pub ty: TypeId,
     pub kind: CheckedPlaceKind,
 }
 
 #[derive(Debug, Clone)]
 pub enum CheckedPlaceKind {
-    Binding(ResolvedName),
+    Binding(ValueBinding),
     Value(ExprId),
     Field {
         base: PlaceId,
@@ -309,6 +334,11 @@ pub enum CheckedPlaceKind {
         operation: IndexWrite,
     },
     Host(ResolvedHostPlacePath),
+    /// Preparation's evaluated prefix, with no resulting location or access operation.
+    Diverging {
+        base: Option<PlaceId>,
+        values: Vec<ExprId>,
+    },
 }
 
 #[derive(Debug, Clone)]

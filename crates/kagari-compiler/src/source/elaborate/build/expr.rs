@@ -4,8 +4,8 @@ use crate::source::elaborate::{
     ElaborationError,
     build::Builder,
     model::{
-        CheckedCall, CheckedCallTarget, CheckedExprKind, Conversion, IndexRead, OperationId,
-        OperatorSyntax,
+        CheckedCall, CheckedCallTarget, CheckedExprKind, CheckedMatchArm, Conversion, IndexRead,
+        OperationId, OperatorSyntax,
     },
 };
 use kagari_common::span::Span;
@@ -20,7 +20,7 @@ use kagari_hir::{
     typeck::table::{CallTarget, ResolvedCall},
     types::TypeId,
 };
-use kagari_types::collection::CollectionAccess;
+use kagari_types::{collection::CollectionAccess, scalar::BuiltinType};
 
 impl Builder<'_, '_> {
     pub(super) fn expression(&mut self, id: ExprId) -> Result<OperationId, ElaborationError> {
@@ -29,8 +29,12 @@ impl Builder<'_, '_> {
             return Ok(*operation);
         }
         let span = self.require(self.input.expression_span(id), None, "foreign expression")?;
-        let ty = self.value_type(id)?;
         let kind = self.expression_kind(id, span)?;
+        let ty = if matches!(kind, CheckedExprKind::Diverging(_)) {
+            TypeId::Builtin(BuiltinType::Never)
+        } else {
+            self.value_type(id)?
+        };
         let mut operation = self.append(id, span, ty.clone(), kind);
         self.body.values.insert(id, operation);
         let facts = self.require(
@@ -38,7 +42,7 @@ impl Builder<'_, '_> {
             Some(span),
             "missing expression facts",
         )?;
-        if !ty.is_never() {
+        if self.completes(id)? {
             if let Some((receiver, interface)) = facts.callable_conversion {
                 let result = self.require(
                     callable_signature(self.environment.definitions(), interface),
@@ -108,6 +112,9 @@ impl Builder<'_, '_> {
             Some(span),
             "missing expression facts",
         )?;
+        if let Some(prefix) = self.diverging_prefix(id, &syntax)? {
+            return Ok(CheckedExprKind::Diverging(prefix));
+        }
         if matches!(syntax, ExprKind::Name { .. })
             && let Some(call) = &facts.call
             && let CallTarget::Function(function) = call.target
@@ -180,22 +187,19 @@ impl Builder<'_, '_> {
             ExprKind::Missing | ExprKind::Literal(_) => {
                 return Err(self.error(Some(span), "missing checked value"));
             }
-            ExprKind::Name { .. } => CheckedExprKind::Read(self.require(
-                facts.binding,
-                Some(span),
-                "missing name binding",
-            )?),
-            ExprKind::Call { callee, args, .. } => {
+            ExprKind::Name { .. } => {
+                let binding = self.require(facts.binding, Some(span), "missing name binding")?;
+                if let Some(value) = self.environment.constant_value(&binding) {
+                    CheckedExprKind::Constant(value.clone())
+                } else {
+                    CheckedExprKind::Read(self.value_binding(&binding, span)?)
+                }
+            }
+            ExprKind::Call { args, .. } => {
                 let call = self.require(facts.call, Some(span), "missing call selection")?;
                 match call.target {
                     CallTarget::TerminatingCallee => {
-                        let receiver =
-                            self.require(call.receiver, Some(span), "missing terminating callee")?;
-                        if receiver != callee {
-                            return Err(self.error(Some(span), "terminating callee mismatch"));
-                        }
-                        self.expression(callee)?;
-                        CheckedExprKind::TerminatingCallee(callee)
+                        return Err(self.error(Some(span), "terminating callee completes normally"));
                     }
                     CallTarget::RuntimeHelper(helper) => {
                         let operands = call
@@ -392,16 +396,33 @@ impl Builder<'_, '_> {
             }
             ExprKind::Match { scrutinee, arms } => {
                 self.expression(scrutinee)?;
+                let mut checked = Vec::new();
                 for arm in &arms {
                     self.pattern(arm.pattern)?;
-                    if let Some(guard) = arm.guard {
+                    let guard_completes = if let Some(guard) = arm.guard {
                         self.expression(guard)?;
+                        self.completes(guard)?
+                    } else {
+                        true
+                    };
+                    let value = if guard_completes {
+                        self.expression(arm.expr)?;
+                        Some(arm.expr)
+                    } else {
+                        None
+                    };
+                    checked.push(CheckedMatchArm {
+                        pattern: arm.pattern,
+                        guard: arm.guard,
+                        value,
+                    });
+                    if arm.guard.is_none() && self.body.patterns[&arm.pattern].irrefutable {
+                        break;
                     }
-                    self.expression(arm.expr)?;
                 }
                 CheckedExprKind::Match {
                     scrutinee,
-                    arms: arms.to_vec(),
+                    arms: checked,
                 }
             }
             ExprKind::Loop { body } => {

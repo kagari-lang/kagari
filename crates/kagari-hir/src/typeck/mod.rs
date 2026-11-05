@@ -47,7 +47,7 @@ pub(crate) mod associated_consts;
 mod asynchronous;
 mod body;
 pub(crate) mod check;
-mod completion;
+pub(crate) mod completion;
 pub mod const_budget;
 mod const_eval;
 pub(crate) mod constant_facts;

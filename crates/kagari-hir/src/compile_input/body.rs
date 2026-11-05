@@ -18,6 +18,7 @@ use crate::{
 };
 pub mod bindings;
 pub mod facts;
+pub mod flow;
 
 use kagari_common::{
     identity::table::{DefinitionTable, module::ModuleHandle},

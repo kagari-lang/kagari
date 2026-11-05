@@ -16,6 +16,8 @@ use kagari_hir::hir::{
     place::PlaceKind,
     stmt::StmtKind,
 };
+use kagari_hir::types::TypeId;
+use kagari_types::scalar::BuiltinType;
 
 impl Builder<'_, '_> {
     pub(super) fn block(&mut self, id: BlockId) -> Result<(), ElaborationError> {
@@ -32,13 +34,11 @@ impl Builder<'_, '_> {
         for statement in block.statements {
             self.statement(statement)?;
             statements.push(statement);
-            if matches!(
-                self.body.statements[&statement].kind,
-                CheckedStmtKind::Return(_)
-                    | CheckedStmtKind::Break
-                    | CheckedStmtKind::BreakValue(_)
-                    | CheckedStmtKind::Continue
-            ) {
+            let normal = self
+                .completion
+                .statement(statement, self.cancel)
+                .map_err(|_| ElaborationError::Cancelled)?;
+            if !self.require(normal, Some(span), "foreign completion statement")? {
                 terminated = true;
                 break;
             }
@@ -73,17 +73,29 @@ impl Builder<'_, '_> {
                 ..
             } => {
                 self.expression(initializer)?;
-                self.pattern(pattern)?;
-                CheckedStmtKind::Binding {
-                    pattern,
-                    writeability,
-                    initializer,
+                if self.completes(initializer)? {
+                    self.pattern(pattern)?;
+                    CheckedStmtKind::Binding {
+                        pattern,
+                        writeability,
+                        initializer,
+                    }
+                } else {
+                    CheckedStmtKind::Expr(initializer)
                 }
             }
             StmtKind::Assign { target, op, value } => {
                 self.place(target)?;
-                self.expression(value)?;
-                CheckedStmtKind::Assign { target, op, value }
+                if self.place_completes(target)? {
+                    self.expression(value)?;
+                    if self.completes(value)? {
+                        CheckedStmtKind::Assign { target, op, value }
+                    } else {
+                        CheckedStmtKind::EvaluateAssignment { target, value }
+                    }
+                } else {
+                    CheckedStmtKind::EvaluatePlace(target)
+                }
             }
             StmtKind::Return { expr } => {
                 if let Some(expr) = expr {
@@ -92,9 +104,14 @@ impl Builder<'_, '_> {
                 CheckedStmtKind::Return(expr)
             }
             StmtKind::While { condition, body } => {
-                self.condition(&condition)?;
-                self.block(body)?;
-                CheckedStmtKind::While { condition, body }
+                self.expression(condition.value())?;
+                if self.completes(condition.value())? {
+                    self.condition(&condition)?;
+                    self.block(body)?;
+                    CheckedStmtKind::While { condition, body }
+                } else {
+                    CheckedStmtKind::Expr(condition.value())
+                }
             }
             StmtKind::Loop { body } => {
                 self.block(body)?;
@@ -106,22 +123,26 @@ impl Builder<'_, '_> {
                 body,
             } => {
                 self.expression(iterable)?;
-                let iteration = self
-                    .require(
-                        self.input
-                            .expression_facts(iterable)
-                            .and_then(|facts| facts.iteration),
-                        Some(span),
-                        "missing iteration contract",
-                    )?
-                    .clone();
-                self.pattern(pattern)?;
-                self.block(body)?;
-                CheckedStmtKind::For {
-                    pattern,
-                    iterable,
-                    body,
-                    iteration: Box::new(iteration),
+                if !self.completes(iterable)? {
+                    CheckedStmtKind::Expr(iterable)
+                } else {
+                    let iteration = self
+                        .require(
+                            self.input
+                                .expression_facts(iterable)
+                                .and_then(|facts| facts.iteration),
+                            Some(span),
+                            "missing iteration contract",
+                        )?
+                        .clone();
+                    self.pattern(pattern)?;
+                    self.block(body)?;
+                    CheckedStmtKind::For {
+                        pattern,
+                        iterable,
+                        body,
+                        iteration: Box::new(iteration),
+                    }
                 }
             }
             StmtKind::Break => CheckedStmtKind::Break,
@@ -251,6 +272,18 @@ impl Builder<'_, '_> {
         Ok(())
     }
 
+    fn place_completes(&mut self, id: PlaceId) -> Result<bool, ElaborationError> {
+        let result = self
+            .completion
+            .place(id, self.cancel)
+            .map_err(|_| ElaborationError::Cancelled)?;
+        self.require(
+            result,
+            self.input.place_span(id),
+            "foreign completion place",
+        )
+    }
+
     fn place(&mut self, id: PlaceId) -> Result<(), ElaborationError> {
         self.check()?;
         if self.body.places.contains_key(&id) {
@@ -262,6 +295,61 @@ impl Builder<'_, '_> {
             Some(span),
             "missing mutation facts",
         )?;
+        if !self.place_completes(id)? {
+            let (base, values) = if let Some(host) = facts.host_path {
+                if host.root == id {
+                    return Err(self.error(Some(span), "recursive host mutation root"));
+                }
+                (
+                    Some(host.root),
+                    host.dynamic_arguments
+                        .iter()
+                        .map(|(_, id)| *id)
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                match &self
+                    .require(self.input.place(id), Some(span), "foreign mutation target")?
+                    .kind
+                {
+                    PlaceKind::Expr(value) => (None, vec![*value]),
+                    PlaceKind::Field { base, .. } => (Some(*base), Vec::new()),
+                    PlaceKind::Index { base, index } => (Some(*base), vec![*index]),
+                    PlaceKind::Name(_) => {
+                        return Err(
+                            self.error(Some(span), "named place cannot terminate preparation")
+                        );
+                    }
+                }
+            };
+            let mut evaluated = Vec::new();
+            let mut normal = true;
+            if let Some(base) = base {
+                self.place(base)?;
+                normal = self.place_completes(base)?;
+            }
+            if normal {
+                for value in values {
+                    self.expression(value)?;
+                    evaluated.push(value);
+                    if !self.completes(value)? {
+                        break;
+                    }
+                }
+            }
+            self.body.places.insert(
+                id,
+                CheckedPlace {
+                    span,
+                    ty: TypeId::Builtin(BuiltinType::Never),
+                    kind: CheckedPlaceKind::Diverging {
+                        base,
+                        values: evaluated,
+                    },
+                },
+            );
+            return Ok(());
+        }
         let ty = self.valid_type(
             self.require(facts.ty, Some(span), "missing place type")?,
             Some(span),
@@ -280,11 +368,11 @@ impl Builder<'_, '_> {
                 .require(self.input.place(id), Some(span), "missing mutation target")?
                 .clone();
             match node.kind {
-                PlaceKind::Name(_) => CheckedPlaceKind::Binding(self.require(
-                    facts.binding,
-                    Some(span),
-                    "missing mutation binding",
-                )?),
+                PlaceKind::Name(_) => {
+                    let binding =
+                        self.require(facts.binding, Some(span), "missing mutation binding")?;
+                    CheckedPlaceKind::Binding(self.value_binding(&binding, span)?)
+                }
                 PlaceKind::Expr(expr) => {
                     self.expression(expr)?;
                     CheckedPlaceKind::Value(expr)

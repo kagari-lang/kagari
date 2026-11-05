@@ -336,6 +336,7 @@ fn irrefutable_match_arms_stop_unreachable_instantiation() {
         let analyzed = common::program_ok(&format!(
             "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn main() -> i32 {{ match 42 {{ {pattern} => 42, _ => grow(1) }} }}"
         ));
+        assert_expands(&analyzed);
         let ir = lower_to_mir(
             analyzed.root(),
             &MirLoweringOptions {

@@ -7,6 +7,7 @@ mod worklist;
 use crate::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
     source::{
+        elaborate::tests::assert_expands,
         lower::{MirLoweringError, instances::MirLoweringOptions},
         program::{SourceProgramError, lower_program_to_mir},
     },
@@ -812,6 +813,7 @@ fn portable_default_method_origins_remain_with_the_definition_module() {
         "use pkg::model::Read; struct Holder { val value: i32 } impl Read for Holder { fn read(self) -> i32 { self.value } } fn main() -> i32 { val x: Read = Holder { value: 7 }; x.again() }",
     );
     let checked = checked(&db, root);
+    assert_expands(&checked);
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let root_module = ir
         .modules()
@@ -967,6 +969,7 @@ fn local_function_values_in_imported_default_methods_keep_source_ownership() {
         "use pkg::api::Make; impl Make for i32 {} fn main() -> i32 { val maker: Make = 0; val callback = maker.make(); callback(42) }",
     );
     let checked = checked(&db, root);
+    assert_expands(&checked);
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let wire = encode_program(&ir, &Default::default()).unwrap();
     let decoded = decode_program(&wire, &Default::default()).unwrap();
