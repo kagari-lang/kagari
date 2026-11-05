@@ -12,12 +12,10 @@ use kagari_syntax::ast::{borrow::Ast, expr::Pattern, views::PatternBoundView};
 impl Lowerer {
     /// Collapses grouping, allocates nested patterns/local IDs and preserves constructor/name sites for later resolution.
     pub(crate) fn lower_pattern(&mut self, pattern: &Ast<'_, Pattern>) -> PatternId {
-        if pattern.is_grouped() {
-            return pattern
-                .elements()
-                .next()
-                .map(|inner| self.lower_pattern(&inner))
-                .expect("grouped pattern has one element");
+        if pattern.is_grouped()
+            && let Some(inner) = pattern.elements().next()
+        {
+            return self.lower_pattern(&inner);
         }
         let span = syntax_span(pattern);
         let kind = if pattern.is_or() {

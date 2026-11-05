@@ -66,6 +66,10 @@ There is no custom allocator, node interning or universal node database.
 For `if {}`, the condition is missing and the braces belong to `then_body`.
 For `if ready {} else`, the else clause is present with a missing body. Recovery
 cannot substitute a later matching expression for the missing field.
+Block expressions remain valid conditions: `if { ready } { work(); }` retains
+the first block as its condition. If a plain block condition has no following
+body block, recovery assigns that lone block to the body and marks the condition
+missing. The same rule applies to `while`.
 
 `SeparatedList` stores ordered required elements and optional required separators.
 For `f(a,,b,)`, the middle element is missing and the last entry retains a comma.
@@ -74,6 +78,8 @@ Skipped tokens have a parser-assigned owner, named field, list entry and
 `Ast::unexpected`; ownership is not guessed from overlapping spans. A struct
 update is a final entry: `Point { ..base, x: 1 }` retains `x: 1` as unexpected
 content, without admitting it as an ordinary field.
+When grammar parses a first entry separately, continuation parsing records
+recovery positions relative to the complete owning list, including that entry.
 
 Type lowering exhaustively matches `TypeView`, including grouped, tuple, array,
 function, applied and qualified types. Interpolation exposes ordered text/hole
@@ -105,6 +111,12 @@ coverage and unexpected contents. This private encoding keeps ordinary sites at
 eight bytes and does not create syntax/semantic IDs shared across parses.
 Coordinates are checked before narrowing; this representation requires source
 length and lexical record count to fit 32 bits.
+
+HIR source maps use `body_span` for semantic locations and complete authored
+declaration replacement extents. Outer trivia belongs to syntax layout, not the
+instruction location or replaceable declaration. Recovery can leave a grouped
+pattern without its required child; lowering retains a missing-pattern placeholder
+and the syntax diagnostics rather than assuming that child exists.
 
 `body_span` covers the construct's first through last written token, excluding
 outer trivia. `full_span` assigns a trivia gap deterministically: the first

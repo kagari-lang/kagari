@@ -5,6 +5,7 @@ use kagari_syntax::{
     ast::{
         site::{RecoveryPart, Required},
         views::{ExprView, ItemView},
+        visit::{ElementRef, NodeRef},
     },
     parser::parse,
 };
@@ -13,7 +14,10 @@ use kagari_syntax::{
 fn missing_condition_and_else_body_cannot_shift_field_roles() {
     for (text, missing_condition, has_else) in [
         ("fn f(){if {}}", true, false),
+        ("fn f(){if {} else", true, true),
         ("fn f(){if ready {}}", false, false),
+        ("fn f(){if {true} {}}", false, false),
+        ("fn f(){if {true} {} else", false, true),
         ("fn f(){if ready {} else", false, true),
     ] {
         let parsed = parse(&SourceFile::new("roles", text));
@@ -29,12 +33,70 @@ fn missing_condition_and_else_body_cannot_shift_field_roles() {
             missing_condition
         );
         assert!(matches!(conditional.data().then_body, Required::Present(_)));
+        if text.contains("true") {
+            assert!(matches!(
+                conditional.condition(),
+                Some(ExprView::BlockExpr(_))
+            ));
+        }
         assert_eq!(conditional.data().else_clause.is_some(), has_else);
         if has_else {
             assert!(
                 matches!(conditional.data().else_clause.as_ref().unwrap().body, Required::Missing { at } if at as usize == text.len())
             );
         }
+    }
+}
+
+#[test]
+fn continued_lists_keep_recovery_positions_and_authored_token_order() {
+    fn walk(node: NodeRef<'_>, text: &mut String) {
+        for element in node.elements() {
+            match element {
+                ElementRef::Node(child) => walk(child, text),
+                ElementRef::Token(token) if !token.lexical_kind().is_trivia() => {
+                    text.push_str(token.text());
+                }
+                ElementRef::Operator(operator) => text.push_str(operator.text()),
+                _ => {}
+            }
+        }
+    }
+
+    for text in [
+        "fn f(){(a,b @@@,c)}",
+        "fn f(){[a,b @@@,c]}",
+        "fn f(x: (A,B @@@,C)){}",
+        "fn f(){val (a,b @@@,c) = input;}",
+        "trait T {fn f(self, x: A @@@, y: B);}",
+    ] {
+        let parsed = parse(&SourceFile::new("continued-list", text));
+        assert!(!parsed.diagnostics().is_empty());
+        let module = parsed.module();
+        let mut recoveries = Vec::new();
+        for node in module.descendants() {
+            let skipped = match node {
+                NodeRef::TupleExpr(node) => node.unexpected().collect::<Vec<_>>(),
+                NodeRef::ArrayExpr(node) => node.unexpected().collect(),
+                NodeRef::Type(node) => node.unexpected().collect(),
+                NodeRef::Pattern(node) => node.unexpected().collect(),
+                NodeRef::ParamList(node) => node.unexpected().collect(),
+                _ => Vec::new(),
+            };
+            recoveries.extend(skipped);
+        }
+        assert_eq!(recoveries.len(), 1, "{text}");
+        assert_eq!(recoveries[0].text(), "@@@");
+        assert_eq!(recoveries[0].position().entry, 1, "{text}");
+        assert_eq!(recoveries[0].position().part, RecoveryPart::Separator);
+        let mut walked = String::new();
+        walk(NodeRef::ModuleBody(module.body()), &mut walked);
+        let lexical = parsed
+            .tokens()
+            .filter(|token| !token.lexical_kind().is_trivia())
+            .map(|token| token.text())
+            .collect::<String>();
+        assert_eq!(walked, lexical, "{text}");
     }
 }
 

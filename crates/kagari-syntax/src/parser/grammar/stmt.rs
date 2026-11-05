@@ -273,8 +273,7 @@ impl Parser<'_> {
     fn parse_while(&mut self) -> Built<Stmt> {
         let mark = self.begin();
         let keyword = self.take();
-        let condition = self.parse_condition();
-        let body = self.parse_block();
+        let (condition, body) = self.parse_condition_body();
         let site = self.end(mark);
         Built::present(
             Stmt::WhileStmt(Box::new(WhileStmt {

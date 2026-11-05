@@ -189,6 +189,7 @@ impl Parser<'_> {
             Self::generic_param_starts,
             Self::parse_generic_param,
             1,
+            0,
         );
         let close = self.expect(TokenKind::Gt, DiagnosticKind::ExpectedGenericParameterName);
         let site = self.end(mark);
@@ -237,6 +238,7 @@ impl Parser<'_> {
                 Self::type_starts,
                 Self::parse_type_ref,
                 1,
+                0,
             );
             let close = self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
             let output = self.parse_return_type();
@@ -312,6 +314,7 @@ impl Parser<'_> {
                     Self::generic_param_starts,
                     Self::parse_param,
                     1,
+                    1,
                 );
                 parameters.extend(rest.entries);
             }
@@ -321,6 +324,7 @@ impl Parser<'_> {
                 Self::generic_param_starts,
                 Self::parse_param,
                 1,
+                0,
             );
             parameters = parsed.entries.into_vec();
         }

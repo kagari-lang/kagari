@@ -446,17 +446,19 @@ impl<'a> Parser<'a> {
 
     /// One list implementation preserves missing entries and punctuation. The
     /// caller supplies grammar admission and owns the sparse recovery field slots.
+    /// `start_index` counts entries already parsed into the owning list.
     pub(crate) fn list<T, S>(
         &mut self,
         end: TokenKind,
         starts: fn(&Self) -> bool,
         parse: fn(&mut Self) -> Built<T>,
         field: u16,
+        start_index: usize,
     ) -> (SeparatedList<T, S>, usize) {
         let mut result = Vec::new();
         let mut depth = 0;
         while !self.at(end.clone()) && !self.at(TokenKind::Eof) {
-            let index = result.len();
+            let index = start_index + result.len();
             self.position(field, index);
             let before = self.cursor;
             let value = parse(self);

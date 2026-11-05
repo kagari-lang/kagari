@@ -163,9 +163,10 @@ impl Lowerer {
     }
 }
 
-/// Returns the full AST node's half-open byte range, including retained trivia.
+/// Returns the authored node range, excluding outer trivia owned by syntax layout.
+/// Semantic locations and replacement extents must stay within written tokens.
 pub(crate) fn syntax_span(node: &impl AstNode) -> Span {
-    node.full_span()
+    node.body_span()
 }
 
 /// The body's constant-time first/last lexical boundaries, including internal recovery.

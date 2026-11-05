@@ -278,7 +278,7 @@ result           -> ResolvedNames.exprs -> Local(l)
 sum              -> TypeTable.exprs     -> semantic i32 type
 l                -> TypeTable.locals    -> semantic i32 type
 t                -> type syntax         -> resolved type facts
-sum              -> SourceMap.expr_span -> bytes for the addition (possibly with trailing trivia)
+sum              -> SourceMap.expr_span -> first-to-last written token bytes for the addition
 ```
 
 [ResolvedNames](../../crates/kagari-hir/src/resolver/resolved.rs) records bindings;

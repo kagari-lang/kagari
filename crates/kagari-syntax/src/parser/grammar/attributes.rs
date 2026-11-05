@@ -100,6 +100,7 @@ impl Parser<'_> {
                     Self::attribute_value_starts,
                     Self::parse_attribute_arg,
                     1,
+                    0,
                 );
                 let close = self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
                 let site = self.end(args_mark);
@@ -194,6 +195,7 @@ impl Parser<'_> {
                     Self::attribute_value_starts,
                     Self::parse_attribute_arg,
                     1,
+                    0,
                 );
                 let close =
                     self.expect(TokenKind::RBracket, DiagnosticKind::ExpectedClosingBracket);

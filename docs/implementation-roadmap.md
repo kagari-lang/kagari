@@ -46,6 +46,29 @@ acceptance does not claim these matrices ran or passed. The completed TA1–TA4 
 and its phase ledger are retained in Git history. Incremental parsing, LSP
 expansion and broader HIR/runtime redesign were outside this replacement.
 
+Review follow-up preserves block-expression conditions and complete-list recovery
+coordinates, as specified in [syntax ownership](architecture/syntax.md#grammar-fields-and-recovered-roles).
+The previously failing while-condition contract now passes. Focused local coverage
+selects typed fields (including continuation recovery for expressions, types,
+patterns and receiver parameters), control flow, parser limits and formatter
+layout fixtures: 33 tests pass. These checks cover the changed syntax boundaries
+and their direct formatter consumer; exhaustive HIR, editor and backend coverage
+remains in the CI scope above. Structure, formatting, workspace all-target Clippy
+and diff checks pass. No performance remeasurement is claimed.
+
+SDK follow-up reproduces and repairs all ten reported failures: nine source
+location/inspection/update failures came from assigning outer trivia to HIR
+semantic ranges, and the recursive-syntax query panicked on a recovered grouped
+pattern with no child. HIR now uses written-token extents for source maps and
+attribute targets, and lowers the missing pattern through its existing recovery
+path. Replacement containment checks, runtime provenance and test assertions are
+unchanged. The ten named SDK regressions and ten selected HIR lowering/ownership
+tests pass; this covers source-free/native/async traces, retained source queries,
+update admission and recoverable analysis without running the workspace suite.
+The complete CI matrix above remains pending. Structure checking uses the
+existing cached environment with the locked tree-sitter 0.25.2 and
+tree-sitter-rust 0.24.2 dependencies because default uv cache access is restricted.
+
 ## Package acceptance and follow-ups
 
 [Source packages and workspaces](spec/packages.md) define the implemented local and

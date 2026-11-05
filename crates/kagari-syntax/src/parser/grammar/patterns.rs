@@ -83,6 +83,7 @@ impl Parser<'_> {
                         Self::pattern_starts,
                         Self::parse_match_pattern,
                         2,
+                        0,
                     );
                     let close =
                         self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
@@ -221,6 +222,7 @@ impl Parser<'_> {
                         TokenKind::RParen,
                         Self::pattern_starts,
                         Self::parse_match_pattern,
+                        1,
                         1,
                     );
                     elements.extend(rest.entries);

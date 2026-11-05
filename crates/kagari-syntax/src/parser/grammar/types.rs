@@ -89,6 +89,7 @@ impl Parser<'_> {
                     Self::type_starts,
                     Self::parse_type_ref,
                     2,
+                    0,
                 );
                 let close = self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
                 let arrow = self.expect(TokenKind::Arrow, DiagnosticKind::ExpectedType);
@@ -151,6 +152,7 @@ impl Parser<'_> {
                         TokenKind::RParen,
                         Self::type_starts,
                         Self::parse_type_ref,
+                        1,
                         1,
                     );
                     elements.extend(rest.entries);
@@ -239,6 +241,7 @@ impl Parser<'_> {
             Self::generic_argument_starts,
             Self::parse_generic_argument,
             1,
+            0,
         );
         let close = self.expect(TokenKind::Gt, DiagnosticKind::ExpectedType);
         let site = self.end(mark);

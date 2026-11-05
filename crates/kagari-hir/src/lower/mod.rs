@@ -213,7 +213,7 @@ pub(crate) fn lower_attributes(
                     .args()
                     .map(|args| args.arguments().map(attribute_argument).collect()),
                 span: context::token_span(&attribute),
-                target_span: owner.full_span(),
+                target_span: owner.body_span(),
             });
         }
         true

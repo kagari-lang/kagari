@@ -308,7 +308,13 @@ impl Parser<'_> {
         let generics = self.parse_generic_params();
         let fields_mark = self.begin();
         let open = self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedTraitBodyStart);
-        let (fields, _) = self.list(TokenKind::RBrace, Self::field_starts, Self::parse_field, 1);
+        let (fields, _) = self.list(
+            TokenKind::RBrace,
+            Self::field_starts,
+            Self::parse_field,
+            1,
+            0,
+        );
         let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
         let site = self.end(fields_mark);
         let fields = Required::Present(FieldList {
@@ -344,6 +350,7 @@ impl Parser<'_> {
                 Self::type_starts,
                 Self::parse_type_ref,
                 1,
+                0,
             );
             let close = self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
             let site = self.end(payload_mark);
@@ -382,6 +389,7 @@ impl Parser<'_> {
             Self::variant_starts,
             Self::parse_variant,
             1,
+            0,
         );
         let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
         let site = self.end(variants_mark);
@@ -554,6 +562,7 @@ impl Parser<'_> {
             Self::use_tree_starts,
             Self::parse_use_tree,
             1,
+            0,
         );
         let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
         let site = self.end(mark);

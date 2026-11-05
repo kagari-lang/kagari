@@ -6,12 +6,13 @@ use crate::{
     ast::{
         expr::{
             AppliedPath, ArrayContents, ArrayExpr, AsyncBlockExpr, AwaitExpr, BinaryExpr, BinaryOp,
-            BindingCondition, CallApplication, CallExpr, CastExpr, ClosureExpr, ClosureParam,
-            ClosureParamList, ClosureParams, Condition, DebugMarker, ElseClause, Expr, FieldExpr,
-            FieldInit, FieldInitList, FieldValue, IfExpr, IndexExpr, InterpolatedString,
-            Interpolation, Literal, LoopExpr, MatchArm, MatchArmList, MatchExpr, MatchGuard,
-            ParenExpr, PathExpr, PathMember, PrefixExpr, PrefixOp, PropagateExpr, RangeExpr,
-            RangeOp, StringPart, StructEntry, StructExpr, StructUpdateBase, TupleExpr,
+            BindingCondition, BlockExpr, CallApplication, CallExpr, CastExpr, ClosureExpr,
+            ClosureParam, ClosureParamList, ClosureParams, Condition, DebugMarker, ElseClause,
+            Expr, FieldExpr, FieldInit, FieldInitList, FieldValue, IfExpr, IndexExpr,
+            InterpolatedString, Interpolation, Literal, LoopExpr, MatchArm, MatchArmList,
+            MatchExpr, MatchGuard, ParenExpr, PathExpr, PathMember, PrefixExpr, PrefixOp,
+            PropagateExpr, RangeExpr, RangeOp, StringPart, StructEntry, StructExpr,
+            StructUpdateBase, TupleExpr,
         },
         site::{ListEntry, Required},
         tokens,
@@ -86,9 +87,6 @@ impl Parser<'_> {
                 })),
                 self.completed_depth,
             )
-        } else if self.at(TokenKind::LBrace) {
-            self.error_here(DiagnosticKind::ExpectedExpression);
-            Built::missing(self.anchor())
         } else {
             let expression = self.parse_condition_expr();
             Built {
@@ -99,6 +97,20 @@ impl Parser<'_> {
                 depth: expression.depth,
             }
         }
+    }
+
+    /// A lone block is the recovered body; a block followed by a body remains a condition.
+    pub(crate) fn parse_condition_body(&mut self) -> (Built<Condition>, Built<BlockExpr>) {
+        let at = self.anchor();
+        let condition = self.parse_condition();
+        if !self.at(TokenKind::LBrace)
+            && let Required::Present(Condition::Expression(Expr::BlockExpr(body))) = condition.node
+        {
+            self.error_here(DiagnosticKind::ExpectedExpression);
+            return (Built::missing(at), Built::present(*body, condition.depth));
+        }
+        let body = self.parse_block();
+        (condition, body)
     }
 
     fn parse_range(&mut self) -> Built<Expr> {
@@ -296,7 +308,7 @@ impl Parser<'_> {
                             });
                     let open = self.expect(TokenKind::LParen, DiagnosticKind::ExpectedClosingParen);
                     let (arguments, argument_depth) =
-                        self.list(TokenKind::RParen, Self::expr_starts, Self::parse_expr, 3);
+                        self.list(TokenKind::RParen, Self::expr_starts, Self::parse_expr, 3, 0);
                     let close =
                         self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
                     if !self.admit(
@@ -579,7 +591,7 @@ impl Parser<'_> {
                         separator,
                     });
                     let (rest, _) =
-                        self.list(TokenKind::RParen, Self::expr_starts, Self::parse_expr, 1);
+                        self.list(TokenKind::RParen, Self::expr_starts, Self::parse_expr, 1, 1);
                     elements.extend(rest.entries);
                 }
                 let close = self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
@@ -621,8 +633,13 @@ impl Parser<'_> {
                     separator,
                 });
                 if more {
-                    let (rest, _) =
-                        self.list(TokenKind::RBracket, Self::expr_starts, Self::parse_expr, 1);
+                    let (rest, _) = self.list(
+                        TokenKind::RBracket,
+                        Self::expr_starts,
+                        Self::parse_expr,
+                        1,
+                        1,
+                    );
                     elements.extend(rest.entries);
                 }
             }
@@ -649,8 +666,7 @@ impl Parser<'_> {
     fn parse_if_inner(&mut self) -> Built<Expr> {
         let mark = self.begin();
         let keyword = self.take();
-        let condition = self.parse_condition();
-        let body = self.parse_block();
+        let (condition, body) = self.parse_condition_body();
         let then_body = match body.node {
             Required::Present(body) => Required::Present(Box::new(body)),
             Required::Missing { at } => Required::Missing { at },
@@ -696,6 +712,7 @@ impl Parser<'_> {
             Self::pattern_starts,
             Self::parse_match_arm,
             1,
+            0,
         );
         let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
         let site = self.end(arms_mark);
@@ -774,6 +791,7 @@ impl Parser<'_> {
                 Self::closure_param_starts,
                 Self::parse_closure_param,
                 1,
+                0,
             );
             let close = self.expect(TokenKind::Pipe, DiagnosticKind::ExpectedExpression);
             let site = self.end(list_mark);
