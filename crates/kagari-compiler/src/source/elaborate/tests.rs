@@ -33,6 +33,8 @@ fn checked(text: &str) -> CheckedProgram {
 #[test]
 fn existing_contracts_expand_without_resolving_source_again() {
     for text in [
+        "fn main() -> i32 { val (left, right) = loop {}; 0 }",
+        "fn main() -> i32 { -(loop {}) }",
         include_str!("../../../tests/fixtures/language_foundation/scalar-language.kgr"),
         include_str!(
             "../../../tests/fixtures/language_foundation/collection-interface-iteration.kgr"
