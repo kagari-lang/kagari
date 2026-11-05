@@ -1,7 +1,10 @@
-use crate::ast::views::ItemView;
+use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{
-    ast::{item::VisibilityKind, views::ExprView},
+    ast::{
+        item::VisibilityKind,
+        views::{ExprView, ItemView},
+    },
     tests::common,
 };
 
@@ -125,6 +128,49 @@ use {std::math, super::util as util};
             );
         }
         other => panic!("unexpected second item: {other:?}"),
+    }
+}
+
+#[test]
+fn use_tree_combinations_require_paths_and_group_separators() {
+    for (tree, invalid_token) in [
+        ("foo", None),
+        ("foo as alias", None),
+        ("foo::*", None),
+        ("foo::{bar}", None),
+        ("{foo, bar}", None),
+        ("foo {bar}", Some("{")),
+        ("as alias", Some("as")),
+        ("::*", Some("::")),
+        ("::{bar}", Some("::")),
+    ] {
+        let text = format!("use {tree}; fn after() {{}}");
+        let parsed = common::parse(&text);
+        if let Some(token) = invalid_token {
+            let [diagnostic] = parsed.diagnostics().as_slice() else {
+                panic!(
+                    "expected one syntax error for {text}: {:?}",
+                    parsed.diagnostics()
+                );
+            };
+            assert_eq!(diagnostic.kind, DiagnosticKind::ExpectedUseTree, "{text}");
+            let span = diagnostic.span.unwrap();
+            assert_eq!(span.start, 4 + tree.find(token).unwrap(), "{text}");
+            assert_eq!(&text[span.start..span.end], token, "{text}");
+        } else {
+            assert!(
+                parsed.diagnostics().is_empty(),
+                "{text}: {:?}",
+                parsed.diagnostics()
+            );
+        }
+        let module = parsed.module();
+        let items = module.items().collect::<Vec<_>>();
+        let [ItemView::UseDecl(import), ItemView::FnDef(after)] = items.as_slice() else {
+            panic!("expected import and following function: {text}");
+        };
+        assert_eq!(import.tree().unwrap().source_text(), tree);
+        assert_eq!(after.name_text().as_deref(), Some("after"));
     }
 }
 

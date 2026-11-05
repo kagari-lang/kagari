@@ -68,12 +68,28 @@ fn continued_lists_keep_recovery_positions_and_authored_token_order() {
         }
     }
 
-    for text in [
-        "fn f(){(a,b @@@,c)}",
-        "fn f(){[a,b @@@,c]}",
-        "fn f(x: (A,B @@@,C)){}",
-        "fn f(){val (a,b @@@,c) = input;}",
-        "trait T {fn f(self, x: A @@@, y: B);}",
+    for (text, entry, part) in [
+        ("fn f(){(a,b @@@,c)}", 1, RecoveryPart::Separator),
+        ("fn f(){[a,b @@@,c]}", 1, RecoveryPart::Separator),
+        ("fn f(x: (A,B @@@,C)){}", 1, RecoveryPart::Separator),
+        (
+            "fn f(){val (a,b @@@,c) = input;}",
+            1,
+            RecoveryPart::Separator,
+        ),
+        (
+            "trait T {fn f(self, x: A @@@, y: B);}",
+            1,
+            RecoveryPart::Separator,
+        ),
+        ("trait T { @@@ }", 0, RecoveryPart::Element),
+        ("trait T { @@@ fn f(); }", 0, RecoveryPart::Element),
+        ("trait T { fn f(); @@@ fn g(); }", 1, RecoveryPart::Element),
+        ("trait T { fn f(); @@@ }", 1, RecoveryPart::Element),
+        ("impl T { @@@ }", 0, RecoveryPart::Element),
+        ("impl T { @@@ fn f(){} }", 0, RecoveryPart::Element),
+        ("impl T { fn f(){} @@@ fn g(){} }", 1, RecoveryPart::Element),
+        ("impl T { fn f(){} @@@ }", 1, RecoveryPart::Element),
     ] {
         let parsed = parse(
             &SourceFile::new("continued-list", text),
@@ -91,14 +107,19 @@ fn continued_lists_keep_recovery_positions_and_authored_token_order() {
                 NodeRef::Type(node) => node.unexpected().collect(),
                 NodeRef::Pattern(node) => node.unexpected().collect(),
                 NodeRef::ParamList(node) => node.unexpected().collect(),
+                NodeRef::TraitDef(node) => node.unexpected().collect(),
+                NodeRef::ImplBlock(node) => node.unexpected().collect(),
                 _ => Vec::new(),
             };
             recoveries.extend(skipped);
         }
         assert_eq!(recoveries.len(), 1, "{text}");
         assert_eq!(recoveries[0].text(), "@@@");
-        assert_eq!(recoveries[0].position().entry, 1, "{text}");
-        assert_eq!(recoveries[0].position().part, RecoveryPart::Separator);
+        assert_eq!(recoveries[0].position().entry, entry, "{text}");
+        assert_eq!(recoveries[0].position().part, part);
+        if part == RecoveryPart::Element {
+            assert_eq!(recoveries[0].position().field, "members", "{text}");
+        }
         let mut walked = String::new();
         walk(NodeRef::ModuleBody(module.body()), &mut walked);
         let lexical = parsed

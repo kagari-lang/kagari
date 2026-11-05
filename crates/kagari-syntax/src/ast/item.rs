@@ -298,6 +298,8 @@ node!(
     ///
     /// Groups own nested [`UseTree`] nodes through [`UseTreeList`]. Optional fields
     /// also retain damaged input: a recovered empty tree is not a valid import.
+    /// Aliases and globs require a prefix; prefixed groups require `::`. Recovery
+    /// may retain other combinations, accompanied by parser diagnostics.
     UseTree {
         prefix: Option<Path>,
         suffix: Option<UseSuffix>,

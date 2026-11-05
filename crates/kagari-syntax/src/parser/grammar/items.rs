@@ -510,6 +510,11 @@ impl Parser<'_> {
 
     fn parse_use_tree_inner(&mut self) -> Built<UseTree> {
         let mark = self.begin();
+        // Only a path or an unprefixed group can start a valid import tree.
+        // Still retain a written suffix after reporting its missing prefix.
+        if !self.use_tree_starts() {
+            self.error_here(DiagnosticKind::ExpectedUseTree);
+        }
         let prefix = if self.path_starts() {
             match self.parse_path() {
                 Required::Present(path) => Some(path),
@@ -519,6 +524,9 @@ impl Parser<'_> {
             None
         };
         let suffix = if self.at(TokenKind::LBrace) {
+            if prefix.is_some() {
+                self.error_here(DiagnosticKind::ExpectedUseTree);
+            }
             Some(UseSuffix::Group {
                 separator: None,
                 group: self.parse_use_group(),
@@ -543,9 +551,6 @@ impl Parser<'_> {
         } else {
             None
         };
-        if prefix.is_none() && suffix.is_none() {
-            self.error_here(DiagnosticKind::ExpectedUseTree);
-        }
         let site = self.end(mark);
         Built::present(
             UseTree {

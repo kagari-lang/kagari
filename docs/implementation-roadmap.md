@@ -86,6 +86,15 @@ async example, standalone feature consumers and CLI JIT steps in the Rust job we
 skipped after the test failure. A new CI run remains required before merge; no HIR
 architecture migration is included in this repair.
 
+PR #51 review follow-up corrects trait/impl recovery ownership to the `members`
+field and rejects import aliases/globs without a path and prefixed groups without
+`::`. Recovery still retains written syntax and subsequent declarations; root
+groups remain valid. The two affected tests reproduced the review findings before
+the fix. Eighteen focused tests cover recovery traversal, import grammar, parser
+limits, HIR import provenance and representative formatter contracts. Structure,
+formatting, workspace all-target Clippy and diff checks pass. Complete workspace
+and platform acceptance remain in CI; HIR redesign is not activated.
+
 ### Typed AST performance follow-up
 
 The [Windows diagnostic study](performance-baseline.md#current-typed-ast-diagnostics-windows-2026-11-05)

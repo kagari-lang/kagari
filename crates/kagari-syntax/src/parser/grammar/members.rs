@@ -77,7 +77,7 @@ impl Parser<'_> {
     fn parse_members(&mut self, implementation: bool) -> Vec<Member> {
         let mut members = Vec::new();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) && self.continue_parsing() {
-            self.position(6, members.len());
+            self.position(7, members.len());
             let before = self.cursor();
             let member = match self.attributed_item_kind() {
                 Some(TokenKind::TypeKw) => {
