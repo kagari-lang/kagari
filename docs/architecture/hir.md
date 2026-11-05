@@ -359,10 +359,29 @@ The architecture migration is introducing
 HIR handoff. `CheckedCompilation` borrows an already checked complete dependency
 closure and admits each module's environment and body directory. `CheckedEnvironment`
 exposes declaration contracts, while `CheckedBodyInput` ties source nodes, selected
-facts and spans to a `BodyKey { module, arena, owner }`. Foreign-owner/arena node
+facts and spans to a `BodyKey { module, arena, owner, closure }`. A nested callable
+retains its allocation owner while its closure/async expression selects a distinct
+root. Foreign-owner/arena node
 lookups return `None`; a missing source body never implies a native implementation.
 Admission also requires positive function/static completion evidence, evaluated
 constants, matched signature parameters and a matching source-map arena.
+
+[Declaration projections](../../crates/kagari-hir/src/compile_input/declarations.rs)
+retain header order, visibility, source extents and implementation kind without a
+body arena. The aggregate catalog remains the owner of field, variant, trait and
+associated-member types. Alias templates stay in the declaration environment;
+local constants expose their checked type and evaluated scalar together. Empty
+inherent impls retain receiver/binder/bound facts independently of method bodies.
+Native defaults require an admitted forwarding application. Its target, type
+arguments and applied signature remain separate from the exact installed callable
+and host policies, which retain their registration definition scope.
+
+Elaboration also queries [normal completion](../../crates/kagari-hir/src/compile_input/body/flow.rs)
+through the checker's existing work-stack algorithm. For `(loop {})?`, only the
+operand executes, so no propagation contract is required. The short-lived memo is
+tied to one immutable body; it does not publish solver state or cross-revision
+cache entries. Expanded operations retain explicit evaluated prefixes, selected
+calls/conversions and structured branches, rather than a flat execution schedule.
 
 This handoff currently has validation consumers only. The production compiler still
 uses the earlier checked program/module APIs until the complete semantic elaborator

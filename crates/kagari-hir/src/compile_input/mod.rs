@@ -8,5 +8,6 @@
 //! module, arena and owner together; a local slot is never a portable body key.
 
 pub mod body;
+pub mod declarations;
 pub mod environment;
 pub mod program;

@@ -7,7 +7,7 @@ use kagari_types::scalar::BuiltinType;
 
 #[test]
 fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
-    let text = "const N: i32 = 2; static val S: i32 = N; trait Read { fn read(self) -> i32; } fn first() -> i32 { 3 } fn second() -> i32 { S }";
+    let text = "const N: i32 = 2; static val S: i32 = N; trait Read { fn read(self) -> i32; } struct Box<T> { val value: T } type Alias<T> = Box<T>; impl<T> Box<T> where T: Read {} fn first() -> i32 { 3 } fn second() -> i32 { S }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("input.kgr", text.into(), SourceLayer::Base)
@@ -23,6 +23,46 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
         .iter()
         .find(|module| module.handle() == compilation.root())
         .unwrap();
+    let headers = module.headers();
+    let constant = module
+        .environment()
+        .local_constant(headers.constants[0].id)
+        .unwrap();
+    assert_eq!(constant.ty, &TypeId::Builtin(BuiltinType::I32));
+    assert!(module.registration().is_none());
+    let header = &headers.implementations[0];
+    assert!(header.methods.is_empty());
+    let implementation = module.implementation(header.id).unwrap();
+    assert!(implementation.interface.is_none());
+    assert_eq!(implementation.generic_params.len(), 1);
+    let parameter = TypeId::Generic(implementation.generic_params[0].clone());
+    assert_eq!(implementation.bounds[&parameter].len(), 1);
+    let TypeId::Struct(receiver) = implementation.receiver else {
+        panic!("inherent receiver");
+    };
+    assert_eq!(receiver.arguments, [parameter]);
+    let alias = &headers.aliases[0];
+    let declaration = module
+        .environment()
+        .definition(ResolvedName::TypeAlias(alias.id))
+        .unwrap();
+    let template = module
+        .environment()
+        .declarations()
+        .imported_types()
+        .alias(&declaration)
+        .unwrap();
+    assert!(matches!(template.target, TypeId::Struct(_)));
+    let span = module.declaration_span(Item::TypeAlias(alias.id)).unwrap();
+    assert_eq!(
+        &module.source().text()[span.start..span.end],
+        "type Alias<T> = Box<T>;"
+    );
+    assert!(
+        module
+            .declaration_span(Item::Function(FunctionId::new(u32::MAX as usize)))
+            .is_none()
+    );
     let bodies = module.bodies().collect::<Vec<_>>();
     assert_eq!(bodies.len(), 4, "two functions and two initializer owners");
     let first_function = module
@@ -137,6 +177,51 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     assert!(matches!(
         CheckedModule::admit(&incomplete, &Default::default()),
         Err(AdmissionError::InvalidBody { .. })
+    ));
+    let native = compilation
+        .modules()
+        .iter()
+        .find_map(|module| {
+            module.headers().functions.iter().find_map(|function| {
+                module
+                    .native_default(function.id)
+                    .map(|call| (module, function.id, call))
+            })
+        })
+        .expect("foundation supplies checked default recipes");
+    assert!(native.0.registration().is_some());
+    assert!(
+        native
+            .0
+            .environment()
+            .definitions()
+            .resolve(native.2.declaration)
+            .is_ok()
+    );
+    assert!(!native.2.signature.return_type.is_unresolved());
+    let source = program
+        .modules()
+        .iter()
+        .find(|module| {
+            module.lowered.source.module_identity() == native.0.source().module_identity()
+        })
+        .unwrap();
+    let mut missing = source
+        .to_unverified(&Default::default())
+        .unwrap()
+        .into_records();
+    missing
+        .typed
+        .type_table
+        .native_default_calls
+        .remove(&native.1);
+    let missing =
+        CheckedAnalysis::adopt_scoped(&missing, source.definitions(), &Default::default()).unwrap();
+    assert!(matches!(
+        CheckedModule::admit(&missing, &Default::default()),
+        Err(AdmissionError::InvalidModule(
+            "native default has no checked forwarding call"
+        ))
     ));
     let cancelled = CancellationToken::default();
     cancelled.cancel();

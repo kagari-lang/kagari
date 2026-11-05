@@ -4,13 +4,25 @@ use crate::{
     CheckedAnalysis,
     compile_input::{
         body::{BodyKey, BodyRoot, CheckedBodyInput},
+        declarations::{
+            DeclarationHeaders, ImplementationInput, NativeDefaultCall, RegisteredDeclarations,
+        },
         environment::CheckedEnvironment,
     },
-    hir::ids::{BodyOwner, HirOwner},
+    hir::{
+        ids::{BodyOwner, FunctionId, HirOwner, ImplId},
+        item::Item,
+    },
+    native::NativeBinding,
     program::{CheckedProgram, exports::ProgramExports},
+    resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
+    source_map::SourceMap,
+    typeck::table::CallTarget,
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::module::ModuleHandle};
+use kagari_common::{
+    cancellation::CancellationToken, identity::table::module::ModuleHandle, span::Span,
+};
 use kagari_source::source::SourceFile;
 use std::collections::HashMap;
 
@@ -33,6 +45,11 @@ pub enum AdmissionError {
 pub struct CheckedModule<'a> {
     handle: ModuleHandle,
     source: &'a SourceFile,
+    origins: &'a SourceMap,
+    headers: DeclarationHeaders<'a>,
+    registration: Option<RegisteredDeclarations<'a>>,
+    native_defaults: HashMap<FunctionId, NativeDefaultCall<'a>>,
+    implementations: HashMap<ImplId, ImplementationInput<'a>>,
     environment: CheckedEnvironment<'a>,
     bodies: HashMap<BodyOwner, CheckedBodyInput<'a>>,
 }
@@ -56,9 +73,66 @@ impl<'a> CheckedModule<'a> {
         let mut result = Self {
             handle,
             source: &module.lowered.source,
+            origins: &module.lowered.source_map,
+            headers: DeclarationHeaders::new(&module.lowered.module),
+            registration: if module.lowered.is_registered_native_api() {
+                Some(RegisteredDeclarations {
+                    definitions: module.lowered.registered_native_definitions().ok_or(
+                        AdmissionError::InvalidModule("registered module has no definition scope"),
+                    )?,
+                    callables: module.lowered.registered_native_declarations(),
+                    source_traits: module.lowered.registered_source_trait_references(),
+                })
+            } else {
+                None
+            },
+            native_defaults: HashMap::new(),
+            implementations: HashMap::new(),
             environment: CheckedEnvironment::new(module),
             bodies: HashMap::new(),
         };
+        result.admit_implementations(module, cancel)?;
+        result.admit_functions(module, cancel)?;
+        result.admit_initializers(module, cancel)?;
+        cancel.check().map_err(|_| AdmissionError::Cancelled)?;
+        Ok(result)
+    }
+
+    fn admit_implementations(
+        &mut self,
+        module: &'a CheckedAnalysis,
+        cancel: &CancellationToken,
+    ) -> Result<(), AdmissionError> {
+        for implementation in &module.lowered.module.impls {
+            cancel.check().map_err(|_| AdmissionError::Cancelled)?;
+            let input = if implementation.trait_ref.is_some() {
+                let declaration = module.declarations.impl_identity(implementation.id).ok_or(
+                    AdmissionError::InvalidModule("implementation has no declaration identity"),
+                )?;
+                let signature = module
+                    .aggregates
+                    .implementation_signature(declaration)
+                    .ok_or(AdmissionError::InvalidModule(
+                        "implementation has no checked signature",
+                    ))?;
+                ImplementationInput::trait_implementation(signature)
+            } else {
+                ImplementationInput::inherent(
+                    implementation,
+                    &module.declarations,
+                    module.typed.type_table(),
+                )?
+            };
+            self.implementations.insert(implementation.id, input);
+        }
+        Ok(())
+    }
+
+    fn admit_functions(
+        &mut self,
+        module: &'a CheckedAnalysis,
+        cancel: &CancellationToken,
+    ) -> Result<(), AdmissionError> {
         for function in &module.lowered.module.functions {
             cancel.check().map_err(|_| AdmissionError::Cancelled)?;
             let signature = module.typed.signatures().function(function.id).ok_or(
@@ -94,7 +168,7 @@ impl<'a> CheckedModule<'a> {
                 if !module.typed.valid_bodies.contains(&function.id) {
                     return Err(AdmissionError::InvalidBody {
                         key: BodyKey {
-                            module: handle,
+                            module: self.handle,
                             arena: module.lowered.module.body.arena(),
                             owner,
                             closure: None,
@@ -102,23 +176,76 @@ impl<'a> CheckedModule<'a> {
                         reason: "function has no positive completion evidence",
                     });
                 }
-                result.bodies.insert(
+                self.bodies.insert(
                     owner,
-                    CheckedBodyInput::new(module, handle, owner, BodyRoot::Block(root))?,
+                    CheckedBodyInput::new(module, self.handle, owner, BodyRoot::Block(root))?,
                 );
             } else if matches!(signature.implementation, FunctionImplementation::Script) {
                 return Err(AdmissionError::InvalidModule(
                     "script function has no source body",
                 ));
             }
+            if matches!(
+                signature.implementation,
+                FunctionImplementation::Native(NativeBinding::Default(_))
+            ) {
+                if function.body.is_none() {
+                    return Err(AdmissionError::InvalidModule(
+                        "native default has no checked forwarding body",
+                    ));
+                }
+                let call = module
+                    .typed
+                    .type_table()
+                    .native_default_call_ref(function.id)
+                    .ok_or(AdmissionError::InvalidModule(
+                        "native default has no checked forwarding call",
+                    ))?;
+                let declaration = match call.target {
+                    CallTarget::Function(id) => self
+                        .environment
+                        .definition(ResolvedName::Function(id))
+                        .ok_or(AdmissionError::InvalidModule(
+                            "native default target has no declaration",
+                        ))?,
+                    CallTarget::SourceFunction(id) => id,
+                    _ => {
+                        return Err(AdmissionError::InvalidModule(
+                            "native default target is not a declaration",
+                        ));
+                    }
+                };
+                let signature = call
+                    .signature
+                    .as_ref()
+                    .ok_or(AdmissionError::InvalidModule(
+                        "native default has no applied signature",
+                    ))?;
+                self.native_defaults.insert(
+                    function.id,
+                    NativeDefaultCall {
+                        declaration,
+                        arguments: &call.type_arguments,
+                        signature,
+                    },
+                );
+            }
         }
+        Ok(())
+    }
+
+    fn admit_initializers(
+        &mut self,
+        module: &'a CheckedAnalysis,
+        cancel: &CancellationToken,
+    ) -> Result<(), AdmissionError> {
         for item in &module.lowered.module.statics {
             cancel.check().map_err(|_| AdmissionError::Cancelled)?;
             let owner = BodyOwner::Static(item.id);
             if !module.typed.valid_static_initializers.contains(&item.id) {
                 return Err(AdmissionError::InvalidBody {
                     key: BodyKey {
-                        module: handle,
+                        module: self.handle,
                         arena: module.lowered.module.body.arena(),
                         owner,
                         closure: None,
@@ -126,11 +253,11 @@ impl<'a> CheckedModule<'a> {
                     reason: "static initializer has no positive completion evidence",
                 });
             }
-            result.bodies.insert(
+            self.bodies.insert(
                 owner,
                 CheckedBodyInput::new(
                     module,
-                    handle,
+                    self.handle,
                     owner,
                     BodyRoot::Expression(item.initializer),
                 )?,
@@ -139,28 +266,32 @@ impl<'a> CheckedModule<'a> {
         for item in &module.lowered.module.consts {
             cancel.check().map_err(|_| AdmissionError::Cancelled)?;
             let owner = BodyOwner::Const(item.id);
-            if !module.typed.const_values().contains_key(&item.id) {
+            if self
+                .environment
+                .local_constant(item.id)
+                .is_none_or(|constant| constant.ty.is_unresolved())
+            {
                 return Err(AdmissionError::InvalidBody {
                     key: BodyKey {
-                        module: handle,
+                        module: self.handle,
                         arena: module.lowered.module.body.arena(),
                         owner,
                         closure: None,
                     },
-                    reason: "constant has no evaluated value",
+                    reason: "constant has no checked type and evaluated value",
                 });
             }
-            result.bodies.insert(
+            self.bodies.insert(
                 owner,
                 CheckedBodyInput::new(
                     module,
-                    handle,
+                    self.handle,
                     owner,
                     BodyRoot::Expression(item.initializer),
                 )?,
             );
         }
-        Ok(result)
+        Ok(())
     }
 
     /// Returns this module's checked definition identity.
@@ -176,6 +307,42 @@ impl<'a> CheckedModule<'a> {
     /// Borrows immutable declaration contracts, separate from body nodes and facts.
     pub fn environment(&self) -> CheckedEnvironment<'a> {
         self.environment
+    }
+
+    /// Borrows declaration metadata without exposing the shared body arena.
+    pub fn headers(&self) -> DeclarationHeaders<'a> {
+        self.headers
+    }
+
+    /// Borrows exact installed declarations and their scope, or `None` for source modules.
+    pub fn registration(&self) -> Option<RegisteredDeclarations<'a>> {
+        self.registration
+    }
+
+    /// Returns a declaration's physical source extent, or `None` for an absent local slot.
+    ///
+    /// Plain item IDs require this module's context; they cannot detect a coincident
+    /// numeric slot from another module. Use canonical identities across modules.
+    pub fn declaration_span(&self, item: Item) -> Option<Span> {
+        self.headers
+            .contains(item)
+            .then(|| self.origins.item_span(item))
+    }
+
+    /// Borrows the proved forwarding application for a native default in this module.
+    ///
+    /// Ordinary script/native functions and required methods return `None`. Admission
+    /// rejects a native default missing this proof instead of treating it as bodyless.
+    pub fn native_default(&self, function: FunctionId) -> Option<NativeDefaultCall<'a>> {
+        self.native_defaults.get(&function).copied()
+    }
+
+    /// Borrows the checked receiver/binder contract of a local implementation header.
+    ///
+    /// Includes inherent implementations with no methods. `ImplId` is module-local;
+    /// use the returned canonical declaration identity when crossing module boundaries.
+    pub fn implementation(&self, id: ImplId) -> Option<&ImplementationInput<'a>> {
+        self.implementations.get(&id)
     }
 
     /// Finds a source body; callers inspect the signature implementation for bodyless declarations.

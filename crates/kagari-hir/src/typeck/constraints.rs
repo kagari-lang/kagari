@@ -333,7 +333,7 @@ pub(super) fn function_bounds(
     result
 }
 
-pub(super) fn implementation_bounds(
+pub(crate) fn implementation_bounds(
     implementation: &Impl,
     declarations: &Declarations,
     table: &TypeTable,

@@ -3,6 +3,7 @@
 use crate::{
     CheckedAnalysis,
     aggregates::AggregateCatalog,
+    compile_input::declarations::ConstantValue,
     declarations::Declarations,
     hir::ids::ConstId,
     imports::{
@@ -11,6 +12,7 @@ use crate::{
     resolver::resolved::ResolvedName,
     semantic::signatures::BodySignatures,
     typeck::scalar::ScalarValue,
+    types::TypeId,
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use std::collections::HashMap;
@@ -30,6 +32,7 @@ pub struct CheckedEnvironment<'a> {
     statics: &'a ImportedStatics,
     constants: &'a ImportedConstants,
     local_constants: &'a HashMap<ConstId, ScalarValue>,
+    local_constant_types: &'a HashMap<ConstId, TypeId>,
 }
 
 impl<'a> CheckedEnvironment<'a> {
@@ -42,6 +45,7 @@ impl<'a> CheckedEnvironment<'a> {
             statics: &module.imported_statics,
             constants: &module.imported_constants,
             local_constants: module.typed.const_values(),
+            local_constant_types: module.typed.consts(),
         }
     }
 
@@ -62,6 +66,17 @@ impl<'a> CheckedEnvironment<'a> {
             }
             _ => None,
         }
+    }
+
+    /// Borrows a local constant's checked type and value together.
+    ///
+    /// The numeric `ConstId` requires this module's declaration context. Foreign
+    /// constants are selected through their canonical import records instead.
+    pub fn local_constant(self, id: ConstId) -> Option<ConstantValue<'a>> {
+        Some(ConstantValue {
+            ty: self.local_constant_types.get(&id)?,
+            value: self.local_constants.get(&id)?,
+        })
     }
 
     /// Returns the canonical identity of a checked runtime static selected by a binding.

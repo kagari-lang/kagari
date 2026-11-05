@@ -917,7 +917,11 @@ impl TypeTable {
     /// Returns the checked forwarding call for a generated native default method.
     /// Signature-only or unsuccessful body analysis has no entry.
     pub fn native_default_call(&self, function: FunctionId) -> Option<ResolvedCall> {
-        self.call_resolution(*self.native_default_calls.get(&function)?)
+        self.native_default_call_ref(function).cloned()
+    }
+
+    pub(crate) fn native_default_call_ref(&self, function: FunctionId) -> Option<&ResolvedCall> {
+        self.calls.get(self.native_default_calls.get(&function)?)
     }
 
     /// Returns the recorded selected iterator interfaces and element type, or `None` when no such fact was recorded.

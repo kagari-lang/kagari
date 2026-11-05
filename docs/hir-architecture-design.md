@@ -1,6 +1,6 @@
 # HIR 架构与编译交接设计
 
-状态：用户已启动 HA0–HA5 goal，HA0–HA1 已完成，HA2 执行中。2026-11-05–06 核对代码基线为
+状态：用户已启动 HA0–HA5 goal，HA0–HA2 已完成，下一阶段为 HA3 生产消费者切换。2026-11-05–06 核对代码基线为
 `2c1fcf9b`，工作分支为 `refactor/hir-architecture`；HA0 契约及基线见第 7.4、8.4 节，实施状态以第 7.3 节为准。
 本次按用户要求使用中文。文中的新类型名和数据结构均为设计示意，不是已经存在的 API，
 也不是已批准的存储布局。实现启动与范围由[路线图](implementation-roadmap.md#other-queued-designs)管理。
@@ -1101,7 +1101,7 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
 | HA1a–HA1c | 完成 | 删除非必要身份能力、整理测试；分离工作状态/事实，共享归一化签名；显式取消出口、批次轮询及中途取消不发布验证通过 | 性能整体对照归 HA3–HA4；不承诺固定取消毫秒数 |
-| HA2 | 执行中 | 固定环境/身份/事实投影；展开、捕获、const/static 和正常完成前缀；默认方法来源及 host/propagation 交接通过 | 调用差分已补齐；ABI/layout/native-default 所需声明事实投影待完成，不能视为阶段完成 |
+| HA2 | 完成 | 完整闭包资格门、body/声明交接与测试用语义展开；调用/捕获/来源/host/propagation/终止前缀及声明证据验证通过 | 生产仍走旧路径；完整消费者切换、删除旧入口及实际执行验证归 HA3 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
@@ -1285,6 +1285,37 @@ planner 选择。旧 MIR 的 debug 范围有时是包含调用的完整语句，
 
 这些属于原定 ABI/layout/native-default 消费闭包。不能仅以 body 表达式变体穷尽就标记 HA2
 完成；HA3 再一次切换实际 ABI、实例与 body 消费者并删除旧宽入口。
+
+HA2 收尾：`compile_input::declarations` 提供借用的 `DeclarationHeaders` 和精确安装元数据。
+这些是元数据投影，不是可重新组合成编译资格的凭证；`CheckedModule` 仍私有构造并固定其
+环境、来源和 body 目录。headers 不含 Body/类型语法 arena；字段、variant、trait、关联项和
+alias 仍复用原有 catalog/template 所有者，没有为 ABI 复制第二套类型事实。声明 source span
+先核对本模块 slot，跨模块仍使用规范身份，不能把裸数字 ID 当作外来 owner 验证。
+
+local constant 一并交付已检查类型和值。trait implementation 借用既有 Signature；inherent
+implementation 交付 receiver、binder 和 bounds，复用 `constraints::implementation_bounds`
+的事实投影，且验证所需引用存在。空 impl 不从首个 method 推断契约。trait 的字段全部借用；
+inherent 的 binder/bounds 在本次 admission 内收集一次，不建跨版本缓存，也不声称优化收益。
+这些短期目录和已有 completion/capture 索引的成本进入 HA3–HA4 配对测量。
+
+native default 以 `NativeDefaultCall` 保留规范目标、借用的类型实参与应用签名；缺少 source body
+或已检查 forwarding call 时资格门拒绝。精确安装 callable/host policy 保留原 definition scope，
+不能由归一化源签名替代。新增声明/实现/函数/初始化器 admission 分段，最后仍检查取消并拒绝
+发布中断结果。资格门测试复用现有 old/new snapshot 场景，新增空泛型 inherent impl/alias/const
+及非法 slot 验证，并通过移除 native forwarding 证明复现拒绝路径。
+
+本检查点 1 个扩展 HIR 资格门测试及 4 个 compiler 展开/差分测试通过；它们覆盖声明交接与
+直接消费者，而不是完整运行时矩阵。结构（1840 文件，零违规/例外）、fmt、workspace all-target
+Clippy、严格 private HIR rustdoc、diff 均通过。拆 admission helper 时发现两个残余 `result`
+引用，已修复并重跑 HIR 测试/Clippy，无遗留构建失败。阅读指南同步了当前交接与暂未生产切换
+的边界；所有全量 CI 仍未运行。
+
+HA2 验收对照：资格只能从已检查完整闭包生成；source/body/环境身份固定；Expression/Statement/
+Place/Pattern 各变体与声明消费者均有数据所有者，操作所需事实由展开强制要求；泛型 binder、
+默认来源、捕获和正向完成证明不丢失。新展开仍只在测试中调用，没有生产 fallback 或第二个
+public 编译入口。第 7.4 节现有消费者闭包即 HA3 的切换/删除清单：program/ABI/instances/body
+与 update provenance 同步迁移，MIR builder 不再读取 AnalyzedModule/TypeTable。HA3 必须完成
+实际新路径执行和旧路径删除，HA2 的输入对照不替代这一验收。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 
@@ -1531,7 +1562,9 @@ HA1c 仍需验证 body/循环内部检查和拒绝发布。此探针不修改运
 - [x] HA1a：删除非必要 SourceEvidence 身份能力，归拢平铺测试文件并完成本地验收。
 - [x] HA1b：分离检查工作状态，统一归一化签名所有者，发布只读 body 事实及完成证据。
 - [x] HA1c：阶段取消错误、检查器停止状态、批次轮询及中途取消拒绝发布完成。
-- [ ] 完成 HA2–HA5；HA2 checked 输入及完整语义展开正在进行。
+- [x] HA2：完整闭包资格门、声明/body 交接、验证性语义展开及消费者事实对照完成。
+- [ ] HA3：统一切换生产编译消费者，删除旧宽入口、语义分支与临时对照桥接。
+- [ ] HA4–HA5：迁移后测量、至多一个实验、完整文档及最终本地交付。
 
 实施完成后，将最终行为迁入现有架构/规范，将未完成事项保留在路线图或已有 review 所有者，
 移除本设计执行文档；Git 历史保留阶段记录。本文件是这一重构提案的唯一细化队列，
