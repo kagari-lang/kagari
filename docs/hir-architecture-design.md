@@ -1101,7 +1101,7 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
 | HA1a–HA1c | 完成 | 删除非必要身份能力、整理测试；分离工作状态/事实，共享归一化签名；显式取消出口、批次轮询及中途取消不发布验证通过 | 性能整体对照归 HA3–HA4；不承诺固定取消毫秒数 |
-| HA2 | 执行中 | 固定环境/身份/事实投影；展开、捕获、const/static 和正常完成前缀；默认方法来源及 host/propagation 交接通过 | 普通方法/callable 字段/泛型约束的目标、签名与操作数角色对照待完成；不能视为阶段完成 |
+| HA2 | 执行中 | 固定环境/身份/事实投影；展开、捕获、const/static 和正常完成前缀；默认方法来源及 host/propagation 交接通过 | 调用差分已补齐；ABI/layout/native-default 所需声明事实投影待完成，不能视为阶段完成 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
@@ -1259,6 +1259,32 @@ Module→Body 字段迁移已修复，无遗留构建失败。
 rustdoc 和 diff 均通过；全量 workspace/feature/backend/platform CI 未执行。HA2 的剩余核对收敛为普通方法、
 callable 字段和带约束调用的目标/签名/操作数角色对照，随后按第 7.4 节闭包进入 HA3；
 本轮仍不增加第二个生产编译入口。
+
+HA2 调用契约对照：新增一个临时差分场景，将 inherent method、callable field、具体 generic
+application 与带约束 body 放在同一程序中。新展开与旧 MIR 按来源关联，比较规范声明路径、
+应用实参、参数数目/表示、返回表示及 operand spelling/order。callable 的 callee 独立于参数；
+方法 receiver 只保留一次；泛型 body 中的 receiver 保持原 binder 身份，具体实现仍由旧实例
+planner 选择。旧 MIR 的 debug 范围有时是包含调用的完整语句，因此来源比较使用包含关系，
+新操作保留精确调用范围；没有把不同身份表的数字 ID 当作等价证据。
+
+该差分测试通过；本检查点结构（1839 文件，零违规/例外）、fmt、workspace all-target Clippy
+和 diff 通过，HIR 文档沿用上一检查点的通过结果（本次未修改 HIR/Rustdoc）。测试最初假设
+旧调用范围精确等于 expression，现按旧 debug 的语句归属修正匹配，保留唯一匹配及全部目标/
+签名断言。没有遗留失败，全量 CI 仍未执行。
+
+沿同一 HA0 清单继续核对声明消费者，下一步须把旧 `type_ref`/`constraint` 等读取逐项映射到
+现有语义所有者，补齐真正缺失的窄交接，而不是把 TypeTable 的全部 getter 再转发一遍：
+
+| 旧 ABI/实例读取 | 已存在的交接事实或需要补齐的位置 |
+| --- | --- |
+| struct field type、enum payload/type refs、reports_failure | `AggregateCatalog` 的 Struct/Enum/VariantSignature 已含完整类型、顺序和标记，直接复用 |
+| trait parents、associated const/type、associated-type 参数 bounds | `TraitSignature::{supertraits,associated_consts,associated_types,associated_type_parameters}` 已有规范事实 |
+| impl receiver/trait、generic bounds、associated outputs | `ImplementationSignature`；保留 binder/投影，实例选择归 planner |
+| alias、local const、top-level declaration selection/visibility、source metadata | 审计 `ModuleFacts` / source declarations 的单一所有者，交付无 body arena 能力的声明视图 |
+| `native_default_call` | 已检查生成 forwarding call 当前仅通过 TypeTable 读取；补窄接口并保留正向检查证据，不能以无 body 默认为 native |
+
+这些属于原定 ABI/layout/native-default 消费闭包。不能仅以 body 表达式变体穷尽就标记 HA2
+完成；HA3 再一次切换实际 ABI、实例与 body 消费者并删除旧宽入口。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 

@@ -3,19 +3,24 @@
 
 use super::*;
 use crate::source::{
-    elaborate::model::{CheckedExprKind, CheckedPlaceKind, Conversion, ValueBinding},
+    elaborate::model::{
+        CheckedCallTarget, CheckedExprKind, CheckedPlaceKind, Conversion, ValueBinding,
+    },
     lower::instances::MirLoweringOptions,
     program::lower_program_to_mir,
 };
 use kagari_abi::representation::ValueType;
+use kagari_contract::representation::semantic_representation;
 use kagari_hir::{
     analysis::AnalysisDatabase,
     compile_input::{body::bindings::BindingId, program::CheckedCompilation},
     program::CheckedProgram,
     typeck::scalar::ScalarValue,
+    types::{TypeId, semantic::lower_type},
 };
-use kagari_mir::instruction::{Constant, Instruction};
+use kagari_mir::instruction::{CallTarget as MirCallTarget, Constant, Instruction};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::collections::HashSet;
 
 fn checked(text: &str) -> CheckedProgram {
@@ -292,5 +297,206 @@ fn main() -> i32 { CURRENT += STEP; CURRENT }
             .iter()
             .flat_map(|block| &block.instructions)
             .any(|instruction| matches!(instruction, Instruction::StoreModule { .. }))
+    );
+}
+
+#[test]
+fn selected_calls_keep_receiver_roles_and_applied_signatures() {
+    let program = checked(
+        r#"
+trait Read { fn read(self, extra: i32) -> i32; }
+struct Number { val value: i32, val callback: fn(i32) -> i32 }
+impl Number { fn add(self, extra: i32) -> i32 { self.value + extra } }
+impl Read for Number { fn read(self, extra: i32) -> i32 { self.value + extra } }
+fn bounded<T: Read>(value: T) -> i32 { value.read(3) }
+fn main() -> i32 {
+    val number = Number { value: 4, callback: |x: i32| x };
+    val first = number.add(1);
+    val second = number.callback(2);
+    val third = bounded(number);
+    first + second + third
+}
+"#,
+    );
+    let legacy = lower_program_to_mir(&program, &Default::default()).unwrap();
+    let compilation = CheckedCompilation::from_program(&program, &Default::default()).unwrap();
+    let module = compilation
+        .modules()
+        .iter()
+        .find(|module| module.handle() == compilation.root())
+        .unwrap();
+    let emitted_module = legacy
+        .modules()
+        .iter()
+        .find(|emitted| &emitted.identity == module.source().module_identity())
+        .unwrap();
+    let definitions = module.environment().definitions();
+    let source = module.source().text();
+    let mut seen = HashSet::new();
+    for input in module.bodies() {
+        let body = elaborate(input, &Default::default()).unwrap();
+        for operation in &body.operations {
+            let CheckedExprKind::Call(call) = &operation.kind else {
+                continue;
+            };
+            let span = operation.span;
+            let spelling = &source[span.start..span.end];
+            let emitted = emitted_module
+                .functions
+                .iter()
+                .flat_map(|function| {
+                    function.blocks.iter().flat_map(move |block| {
+                        block
+                            .instructions
+                            .iter()
+                            .zip(&block.instruction_spans)
+                            .filter_map(move |(instruction, origin)| match instruction {
+                                // Legacy debug metadata can use the containing statement's extent.
+                                Instruction::Call { dst, callee, args }
+                                    if origin.start <= span.start && origin.end >= span.end =>
+                                {
+                                    Some((function, dst, callee, args))
+                                }
+                                _ => None,
+                            })
+                    })
+                })
+                .collect::<Vec<_>>();
+            let [(caller, dst, target, args)] = emitted.as_slice() else {
+                panic!("expected one emitted call for {spelling}: {emitted:?}");
+            };
+            assert_eq!(dst.unwrap().ty, ValueType::I32);
+            assert_eq!(
+                call.signature.return_type,
+                TypeId::Builtin(BuiltinType::I32)
+            );
+            assert_eq!(args.len(), call.signature.params.len());
+            let operand_spellings = call
+                .operands
+                .iter()
+                .map(|id| {
+                    let span = input.expression_span(*id).unwrap();
+                    &source[span.start..span.end]
+                })
+                .collect::<Vec<_>>();
+            match &call.target {
+                CheckedCallTarget::Direct {
+                    declaration,
+                    arguments,
+                } => {
+                    let MirCallTarget::Function(instance) = target else {
+                        panic!("direct call: {target:?}");
+                    };
+                    let callee = &emitted_module.functions[instance.index()];
+                    assert_eq!(
+                        definitions.resolve(*declaration).unwrap().to_path(),
+                        legacy
+                            .definitions()
+                            .resolve(callee.instance.declaration)
+                            .unwrap()
+                            .to_path()
+                    );
+                    assert_eq!(arguments.len(), callee.instance.arguments.len());
+                    for (argument, emitted) in arguments.iter().zip(&callee.instance.arguments) {
+                        let (TypeId::Struct(argument), Ty::Struct(emitted)) = (argument, emitted)
+                        else {
+                            panic!("expected the concrete Number application");
+                        };
+                        assert_eq!(
+                            definitions.resolve(argument.declaration).unwrap().to_path(),
+                            legacy
+                                .definitions()
+                                .resolve(emitted.declaration)
+                                .unwrap()
+                                .to_path()
+                        );
+                    }
+
+                    for (ty, argument) in call.signature.params.iter().zip(args.iter()) {
+                        assert_eq!(semantic_representation(&lower_type(ty)), argument.ty);
+                    }
+                    assert_eq!(
+                        operand_spellings,
+                        if spelling == "number.add(1)" {
+                            vec!["number", "1"]
+                        } else {
+                            vec!["number"]
+                        }
+                    );
+                }
+                CheckedCallTarget::Value { callee } => {
+                    let callee_span = input.expression_span(*callee).unwrap();
+                    assert_eq!(
+                        &source[callee_span.start..callee_span.end],
+                        "number.callback"
+                    );
+                    assert!(!call.operands.contains(callee));
+                    assert_eq!(operand_spellings, ["2"]);
+                    assert_eq!(call.signature.params, [TypeId::Builtin(BuiltinType::I32)]);
+                    let MirCallTarget::Closure {
+                        params,
+                        return_type,
+                        ..
+                    } = target
+                    else {
+                        panic!("callable field: {target:?}");
+                    };
+                    assert_eq!(params, &[ValueType::I32]);
+                    assert_eq!(*return_type, ValueType::I32);
+                }
+                CheckedCallTarget::Method {
+                    method,
+                    interface,
+                    receiver,
+                    arguments,
+                } => {
+                    let selected = input
+                        .environment()
+                        .aggregates()
+                        .trait_method(method)
+                        .unwrap();
+                    assert_eq!(selected.name, "read");
+                    assert_eq!(selected.owner, interface.declaration);
+                    assert_eq!(operand_spellings, ["value", "3"]);
+                    assert!(arguments.is_empty());
+                    let TypeId::Generic(parameter) = receiver else {
+                        panic!("bound receiver lost binder");
+                    };
+                    assert_eq!(parameter.position, 0);
+                    assert_eq!(
+                        definitions.resolve(parameter.owner).unwrap().to_path(),
+                        legacy
+                            .definitions()
+                            .resolve(caller.instance.declaration)
+                            .unwrap()
+                            .to_path()
+                    );
+                    assert_eq!(&call.signature.params[0], receiver);
+                    assert_eq!(call.signature.params[1], TypeId::Builtin(BuiltinType::I32));
+                    // Only the old instance planner substitutes Number and selects its implementation.
+                    let MirCallTarget::Function(instance) = target else {
+                        panic!("instantiated bound call: {target:?}");
+                    };
+                    assert_eq!(emitted_module.functions[instance.index()].name, "read");
+                    assert_eq!(
+                        args.iter().map(|argument| argument.ty).collect::<Vec<_>>(),
+                        [ValueType::HeapObject, ValueType::I32]
+                    );
+                }
+            }
+            assert!(seen.insert(spelling.to_owned()));
+        }
+    }
+    assert_eq!(
+        seen,
+        [
+            "number.add(1)",
+            "number.callback(2)",
+            "bounded(number)",
+            "value.read(3)"
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
     );
 }
