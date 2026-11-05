@@ -61,6 +61,32 @@ fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
         },
         cancel,
     };
+    for impossible in [
+        NominalType {
+            declaration: definition(&context, DefinitionKind::Trait, "Other"),
+            ..required.clone()
+        },
+        NominalType {
+            arguments: Vec::new(),
+            ..required.clone()
+        },
+    ] {
+        // Even an impossible header consumes its candidate work before rejection.
+        for (checks, expected) in [
+            (0, Err(ImplementationSearchError::LimitExceeded)),
+            (1, Ok(0)),
+        ] {
+            assert_eq!(
+                catalog.implementation_count_bounded(
+                    &context.snapshot(),
+                    &impossible,
+                    &actual,
+                    search(checks, 4, &cancel),
+                ),
+                expected
+            );
+        }
+    }
     assert_eq!(
         catalog.implementation_count_bounded(
             &context.snapshot(),

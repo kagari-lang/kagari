@@ -1,6 +1,6 @@
 # HIR 架构与编译交接设计
 
-状态：用户已启动 HA0–HA5 goal，HA0–HA3 已完成，准备进入 HA4 配对测量。2026-11-05–06 核对代码基线为
+状态：用户已启动 HA0–HA5 goal，HA0–HA4 已完成，HA5 文档与本地验收完成，正在提交归位清理。2026-11-05–06 核对代码基线为
 `2c1fcf9b`，工作分支为 `refactor/hir-architecture`；HA0 契约及基线见第 7.4、8.4 节，实施状态以第 7.3 节为准。
 本次按用户要求使用中文。文中的新类型名和数据结构均为设计示意，不是已经存在的 API，
 也不是已批准的存储布局。实现启动与范围由[路线图](implementation-roadmap.md#other-queued-designs)管理。
@@ -1103,8 +1103,8 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | HA1a–HA1c | 完成 | 删除非必要身份能力、整理测试；分离工作状态/事实，共享归一化签名；显式取消出口、批次轮询及中途取消不发布验证通过 | 性能整体对照归 HA3–HA4；不承诺固定取消毫秒数 |
 | HA2 | 完成 | 完整闭包资格门、body/声明交接与测试用语义展开；调用/捕获/来源/host/propagation/终止前缀及声明证据验证通过 | 生产仍走旧路径；完整消费者切换、删除旧入口及实际执行验证归 HA3 |
 | HA3 | 完成 | 完整消费者改用 checked 输入；短期展开、实例配方与 MIR 分离；旧宽入口和差分设施已删除 | 本地选定语义/来源/预算/执行检查通过；全量 CI 待运行，测量归 HA4 |
-| HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
-| HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
+| HA4 | 完成 | 迁移无显著回退；唯一候选 guard 达到固定目标并保留，定向测试及本地检查通过 | 无未解决错误；完整 CI 未执行 |
+| HA5 | 执行中 | 保留 API 复核、4 个 doctest、严格文档及实际渲染/阅读路径复核通过 | 待 HA4 结果归位；完整 CI 未执行 |
 
 
 HA1a 验证记录：`cargo test -p kagari-hir --lib -- --list` 在搬迁前后均发现 637 个测试，
@@ -1364,6 +1364,84 @@ HA3 完成记录：
 下一步 HA4 沿用第 8.4 节源码和保留的 HA0 executables 作配对时间/内存对照；需要区分
 admission、临时展开及实例/MIR 的新增成本。任何超过调查线的回退先诊断所有权/复制，
 不得用缓存掩盖。HA5 继续完整 HIR 文档与实际渲染复查，最终归位后移除此执行计划。
+
+HA4 测量准备：HA3 检查点 `188ac472`。保留的 HA0 executables 不覆盖；在 ignored
+`target/` 中建立 `2c1fcf9b` detached worktree，仅加入与当前相同的临时 driver，便于每次
+进程选择 plain/generic 和样本数。两侧都用 workspace release profile/default target/default
+构建并行度；编译结束后才开始测量。每对交替 HA0/HA3，每个新进程先预热 1 次再收集 1 次，
+每组 7 对。输入生成、providers 和查询顺序与第 8.4 节相同。HA3 的 `mir_ms` 包括新增 admission
+及释放临时输入，另记 admission 子时间；计数 allocator 另建 executable，和无插桩计时分开。
+这只是测量设施，没有选择/实施 HA4 的可选优化实验；完成后删除临时 example/worktree。
+
+HA4 迁移对照完成：同机同输入交替 7 对，时间采用每进程一次预热后的样本；内存另跑
+7 对完整 fresh-database 生命周期（无预热），allocator 与 HA0 相同。首次声明至 MIR 合计的
+配对中位变化为 plain +0.14%、generic +0.00%，配对范围分别 -0.25%..+0.46%、
+-1.28%..+1.11%；未触及 5% 调查线。HA0→HA3 峰值 requested bytes 中位数分别
+111,605,799→101,694,078 与 113,190,914→103,636,193（配对 -8.91%/-8.47%）。
+新旧快照并存分别 76,230,676→75,386,300 与 78,085,383→77,241,819；释放旧版本后
+46,004,262→46,122,554 与 46,894,595→47,013,711（配对约 +0.24%/+0.23%）。
+此处不是 RSS，亦不以小幅变化宣称通用加速。完整时间/MAD、分配与方法将在 HA5 归入 performance-baseline。
+
+热点核查：`implementation_matches` 当前在 `match_implementation` 的必然 trait 身份/arity
+拒绝之前，先 canonicalize receiver、两个 interface application 及 implementation receiver。
+`canonical_interface_application` 仅映射子类型，不改变根 declaration/argument arity。
+现先独立统计 matcher 调用数和此类确定不匹配数；计数不参与时间结论，也未改变选择流程。
+
+HA4 唯一实验决策（实现前固定）：独立计数从 declarations 开始到首次 snapshot 完成，
+plain 的 matcher 调用/根不匹配为 7,417,649/5,857,566（78.97%），generic 为
+7,986,353/6,411,006（80.27%）。计数含 installed providers，不等于用户源码独有开销。
+选择仅将已存在的 declaration/arity 必然拒绝移到 canonicalization 前，仍在
+`budget.check_candidate()` 后；不新增索引或缓存，不改变遍历顺序、搜索预算、取消位置、
+generic/blanket 候选或精确匹配/歧义/关联输出规则。
+
+固定目标：与保留的 HA3 无插桩 executable 交替 7 对，各新进程预热一次，plain 和 generic
+的 snapshot/body 阶段中位时间均改善至少 10% 且超过配对噪声；首次检查至 MIR 合计及
+保留内存不得出现超过 5% 且超出噪声的回退。分配下降只作辅助证据。未达标恢复此 guard，
+不尝试第二种候选。参考 Rust 1.85.1 commit `4eb161250e340c8f48f66e2b929ef4a5bed7c181`
+的 [TraitImpls/for_each_relevant_impl](https://github.com/rust-lang/rust/blob/4eb161250e340c8f48f66e2b929ef4a5bed7c181/compiler/rustc_middle/src/ty/trait_def.rs)：
+先限定 trait 再保守筛选 receiver，并保留 blanket；这里只采用不可能候选提前排除，
+不移植 rustc 的索引、query 生命周期或预算政策。现有固定 AggregateCatalog 仍独占候选事实。
+验证选择 existing bounded search（扩展不同 trait/arity 的精确预算分支）、取消拒绝发布、
+trait 身份/泛型假设/关联输出与一项 compiler 跨模块实例调用；不新增推导框架或全量 sweep。
+
+HA4 验证与 HA5 文档复核：7 项 HIR 定向测试及 1 项 compiler 跨模块 alias/generic
+实例测试通过；bounded-search 原契约增加不同 trait/arity 仍逐候选计预算的分支。
+结构检查（1845 Rust 文件，0 违规/例外）、fmt、workspace all-target Clippy、diff 均通过。
+检查生产变更只提前必要拒绝，无新增 imports、可见性、缓存、重导出或存储模型。
+当前优化版无插桩时间与独立 allocator 配对执行中，未提前认定实验达标。
+
+HA5 已复查保留的 Module/Body/Expr/Place/Pattern、ID/SourceMap、TypeId/签名、
+ModuleFacts/TypeTable、FunctionAnalysis/快照、SourceEvidence 与 checked 输入文档。
+沿用已有具体字段图，补充 checked 输入的源码→body→tail ExprId→类型事实→源范围可运行示例，
+明确 admission provenance 共享预算与失败不发布，增加 ExprData 到存储/事实拥有者的可点击链接。
+完整 HIR doctest 首轮 3 通过、1 失败：旧 `analyze_source` 示例还直接读取私有
+`ModuleFacts.type_table`，已改为 accessor，单独重跑通过；4 个示例均有通过证据。
+严格 `cargo doc -p kagari-hir --no-deps --document-private-items` 通过。
+
+实际渲染复核：CUA browser host 不可用且 native Chrome 无窗口；使用独立 headless Chrome
+profile 将生成的本地 HTML 渲染为图片，检查 crate 首页、ExprData、CheckedCompilation
+及完整 Examples/Errors 区块；摘要、图/代码块、侧栏、类型链接均可读。另从生成 HTML
+验证首页到 AnalysisDatabase/IDs/分析入口/CheckedCompilation、模型到 Body/SourceMap/TypeTable
+以及 Examples/from_program/Provenance 锚点均能解析到真实目标。临时 server 已停止，
+测量期间不再启动 build/test/render；文档指南新增按读者问题选择入口的导航。
+完整 workspace/feature/backend/platform CI 未运行；最终文档归位与计划删除仍待实验结果。
+
+HA4 完成：无插桩 7 对时间及独立 7 对 allocator 测量全部成功，保留唯一 guard。
+plain/generic 的 snapshot/body 配对中位耗时分别下降 73.36%/73.81%，每对下降范围
+72.61%..73.65% / 73.49%..74.43%，超过两组均至少 10% 的固定目标。首次声明至 MIR
+阶段合计下降 71.17%/71.55%；分配请求下降 70.53%/71.54%。所有保留/峰值 requested
+bytes 的配对变化在 ±0.07% 内，无 >5% 回退。无索引、缓存、union-find、arena 或工作队列
+实验叠加。独立 counters、temporary examples 和 detached HA0 worktree 已删除；
+原 HA0/HA3 executables 与原始记录只留 ignored target，不构成文档依赖。
+最终方法、固定输入/环境、两轮各 7 对的 median/MAD/范围与局限已归入 performance-baseline。
+
+HA5 文档与最终本地验证已完成，正在做提交/归位清理：架构指南保留模块职责、数据流、
+源码映射、身份/取消/checked 交接与算法不变量；roadmap 移除旧 queued 行并保留 R8 边界。
+未发现旧 `lower_to_mir`、`TypedModule`、compiler source 对 AnalyzedModule/TypeTable 的宽读取，
+或 HIR 平铺 `*_tests.rs` 遗留。3 份最终文档 416 个相对文件链接均存在；读者任务路径的
+rustdoc HTML 链接/锚点也已验证。严格文档最后补充句子后再次生成通过，两轮全部 112 个保留样本的重检/复用/node 数经核对一致；
+行为测试与 Clippy 沿用此前有效结果，完整 CI 仍未执行。此计划的完整 ledger 随本次 HA4 提交保留，
+HA5 提交将删除执行计划，最终契约与测量已拥有稳定文档归属。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 
