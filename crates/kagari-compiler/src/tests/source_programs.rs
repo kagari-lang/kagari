@@ -1,3 +1,4 @@
+use crate::tests::common::compilation;
 mod proof_visibility;
 mod static_lowering;
 mod type_exports;
@@ -7,7 +8,6 @@ mod worklist;
 use crate::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
     source::{
-        elaborate::tests::assert_expands,
         lower::{MirLoweringError, instances::MirLoweringOptions},
         program::{SourceProgramError, lower_program_to_mir},
     },
@@ -107,7 +107,7 @@ fn source_products_ignore_prior_module_registration_order() {
         root_indices.push(handle.definition().index());
         let exported = checked.exports().function(&handle, "api::value").unwrap();
         assert_eq!(checked.source_function(exported).unwrap().1.name, "value");
-        let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+        let mir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
         let bytecode = lower_program_to_bytecode(&mir, &Default::default())
             .unwrap()
             .into_unverified();
@@ -161,7 +161,7 @@ fn public_generic_dependency_functions_specialize_through_source_aliases() {
         "#,
     );
     let checked = checked(&db, root);
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let generic = mir
         .modules()
         .iter()
@@ -226,7 +226,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         include_str!("../../../../examples/imported-traits/generic-consumer.kgr"),
     );
     let checked = checked(&db, root);
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let wire = encode_program(&ir, &Default::default()).unwrap();
     let decoded = decode_program(&wire, &Default::default()).unwrap();
     assert_eq!(wire, encode_program(&decoded, &Default::default()).unwrap());
@@ -315,7 +315,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         .sum::<usize>();
     let limit = instance_count - 1;
     let error = lower_program_to_mir(
-        &checked,
+        &compilation(&checked),
         &MirLoweringOptions {
             max_generic_instances: limit,
             ..Default::default()
@@ -345,7 +345,8 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
             "use pkg::left::Item as Left; use pkg::right::Item as Right; trait LeftMarker {{}} trait RightMarker {{}} pub struct Wrap {{ val value: {side} }} pub fn expose(value: {side}) -> {side} {{ value }} pub trait Api {{ fn accept<T: {side}Marker>(self, value: T) -> T; }}"
         );
         let root = insert(&mut db, "root", &source);
-        let ir = lower_program_to_mir(&checked(&db, root), &Default::default()).unwrap();
+        let ir =
+            lower_program_to_mir(&compilation(&checked(&db, root)), &Default::default()).unwrap();
         let artifact = KbcArtifact::from_program(
             bytecode(&context, &ir),
             Default::default(),
@@ -409,7 +410,8 @@ fn public_generic_abi_ignores_binder_spelling_and_constraint_source_order() {
         "use std::hash::Hash; pub struct Box<U> { val value: U } pub trait Factory { fn id<U>(self, value: U) -> U where U: PartialEq + Eq + Hash; }",
     ] {
         let root = insert(&mut db, "generic", source);
-        let ir = lower_program_to_mir(&checked(&db, root), &Default::default()).unwrap();
+        let ir =
+            lower_program_to_mir(&compilation(&checked(&db, root)), &Default::default()).unwrap();
         let program = bytecode(&context, &ir);
         items.push(program.modules[program.root.index()].public_items.clone());
     }
@@ -467,7 +469,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         "use pkg::facade::Cell; use pkg::facade::Packet; fn main() -> Packet<i32> { val a = Cell { value: 7 }; val b = Cell { value: true }; Packet::Data(a.value) }",
     );
     let checked = checked(&db, root);
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let layouts = &ir
         .modules()
         .iter()
@@ -507,7 +509,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     template.variants[0].payload[0] = Ty::Builtin(BuiltinType::Bool);
     assert!(verify_bytecode_program(&program, &context.snapshot(), &Default::default()).is_err());
     let error = lower_program_to_mir(
-        &checked,
+        &compilation(&checked),
         &MirLoweringOptions {
             max_generic_instances: 3,
             ..Default::default()
@@ -533,7 +535,7 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
             .collect::<Vec<_>>(),
         ["left", "right", "root", "shared"]
     );
-    let program = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let program = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let root = program
         .modules()
         .iter()
@@ -606,7 +608,7 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
 #[test]
 fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
     let context = DefinitionContext::new().unwrap();
-    let program = lower_program_to_mir(&fixture(), &Default::default()).unwrap();
+    let program = lower_program_to_mir(&compilation(&fixture()), &Default::default()).unwrap();
     let root = program.root().clone();
     let raw = common::adopt(&context, program.into_unverified());
     let mut schema = raw.clone();
@@ -719,7 +721,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
 #[test]
 fn program_limits_are_shared_across_modules() {
     let checked = fixture();
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let count = ir
         .modules()
         .iter()
@@ -728,7 +730,7 @@ fn program_limits_are_shared_across_modules() {
         .map(|b| b.instructions.len() + usize::from(b.terminator.is_some()))
         .sum::<usize>();
     let error = lower_program_to_mir(
-        &checked,
+        &compilation(&checked),
         &MirLoweringOptions {
             max_instructions: count - 1,
             ..Default::default()
@@ -813,8 +815,8 @@ fn portable_default_method_origins_remain_with_the_definition_module() {
         "use pkg::model::Read; struct Holder { val value: i32 } impl Read for Holder { fn read(self) -> i32 { self.value } } fn main() -> i32 { val x: Read = Holder { value: 7 }; x.again() }",
     );
     let checked = checked(&db, root);
-    assert_expands(&checked);
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let root_module = ir
         .modules()
         .iter()
@@ -885,7 +887,7 @@ fn portable_inline_module_origins_keep_physical_offsets() {
     let mut db = SourceDatabase::default();
     let root = insert(&mut db, "root", text);
     let checked = checked(&db, root);
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let child = ir
         .modules()
         .iter()
@@ -969,8 +971,8 @@ fn local_function_values_in_imported_default_methods_keep_source_ownership() {
         "use pkg::api::Make; impl Make for i32 {} fn main() -> i32 { val maker: Make = 0; val callback = maker.make(); callback(42) }",
     );
     let checked = checked(&db, root);
-    assert_expands(&checked);
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let wire = encode_program(&ir, &Default::default()).unwrap();
     let decoded = decode_program(&wire, &Default::default()).unwrap();
     assert_eq!(wire, encode_program(&decoded, &Default::default()).unwrap());

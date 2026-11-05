@@ -1,6 +1,6 @@
 # HIR 架构与编译交接设计
 
-状态：用户已启动 HA0–HA5 goal，HA0–HA2 已完成，下一阶段为 HA3 生产消费者切换。2026-11-05–06 核对代码基线为
+状态：用户已启动 HA0–HA5 goal，HA0–HA3 已完成，准备进入 HA4 配对测量。2026-11-05–06 核对代码基线为
 `2c1fcf9b`，工作分支为 `refactor/hir-architecture`；HA0 契约及基线见第 7.4、8.4 节，实施状态以第 7.3 节为准。
 本次按用户要求使用中文。文中的新类型名和数据结构均为设计示意，不是已经存在的 API，
 也不是已批准的存储布局。实现启动与范围由[路线图](implementation-roadmap.md#other-queued-designs)管理。
@@ -1102,7 +1102,7 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
 | HA1a–HA1c | 完成 | 删除非必要身份能力、整理测试；分离工作状态/事实，共享归一化签名；显式取消出口、批次轮询及中途取消不发布验证通过 | 性能整体对照归 HA3–HA4；不承诺固定取消毫秒数 |
 | HA2 | 完成 | 完整闭包资格门、body/声明交接与测试用语义展开；调用/捕获/来源/host/propagation/终止前缀及声明证据验证通过 | 生产仍走旧路径；完整消费者切换、删除旧入口及实际执行验证归 HA3 |
-| HA3 | 未启动 | — | 依赖 HA2 |
+| HA3 | 完成 | 完整消费者改用 checked 输入；短期展开、实例配方与 MIR 分离；旧宽入口和差分设施已删除 | 本地选定语义/来源/预算/执行检查通过；全量 CI 待运行，测量归 HA4 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
 
@@ -1316,6 +1316,54 @@ Place/Pattern 各变体与声明消费者均有数据所有者，操作所需事
 public 编译入口。第 7.4 节现有消费者闭包即 HA3 的切换/删除清单：program/ABI/instances/body
 与 update provenance 同步迁移，MIR builder 不再读取 AnalyzedModule/TypeTable。HA3 必须完成
 实际新路径执行和旧路径删除，HA2 的输入对照不替代这一验收。
+
+HA3 完成记录：
+
+- ABI、program/scheduler、布局、生命周期、实例、source package、SDK、示例和测试调用点
+  全部接入 `CheckedCompilation`。删除 `lower_to_mir` 单模块生产入口以及整份
+  `AnalyzedModule` 克隆；保留仍供分析/工具使用的 checked analysis/program 类型。
+  Cranelift 测试增加 HIR dev-dependency，生产 backend 依赖没有改变。
+- HIR 资格门保留原 append-only `DefinitionContext`，用整个闭包共享的 `SourceBudget`
+  一次生成 provenance。`collect` 和预算类型收为 HIR 内部；compiler 仅读证据并核对库存。
+  physical source、inline/UTF-8/CRLF、static initializer 原始范围和 native registration
+  scope 保持原所有者，source package 不重新构造身份。
+- 每个 reachable function/static/closure 在发出 MIR 前展开临时 `CheckedBody`，随 builder
+  释放。`FunctionLowerer` 仅持短期操作、固定声明环境和源文件；生成 adapter 明确没有
+  authored operation tree。子模块不再访问 `AnalyzedModule` / `TypeTable`。
+- 普通调用、operator、interface construction 和 equality/hash composition 的实例后选择
+  集中于 planner，复用 HIR 的受限 catalog 查询。`MethodPlan` 区分 direct/shared/native/
+  dynamic 与 intrinsic 操作；`InterfacePlan` 分开 table construction 和 checked view。
+  泛型 script 方法同样经过 shared-call 规划，避免普通调用与 operator 的重复选择分支。
+- 展开交付 `MethodOperands` 区分 callable sugar 参数打包和显式 tuple call；语句/place/pattern
+  消费明确操作。终止目标/RHS 保留已完成前缀而不提交；host/read-only receiver 读取仍在动态
+  参数之前，aggregate 写投影保留原提交时点。模式提取、cell 分配和 debug 发布顺序保持。
+  删掉只供过渡使用的 `assert_expands` 全树差分设施及重复 smoke；调用、capture、source-span
+  的具体断言保留在生产 elaboration/MIR 契约测试。重复的 closure parameter/Format operand
+  字段与未消费的结构 span 不进入短期模型；表达式/语句/绑定来源和 `BodyKey` 校验保留。
+- 阅读指南、crate 首页及 source provenance rustdoc 同步生产边界，补入数据流图和
+  `items[index()] += rhs()` 的求值/提交例子。没有生产 fallback、兼容 alias 或第二语义实现。
+
+验证与失败处理：
+
+- 扩展的 HIR admission 测试在 provenance 接入时通过，保留外来 owner/arena、缺失证据和
+  取消断言。严格 private HIR rustdoc 通过，文档相对链接检查无缺失。
+- compiler：31 个 lowering 合约、2 个 never 合约、30 个 pattern/ABI/source package/
+  update evidence/scheduler/elaboration 合约、5 个跨模块泛型/默认来源/共享预算合约通过。
+  VM：9 个赋值提交与越界时点、局部快照/capture、native 泛型/default/callback 合约通过。
+  SDK：3 个 typed handle、private/local source update 与请求取消合约通过。
+- 最初 11 个 module-local 配额测试因 helper 改编译完整 provider 闭包而失败；调查定位到
+  provider 的额外产品扣费。测试改为从完整已准入输入直接检查现有 `ModuleLowering`，保留
+  原 0/1/2 配额及所有断言；普通测试仍走完整 program，程序级共享预算另有选定测试通过。
+  这不是放宽预算或恢复单模块生产入口。
+- 中间构建错误来自尚未迁移的 SDK/测试/示例、移动后的 import，以及测试重命名造成的
+  shadowing，均已修正。workspace all-target Clippy 已通过；结构 1845 个 Rust 文件、
+  0 违规/0 例外；fmt、diff 通过。没有遗留构建错误。
+- 本地测试选择直接受影响的交接、求值、身份和更新边界；完整 workspace、全部 feature/
+  backend/platform 矩阵留给 CI，尚未运行，不宣称完整 CI 验收。
+
+下一步 HA4 沿用第 8.4 节源码和保留的 HA0 executables 作配对时间/内存对照；需要区分
+admission、临时展开及实例/MIR 的新增成本。任何超过调查线的回退先诊断所有权/复制，
+不得用缓存掩盖。HA5 继续完整 HIR 文档与实际渲染复查，最终归位后移除此执行计划。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 
@@ -1563,7 +1611,7 @@ HA1c 仍需验证 body/循环内部检查和拒绝发布。此探针不修改运
 - [x] HA1b：分离检查工作状态，统一归一化签名所有者，发布只读 body 事实及完成证据。
 - [x] HA1c：阶段取消错误、检查器停止状态、批次轮询及中途取消拒绝发布完成。
 - [x] HA2：完整闭包资格门、声明/body 交接、验证性语义展开及消费者事实对照完成。
-- [ ] HA3：统一切换生产编译消费者，删除旧宽入口、语义分支与临时对照桥接。
+- [x] HA3：统一切换生产编译消费者，删除旧宽入口、语义分支与临时对照桥接。
 - [ ] HA4–HA5：迁移后测量、至多一个实验、完整文档及最终本地交付。
 
 实施完成后，将最终行为迁入现有架构/规范，将未完成事项保留在路线图或已有 review 所有者，

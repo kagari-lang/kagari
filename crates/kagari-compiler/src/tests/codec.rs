@@ -1,3 +1,4 @@
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
     native_input::{NativeInputError, verify_native_input},
@@ -131,7 +132,7 @@ fn portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering() {
 fn codec_retains_unicode_origins_without_retaining_source_objects() {
     let checked = common::program_ok("fn main() -> i32 {\r\n val text = \"雪😀\"; 7\r\n }");
     let weak = Arc::downgrade(&checked.root().lowered.source);
-    let original = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let original = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let bytes = encode_program(&original, &Default::default()).unwrap();
     drop(checked);
     assert!(weak.upgrade().is_none());

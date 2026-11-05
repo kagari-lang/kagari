@@ -39,8 +39,8 @@ impl InstancePlanner<'_> {
     ) -> Option<&NativeDeclaration> {
         self.modules
             .get(&self.module_handle(*declaration))?
-            .lowered
-            .registered_native_declarations()
+            .registration()?
+            .callables
             .iter()
             .find(|item| &item.declaration == declaration)
     }

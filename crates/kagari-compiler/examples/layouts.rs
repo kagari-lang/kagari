@@ -10,7 +10,7 @@ use kagari_common::{
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
 use kagari_source::{
     source::SourceFile,
@@ -75,7 +75,8 @@ fn main() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir_program = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let input = CheckedCompilation::from_program(&checked, &Default::default()).unwrap();
+    let mir_program = lower_program_to_mir(&input, &Default::default()).unwrap();
     let ir = mir_program
         .modules()
         .iter()

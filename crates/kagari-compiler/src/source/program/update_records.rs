@@ -24,10 +24,8 @@ use kagari_contract::{
     },
 };
 use kagari_hir::{
-    program::CheckedProgram,
-    update_source::{
-        FactKind, SourceBodyKind, SourceBudget, SourceEvidence, SourceFact, TokenRange,
-    },
+    compile_input::program::CheckedCompilation,
+    update_source::{FactKind, SourceBodyKind, SourceEvidence, SourceFact, TokenRange},
 };
 use kagari_mir::{function::MirModule, program::updates, verify::verify_mir};
 use std::collections::HashMap;
@@ -113,22 +111,30 @@ pub(super) struct SourceInputs {
 }
 
 pub(super) fn collect(
-    program: &CheckedProgram,
+    program: &CheckedCompilation<'_>,
     cancel: &CancellationToken,
 ) -> Result<SourceInputs, MirLoweringError> {
-    let mut budget = SourceBudget::new(cancel);
     let mut evidence = SourceEvidence::default();
     let mut declarations = Vec::new();
     for module in program.modules() {
         check_cancel(cancel)?;
         let inventory = module_contract(module, cancel)?;
         let collected =
-            update_source::collect(module, &inventory.records().named_declarations, &mut budget)?;
-        evidence.bodies.extend(collected.bodies);
-        evidence.initializers.extend(collected.initializers);
+            update_source::collect(module, &inventory.records().named_declarations, cancel)?;
+        evidence.bodies.extend(collected.bodies.iter().cloned());
+        evidence
+            .initializers
+            .extend(collected.initializers.iter().cloned());
         declarations.extend(inventory.into_records().named_declarations);
     }
-    evidence.canonical_order(program.root().definitions(), cancel)?;
+    evidence.canonical_order(
+        program
+            .module(program.root())
+            .expect("checked root")
+            .environment()
+            .definitions(),
+        cancel,
+    )?;
     Ok(lower(evidence, declarations, cancel)?)
 }
 

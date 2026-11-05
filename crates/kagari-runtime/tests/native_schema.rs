@@ -6,6 +6,7 @@ use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_derive::KagariValue;
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -130,7 +131,11 @@ fn program_for_source(module: &NativeModule, text: &str) -> DefinitionMetadata<B
     let checked = snapshot.check_program(file, &Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let bytecode = lower_program_to_bytecode(
-        &lower_program_to_mir(&checked, &Default::default()).unwrap(),
+        &lower_program_to_mir(
+            &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+            &Default::default(),
+        )
+        .unwrap(),
         &Default::default(),
     )
     .map(|program| program.into_unverified())

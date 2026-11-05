@@ -1,7 +1,5 @@
-use crate::{
-    source::lower::{instances::MirLoweringOptions, lower_to_mir},
-    tests::common,
-};
+use crate::tests::common::lower_root;
+use crate::{source::lower::instances::MirLoweringOptions, tests::common};
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::{effects::EffectSet, operations::BinaryOp};
@@ -13,7 +11,7 @@ use kagari_mir::{
 };
 
 fn checked(source: &str) -> VerifiedMirModule {
-    lower_to_mir(&common::analyze_ok(source), &Default::default()).unwrap()
+    lower_root(&common::program_ok(source), &Default::default()).unwrap()
 }
 
 fn optimized(module: VerifiedMirModule) -> PassResult {
@@ -24,7 +22,7 @@ fn optimized(module: VerifiedMirModule) -> PassResult {
 fn scalar_folding_removes_dead_points_and_rebuilds_verified_metadata() {
     let context = DefinitionContext::new().unwrap();
     let input = common::program_ok("fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }");
-    let original = lower_to_mir(input.root(), &Default::default()).unwrap();
+    let original = lower_root(&input, &Default::default()).unwrap();
     let before = common::adopt_bytecode(
         &context,
         common::bytecode_with_edited_root(&input, &original),
@@ -75,7 +73,7 @@ fn checked_traps_calls_and_allocations_are_not_discarded() {
         "fn main() { 18446744073709551615u64 + 1u64; }",
     ] {
         let input = common::program_ok(source);
-        let original = lower_to_mir(input.root(), &Default::default()).unwrap();
+        let original = lower_root(&input, &Default::default()).unwrap();
         let result = optimized(original.clone());
         let before = common::adopt_bytecode(
             &context,
@@ -92,7 +90,7 @@ fn checked_traps_calls_and_allocations_are_not_discarded() {
         );
     }
     let input = common::program_ok("fn touch() {} fn main() { touch(); [1, 2]; }");
-    let original = lower_to_mir(input.root(), &Default::default()).unwrap();
+    let original = lower_root(&input, &Default::default()).unwrap();
     let result = optimized(original.clone());
     for (before, after) in original.functions.iter().zip(&result.module.functions) {
         for (before, after) in before.blocks.iter().zip(&after.blocks) {
@@ -323,8 +321,8 @@ fn pass_limits_and_cancellation_do_not_publish_partial_modules() {
 fn compiler_options_apply_the_public_frontend_free_pass_pipeline() {
     let context = DefinitionContext::new().unwrap();
     let source = common::program_ok("fn main() -> i32 { 6 * 7 }");
-    let module = lower_to_mir(
-        source.root(),
+    let module = lower_root(
+        &source,
         &MirLoweringOptions {
             optimization: Some(PassOptions::default()),
             ..Default::default()
@@ -363,7 +361,7 @@ fn folded_integers_respect_width_signedness_and_shift_rules() {
         ),
     ] {
         let input = common::program_ok(source);
-        let result = optimized(lower_to_mir(input.root(), &Default::default()).unwrap());
+        let result = optimized(lower_root(&input, &Default::default()).unwrap());
         let block = &result.module.functions[0].blocks[0];
         let Some(Terminator::Return(Some(value))) = block.terminator else {
             panic!("return: {source}")
@@ -416,7 +414,7 @@ fn live_float_arithmetic_and_potentially_trapping_casts_are_preserved() {
         "fn main(value: i8) { value as i32; }",
     ] {
         let input = common::program_ok(source);
-        let original = lower_to_mir(input.root(), &Default::default()).unwrap();
+        let original = lower_root(&input, &Default::default()).unwrap();
         let result = optimized(original.clone());
         let before = common::adopt_bytecode(
             &context,

@@ -10,7 +10,7 @@ use crate::{
         environment::CheckedEnvironment,
     },
     hir::{
-        ids::{BodyOwner, FunctionId, HirOwner, ImplId},
+        ids::{BodyOwner, FunctionId, HirOwner, ImplId, StaticId},
         item::Item,
     },
     native::NativeBinding,
@@ -19,9 +19,14 @@ use crate::{
     semantic::signatures::FunctionImplementation,
     source_map::SourceMap,
     typeck::table::CallTarget,
+    update_source::{self, SourceBudget, SourceEvidence},
 };
 use kagari_common::{
-    cancellation::CancellationToken, identity::table::module::ModuleHandle, span::Span,
+    cancellation::CancellationToken,
+    identity::{
+        map::DefinitionContext, mapping::DefinitionMappingError, table::module::ModuleHandle,
+    },
+    span::Span,
 };
 use kagari_source::source::SourceFile;
 use std::collections::HashMap;
@@ -33,6 +38,8 @@ pub enum AdmissionError {
     Cancelled,
     /// The checked envelope lacks a required module/signature invariant.
     InvalidModule(&'static str),
+    /// Static provenance exceeded its shared budget or contained an invalid scoped fact.
+    Provenance(DefinitionMappingError),
     /// A source body lacks matching ownership or positive completion evidence.
     InvalidBody { key: BodyKey, reason: &'static str },
 }
@@ -51,6 +58,7 @@ pub struct CheckedModule<'a> {
     native_defaults: HashMap<FunctionId, NativeDefaultCall<'a>>,
     implementations: HashMap<ImplId, ImplementationInput<'a>>,
     environment: CheckedEnvironment<'a>,
+    provenance: SourceEvidence,
     bodies: HashMap<BodyOwner, CheckedBodyInput<'a>>,
 }
 
@@ -58,6 +66,7 @@ impl<'a> CheckedModule<'a> {
     fn admit(
         module: &'a CheckedAnalysis,
         cancel: &CancellationToken,
+        budget: &mut SourceBudget<'_>,
     ) -> Result<Self, AdmissionError> {
         if module.lowered.source_map.arena() != module.lowered.module.body.arena() {
             return Err(AdmissionError::InvalidModule(
@@ -89,11 +98,17 @@ impl<'a> CheckedModule<'a> {
             native_defaults: HashMap::new(),
             implementations: HashMap::new(),
             environment: CheckedEnvironment::new(module),
+            provenance: SourceEvidence::default(),
             bodies: HashMap::new(),
         };
         result.admit_implementations(module, cancel)?;
         result.admit_functions(module, cancel)?;
         result.admit_initializers(module, cancel)?;
+        result.provenance =
+            update_source::collect(module, budget).map_err(|error| match error {
+                DefinitionMappingError::Cancelled => AdmissionError::Cancelled,
+                error => AdmissionError::Provenance(error),
+            })?;
         cancel.check().map_err(|_| AdmissionError::Cancelled)?;
         Ok(result)
     }
@@ -314,6 +329,16 @@ impl<'a> CheckedModule<'a> {
         self.headers
     }
 
+    /// Borrows authored ownership and checked static initializer evidence.
+    ///
+    /// HIR projects these facts once under the complete compilation's shared
+    /// provenance budget. Function bodies contribute ownership only; static
+    /// initializers retain lexical coordinates and local checked dependencies.
+    /// Consumers validate this evidence against their emitted declaration inventory.
+    pub fn provenance(&self) -> &SourceEvidence {
+        &self.provenance
+    }
+
     /// Borrows exact installed declarations and their scope, or `None` for source modules.
     pub fn registration(&self) -> Option<RegisteredDeclarations<'a>> {
         self.registration
@@ -356,6 +381,23 @@ impl<'a> CheckedModule<'a> {
         (body.key() == key).then_some(body)
     }
 
+    /// Finds the admitted root body for a module-local declaration owner.
+    ///
+    /// Returns `None` for required/native declarations without a source body.
+    /// Use [`Self::body`] with the resulting key for arena-checked nested lookups.
+    pub fn body_for(&self, owner: BodyOwner) -> Option<CheckedBodyInput<'a>> {
+        self.bodies.get(&owner).copied()
+    }
+
+    /// Returns a static initializer's authored extent for stable lexical coordinates.
+    ///
+    /// This includes source grouping, which need not equal the lowered expression
+    /// node's extent. Absent module-local static slots return `None`.
+    pub fn static_initializer_span(&self, id: StaticId) -> Option<Span> {
+        self.bodies.get(&BodyOwner::Static(id))?;
+        self.origins.static_initializer_span(id)
+    }
+
     /// Visits admitted bodies; order is unspecified and does not define execution order.
     pub fn bodies(&self) -> impl Iterator<Item = CheckedBodyInput<'a>> + '_ {
         self.bodies.values().copied()
@@ -373,6 +415,7 @@ impl<'a> CheckedModule<'a> {
 /// This is the HIR-to-elaboration contract; the compiler's short-lived expanded
 /// body is a separate representation for MIR construction.
 pub struct CheckedCompilation<'a> {
+    context: DefinitionContext,
     modules: Vec<CheckedModule<'a>>,
     root: ModuleHandle,
     dependencies: HashMap<ModuleHandle, &'a [ModuleHandle]>,
@@ -394,8 +437,9 @@ impl<'a> CheckedCompilation<'a> {
         let mut modules = Vec::with_capacity(program.modules().len());
         let mut dependencies = HashMap::new();
         let mut root = None;
+        let mut budget = SourceBudget::new(cancel);
         for module in program.modules() {
-            let admitted = CheckedModule::admit(module, cancel)?;
+            let admitted = CheckedModule::admit(module, cancel, &mut budget)?;
             if module.lowered.source.id() == program.root().lowered.source.id() {
                 root = Some(admitted.handle);
             }
@@ -411,11 +455,26 @@ impl<'a> CheckedCompilation<'a> {
         }
         cancel.check().map_err(|_| AdmissionError::Cancelled)?;
         Ok(Self {
+            context: program.root().definition_context(),
             modules,
             root: root.ok_or(AdmissionError::InvalidModule("root absent from closure"))?,
             dependencies,
             exports: program.exports(),
         })
+    }
+
+    /// Shares the append-only definition allocator for generated compiler identities.
+    ///
+    /// Existing checked snapshots remain immutable. New identities are allocated
+    /// in their original scope; consumers must not replace this with a fresh context
+    /// or transfer local numeric IDs between independent compilations.
+    pub fn definition_context(&self) -> DefinitionContext {
+        self.context.clone()
+    }
+
+    /// Looks up a module in this checked closure by its scoped identity.
+    pub fn module(&self, handle: ModuleHandle) -> Option<&CheckedModule<'a>> {
+        self.modules.iter().find(|module| module.handle == handle)
     }
 
     /// Returns the root module's identity in this fixed closure.

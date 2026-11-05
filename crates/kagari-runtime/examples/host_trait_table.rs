@@ -4,7 +4,7 @@ use kagari_bytecode::{artifact::KbcArtifact, instruction::NativeImportId, module
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
     frame::driver::ReturnAction,
@@ -71,7 +71,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let checked = snapshot
         .check_program(root, &Default::default())
         .expect("checked explicit trait impl");
-    let mir = lower_program_to_mir(&checked, &Default::default()).expect("checked MIR");
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .expect("checked MIR");
     let bytecode = lower_program_to_bytecode(&mir, &Default::default()).expect("checked bytecode");
     // The artifact contains declarations and checked trait tables, never Rust code.
     let artifact = KbcArtifact::from_verified(bytecode, Default::default(), &Default::default())?;

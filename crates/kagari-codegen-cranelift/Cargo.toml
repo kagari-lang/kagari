@@ -20,6 +20,7 @@ cranelift-object.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
+kagari-hir.workspace = true
 kagari-stdlib.workspace = true
 kagari-source.workspace = true
 kagari-bytecode.workspace = true

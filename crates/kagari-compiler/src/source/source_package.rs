@@ -17,7 +17,7 @@ use kagari_contract::source::{
     manifest::{SourceDocumentAnchor, SourceManifest},
 };
 use kagari_hir::{
-    program::CheckedProgram, source_inspection::collect_authored_sources,
+    compile_input::program::CheckedCompilation, source_inspection::collect_authored_sources,
     update_source::SourceBodyKind,
 };
 
@@ -30,7 +30,7 @@ mod correspondence;
 /// Exact anchors captured before executable verification must match: equivalent
 /// tokens alone cannot establish definition extents. No HIR is retained.
 pub fn build_source_package(
-    checked: &CheckedProgram,
+    checked: &CheckedCompilation<'_>,
     bytecode: &VerifiedBytecodeProgram,
     cancel: &CancellationToken,
 ) -> Result<VerifiedSourcePackage, SourcePackageError> {
@@ -73,14 +73,14 @@ pub fn build_source_package(
 
 /// Capture anchors before optimization/verification, without copying source text.
 pub(crate) fn build_source_manifest(
-    checked: &CheckedProgram,
+    checked: &CheckedCompilation<'_>,
     cancel: &CancellationToken,
 ) -> Result<SourceManifest, DefinitionMappingError> {
     Ok(capture(checked, false, cancel)?.0.into_records())
 }
 
 fn capture(
-    checked: &CheckedProgram,
+    checked: &CheckedCompilation<'_>,
     retain_text: bool,
     cancel: &CancellationToken,
 ) -> Result<(DefinitionMetadata<SourceManifest>, Vec<SourceDocument>), DefinitionMappingError> {

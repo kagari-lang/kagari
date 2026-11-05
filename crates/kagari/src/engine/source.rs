@@ -11,7 +11,7 @@ use crate::{
         packages::PackageBuildInput,
         source::{analysis::SourceAnalysis, compilation::Compilation, inputs::CheckedInputs},
     },
-    error::EmbeddingError,
+    error::{CompilationPhase, EmbeddingError},
     program::PreparedProgram,
 };
 
@@ -27,6 +27,7 @@ use kagari_hir::{
         AnalysisSnapshot, body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
         error::AnalysisError, signature_queries::SignatureSnapshot,
     },
+    compile_input::program::{AdmissionError, CheckedCompilation},
     program::CheckedProgram,
     typeck::const_budget::ConstLimits,
 };
@@ -72,6 +73,20 @@ impl CheckedModule {
 
     pub fn program(&self) -> &CheckedProgram {
         &self.program
+    }
+
+    /// Admit the complete checked closure for one compilation or source inspection.
+    pub(crate) fn compilation_input(
+        &self,
+        cancel: &CancellationToken,
+    ) -> CompileResult<CheckedCompilation<'_>> {
+        CheckedCompilation::from_program(&self.program, cancel).map_err(|error| match error {
+            AdmissionError::Cancelled => EmbeddingError::Cancelled,
+            error => EmbeddingError::Compilation {
+                phase: CompilationPhase::MirLowering,
+                message: format!("checked compilation admission: {error:?}"),
+            },
+        })
     }
 
     pub(crate) fn inputs(&self) -> &Arc<CheckedInputs> {

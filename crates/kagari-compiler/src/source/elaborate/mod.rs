@@ -32,4 +32,4 @@ pub fn elaborate(
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

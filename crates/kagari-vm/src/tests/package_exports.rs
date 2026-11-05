@@ -8,7 +8,7 @@ use kagari_abi::native::BackendId;
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
     module::{VerifiedProgram, entry::ProgramEntry},
@@ -46,7 +46,11 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     let context = DefinitionContext::new().unwrap();
     let bytecode = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())

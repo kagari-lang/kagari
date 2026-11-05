@@ -1,11 +1,11 @@
 use super::collect_module_abi;
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{
         elaborate::{
             elaborate,
             model::{CheckedExprKind, CheckedPlaceKind},
-            tests::assert_expands,
         },
         program::lower_program_to_mir,
     },
@@ -117,8 +117,11 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
         "{:?}",
         analyzed.result().diagnostics()
     );
-    let facts = analyzed.to_unverified(&Default::default()).unwrap();
-    let abi = collect_module_abi(facts.records().facts());
+    let program = snapshot
+        .check_program(declared.source().id(), &Default::default())
+        .unwrap();
+    let input = compilation(&program);
+    let abi = collect_module_abi(input.module(input.root()).unwrap());
     let [PublicItem::Type(ty)] = abi.public_items.as_slice() else {
         panic!("external type ABI")
     };
@@ -146,8 +149,8 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
     // This exercises the previously failing recursive external dependency through
     // both portable products and rejects schema copies that disagree with providers.
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    assert_expands(&checked);
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+
+    let mir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let compilation = CheckedCompilation::from_program(&checked, &Default::default()).unwrap();
     let mut expanded_paths = Vec::new();
     for module in compilation.modules() {
@@ -163,12 +166,10 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
                     expanded_paths.push(path.contract.fingerprint(definitions).unwrap());
                 }
             }
-            for place in body.places.values() {
+            for (id, place) in &body.places {
                 if let CheckedPlaceKind::Host(path) = &place.kind {
-                    assert_eq!(
-                        &module.source().text()[place.span.start..place.span.end],
-                        "player.hp"
-                    );
+                    let span = input.place_span(*id).unwrap();
+                    assert_eq!(&module.source().text()[span.start..span.end], "player.hp");
                     expanded_paths.push(path.contract.fingerprint(definitions).unwrap());
                 }
             }

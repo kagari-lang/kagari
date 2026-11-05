@@ -2,6 +2,7 @@ use super::*;
 use kagari::engine::KagariEngine;
 use kagari_abi::native::NativeLinkDescription;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_mir::{program::VerifiedMirProgram, verify::VerifiedMirModule};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -24,7 +25,11 @@ fn mir(source: &str) -> VerifiedMirProgram {
     let checked = KagariEngine::default()
         .compile_source(SourceFile::new("native.kgr", source))
         .unwrap();
-    lower_program_to_mir(checked.program(), &Default::default()).unwrap()
+    lower_program_to_mir(
+        &CheckedCompilation::from_program(checked.program(), &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap()
 }
 
 fn root(program: &VerifiedMirProgram) -> &VerifiedMirModule {

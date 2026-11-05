@@ -1,6 +1,7 @@
 //! Export-only layout roots use the same source ownership and budgets as body roots.
 
 use super::{checked, insert};
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{
@@ -35,7 +36,7 @@ fn public_generic_layouts_keep_private_argument_contracts(
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
-    let program = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let program = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let bytes = encode_program(&program, &Default::default()).unwrap();
     let decoded = decode_program(&bytes, &Default::default()).unwrap();
     let exports = &decoded.exports().namespaces[decoded.root()];
@@ -132,7 +133,7 @@ fn unused_nonobject_exports_retain_enum_layouts_for_structural_bound_proofs() {
         include_str!("../../../tests/fixtures/type_exports/enum-bound-alias.kgr"),
     );
     let checked = checked(&sources, root);
-    let program = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let program = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let bytes = encode_program(&program, &Default::default()).unwrap();
     let decoded = decode_program(&bytes, &Default::default()).unwrap();
     assert_eq!(
@@ -202,7 +203,7 @@ fn unused_closed_exports_demand_owner_layouts_and_transitive_private_fields() {
         max_generic_instances: 6,
         ..Default::default()
     };
-    let program = lower_program_to_mir(&checked, &options).unwrap();
+    let program = lower_program_to_mir(&compilation(&checked), &options).unwrap();
     let owner = program
         .modules()
         .iter()
@@ -282,7 +283,7 @@ fn unused_closed_exports_demand_owner_layouts_and_transitive_private_fields() {
     );
 
     let error = lower_program_to_mir(
-        &checked,
+        &compilation(&checked),
         &MirLoweringOptions {
             max_generic_instances: 5,
             ..options

@@ -1,11 +1,11 @@
 //! Lower nominal declarations once, independently of public export authority.
 
 use crate::source::{
-    lower::abi::{abi_type, generic_param_abi, parameter_bounds},
+    lower::abi::{abi_parameters, abi_type, checked_bounds},
     types::lower_native_kind,
 };
 use kagari_hir::{
-    AnalyzedModule, declarations::DeclarationId, hir::item::Item, native::NativeTypeKind,
+    compile_input::program::CheckedModule, hir::item::Item, native::NativeTypeKind,
     resolver::resolved::ResolvedName,
 };
 use kagari_types::{
@@ -13,38 +13,39 @@ use kagari_types::{
     visibility::Visibility,
 };
 
-pub(super) fn lower(module: &AnalyzedModule, item: Item) -> (Visibility, TypeDeclaration) {
-    let hir = &module.lowered.module;
-    let (name, visibility, definition) = match item {
+pub(super) fn lower(module: &CheckedModule<'_>, item: Item) -> (Visibility, TypeDeclaration) {
+    let headers = module.headers();
+    let environment = module.environment();
+    let definitions = environment.definitions();
+    let catalog = environment.aggregates();
+    let identity = |name| {
+        environment
+            .definition(name)
+            .expect("admitted nominal identity")
+    };
+    let (declaration, visibility, definition) = match item {
         Item::Struct(id) => {
-            let item = hir
-                .structs
-                .iter()
-                .find(|item| item.id == id)
-                .expect("checked struct declaration");
+            let item = &headers.structs[id.index()];
+            let declaration = identity(ResolvedName::Struct(id));
+            let signature = catalog
+                .structure(&declaration)
+                .expect("admitted struct contract");
             (
-                ResolvedName::Struct(id),
+                declaration,
                 item.visibility,
                 TypeDef {
                     name: item.name.clone(),
                     kind: TypeDefKind::Struct,
-                    generic_params: generic_param_abi(module, &item.generic_params),
-                    bounds: parameter_bounds(module, &item.generic_params),
-                    fields: item
+                    generic_params: abi_parameters(&signature.generic_params),
+                    bounds: checked_bounds(catalog, definitions, &signature.bounds),
+                    fields: signature
                         .fields
                         .iter()
                         .map(|field| FieldDef {
                             host_policy: None,
                             visibility: field.visibility,
                             name: field.name.clone(),
-                            ty: abi_type(
-                                module,
-                                &module
-                                    .typed
-                                    .type_table()
-                                    .field_type(field.id)
-                                    .expect("checked field type must exist"),
-                            ),
+                            ty: abi_type(module, &field.ty),
                             mutable: field.writeability.is_var(),
                         })
                         .collect(),
@@ -53,40 +54,30 @@ pub(super) fn lower(module: &AnalyzedModule, item: Item) -> (Visibility, TypeDec
             )
         }
         Item::Enum(id) => {
-            let item = hir
-                .enums
-                .iter()
-                .find(|item| item.id == id)
-                .expect("checked enum declaration");
+            let item = &headers.enums[id.index()];
+            let declaration = identity(ResolvedName::Enum(id));
+            let signature = catalog
+                .enumeration(&declaration)
+                .expect("admitted enum contract");
             (
-                ResolvedName::Enum(id),
+                declaration,
                 item.visibility,
                 TypeDef {
                     name: item.name.clone(),
                     kind: TypeDefKind::Enum,
-                    generic_params: generic_param_abi(module, &item.generic_params),
-                    bounds: parameter_bounds(module, &item.generic_params),
+                    generic_params: abi_parameters(&signature.generic_params),
+                    bounds: checked_bounds(catalog, definitions, &signature.bounds),
                     fields: Vec::new(),
-                    variants: item
+                    variants: signature
                         .variants
                         .iter()
                         .map(|variant| VariantDef {
-                            reports_failure: module.lowered.registered_enum_failure(variant.id),
+                            reports_failure: variant.reports_failure,
                             name: variant.name.clone(),
                             payload: variant
                                 .payload
                                 .iter()
-                                .map(|ty| {
-                                    abi_type(
-                                        module,
-                                        &module
-                                            .typed
-                                            .type_table()
-                                            .type_ref(*ty)
-                                            .expect("checked enum payload type must exist")
-                                            .ty,
-                                    )
-                                })
+                                .map(|ty| abi_type(module, ty))
                                 .collect(),
                         })
                         .collect(),
@@ -94,40 +85,28 @@ pub(super) fn lower(module: &AnalyzedModule, item: Item) -> (Visibility, TypeDec
             )
         }
         Item::OpaqueType(id) => {
-            let item = hir
-                .opaque_types
-                .iter()
-                .find(|item| item.id == id)
-                .expect("checked native type declaration");
-            let representation = module
-                .declarations
-                .native_type(id)
-                .expect("checked native type representation");
-            let definition = if let NativeTypeKind::Host { definition, .. } = representation {
-                // Registered host fields and policies belong to the installed contract,
-                // not to the opaque source facade or a reconstructed Rust layout.
-                definition.as_ref().clone()
-            } else {
-                TypeDef {
-                    name: item.name.clone(),
-                    kind: lower_native_kind(representation),
-                    generic_params: generic_param_abi(module, &item.generic_params),
-                    bounds: parameter_bounds(module, &item.generic_params),
-                    fields: Vec::new(),
-                    variants: Vec::new(),
-                }
-            };
-            (ResolvedName::OpaqueType(id), item.visibility, definition)
+            let item = &headers.opaque_types[id.index()];
+            let declaration = identity(ResolvedName::OpaqueType(id));
+            let signature = catalog
+                .native_type(&declaration)
+                .expect("admitted native type contract");
+            let definition =
+                if let NativeTypeKind::Host { definition, .. } = &signature.representation {
+                    // Installed host fields and policies belong to the registration contract.
+                    definition.as_ref().clone()
+                } else {
+                    TypeDef {
+                        name: item.name.clone(),
+                        kind: lower_native_kind(signature.representation.clone()),
+                        generic_params: abi_parameters(&signature.generic_params),
+                        bounds: checked_bounds(catalog, definitions, &signature.bounds),
+                        fields: Vec::new(),
+                        variants: Vec::new(),
+                    }
+                };
+            (declaration, item.visibility, definition)
         }
         _ => unreachable!("nominal type declaration"),
-    };
-    let DeclarationId::Definition(declaration) = module
-        .declarations
-        .target(name)
-        .expect("checked nominal declaration")
-        .id
-    else {
-        unreachable!("checked nominal identity")
     };
     (
         visibility,

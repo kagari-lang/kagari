@@ -3,12 +3,103 @@ use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{callable::shared::SharedCall, types::ConcreteFunctionIdentity};
 use kagari_hir::{
+    callable::AppliedCallSignature,
     resolver::resolved::ResolvedName,
+    semantic::signatures::FunctionImplementation,
     types::{GenericParameterType, TypeId, TypeSubstitution},
 };
+use kagari_mir::instruction::{CallTarget, SourceFunctionContract};
 use kagari_types::callable::{CallableImplementation, Signature};
+use std::slice;
 
 impl InstancePlanner<'_> {
+    /// Plan a canonical direct call after substituting the caller's type arguments.
+    /// Applied parameter/result facts remain authoritative for native projections.
+    pub(crate) fn direct_call(
+        &mut self,
+        declaration: DefinitionId,
+        arguments: &[TypeId],
+        application: &AppliedCallSignature,
+        substitution: &TypeSubstitution,
+        span: Span,
+    ) -> Result<CallTarget, MirLoweringError> {
+        let arguments = self.arguments(arguments, substitution, span)?;
+        let params = self.arguments(&application.params, substitution, span)?;
+        let result = self
+            .arguments(
+                slice::from_ref(&application.return_type),
+                substitution,
+                span,
+            )?
+            .remove(0);
+        if arguments.iter().any(|ty| !ty.is_concrete()) {
+            let signature = Signature {
+                params: params.iter().map(|ty| self.encode_type(ty)).collect(),
+                result: self.encode_type(&result),
+            };
+            return Ok(CallTarget::Shared(Box::new(self.shared_call(
+                &declaration,
+                &arguments,
+                signature,
+                span,
+            )?)));
+        }
+        if self.native_function(&declaration).is_some() {
+            let applied = AppliedCallSignature {
+                params,
+                return_type: result,
+            };
+            return Ok(CallTarget::Native(Box::new(self.checked_native_import(
+                declaration,
+                &applied,
+                &arguments,
+                span,
+            )?)));
+        }
+        let module = self
+            .modules
+            .get(&self.module_handle(declaration))
+            .ok_or(MirLoweringError::MissingBinding("direct function module"))?;
+        let Some(ResolvedName::Function(id)) = module
+            .environment()
+            .declarations()
+            .definition_target(&declaration)
+        else {
+            return Err(MirLoweringError::MissingBinding(
+                "direct function declaration",
+            ));
+        };
+        let signature = module
+            .environment()
+            .signatures()
+            .function(id)
+            .ok_or(MirLoweringError::MissingTypedFunction(id))?;
+        if signature.implementation != FunctionImplementation::Script {
+            return Err(MirLoweringError::MissingBinding(
+                "unimplemented direct callable",
+            ));
+        }
+        if self.module_handle(declaration) == self.owner_handle() {
+            Ok(CallTarget::Function(self.enqueue_declaration(
+                &declaration,
+                arguments,
+                span,
+            )?))
+        } else {
+            Ok(CallTarget::SourceFunction(Box::new(
+                SourceFunctionContract {
+                    declaration,
+                    arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
+                    params: params
+                        .iter()
+                        .map(|ty| self.value_type(ty, &Default::default(), span))
+                        .collect::<Result<_, _>>()?,
+                    return_type: self.value_type(&result, &Default::default(), span)?,
+                },
+            )))
+        }
+    }
+
     pub(crate) fn shared_call(
         &mut self,
         declaration: &DefinitionId,
@@ -21,12 +112,15 @@ impl InstancePlanner<'_> {
             .modules
             .get(&self.module_handle(*declaration))
             .ok_or_else(invalid)?;
-        let Some(ResolvedName::Function(id)) = module.declarations.definition_target(declaration)
+        let Some(ResolvedName::Function(id)) = module
+            .environment()
+            .declarations()
+            .definition_target(declaration)
         else {
             return Err(invalid());
         };
         let function = module
-            .typed
+            .environment()
             .signatures()
             .functions()
             .iter()

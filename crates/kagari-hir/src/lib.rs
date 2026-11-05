@@ -12,14 +12,16 @@
 //! source snapshot + installed declarations
 //!   -> analysis preparation: parse/lower, namespaces, declarations, signatures
 //!   -> body resolution + type checking -> facts and diagnostics
-//!   -> checked analysis/program -> compiler source lowering
+//!   -> CheckedProgram -> CheckedCompilation -> compiler elaboration and instance planning
 //! ```
 //!
 //! This is a dependency outline, not a claim that every query scans or checks every
 //! body. [`analysis::AnalysisDatabase`] prepares immutable snapshots; their query
 //! APIs distinguish declaration, signature and body work and reuse retained inputs.
-//! HIR does not execute scripts. [`CheckedAnalysis`] and [`program::CheckedProgram`]
-//! feed compiler lowering; MIR verification and runtime execution have other owners.
+//! HIR does not execute scripts. [`CheckedAnalysis`] validates a single module;
+//! [`program::CheckedProgram`] fixes a complete dependency closure.
+//! [`compile_input::program::CheckedCompilation`] admits that closure for compiler
+//! elaboration; MIR verification and runtime execution have other owners.
 //!
 //! Start with [`lower::lower_module`] for a runnable node/storage example and
 //! [`analyze_source`] for single-source semantic analysis with explicit providers.
@@ -186,8 +188,12 @@ impl<T> AnalysisResult<T> {
     }
 }
 
-/// Only this type may cross the code-generation boundary. Its contents cannot
-/// be mutated after validation by external callers.
+/// An immutable single-module analysis whose source and semantic checks succeeded.
+///
+/// This is analysis evidence, not a complete compiler input. Program checking fixes
+/// the dependency closure; [`compile_input::program::CheckedCompilation`] then admits
+/// its declarations, sources and body facts together. External callers cannot mutate
+/// this checked envelope or construct it from an arbitrary diagnostic-free payload.
 #[derive(Debug, Clone)]
 pub struct CheckedAnalysis(DefinitionMetadata<AnalyzedModule>);
 

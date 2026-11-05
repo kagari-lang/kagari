@@ -1,4 +1,5 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::tests::common;
+use crate::tests::common::lower_root;
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_mir::{
@@ -10,7 +11,7 @@ use kagari_mir::{
 };
 
 fn checked(source: &str) -> VerifiedMirModule {
-    lower_to_mir(&common::analyze_ok(source), &Default::default()).unwrap()
+    lower_root(&common::program_ok(source), &Default::default()).unwrap()
 }
 
 fn seal(context: &DefinitionContext, module: MirModule) -> VerifiedMirModule {
@@ -118,7 +119,7 @@ fn debugger_availability_requires_initialization_on_every_incoming_edge() {
         common::program_ok("fn main(flag: bool) { if flag { val branch_only = \"value\"; } }");
     let mut module = common::adopt(
         &context,
-        lower_to_mir(input.root(), &Default::default())
+        lower_root(&input, &Default::default())
             .unwrap()
             .into_unverified(),
     );

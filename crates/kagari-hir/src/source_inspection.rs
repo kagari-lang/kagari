@@ -5,8 +5,11 @@
 //! containing document. Named locals are indexed independently of reachability.
 
 use crate::{
-    CheckedAnalysis, hir::item::Item, program::CheckedProgram, resolver::resolved::ResolvedName,
-    semantic::signatures::FunctionImplementation, update_source::SourceBodyKind,
+    compile_input::program::{CheckedCompilation, CheckedModule},
+    hir::item::Item,
+    resolver::resolved::ResolvedName,
+    semantic::signatures::FunctionImplementation,
+    update_source::SourceBodyKind,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -60,7 +63,7 @@ impl DefinitionReferences for AuthoredSourceIndex {
 /// Fails on missing identities, invalid physical/UTF-8 ranges, cancellation or
 /// the aggregate 64 MiB/one-million-record budget. No disk/editor lookup occurs.
 pub fn collect_authored_sources(
-    program: &CheckedProgram,
+    program: &CheckedCompilation<'_>,
     cancel: &CancellationToken,
 ) -> Result<DefinitionMetadata<AuthoredSourceIndex>, DefinitionMappingError> {
     let mut collector = Collector {
@@ -73,12 +76,11 @@ pub fn collect_authored_sources(
     };
     for module in program.modules() {
         check_cancel(cancel)?;
-        let hir = &module.lowered.module;
-        let map = &module.lowered.source_map;
-        for function in &hir.functions {
+        let headers = module.headers();
+        for function in headers.functions {
             let typed = module
-                .typed
-                .signatures
+                .environment()
+                .signatures()
                 .functions()
                 .iter()
                 .find(|typed| typed.id == function.id)
@@ -94,30 +96,36 @@ pub fn collect_authored_sources(
             collector.named(
                 module,
                 ResolvedName::Function(function.id),
-                map.function_span(function.id),
+                module
+                    .declaration_span(Item::Function(function.id))
+                    .ok_or(DefinitionMappingError::InvalidContract)?,
                 Some(kind),
                 cancel,
             )?;
         }
-        for item in &hir.consts {
+        for item in headers.constants {
             collector.named(
                 module,
                 ResolvedName::Const(item.id),
-                map.const_span(item.id),
+                module
+                    .declaration_span(Item::Const(item.id))
+                    .ok_or(DefinitionMappingError::InvalidContract)?,
                 Some(SourceBodyKind::Constant),
                 cancel,
             )?;
         }
-        for item in &hir.statics {
+        for item in headers.statics {
             collector.named(
                 module,
                 ResolvedName::Static(item.id),
-                map.static_span(item.id),
+                module
+                    .declaration_span(Item::Static(item.id))
+                    .ok_or(DefinitionMappingError::InvalidContract)?,
                 Some(SourceBodyKind::StaticInitializer),
                 cancel,
             )?;
         }
-        for item in &hir.items {
+        for item in headers.items {
             let name = match *item {
                 Item::Function(_) | Item::Const(_) | Item::Static(_) => continue,
                 Item::Struct(id) => ResolvedName::Struct(id),
@@ -128,18 +136,40 @@ pub fn collect_authored_sources(
                 Item::Module(_) => continue,
                 Item::Impl(id) => {
                     let declaration = *module
-                        .declarations
+                        .environment()
+                        .declarations()
                         .impl_identity(id)
                         .ok_or(DefinitionMappingError::InvalidContract)?;
-                    collector.add(module, declaration, map.item_span(*item), None, cancel)?;
+                    collector.add(
+                        module,
+                        declaration,
+                        module
+                            .declaration_span(*item)
+                            .ok_or(DefinitionMappingError::InvalidContract)?,
+                        None,
+                        cancel,
+                    )?;
                     continue;
                 }
             };
-            collector.named(module, name, map.item_span(*item), None, cancel)?;
+            collector.named(
+                module,
+                name,
+                module
+                    .declaration_span(*item)
+                    .ok_or(DefinitionMappingError::InvalidContract)?,
+                None,
+                cancel,
+            )?;
         }
     }
     DefinitionMetadata::checked(
-        program.root().definitions().clone(),
+        program
+            .module(program.root())
+            .expect("checked root")
+            .environment()
+            .definitions()
+            .clone(),
         collector.index,
         cancel,
     )
@@ -154,14 +184,15 @@ struct Collector {
 impl Collector {
     fn named(
         &mut self,
-        module: &CheckedAnalysis,
+        module: &CheckedModule<'_>,
         name: ResolvedName,
         range: Span,
         kind: Option<SourceBodyKind>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         let declaration = *module
-            .declarations
+            .environment()
+            .declarations()
             .definition(name)
             .ok_or(DefinitionMappingError::InvalidContract)?;
         self.add(module, declaration, range, kind, cancel)
@@ -169,7 +200,7 @@ impl Collector {
 
     fn add(
         &mut self,
-        module: &CheckedAnalysis,
+        module: &CheckedModule<'_>,
         declaration: DefinitionId,
         range: Span,
         kind: Option<SourceBodyKind>,
@@ -182,12 +213,12 @@ impl Collector {
         if self.seen.len() > MAX_RECORDS {
             return Err(DefinitionMappingError::LimitExceeded);
         }
-        let source = &module.lowered.source;
+        let source = module.source();
         let physical = source
             .span(range)
             .ok_or(DefinitionMappingError::InvalidContract)?;
         let origin = if physical.file == source.origin_id() {
-            source.as_ref()
+            source
         } else {
             source
                 .copied_sources()

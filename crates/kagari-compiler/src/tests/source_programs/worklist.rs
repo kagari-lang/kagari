@@ -10,6 +10,7 @@
 //! retention; it cannot be attributed to lowering or an individual sample here.
 
 use super::{checked, insert, update_demands::history};
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{
@@ -111,8 +112,11 @@ struct Measurement {
 fn measure(mut fixture: Fixture, retained: bool) -> Measurement {
     let options = MirLoweringOptions::default();
     let prior = retained.then(|| {
-        let original =
-            lower_program_to_mir(&checked(&fixture.sources, fixture.root), &options).unwrap();
+        let original = lower_program_to_mir(
+            &compilation(&checked(&fixture.sources, fixture.root)),
+            &options,
+        )
+        .unwrap();
         let prior = history(&original);
         insert(&mut fixture.sources, "root", &fixture.replacement);
         prior
@@ -124,9 +128,9 @@ fn measure(mut fixture: Fixture, retained: bool) -> Measurement {
     let start = Instant::now();
     let program = match prior {
         Some((demands, headers)) => {
-            lower_program_to_mir_with_demands(&source, &options, &demands, &headers)
+            lower_program_to_mir_with_demands(&compilation(&source), &options, &demands, &headers)
         }
-        None => lower_program_to_mir(&source, &options),
+        None => lower_program_to_mir(&compilation(&source), &options),
     }
     .unwrap();
     let lowering = start.elapsed();
@@ -245,7 +249,8 @@ fn late_bridge_candidate() -> (VerifiedMirProgram, Snapshot) {
         "root",
         "use pkg::provider; fn main() -> i32 { provider::late(7) }",
     );
-    let original = lower_program_to_mir(&checked(&sources, root), &Default::default()).unwrap();
+    let original =
+        lower_program_to_mir(&compilation(&checked(&sources, root)), &Default::default()).unwrap();
     assert!(has_late_body(&original));
     let (demands, headers) = history(&original);
 
@@ -262,7 +267,7 @@ fn late_bridge_candidate() -> (VerifiedMirProgram, Snapshot) {
         "use pkg::provider; fn main() -> i32 { 0 }",
     );
     let source = checked(&sources, root);
-    let without_history = lower_program_to_mir(&source, &Default::default()).unwrap();
+    let without_history = lower_program_to_mir(&compilation(&source), &Default::default()).unwrap();
     let wrappers = wrapper_count(&without_history, "provider");
     assert!(
         wrappers > 0,
@@ -274,9 +279,13 @@ fn late_bridge_candidate() -> (VerifiedMirProgram, Snapshot) {
     // missing generic body in that same output module. The resumed planner must
     // neither regenerate the wrapper nor confuse its output slot with a body.
     work_metrics::reset();
-    let candidate =
-        lower_program_to_mir_with_demands(&source, &Default::default(), &demands, &headers)
-            .unwrap();
+    let candidate = lower_program_to_mir_with_demands(
+        &compilation(&source),
+        &Default::default(),
+        &demands,
+        &headers,
+    )
+    .unwrap();
     let counts = work_metrics::snapshot();
     assert!(has_late_body(&candidate));
     assert_eq!(wrapper_count(&candidate, "provider"), wrappers);
@@ -348,7 +357,8 @@ fn late_layout_candidate() -> (VerifiedMirProgram, Snapshot) {
             }}"
         ),
     );
-    let original = lower_program_to_mir(&checked(&sources, root), &Default::default()).unwrap();
+    let original =
+        lower_program_to_mir(&compilation(&checked(&sources, root)), &Default::default()).unwrap();
     assert!(has_late_body(&original));
     let (demands, headers) = history(&original);
     insert(
@@ -362,15 +372,19 @@ fn late_layout_candidate() -> (VerifiedMirProgram, Snapshot) {
         ),
     );
     let source = checked(&sources, root);
-    let without_history = lower_program_to_mir(&source, &Default::default()).unwrap();
+    let without_history = lower_program_to_mir(&compilation(&source), &Default::default()).unwrap();
     assert_shared_box_layout(&without_history);
     assert!(!has_late_body(&without_history));
     lower_program_to_bytecode(&without_history, &Default::default())
         .expect("shared-layout source-only control must lower to bytecode");
     work_metrics::reset();
-    let candidate =
-        lower_program_to_mir_with_demands(&source, &Default::default(), &demands, &headers)
-            .unwrap();
+    let candidate = lower_program_to_mir_with_demands(
+        &compilation(&source),
+        &Default::default(),
+        &demands,
+        &headers,
+    )
+    .unwrap();
     let counts = work_metrics::snapshot();
     assert_shared_box_layout(&candidate);
     assert!(has_late_body(&candidate));

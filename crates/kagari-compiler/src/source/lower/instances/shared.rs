@@ -356,8 +356,11 @@ impl InstancePlanner<'_> {
         } else if let Some(function) = self.native_function(declaration) {
             function.generic_params[arguments.len()..].to_vec()
         } else {
-            let Some(ResolvedName::Function(function)) =
-                self.module.declarations.definition_target(declaration)
+            let Some(ResolvedName::Function(function)) = self
+                .module
+                .environment()
+                .declarations()
+                .definition_target(declaration)
             else {
                 return Err(MirLoweringError::MissingBinding(
                     "shared method declaration",
@@ -365,7 +368,7 @@ impl InstancePlanner<'_> {
             };
             let typed = self
                 .module
-                .typed
+                .environment()
                 .signatures()
                 .functions()
                 .iter()

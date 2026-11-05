@@ -1,5 +1,6 @@
 use super::{collect_module_abi, const_abi_value};
 use crate::source::lower::support::lower_scalar;
+use crate::tests::common::compilation;
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_contract::{
     types as abi,
@@ -127,13 +128,11 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             declared.source().name(),
             analyzed.result().diagnostics()
         );
-        let abi = collect_module_abi(
-            analyzed
-                .to_unverified(&Default::default())
-                .unwrap()
-                .records()
-                .facts(),
-        );
+        let program = snapshot
+            .check_program(declared.source().id(), &Default::default())
+            .unwrap();
+        let input = compilation(&program);
+        let abi = collect_module_abi(input.module(input.root()).unwrap());
         let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
             matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { .. })))
         }).collect();
@@ -248,13 +247,11 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             declared.source().name(),
             analyzed.result().diagnostics()
         );
-        let module = collect_module_abi(
-            analyzed
-                .to_unverified(&Default::default())
-                .unwrap()
-                .records()
-                .facts(),
-        );
+        let program = snapshot
+            .check_program(declared.source().id(), &Default::default())
+            .unwrap();
+        let input = compilation(&program);
+        let module = collect_module_abi(input.module(input.root()).unwrap());
         for kind in Protocol::ALL {
             let id = kind.definition(analyzed.definitions()).unwrap();
             let definitions = analyzed.definitions();
@@ -349,13 +346,11 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
         .unwrap();
     for declared in snapshot.declaration_snapshot().files() {
         let analyzed = snapshot.file(declared.source().id()).unwrap();
-        let abi = collect_module_abi(
-            analyzed
-                .to_unverified(&Default::default())
-                .unwrap()
-                .records()
-                .facts(),
-        );
+        let program = snapshot
+            .check_program(declared.source().id(), &Default::default())
+            .unwrap();
+        let input = compilation(&program);
+        let abi = collect_module_abi(input.module(input.root()).unwrap());
         let identity = declared.source().module_identity();
         named_verify::validate(
             &abi.named_declarations,

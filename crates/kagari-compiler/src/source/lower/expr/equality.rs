@@ -1,12 +1,11 @@
-use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use crate::source::lower::{
+    MirLoweringError, instances::selection::ProtocolPlan, state::FunctionLowerer,
+};
 use bincode::{DefaultOptions, Options};
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{mapping::DefinitionMappingError, scoped::DefinitionReferences};
 use kagari_contract::{operations::BinaryOp, standard::RuntimePrimitive};
-use kagari_hir::{
-    aggregates::implementations::ImplementationSearchLimits,
-    language::semantics::ProtocolSemantics, types::TypeId,
-};
+use kagari_hir::types::TypeId;
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
 };
@@ -16,72 +15,6 @@ use kagari_types::{
 use std::{collections::HashSet, fmt::Write};
 
 impl FunctionLowerer<'_, '_> {
-    pub(super) fn has_custom_protocol(&self, ty: &TypeId) -> Result<bool, MirLoweringError> {
-        let mut pending = vec![ty.clone()];
-        let mut seen = HashSet::new();
-        while let Some(ty) = pending.pop() {
-            self.planner.check()?;
-            if !seen.insert(ty.clone()) {
-                continue;
-            }
-            if seen.len() > self.planner.options.max_type_nodes {
-                return Err(MirLoweringError::UnsupportedExpr(
-                    "protocol composition exceeds type node limit",
-                ));
-            }
-            match &ty {
-                TypeId::Trait(_) | TypeId::Generic(_) => return Ok(true),
-                TypeId::Array(_)
-                | TypeId::NativeObject(_)
-                | TypeId::Struct(_)
-                | TypeId::Enum(_)
-                | TypeId::Map { .. }
-                | TypeId::Set(_, _) => {
-                    // Primitive member composition needs no method import.
-                    // A checked explicit implementation requires its callable.
-                    if self
-                        .planner
-                        .catalog
-                        .concrete_interface_implementation(
-                            &self.planner.definitions(),
-                            &Protocol::PartialEq
-                                .nominal(&self.planner.definitions())
-                                .expect("registered protocol identity"),
-                            &ty,
-                            &self.implementation_bounds,
-                            ImplementationSearchLimits {
-                                max_checks: self.planner.options.max_type_nodes,
-                                max_depth: self.planner.options.max_type_depth,
-                            },
-                            &self.planner.options.cancel,
-                        )?
-                        .is_some()
-                    {
-                        return Ok(true);
-                    }
-                    if let TypeId::Enum(n) = &ty
-                        && let Some(contract) = self.planner.catalog.enumeration(&n.declaration)
-                    {
-                        let substitution = contract
-                            .generic_params
-                            .iter()
-                            .cloned()
-                            .zip(n.arguments.iter().cloned())
-                            .collect();
-                        pending.extend(
-                            contract.variants.iter().flat_map(|v| {
-                                v.payload.iter().map(|t| t.instantiate(&substitution))
-                            }),
-                        );
-                    }
-                }
-                TypeId::Tuple(members) => pending.extend(members.iter().cloned()),
-                _ => {}
-            }
-        }
-        Ok(false)
-    }
-
     pub(crate) fn emit_intrinsic(
         &mut self,
         intrinsic: RuntimePrimitive,
@@ -104,18 +37,10 @@ impl FunctionLowerer<'_, '_> {
         args: &[MirValue],
         depth: usize,
     ) -> Result<MirValue, MirLoweringError> {
-        if matches!(ty, TypeId::Tuple(_) | TypeId::Enum(_))
-            && self.has_custom_protocol(ty)?
-            && self
-                .find_implementation_method(
-                    &self.protocol_method(protocol, 0)?,
-                    &protocol
-                        .nominal(&self.planner.definitions())
-                        .expect("registered protocol identity"),
-                    ty,
-                )?
-                .is_none()
-        {
+        let plan = self
+            .planner
+            .protocol_plan(protocol, ty, &self.implementation_bounds)?;
+        if matches!(plan, ProtocolPlan::Tuple(_) | ProtocolPlan::Enum(_)) {
             let function = self.planner.enqueue_protocol(
                 &self.instance,
                 protocol,
@@ -139,7 +64,7 @@ impl FunctionLowerer<'_, '_> {
             });
             Ok(dst)
         } else {
-            self.lower_protocol_body(protocol, ty, args, depth)
+            self.emit_protocol_plan(protocol, ty, args, depth, plan)
         }
     }
 
@@ -150,43 +75,32 @@ impl FunctionLowerer<'_, '_> {
         args: &[MirValue],
         depth: usize,
     ) -> Result<MirValue, MirLoweringError> {
+        let plan = self
+            .planner
+            .protocol_plan(protocol, ty, &self.implementation_bounds)?;
+        self.emit_protocol_plan(protocol, ty, args, depth, plan)
+    }
+
+    fn emit_protocol_plan(
+        &mut self,
+        protocol: Protocol,
+        ty: &TypeId,
+        args: &[MirValue],
+        depth: usize,
+        plan: ProtocolPlan,
+    ) -> Result<MirValue, MirLoweringError> {
         self.planner.check()?;
         if depth > self.planner.options.max_type_depth {
             return Err(MirLoweringError::UnsupportedExpr(
                 "protocol composition exceeds type depth limit",
             ));
         }
-        let dynamic_protocol = if let TypeId::Trait(child) = ty {
-            self.planner
-                .catalog
-                .interface_closure(
-                    &self.planner.definitions(),
-                    child,
-                    ty,
-                    &self.planner.options.cancel,
-                )
-                .is_ok_and(|parents| {
-                    parents.iter().any(|parent| {
-                        Protocol::from_definition(&parent.declaration, &self.planner.definitions())
-                            == Some(protocol)
-                    })
-                })
-        } else {
-            false
-        };
-        if matches!(ty, TypeId::Generic(_)) || dynamic_protocol {
-            let interface = protocol.nominal(&self.planner.definitions()).ok_or(
-                MirLoweringError::MissingBinding("generic equality protocol"),
-            )?;
-            let method = self.protocol_method(protocol, 0)?;
-            return self.lower_applied_operator(interface, ty.clone(), &method, args);
-        }
         let result_ty = if protocol == Protocol::PartialEq {
             ValueType::Bool
         } else {
             ValueType::I64
         };
-        if !self.has_custom_protocol(ty)? {
+        if matches!(plan, ProtocolPlan::Primitive) {
             if protocol == Protocol::PartialEq {
                 let dst = self.alloc_temp(ValueType::Bool);
                 self.emit(Instruction::Binary {
@@ -199,18 +113,12 @@ impl FunctionLowerer<'_, '_> {
             }
             return Ok(self.emit_intrinsic(RuntimePrimitive::ValueHash, args, result_ty));
         }
-        let method = &self.protocol_method(protocol, 0)?;
-        let interface = protocol
-            .nominal(&self.planner.definitions())
-            .expect("registered protocol identity");
-        if self
-            .find_implementation_method(method, &interface, ty)?
-            .is_some()
-        {
-            return self.lower_applied_method(interface, ty.clone(), method, &[], args);
-        }
-        match ty {
-            TypeId::Tuple(members) => {
+        match plan {
+            ProtocolPlan::Method { interface, method } => {
+                self.lower_applied_method(interface, ty.clone(), &method, &[], args)
+            }
+            ProtocolPlan::Primitive => unreachable!(),
+            ProtocolPlan::Tuple(members) => {
                 let mut inputs = Vec::new();
                 for (index, member) in members.iter().enumerate() {
                     let index = self.lower_constant(Constant::I32(index as i32), ValueType::I32);
@@ -233,35 +141,10 @@ impl FunctionLowerer<'_, '_> {
                 }
                 self.combine_protocol(protocol, &inputs, None, depth)
             }
-            TypeId::Enum(nominal) => {
-                let contract = self
-                    .planner
-                    .catalog
-                    .enumeration(&nominal.declaration)
-                    .ok_or(MirLoweringError::MissingBinding("enum protocol contract"))?
-                    .clone();
-                let substitution = contract
-                    .generic_params
-                    .iter()
-                    .cloned()
-                    .zip(nominal.arguments.iter().cloned())
-                    .collect();
-                let variants = contract
-                    .variants
-                    .iter()
-                    .map(|v| {
-                        (
-                            v.slot,
-                            v.payload
-                                .iter()
-                                .map(|ty| ty.instantiate(&substitution))
-                                .collect::<Vec<_>>(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
+            ProtocolPlan::Enum(variants) => {
                 self.enum_protocol(protocol, ty, args, &variants, depth)
             }
-            _ => {
+            ProtocolPlan::Runtime => {
                 let dst = self.alloc_temp(result_ty);
                 let intrinsic = if protocol == Protocol::PartialEq {
                     RuntimePrimitive::ValueEq

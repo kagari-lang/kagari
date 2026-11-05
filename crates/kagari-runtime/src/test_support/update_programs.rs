@@ -11,7 +11,7 @@ use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
     source::program::{lower_program_to_mir, lower_program_to_mir_with_demands},
 };
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 pub(crate) fn source_code(text: &str) -> VerifiedProgram {
@@ -33,11 +33,14 @@ pub(crate) fn bytecode(
         .check_program(root, &Default::default())
         .unwrap();
     let mir = match baseline {
-        None => lower_program_to_mir(&checked, &Default::default()),
+        None => lower_program_to_mir(
+            &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+            &Default::default(),
+        ),
         Some(baseline) => {
             let retained = baseline.retained_demands();
             lower_program_to_mir_with_demands(
-                &checked,
+                &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
                 &Default::default(),
                 retained.metadata(),
                 retained.implementation_headers(),

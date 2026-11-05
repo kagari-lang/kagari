@@ -17,7 +17,7 @@ use kagari_contract::{
     },
     updates::BodyClassification,
 };
-use kagari_hir::{AnalyzedModule, types::semantic::raise_type};
+use kagari_hir::{compile_input::program::CheckedModule, types::semantic::raise_type};
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
     function::{BasicBlock, MirFunction, MirLocal, MirParameter, MirTemp},
@@ -69,13 +69,14 @@ impl InterfaceBridges {
     pub fn prepare(
         &self,
         planner: &mut InstancePlanner<'_>,
-        module: &AnalyzedModule,
+        module: &CheckedModule<'_>,
     ) -> Result<Option<PreparedBridge>, MirLoweringError> {
         let Some(request) = planner.interface_bridges.get(self.processed).cloned() else {
             return Ok(None);
         };
         let contract = module
-            .aggregates
+            .environment()
+            .aggregates()
             .trait_(&request.interface.declaration)
             .ok_or(MirLoweringError::MissingBinding("interface bridge trait"))?;
         let mut methods = Vec::new();
@@ -97,7 +98,7 @@ impl InterfaceBridges {
     pub fn emit(
         &mut self,
         planner: &mut InstancePlanner<'_>,
-        module: &AnalyzedModule,
+        module: &CheckedModule<'_>,
         abi: &mut ModuleContract,
         functions: &[MirFunction],
         classifications: &mut Vec<(ConcreteFunctionIdentity, BodyClassification)>,
@@ -116,7 +117,8 @@ impl InterfaceBridges {
             span,
         } = request;
         let contract = module
-            .aggregates
+            .environment()
+            .aggregates()
             .trait_(&interface.declaration)
             .ok_or(MirLoweringError::MissingBinding("interface bridge trait"))?;
         let mut methods = Vec::new();
@@ -252,7 +254,7 @@ impl InterfaceBridges {
                 effects,
                 debug: MirFunctionDebugMetadata {
                     source: None,
-                    source_module: Some(module.lowered.source.module_identity().clone()),
+                    source_module: Some(module.source().module_identity().clone()),
                     source_span: span,
                     locals: params
                         .iter()
@@ -274,7 +276,7 @@ impl InterfaceBridges {
             };
             function.debug.source = Some(capture_origin(
                 &function,
-                &module.lowered.source,
+                module.source(),
                 &planner.options.cancel,
             )?);
             classifications.push((

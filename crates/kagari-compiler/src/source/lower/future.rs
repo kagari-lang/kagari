@@ -84,10 +84,7 @@ impl FunctionLowerer<'_, '_> {
             return Ok(value);
         }
         let ty = self
-            .analyzed
-            .typed
-            .type_table()
-            .expr_type(operand)
+            .expression_type(operand)
             .ok_or(MirLoweringError::MissingExprType(operand))?;
         let future = self.semantic_type(&ty)?;
         let dst = self.alloc_temp(self.expr_type(site)?);

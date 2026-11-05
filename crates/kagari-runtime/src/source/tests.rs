@@ -34,7 +34,7 @@ use kagari_compiler::{
     },
 };
 use kagari_contract::source::ExecutableOrigin;
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use rstest::rstest;
 use std::sync::Arc;
@@ -64,17 +64,25 @@ fn compiled_in(
         Some(baseline) => {
             let demands = baseline.retained_demands();
             lower_program_to_mir_with_demands(
-                &checked,
+                &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
                 &Default::default(),
                 demands.metadata(),
                 demands.implementation_headers(),
             )
         }
-        None => lower_program_to_mir(&checked, &Default::default()),
+        None => lower_program_to_mir(
+            &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+            &Default::default(),
+        ),
     }
     .unwrap();
     let bytecode = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
-    let package = build_source_package(&checked, &bytecode, &Default::default()).unwrap();
+    let package = build_source_package(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &bytecode,
+        &Default::default(),
+    )
+    .unwrap();
     (bytecode, package)
 }
 

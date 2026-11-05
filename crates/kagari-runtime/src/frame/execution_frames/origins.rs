@@ -15,7 +15,7 @@ use kagari_compiler::{
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
 };
 use kagari_contract::ids::FunctionRef;
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
@@ -33,7 +33,11 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
         optimization: None,
         ..Default::default()
     };
-    let mir = lower_program_to_mir(&checked, &options).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &options,
+    )
+    .unwrap();
     let code = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap();

@@ -1,4 +1,5 @@
 use super::{checked, insert};
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{lower::module_contract, program::lower_program_to_mir},
@@ -24,8 +25,10 @@ fn lower(files: &[(&str, &str)]) -> VerifiedMirProgram {
         }
     }
     let program = checked(&sources, root.unwrap());
-    let contract = module_contract(program.root(), &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&program, &Default::default()).unwrap();
+    let input = compilation(&program);
+    let contract =
+        module_contract(input.module(input.root()).unwrap(), &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&compilation(&program), &Default::default()).unwrap();
     let public_statics = |items: &[PublicItem]| {
         items
             .iter()

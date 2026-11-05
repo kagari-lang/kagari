@@ -223,10 +223,13 @@ impl InstancePlanner<'_> {
         } else if let Some(native) = self.registered_native_declaration(&owner) {
             native.function.generic_params.len()
         } else if let Some(module) = self.modules.get(&self.module_handle(owner))
-            && let Some(ResolvedName::Function(id)) = module.declarations.definition_target(&owner)
+            && let Some(ResolvedName::Function(id)) = module
+                .environment()
+                .declarations()
+                .definition_target(&owner)
         {
             module
-                .typed
+                .environment()
                 .signatures()
                 .functions()
                 .iter()

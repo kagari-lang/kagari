@@ -13,7 +13,7 @@ use kagari_contract::{
         limits::{Budget, UpdateError},
     },
 };
-use kagari_hir::program::CheckedProgram;
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_mir::program::{ProgramError, VerifiedMirProgram};
 #[cfg(test)]
 use std::time::Instant;
@@ -47,7 +47,7 @@ impl From<ProgramError> for SourceProgramError {
 }
 
 pub fn lower_program_to_mir(
-    program: &CheckedProgram,
+    program: &CheckedCompilation<'_>,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
     lower_program(program, options, None)
@@ -58,7 +58,7 @@ pub fn lower_program_to_mir(
 /// Semantic implementation correspondence is resolved before any requests are planned;
 /// missing current declarations fail rather than falling back to historical code.
 pub fn lower_program_to_mir_with_demands(
-    program: &CheckedProgram,
+    program: &CheckedCompilation<'_>,
     options: &MirLoweringOptions,
     retained: &DefinitionMetadata<DemandEnvelope>,
     implementation_headers: &[NamedDeclaration],
@@ -67,12 +67,17 @@ pub fn lower_program_to_mir_with_demands(
 }
 
 fn lower_program(
-    program: &CheckedProgram,
+    program: &CheckedCompilation<'_>,
     options: &MirLoweringOptions,
     retained: Option<(&DefinitionMetadata<DemandEnvelope>, &[NamedDeclaration])>,
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
-    let context = program.root().definition_context();
-    let root = program.root().lowered.source.module_identity().clone();
+    let context = program.definition_context();
+    let root = program
+        .module(program.root())
+        .expect("checked root module")
+        .source()
+        .module_identity()
+        .clone();
     let source_inputs = update_records::collect(program, &options.cancel).map_err(|error| {
         SourceProgramError::Lowering {
             module: Box::new(root.clone()),
@@ -101,27 +106,6 @@ fn lower_program(
             error: error.into(),
         })?
         .unwrap_or_default();
-    // The root catalog already owns checked facts for the entire dependency
-    // closure, including caller-private generic arguments. Per-module catalogs
-    // cannot select those arguments' implementations in foreign bodies.
-    let authoring_modules = program
-        .modules()
-        .iter()
-        .map(|module| {
-            module
-                .to_unverified(&options.cancel)
-                .map(|metadata| metadata.into_records())
-                .map_err(|error| SourceProgramError::Lowering {
-                    module: Box::new(root.clone()),
-                    error: error.into(),
-                })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let catalog = &authoring_modules
-        .iter()
-        .find(|module| *module.lowered.source.module_identity() == root)
-        .expect("checked root module")
-        .aggregates;
     let exports =
         exports::lower(program, &options.cancel).map_err(|error| SourceProgramError::Lowering {
             module: Box::new(root.clone()),
@@ -134,14 +118,7 @@ fn lower_program(
         })?;
     let mut requests = RequestQueue::default();
     requests.layouts(layout_requests);
-    let mut scheduler = Scheduler::new(
-        &authoring_modules,
-        catalog,
-        &context,
-        &root,
-        options,
-        requests,
-    );
+    let mut scheduler = Scheduler::new(program, &context, &root, options, requests);
     let inputs = CandidateInputs {
         root: &root,
         context: &context,

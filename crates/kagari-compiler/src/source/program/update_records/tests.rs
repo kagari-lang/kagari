@@ -1,7 +1,7 @@
 use super::*;
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
-    source::elaborate::tests::assert_expands,
     source::lower::{
         ModuleLowering, ModuleLoweringInputs,
         instances::{MirLoweringOptions, bridge_identities::BridgeIdentities},
@@ -18,18 +18,14 @@ use kagari_contract::{
         limits::{Budget, UpdateError},
     },
 };
-use kagari_hir::{analysis::AnalysisDatabase, analyze_source};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
     codec::{decode_program, encode_program},
     instruction::Instruction,
     verify::VerifiedMirModule,
 };
-use kagari_source::{
-    source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
-};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog;
-use std::slice;
 
 #[test]
 fn only_static_expressions_retain_computation_and_all_bodies_keep_authored_owners() {
@@ -53,9 +49,10 @@ static val CALLBACK: fn() -> i32 = || helper();
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
-    let inputs = collect(&checked, &Default::default()).unwrap();
+    let inputs = collect(&compilation(&checked), &Default::default()).unwrap();
     let published =
-        crate::source::program::lower_program_to_mir(&checked, &Default::default()).unwrap();
+        crate::source::program::lower_program_to_mir(&compilation(&checked), &Default::default())
+            .unwrap();
     assert_eq!(
         published.update_evidence().sources.len(),
         inputs.sources.len()
@@ -188,8 +185,10 @@ fn initializer_program(text: &str) -> VerifiedBytecodeProgram {
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
-    assert_expands(&checked);
-    let mir = crate::source::program::lower_program_to_mir(&checked, &Default::default()).unwrap();
+
+    let mir =
+        crate::source::program::lower_program_to_mir(&compilation(&checked), &Default::default())
+            .unwrap();
     // Source-free projection carries the preserved MIR and independently checked
     // bytecode recipes, so comparison exercises both executable vocabularies.
     let bytes = encode_program(&mir, &Default::default()).unwrap();
@@ -296,10 +295,8 @@ static val SIBLINGS: fn(i32) -> i32 = {
 
 #[test]
 fn body_classification_distinguishes_capture_free_named_closure_and_resume_bodies() {
-    let checked = analyze_source(
-        &SourceFile::new(
-            "classification.kgr",
-            r#"
+    let checked = crate::tests::common::program_ok(
+        r#"
 fn named(x: i32) -> i32 { x }
 fn folded() -> i32 { 1 + 2 }
 fn local() -> fn(i32) -> i32 { fn inner(x: i32) -> i32 { x } inner }
@@ -308,24 +305,17 @@ async fn asynchronous(x: i32) -> i32 { x }
 fn cold() { val future = async { 1 }; }
 static val VALUE: i32 = 7;
 "#,
-        ),
-        catalog::shared().unwrap(),
-    )
-    .unwrap()
-    .into_codegen()
-    .unwrap();
-    let context = checked.definition_context();
-    let module = checked
-        .to_unverified(&Default::default())
-        .unwrap()
-        .into_records();
+    );
+    let context = checked.root().definition_context();
+    let input = compilation(&checked);
+    let module = input.module(input.root()).unwrap();
     let options = MirLoweringOptions {
         optimization: Some(Default::default()),
         ..Default::default()
     };
-    let inputs = ModuleLoweringInputs::new(slice::from_ref(&module), &module.aggregates, &context);
+    let inputs = ModuleLoweringInputs::new(&input, &context);
     let mut bridges = BridgeIdentities::default();
-    let mut state = ModuleLowering::initialize(&module, &inputs, &options, &mut bridges).unwrap();
+    let mut state = ModuleLowering::initialize(module, &inputs, &options, &mut bridges).unwrap();
     state
         .process(&Default::default(), &inputs, &options, &mut bridges)
         .unwrap();

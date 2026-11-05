@@ -5,7 +5,7 @@ use crate::source::elaborate::{
     build::Builder,
     model::{
         CheckedCall, CheckedCallTarget, CheckedExprKind, CheckedMatchArm, Conversion, IndexRead,
-        OperationId, OperatorSyntax,
+        MethodOperands, OperationId, OperatorSyntax,
     },
 };
 use kagari_common::span::Span;
@@ -20,7 +20,7 @@ use kagari_hir::{
     typeck::table::{CallTarget, ResolvedCall},
     types::TypeId,
 };
-use kagari_types::{collection::CollectionAccess, scalar::BuiltinType};
+use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType};
 
 impl Builder<'_, '_> {
     pub(super) fn expression(&mut self, id: ExprId) -> Result<OperationId, ElaborationError> {
@@ -236,7 +236,7 @@ impl Builder<'_, '_> {
                 if let Some(call) = facts.call {
                     CheckedExprKind::Operator {
                         call: self.operator_call(id, call, &[expr])?,
-                        syntax: OperatorSyntax::Prefix(op),
+                        syntax: OperatorSyntax::Prefix,
                     }
                 } else {
                     CheckedExprKind::Unary { operand: expr, op }
@@ -349,7 +349,6 @@ impl Builder<'_, '_> {
                 self.expression(expr)?;
                 if let Some(call) = facts.call {
                     CheckedExprKind::Format {
-                        value: expr,
                         call: self.operator_call(id, call, &[expr])?,
                     }
                 } else {
@@ -433,20 +432,10 @@ impl Builder<'_, '_> {
                 let input =
                     self.require(self.input.closure(id), Some(span), "missing closure input")?;
                 let captures = self.captures(id)?;
-                let parameters = self
-                    .require(
-                        input.closure_parameters(),
-                        Some(span),
-                        "missing closure parameters",
-                    )?
-                    .iter()
-                    .map(|parameter| self.local(parameter.local, parameter.name.clone(), span))
-                    .collect::<Result<_, _>>()?;
                 CheckedExprKind::Closure {
                     key: input.key(),
                     is_async,
                     captures,
-                    parameters,
                 }
             }
             ExprKind::AsyncBlock { .. } => {
@@ -518,7 +507,18 @@ impl Builder<'_, '_> {
                         "missing method receiver",
                     )?)?
                 };
+                let operands = if Protocol::from_definition(
+                    &interface.declaration,
+                    self.environment.definitions(),
+                ) == Some(Protocol::Fn)
+                    && matches!(self.input.expression(id).map(|expr| &expr.kind), Some(ExprKind::Call { callee, .. }) if Some(*callee) == call.receiver)
+                {
+                    MethodOperands::Callable
+                } else {
+                    MethodOperands::Ordinary
+                };
                 CheckedCallTarget::Method {
+                    operands,
                     method,
                     interface,
                     receiver,

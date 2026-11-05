@@ -12,7 +12,7 @@ use kagari_compiler::{
     source::{program::lower_program_to_mir, source_package::build_source_package},
 };
 use kagari_contract::source::ExecutableOrigin;
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -63,9 +63,18 @@ fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> PreparedPr
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     let bytecode = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
-    let package = build_source_package(&checked, &bytecode, &Default::default()).unwrap();
+    let package = build_source_package(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &bytecode,
+        &Default::default(),
+    )
+    .unwrap();
     let artifact =
         KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
     let artifact =

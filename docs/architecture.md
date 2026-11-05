@@ -76,7 +76,9 @@ configuration and output behavior. Ownership follows the existing source pipelin
 `check` method requires an error-free closure, while optional lint consumes the
 same snapshot, including eligible facts from a partially erroneous program. Neither
 step reparses or type-checks a second time. Changing lint levels does not change
-analysis inputs. Compilation still requires `CheckedModule`/`CheckedProgram`.
+analysis inputs. The SDK retains a checked program; source compilation admits its
+complete dependency closure as `CheckedCompilation`, expands short-lived checked
+bodies, plans instances and builds MIR. See the [HIR handoff](architecture/hir.md#checked-handoff-and-registered-inputs).
 The SDK, HIR and runtime have no production dependency on the lint/format crates.
 
 `ModuleDiscovery` and `ProjectDiscovery` retain acquisition diagnostics and

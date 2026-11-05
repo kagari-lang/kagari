@@ -1,7 +1,5 @@
-use crate::{
-    source::lower::lower_to_mir,
-    tests::bytecode::{path_fixtures::actor_path_module, *},
-};
+use crate::tests::bytecode::{path_fixtures::actor_path_module, *};
+use crate::tests::common::lower_root;
 use kagari_bytecode::instruction::Slot;
 use kagari_contract::effects::EffectSet;
 use kagari_mir::{
@@ -965,7 +963,7 @@ fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
         let input = common::program_ok(&format!(
             "struct P {{ val first: i32, val second: bool }} fn base() -> P {{ P {{ first: 0, second: false }} }} fn main() -> P {{ {expression} }}",
         ));
-        let module = lower_to_mir(input.root(), &Default::default()).unwrap();
+        let module = lower_root(&input, &Default::default()).unwrap();
         let bytecode =
             common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &module));
         let main = bytecode.modules[bytecode.root.index()]
@@ -1011,7 +1009,7 @@ fn emits_the_declared_entry_block_first() {
     let input = common::program_ok("fn main() -> i32 { 7 }");
     let mut module = common::adopt(
         &context,
-        lower_to_mir(input.root(), &Default::default())
+        lower_root(&input, &Default::default())
             .unwrap()
             .into_unverified(),
     );

@@ -6,7 +6,10 @@ mod structure;
 
 use crate::source::elaborate::{
     ElaborationError,
-    model::{CheckedBody, CheckedCapture, CheckedExpr, CheckedExprKind, OperationId, ValueBinding},
+    model::{
+        CallableBody, CheckedBody, CheckedCapture, CheckedExpr, CheckedExprKind, OperationId,
+        ValueBinding,
+    },
 };
 use kagari_common::{cancellation::CancellationToken, span::Span};
 use kagari_hir::{
@@ -14,7 +17,7 @@ use kagari_hir::{
         body::{BodyRoot, CheckedBodyInput, bindings::BindingId, flow::BodyCompletion},
         environment::CheckedEnvironment,
     },
-    hir::ids::ExprId,
+    hir::{expr::ExprKind, ids::ExprId},
     resolver::resolved::ResolvedName,
     types::TypeId,
 };
@@ -37,6 +40,7 @@ impl<'a, 'c> Builder<'a, 'c> {
             body: CheckedBody {
                 key: input.key(),
                 root: input.root(),
+                callable: None,
                 captures: Vec::new(),
                 cell_locals: Default::default(),
                 operations: Vec::new(),
@@ -54,6 +58,46 @@ impl<'a, 'c> Builder<'a, 'c> {
         self.check()?;
         if let Some(closure) = self.input.key().closure {
             self.body.captures = self.captures(closure)?;
+            let span = self.require(
+                self.input.expression_span(closure),
+                None,
+                "missing callable span",
+            )?;
+            let source = self.require(
+                self.input.expression(closure),
+                Some(span),
+                "missing callable node",
+            )?;
+            let (is_async, is_block) = match source.kind {
+                ExprKind::Closure { is_async, .. } => (is_async, false),
+                ExprKind::AsyncBlock { .. } => (true, true),
+                _ => return Err(self.error(Some(span), "nested root is not callable")),
+            };
+            let facts = self.require(
+                self.input.expression_facts(closure),
+                Some(span),
+                "missing callable facts",
+            )?;
+            let ty = self.valid_type(
+                self.require(facts.ty, Some(span), "missing callable type")?,
+                Some(span),
+            )?;
+            let parameters = self
+                .require(
+                    self.input.closure_parameters(),
+                    Some(span),
+                    "missing callable parameters",
+                )?
+                .iter()
+                .map(|parameter| self.local(parameter.local, parameter.name.clone(), span))
+                .collect::<Result<_, _>>()?;
+            self.body.callable = Some(CallableBody {
+                span,
+                ty,
+                is_async,
+                is_block,
+                parameters,
+            });
         }
         match self.input.root() {
             BodyRoot::Block(id) => self.block(id)?,

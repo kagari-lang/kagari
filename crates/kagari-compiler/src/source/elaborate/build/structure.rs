@@ -47,14 +47,9 @@ impl Builder<'_, '_> {
         if let Some(tail) = tail {
             self.expression(tail)?;
         }
-        self.body.blocks.insert(
-            id,
-            CheckedBlock {
-                span,
-                statements,
-                tail,
-            },
-        );
+        self.body
+            .blocks
+            .insert(id, CheckedBlock { statements, tail });
         Ok(())
     }
 
@@ -65,10 +60,9 @@ impl Builder<'_, '_> {
             .require(self.input.statement(id), Some(span), "missing statement")?
             .clone();
         let kind = match node.kind {
-            StmtKind::Function(function) => CheckedStmtKind::Function(function),
+            StmtKind::Function(_) => CheckedStmtKind::Function,
             StmtKind::Binding {
                 pattern,
-                writeability,
                 initializer,
                 ..
             } => {
@@ -77,7 +71,6 @@ impl Builder<'_, '_> {
                     self.pattern(pattern)?;
                     CheckedStmtKind::Binding {
                         pattern,
-                        writeability,
                         initializer,
                     }
                 } else {
@@ -264,7 +257,6 @@ impl Builder<'_, '_> {
         self.body.patterns.insert(
             id,
             CheckedPattern {
-                span,
                 irrefutable: facts.irrefutable,
                 kind,
             },
@@ -340,10 +332,11 @@ impl Builder<'_, '_> {
             self.body.places.insert(
                 id,
                 CheckedPlace {
-                    span,
                     ty: TypeId::Builtin(BuiltinType::Never),
                     kind: CheckedPlaceKind::Diverging {
                         base,
+                        read_base: facts.host_path.is_some()
+                            || (facts.index_read.is_some() && facts.index_write.is_none()),
                         values: evaluated,
                     },
                 },
@@ -412,7 +405,7 @@ impl Builder<'_, '_> {
                 }
             }
         };
-        self.body.places.insert(id, CheckedPlace { span, ty, kind });
+        self.body.places.insert(id, CheckedPlace { ty, kind });
         Ok(())
     }
 }

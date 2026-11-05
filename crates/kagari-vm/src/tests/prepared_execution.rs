@@ -19,7 +19,7 @@ use kagari_contract::{
     ids::FunctionRef,
     native::{ExecutableFunctionArtifact, NativeCompilationProduct},
 };
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -44,7 +44,7 @@ fn compile(source: &str, optimize: bool) -> DefinitionMetadata<BytecodeProgram> 
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(
-        &checked,
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
         &MirLoweringOptions {
             optimization: optimize.then(Default::default),
             ..Default::default()

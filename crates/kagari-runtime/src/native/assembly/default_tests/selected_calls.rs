@@ -26,7 +26,7 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
     callable::CallableImplementation,
@@ -307,7 +307,11 @@ fn authored_and_sealed_tokens_execute_the_actual_selected_default_call() {
             .unwrap()
             .check_program(root, &Default::default())
             .unwrap();
-        let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+        let mir = lower_program_to_mir(
+            &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
         let bytecode = lower_program_to_bytecode(&mir, &Default::default())
             .map(|program| program.into_unverified())
             .unwrap();

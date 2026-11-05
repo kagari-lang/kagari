@@ -24,6 +24,30 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
         .find(|module| module.handle() == compilation.root())
         .unwrap();
     let headers = module.headers();
+    let initializer = module
+        .static_initializer_span(headers.statics[0].id)
+        .unwrap();
+    assert_eq!(
+        &module.source().text()[initializer.start..initializer.end],
+        "N"
+    );
+    let evidence = module.provenance();
+    assert_eq!(evidence.initializers.len(), 1);
+    let initializer = evidence
+        .bodies
+        .iter()
+        .find(|body| body.initializer.is_some())
+        .unwrap();
+    assert_eq!(initializer.tokens.len(), 1);
+    assert_eq!(initializer.tokens[0].text, "N");
+    assert!(
+        evidence
+            .bodies
+            .iter()
+            .filter(|body| body.initializer.is_none())
+            .all(|body| body.tokens.is_empty() && body.facts.is_empty())
+    );
+
     let constant = module
         .environment()
         .local_constant(headers.constants[0].id)
@@ -77,6 +101,13 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
         .find(|body| body.key().owner == BodyOwner::Function(first_function.id))
         .copied()
         .unwrap();
+    assert_eq!(
+        module
+            .body_for(BodyOwner::Function(first_function.id))
+            .unwrap()
+            .key(),
+        first.key()
+    );
     let BodyRoot::Block(root) = first.root() else {
         panic!("function block")
     };
@@ -175,7 +206,11 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     )
     .unwrap();
     assert!(matches!(
-        CheckedModule::admit(&incomplete, &Default::default()),
+        CheckedModule::admit(
+            &incomplete,
+            &Default::default(),
+            &mut SourceBudget::new(&Default::default())
+        ),
         Err(AdmissionError::InvalidBody { .. })
     ));
     let native = compilation
@@ -218,7 +253,11 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     let missing =
         CheckedAnalysis::adopt_scoped(&missing, source.definitions(), &Default::default()).unwrap();
     assert!(matches!(
-        CheckedModule::admit(&missing, &Default::default()),
+        CheckedModule::admit(
+            &missing,
+            &Default::default(),
+            &mut SourceBudget::new(&Default::default())
+        ),
         Err(AdmissionError::InvalidModule(
             "native default has no checked forwarding call"
         ))

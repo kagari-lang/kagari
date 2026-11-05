@@ -26,8 +26,7 @@ use kagari_hir::{
             Condition,
             ops::{BinaryOp, PrefixOp},
         },
-        ids::{BlockId, ExprId, FunctionId, LocalId, PatternId, PlaceId, StmtId},
-        writeability::Writeability,
+        ids::{BlockId, ExprId, LocalId, PatternId, PlaceId, StmtId},
     },
     typeck::{
         scalar::ScalarValue,
@@ -62,6 +61,16 @@ pub struct CheckedCall {
     pub operands: Vec<ExprId>,
 }
 
+/// How authored operands are supplied to an already selected trait method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodOperands {
+    /// A written method call already supplies the declaration's parameter structure.
+    Ordinary,
+    /// `f(a, b)` through `Fn` supplies separate operands; planning packs `(a, b)`
+    /// for a trait implementation, or calls a concrete closure directly.
+    Callable,
+}
+
 /// Declaration selection is complete; instance-dependent dispatch belongs to planning.
 #[derive(Debug, Clone)]
 pub enum CheckedCallTarget {
@@ -71,6 +80,7 @@ pub enum CheckedCallTarget {
     },
     /// Retains the proved application and exact member, without another spelling lookup.
     Method {
+        operands: MethodOperands,
         method: DefinitionId,
         interface: NominalType,
         receiver: TypeId,
@@ -188,7 +198,6 @@ pub enum CheckedExprKind {
     },
     InterpolatedString(Vec<ExprId>),
     Format {
-        value: ExprId,
         call: CheckedCall,
     },
     Await {
@@ -213,7 +222,6 @@ pub enum CheckedExprKind {
         key: BodyKey,
         is_async: bool,
         captures: Vec<CheckedCapture>,
-        parameters: Vec<CheckedLocal>,
     },
     AsyncBlock {
         key: BodyKey,
@@ -232,7 +240,7 @@ pub struct CheckedMatchArm {
 
 #[derive(Debug, Clone, Copy)]
 pub enum OperatorSyntax {
-    Prefix(PrefixOp),
+    Prefix,
     Binary(BinaryOp),
 }
 
@@ -263,7 +271,6 @@ pub struct CheckedLocal {
 
 #[derive(Debug, Clone)]
 pub struct CheckedBlock {
-    pub span: Span,
     pub statements: Vec<StmtId>,
     pub tail: Option<ExprId>,
 }
@@ -276,10 +283,9 @@ pub struct CheckedStmt {
 
 #[derive(Debug, Clone)]
 pub enum CheckedStmtKind {
-    Function(FunctionId),
+    Function,
     Binding {
         pattern: PatternId,
-        writeability: Writeability,
         initializer: ExprId,
     },
     Assign {
@@ -314,7 +320,6 @@ pub enum CheckedStmtKind {
 
 #[derive(Debug, Clone)]
 pub struct CheckedPlace {
-    pub span: Span,
     /// Stored value type, or `Never` when preparation produces no location.
     pub ty: TypeId,
     pub kind: CheckedPlaceKind,
@@ -337,6 +342,8 @@ pub enum CheckedPlaceKind {
     /// Preparation's evaluated prefix, with no resulting location or access operation.
     Diverging {
         base: Option<PlaceId>,
+        /// Host roots and read-only index receivers are read before dynamic operands.
+        read_base: bool,
         values: Vec<ExprId>,
     },
 }
@@ -354,7 +361,6 @@ pub enum IndexWrite {
 
 #[derive(Debug, Clone)]
 pub struct CheckedPattern {
-    pub span: Span,
     pub irrefutable: bool,
     pub kind: CheckedPatternKind,
 }
@@ -378,6 +384,19 @@ pub enum CheckedPatternKind {
     },
 }
 
+/// Creation contract of a nested callable whose root is being expanded.
+///
+/// Its type is the closure's callable type or the async block's Future type;
+/// result specialization and generated resume identities belong to planning.
+#[derive(Debug, Clone)]
+pub struct CallableBody {
+    pub span: Span,
+    pub ty: TypeId,
+    pub is_async: bool,
+    pub is_block: bool,
+    pub parameters: Vec<CheckedLocal>,
+}
+
 /// One expanded root and its structural descendants. Nested callable bodies are
 /// expanded separately, so retaining a closure does not duplicate its owner's arena.
 /// No analysis snapshot, type table or syntax resolver survives in this result.
@@ -385,6 +404,8 @@ pub enum CheckedPatternKind {
 pub struct CheckedBody {
     pub key: BodyKey,
     pub root: BodyRoot,
+    /// Present only when this expansion starts at a closure or async block.
+    pub callable: Option<CallableBody>,
     /// Incoming bindings for a nested callable, in the resolver's capture order.
     pub captures: Vec<CheckedCapture>,
     /// Locals requiring cells in this root, including incoming cell captures.

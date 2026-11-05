@@ -1,5 +1,4 @@
-//! Temporary HA2 parity boundary: existing compilation and explicit operation admission.
-//! HA3 removes the old path after switching the entire source-body consumer closure.
+//! Checked operation and emitted MIR contracts at the production elaboration boundary.
 
 use super::*;
 use crate::source::{
@@ -9,6 +8,7 @@ use crate::source::{
     lower::instances::MirLoweringOptions,
     program::lower_program_to_mir,
 };
+use crate::tests::common::compilation;
 use kagari_abi::representation::ValueType;
 use kagari_contract::representation::semantic_representation;
 use kagari_hir::{
@@ -38,27 +38,6 @@ fn checked(text: &str) -> CheckedProgram {
 }
 
 #[test]
-fn existing_contracts_expand_without_resolving_source_again() {
-    for text in [
-        "fn main() -> i32 { val (left, right) = loop {}; 0 }",
-        "fn main() -> i32 { -(loop {}) }",
-        "fn main() -> Result<i32, i32> { (loop {})? }",
-        "fn relay(value: Result<i32, i32>) -> Result<i32, i32> { Ok(value? + 1) }",
-        include_str!("../../../tests/fixtures/language_foundation/scalar-language.kgr"),
-        include_str!(
-            "../../../tests/fixtures/language_foundation/collection-interface-iteration.kgr"
-        ),
-        include_str!(
-            "../../../tests/fixtures/language_foundation/foundational-static-methods-and-bounds.kgr"
-        ),
-    ] {
-        let program = checked(text);
-        lower_program_to_mir(&program, &MirLoweringOptions::default()).unwrap();
-        assert_expands(&program);
-    }
-}
-
-#[test]
 fn synthetic_conversions_and_nested_callables_keep_separate_roots() {
     let program = checked(
         r#"
@@ -72,14 +51,14 @@ fn captured(x: i32) -> fn(i32) -> i32 { |y: i32| x + y }
 fn mutable(x: i32) -> fn() -> i32 { var x = x; || { x = x + 1; x } }
 "#,
     );
-    let legacy = lower_program_to_mir(&program, &MirLoweringOptions::default()).unwrap();
+    let mir = lower_program_to_mir(&compilation(&program), &MirLoweringOptions::default()).unwrap();
     let compilation = CheckedCompilation::from_program(&program, &Default::default()).unwrap();
     let module = compilation
         .modules()
         .iter()
         .find(|module| module.handle() == compilation.root())
         .unwrap();
-    let legacy_module = legacy
+    let emitted_module = mir
         .modules()
         .iter()
         .find(|candidate| &candidate.identity == module.source().module_identity())
@@ -108,7 +87,7 @@ fn mutable(x: i32) -> fn() -> i32 { var x = x; || { x = x + 1; x } }
                     let nested = elaborate(nested, &Default::default()).unwrap();
                     assert!(!nested.operations.is_empty());
                     assert_eq!(nested.captures.len(), captures.len());
-                    let legacy_closure = legacy_module
+                    let emitted_closure = emitted_module
                         .functions
                         .iter()
                         .find(|function| {
@@ -116,15 +95,19 @@ fn mutable(x: i32) -> fn() -> i32 { var x = x; || { x = x + 1; x } }
                                 && !function.debug.captured_bindings.is_empty()
                         })
                         .unwrap();
-                    assert_eq!(legacy_closure.debug.captured_bindings.len(), captures.len());
+                    assert_eq!(
+                        emitted_closure.debug.captured_bindings.len(),
+                        captures.len()
+                    );
                     for (capture_index, (capture, incoming)) in
                         captures.iter().zip(&nested.captures).enumerate()
                     {
-                        let legacy_capture = &legacy_closure.debug.captured_bindings[capture_index];
-                        assert_eq!(legacy_capture.name, capture.name);
-                        assert_eq!(legacy_capture.span, capture.span);
+                        let emitted_capture =
+                            &emitted_closure.debug.captured_bindings[capture_index];
+                        assert_eq!(emitted_capture.name, capture.name);
+                        assert_eq!(emitted_capture.span, capture.span);
                         assert_eq!(
-                            legacy_closure.params[capture_index].ty,
+                            emitted_closure.params[capture_index].ty,
                             if capture.by_cell {
                                 ValueType::HeapObject
                             } else {
@@ -164,34 +147,6 @@ fn mutable(x: i32) -> fn() -> i32 { var x = x; || { x = x + 1; x } }
     assert!(cell_seen);
 }
 
-/// Reuses semantic-owner fixtures while the production lowerer is still the comparison path.
-pub(crate) fn assert_expands(program: &CheckedProgram) {
-    let compilation = CheckedCompilation::from_program(program, &Default::default()).unwrap();
-    for module in compilation.modules() {
-        let mut pending = module.bodies().collect::<Vec<_>>();
-        let mut visited = HashSet::new();
-        while let Some(input) = pending.pop() {
-            if !visited.insert(input.key()) {
-                continue;
-            }
-            let body = elaborate(input, &Default::default())
-                .unwrap_or_else(|error| panic!("{:?}: {error:?}", input.key()));
-            for operation in &body.operations {
-                assert_eq!(
-                    input.expression_span(operation.source),
-                    Some(operation.span)
-                );
-                assert!(!operation.ty.is_unresolved());
-                if let CheckedExprKind::Closure { key, .. }
-                | CheckedExprKind::AsyncBlock { key, .. } = &operation.kind
-                {
-                    pending.push(module.body(*key).expect("admitted nested callable"));
-                }
-            }
-        }
-    }
-}
-
 #[test]
 fn imported_constants_and_static_places_keep_canonical_value_contracts() {
     let program = checked(
@@ -202,7 +157,7 @@ use self::data::VALUE as CURRENT;
 fn main() -> i32 { CURRENT += STEP; CURRENT }
 "#,
     );
-    let legacy = lower_program_to_mir(&program, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&compilation(&program), &Default::default()).unwrap();
     let compilation = CheckedCompilation::from_program(&program, &Default::default()).unwrap();
     let module = compilation
         .modules()
@@ -218,17 +173,17 @@ fn main() -> i32 { CURRENT += STEP; CURRENT }
         })
         .unwrap();
     let body = elaborate(input, &Default::default()).unwrap();
-    let legacy_module = legacy
+    let emitted_module = mir
         .modules()
         .iter()
         .find(|candidate| &candidate.identity == module.source().module_identity())
         .unwrap();
-    let slot = legacy_module
+    let slot = emitted_module
         .module_slots
         .iter()
         .find(|slot| slot.contract.name == "VALUE")
         .unwrap();
-    let identity = legacy_module
+    let identity = emitted_module
         .definitions()
         .resolve(slot.contract.declaration)
         .unwrap()
@@ -275,7 +230,7 @@ fn main() -> i32 { CURRENT += STEP; CURRENT }
             .to_path(),
         identity
     );
-    let main = legacy_module
+    let main = emitted_module
         .functions
         .iter()
         .find(|function| function.name == "main")
@@ -318,14 +273,14 @@ fn main() -> i32 {
 }
 "#,
     );
-    let legacy = lower_program_to_mir(&program, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&compilation(&program), &Default::default()).unwrap();
     let compilation = CheckedCompilation::from_program(&program, &Default::default()).unwrap();
     let module = compilation
         .modules()
         .iter()
         .find(|module| module.handle() == compilation.root())
         .unwrap();
-    let emitted_module = legacy
+    let emitted_module = mir
         .modules()
         .iter()
         .find(|emitted| &emitted.identity == module.source().module_identity())
@@ -390,8 +345,7 @@ fn main() -> i32 {
                     let callee = &emitted_module.functions[instance.index()];
                     assert_eq!(
                         definitions.resolve(*declaration).unwrap().to_path(),
-                        legacy
-                            .definitions()
+                        mir.definitions()
                             .resolve(callee.instance.declaration)
                             .unwrap()
                             .to_path()
@@ -404,8 +358,7 @@ fn main() -> i32 {
                         };
                         assert_eq!(
                             definitions.resolve(argument.declaration).unwrap().to_path(),
-                            legacy
-                                .definitions()
+                            mir.definitions()
                                 .resolve(emitted.declaration)
                                 .unwrap()
                                 .to_path()
@@ -449,6 +402,7 @@ fn main() -> i32 {
                     interface,
                     receiver,
                     arguments,
+                    ..
                 } => {
                     let selected = input
                         .environment()
@@ -465,8 +419,7 @@ fn main() -> i32 {
                     assert_eq!(parameter.position, 0);
                     assert_eq!(
                         definitions.resolve(parameter.owner).unwrap().to_path(),
-                        legacy
-                            .definitions()
+                        mir.definitions()
                             .resolve(caller.instance.declaration)
                             .unwrap()
                             .to_path()

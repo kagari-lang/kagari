@@ -5,14 +5,11 @@ use crate::source::lower::{
     instances::{Instance, InstancePlanner},
 };
 use kagari_common::{
-    identity::{DefinitionKind, mapping::DefinitionMappingError},
+    identity::{DefinitionKind, mapping::DefinitionMappingError, table::DefinitionId},
     span::Span,
 };
 use kagari_contract::types::named::FunctionOrigin;
-use kagari_hir::{
-    AnalyzedModule, declarations::DeclarationId, hir::ids::FunctionId,
-    resolver::resolved::ResolvedName, types::TypeId,
-};
+use kagari_hir::{resolver::resolved::ResolvedName, types::TypeId};
 use kagari_mir::ids::InstanceId;
 
 impl<'a> InstancePlanner<'a> {
@@ -38,23 +35,23 @@ impl<'a> InstancePlanner<'a> {
     pub(in crate::source::lower) fn enqueue_local_function_value(
         &mut self,
         parent: &Instance,
-        source: &'a AnalyzedModule,
-        function: FunctionId,
+        declaration: DefinitionId,
         arguments: Vec<TypeId>,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
-        let target = source
-            .declarations
-            .target(ResolvedName::Function(function))
-            .ok_or(MirLoweringError::MissingBinding(
-                "local function definition",
-            ))?;
-        let DeclarationId::Definition(declaration) = &target.id else {
+        let source = *self.modules.get(&self.module_handle(declaration)).ok_or(
+            MirLoweringError::MissingBinding("local function source module"),
+        )?;
+        let Some(ResolvedName::Function(function)) = source
+            .environment()
+            .declarations()
+            .definition_target(&declaration)
+        else {
             return Err(MirLoweringError::MissingBinding("local callable identity"));
         };
-        let placement = if self.module_handle(*declaration) == self.owner_handle() {
+        let placement = if self.module_handle(declaration) == self.owner_handle() {
             None
-        } else if let Some(placement) = self.local_function_placements.get(declaration) {
+        } else if let Some(placement) = self.local_function_placements.get(&declaration) {
             Some(*placement)
         } else {
             // Imported default bodies execute under the implementation identity.
@@ -72,7 +69,7 @@ impl<'a> InstancePlanner<'a> {
             // Recursive references reuse placement. Locals inherit no caller
             // substitution, including when their default body was imported.
             self.local_function_placements
-                .insert(*declaration, placement);
+                .insert(declaration, placement);
             Some(placement)
         };
         self.enqueue_script(source, function, arguments, placement, span)

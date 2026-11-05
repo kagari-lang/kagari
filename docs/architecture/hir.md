@@ -8,9 +8,9 @@ compiler handoff. Detailed contracts and source-to-field diagrams live beside
 the code; [engineering rules](../../AGENTS.md#documentation-maintenance) define
 the documentation conventions.
 
-The [HIR architecture and compiler-handoff design](../hir-architecture-design.md)
-is a separate Chinese proposal for restructuring these boundaries. It is not
-implemented; this reading guide continues to describe the current model.
+The [active HIR execution plan](../hir-architecture-design.md) records the migration
+and measurements in Chinese. This guide describes the implemented ownership and
+compiler handoff; unfinished experiments remain in that plan.
 
 ## Storage and IDs
 
@@ -354,9 +354,8 @@ source, and bound ordinary visited nodes after a request. This is a progress
 bound, not a wall-clock latency guarantee; destruction and a concurrent request
 after the final check still follow cooperative cancellation semantics.
 
-The architecture migration is introducing
-[compile_input](../../crates/kagari-hir/src/compile_input/mod.rs) as the narrower
-HIR handoff. `CheckedCompilation` borrows an already checked complete dependency
+[compile_input](../../crates/kagari-hir/src/compile_input/mod.rs) owns the
+HIR-to-compiler handoff. `CheckedCompilation` borrows an already checked complete dependency
 closure and admits each module's environment and body directory. `CheckedEnvironment`
 exposes declaration contracts, while `CheckedBodyInput` ties source nodes, selected
 facts and spans to a `BodyKey { module, arena, owner, closure }`. A nested callable
@@ -383,10 +382,52 @@ tied to one immutable body; it does not publish solver state or cross-revision
 cache entries. Expanded operations retain explicit evaluated prefixes, selected
 calls/conversions and structured branches, rather than a flat execution schedule.
 
-This handoff currently has validation consumers only. The production compiler still
-uses the earlier checked program/module APIs until the complete semantic elaborator
-and consumer migration replace them. The execution plan owns that removal checkpoint;
-these views must not become a second long-lived compilation path.
+The source compiler accepts only this admitted complete closure. Its
+[elaborator](../../crates/kagari-compiler/src/source/elaborate/mod.rs) expands one
+reachable function, initializer or closure into an owned, temporary `CheckedBody`.
+The [instance planner](../../crates/kagari-compiler/src/source/lower/instances.rs)
+substitutes binders and selects method, native/default and interface-construction
+recipes using the same bounded HIR catalog queries. The
+[MIR builder](../../crates/kagari-compiler/src/source/lower/state.rs) consumes these
+operations and recipes; it has no `AnalyzedModule`, `TypeTable` or source resolver.
+Generated adapters explicitly have no authored operation tree. Each tree is dropped
+with its function builder, while admitted source/environment borrows remain valid
+for the complete compilation.
+
+```mermaid
+flowchart LR
+    Snapshot[CheckedProgram] --> Admission[CheckedCompilation]
+    Admission --> Headers[Declarations and provenance]
+    Admission --> Body[CheckedBodyInput]
+    Body --> Expand[Temporary CheckedBody]
+    Expand --> Plan[Instance recipes]
+    Plan --> Emit[MIR instructions and control flow]
+    Headers --> Plan
+    Emit --> Verify[VerifiedMirProgram]
+    Verify --> Backend[Bytecode or native backend]
+```
+
+For `items[index()] += rhs()`, expansion distinguishes a writable aggregate,
+a checked setter and a host path. MIR prepares the selected receiver and index
+once, evaluates the RHS, then commits through that prepared target. A terminating
+index/RHS retains only the completed prefix and never commits. Host/read-only
+projections retain their earlier read/getter position; writable aggregate bounds
+checks retain their existing commit position. Planning selects callable evidence
+but never evaluates a script operand.
+
+`MethodApplication` retains the receiver, interface, method identity and local type
+arguments. Its `MethodPlan` distinguishes a direct/shared/native/dynamic call,
+primitive operation, callable-tuple unpacking or structural protocol composition.
+`InterfacePlan` separates constructing a selected implementation table from adapting
+its exact associated outputs to the checked view. Neither recipe owns analysis
+state or performs a second type check.
+
+Admission also captures authored owners and static-only provenance once using the
+closure's shared source budget. `CheckedModule::provenance` exposes that evidence;
+the compiler validates it against its declaration inventory. Exact source packaging
+uses the admitted physical sources, including inline/UTF-8/CRLF coordinates. The
+definition allocator is shared with the checked input's original scope, so generated
+identities do not require cloning or remapping an entire analyzed module.
 
 ### Pattern-based declarations
 
@@ -715,8 +756,10 @@ and whole-file/unchanged-query sharing still requires exact revision/arena equal
 single-module boundary. [CheckedProgram](../../crates/kagari-hir/src/program.rs)
 captures the root's reachable import closure from one snapshot, rejects error
 diagnostics and retains each module once, including cycles/diamonds. Its order is
-deterministic, not a topological execution order. These are inputs to the compiler;
-HIR does not generate bytecode, verify MIR or run functions/static initializers.
+deterministic, not a topological execution order. Compilation admission borrows this
+closure to produce `CheckedCompilation`; a checked single module alone is not a
+compiler input. HIR does not generate bytecode, verify MIR or run functions/static
+initializers.
 
 For where non-source declarations enter this flow, follow
 [native declaration import](../../crates/kagari-hir/src/native/api.rs),
@@ -737,7 +780,8 @@ Registered native defaults follow an additional checked path:
 NativeDefaultApplication recipe -> generated trait method with a tail call
 FunctionId -> body BlockId -> tail ExprId -> ordinary ResolvedCall
 TypeTable.native_default_call(FunctionId) -> that call after recipe/bound validation
-source compiler -> selected native entry (no extra script frame)
+CheckedModule.native_default_call(FunctionId) -> admitted NativeDefaultCall
+instance planner -> selected native entry (no extra script frame)
 ```
 
 The implementing type receives no synthetic HIR function. Signature queries expose

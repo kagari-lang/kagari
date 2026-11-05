@@ -1,13 +1,8 @@
+use crate::source::elaborate::model::IndexRead;
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
-use kagari_hir::{
-    hir::{
-        expr::{ExprBuffer, FieldInitBuffer},
-        ids::ExprId,
-    },
-    typeck::table::ResolvedHostPath,
-    types::TypeId,
-};
+use kagari_common::identity::table::DefinitionId;
+use kagari_hir::{hir::ids::ExprId, typeck::table::ResolvedHostPath, types::TypeId};
 use kagari_mir::instruction::{Instruction, MirValue, PathRef, StructFieldInit};
 use smallvec::SmallVec;
 use std::ops::ControlFlow;
@@ -16,7 +11,7 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_tuple(
         &mut self,
         expr_id: ExprId,
-        elements: ExprBuffer,
+        elements: Vec<ExprId>,
     ) -> Result<MirValue, MirLoweringError> {
         let elements = match self.lower_values(&elements)? {
             ControlFlow::Continue(elements) => elements,
@@ -30,7 +25,7 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_array(
         &mut self,
         expr_id: ExprId,
-        elements: ExprBuffer,
+        elements: Vec<ExprId>,
     ) -> Result<MirValue, MirLoweringError> {
         let elements = match self.lower_values(&elements)? {
             ControlFlow::Continue(elements) => elements,
@@ -61,10 +56,7 @@ impl FunctionLowerer<'_, '_> {
             values.push(value);
         }
         let source = self
-            .analyzed
-            .typed
-            .type_table()
-            .expr_type(expr_id)
+            .expression_type(expr_id)
             .ok_or(MirLoweringError::MissingExprType(expr_id))?;
         let ty = self
             .planner
@@ -91,29 +83,14 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_struct_init(
         &mut self,
         expr_id: ExprId,
-        fields: FieldInitBuffer,
+        declaration: DefinitionId,
+        fields: Vec<(DefinitionId, ExprId)>,
         base: Option<ExprId>,
+        base_fields: Vec<DefinitionId>,
     ) -> Result<MirValue, MirLoweringError> {
-        let target = self
-            .analyzed
-            .typed
-            .type_table()
-            .struct_init(expr_id)
-            .cloned()
-            .ok_or(MirLoweringError::MissingBinding(
-                "checked struct initializer",
-            ))?;
-        if fields.len() != target.fields.len() {
-            return Err(MirLoweringError::MissingBinding(
-                "checked initializer field count",
-            ));
-        }
         let mut lowered_fields = SmallVec::new();
-        for (field, target) in fields.iter().zip(target.fields) {
-            let target = target.ok_or(MirLoweringError::MissingBinding(
-                "checked initializer field",
-            ))?;
-            let value = self.lower_expr(field.value)?;
+        for (target, expression) in fields {
+            let value = self.lower_expr(expression)?;
             if self.current_block_terminated() {
                 return Ok(value);
             }
@@ -133,17 +110,14 @@ impl FunctionLowerer<'_, '_> {
                 return Ok(base);
             }
             let receiver = self
-                .analyzed
-                .typed
-                .type_table()
-                .expr_type(base_id)
+                .expression_type(base_id)
                 .ok_or(MirLoweringError::MissingExprType(base_id))?;
             let receiver = self
                 .planner
                 .arguments(
                     &[receiver],
                     &self.instance.substitution,
-                    self.analyzed.lowered.source_map.expr_span(base_id),
+                    self.expression_span(base_id),
                 )?
                 .remove(0);
             let TypeId::Struct(owner) = &receiver else {
@@ -151,7 +125,7 @@ impl FunctionLowerer<'_, '_> {
                     "checked struct update base",
                 ));
             };
-            let structure = self.planner.catalog.structure(&target.structure).ok_or(
+            let structure = self.planner.catalog.structure(&declaration).ok_or(
                 MirLoweringError::MissingBinding("checked struct update layout"),
             )?;
             let substitution = structure
@@ -160,9 +134,9 @@ impl FunctionLowerer<'_, '_> {
                 .cloned()
                 .zip(owner.arguments.iter().cloned())
                 .collect();
-            for declaration in target.base_fields {
+            for declaration in base_fields {
                 let field = self.aggregate_field_ref(&declaration, &receiver)?;
-                let signature = self.analyzed.aggregates.field(&declaration).ok_or(
+                let signature = self.environment.aggregates().field(&declaration).ok_or(
                     MirLoweringError::MissingBinding("checked struct update field"),
                 )?;
                 let ty = signature.ty.instantiate(&substitution);
@@ -228,27 +202,16 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         expr_id: ExprId,
         receiver: ExprId,
+        field: DefinitionId,
     ) -> Result<MirValue, MirLoweringError> {
-        if let Some(checked) = self.analyzed.typed.type_table().host_path(expr_id).cloned() {
-            return self.lower_host_path_read(expr_id, checked);
-        }
         let base = self.lower_expr(receiver)?;
         if self.current_block_terminated() {
             return Ok(base);
         }
-        let field = self
-            .analyzed
-            .typed
-            .type_table()
-            .expr_field(expr_id)
-            .ok_or(MirLoweringError::MissingBinding("checked field read"))?;
         let receiver_ty = self
-            .analyzed
-            .typed
-            .type_table()
-            .expr_type(receiver)
+            .expression_type(receiver)
             .ok_or(MirLoweringError::MissingExprType(receiver))?;
-        let field = self.aggregate_field_ref(field, &receiver_ty)?;
+        let field = self.aggregate_field_ref(&field, &receiver_ty)?;
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadAggregateField { dst, base, field });
         Ok(dst)
@@ -259,10 +222,8 @@ impl FunctionLowerer<'_, '_> {
         expr_id: ExprId,
         receiver: ExprId,
         index: ExprId,
+        operation: IndexRead,
     ) -> Result<MirValue, MirLoweringError> {
-        if let Some(checked) = self.analyzed.typed.type_table().host_path(expr_id).cloned() {
-            return self.lower_host_path_read(expr_id, checked);
-        }
         let base = self.lower_expr(receiver)?;
         if self.current_block_terminated() {
             return Ok(base);
@@ -271,14 +232,8 @@ impl FunctionLowerer<'_, '_> {
         if self.current_block_terminated() {
             return Ok(index);
         }
-        if self
-            .analyzed
-            .typed
-            .type_table()
-            .call_resolution(expr_id)
-            .is_some()
-        {
-            return self.lower_selected_operator(expr_id, &[base, index]);
+        if let IndexRead::Method(call) = operation {
+            return self.lower_selected_operator(&call, &[base, index]);
         }
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::ReadAggregateIndex { dst, base, index });

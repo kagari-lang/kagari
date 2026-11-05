@@ -1,4 +1,6 @@
 //! Checked static contracts and ordinary expression lowering for initializer bodies.
+
+use crate::source::elaborate::elaborate;
 use crate::source::lower::{
     MirLoweringError,
     instances::{Instance, InstancePlanner},
@@ -6,33 +8,31 @@ use crate::source::lower::{
 };
 use kagari_contract::statics::StaticContract;
 use kagari_hir::{
-    AnalyzedModule,
-    declarations::DeclarationId,
+    compile_input::program::CheckedModule,
     hir::{ids::StaticId, writeability::Writeability},
     resolver::resolved::ResolvedName,
     types::semantic::lower_type,
 };
 use kagari_mir::{function::MirFunction, instruction::Terminator};
 
-pub(super) fn static_contract(module: &AnalyzedModule, id: StaticId) -> StaticContract {
-    let item = module.lowered.module.static_item(id);
-    let ty = &module.typed.signatures().statics()[&id];
-    let DeclarationId::Definition(declaration) = module
-        .declarations
-        .target(ResolvedName::Static(id))
-        .expect("checked static declaration identity")
-        .id
-    else {
-        unreachable!("static definition identity");
-    };
+pub(super) fn static_contract(module: &CheckedModule<'_>, id: StaticId) -> StaticContract {
+    let item = &module.headers().statics[id.index()];
+    let environment = module.environment();
+    let ty = environment
+        .signatures()
+        .static_type(id)
+        .expect("admitted static type");
+    let declaration = environment
+        .definition(ResolvedName::Static(id))
+        .expect("admitted static identity");
     StaticContract {
         declaration,
-        supplier: module.lowered.source.module_identity().clone(),
+        supplier: module.source().module_identity().clone(),
         name: item.name.clone(),
         ty: lower_type(
-            &module
-                .aggregates
-                .canonical_value_type(module.declarations.definitions(), ty),
+            &environment
+                .aggregates()
+                .canonical_value_type(environment.definitions(), ty),
         ),
         mutable: item.writeability == Writeability::Var,
         visibility: item.visibility,
@@ -40,19 +40,25 @@ pub(super) fn static_contract(module: &AnalyzedModule, id: StaticId) -> StaticCo
 }
 
 pub(super) fn lower_initializer<'a>(
-    module: &'a AnalyzedModule,
+    module: &'a CheckedModule<'a>,
     id: StaticId,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
-    let item = module.lowered.module.static_item(id);
+    let item = &module.headers().statics[id.index()];
     let signature = LoweringSignature {
         name: format!("$static_init_{}", item.name),
         params: Vec::new(),
-        return_type: module.typed.signatures().statics()[&id].clone(),
+        return_type: module.environment().signatures().statics()[&id].clone(),
         bounds: Default::default(),
     };
-    let mut lowerer = FunctionLowerer::new(module, &signature, instance, planner)?;
+    let input = module
+        .body_for(instance.body.owner())
+        .ok_or(MirLoweringError::MissingBinding(
+            "admitted initializer body",
+        ))?;
+    let body = elaborate(input, &planner.options.cancel)?;
+    let mut lowerer = FunctionLowerer::new(module, &signature, Some(body), instance, planner)?;
     let value = lowerer.lower_expr(item.initializer)?;
     if !lowerer.current_block_terminated() {
         lowerer.set_terminator(Terminator::Return(Some(value)));

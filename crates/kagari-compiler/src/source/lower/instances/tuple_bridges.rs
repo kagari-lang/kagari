@@ -37,13 +37,13 @@ impl InstancePlanner<'_> {
         } else {
             let root = self
                 .context
-                .intern_root(self.module.lowered.source.module_identity())
+                .intern_root(self.module.source().module_identity())
                 .map_err(DefinitionMappingError::from)?;
             self.charge_layout_instance(span)?;
             let declaration = self.bridge_identities.intern(
                 self.context,
                 root,
-                self.module.lowered.module.impls.len(),
+                self.module.headers().implementations.len(),
                 BridgeKey::Tuple(items.len(), interface.clone()),
             )?;
             let parameters: Vec<_> = (0..items.len())

@@ -111,9 +111,10 @@ pub struct SourceInitializer {
 
 /// Complete authored body inventory and static-only comparison roots.
 ///
-/// [`collect`] derives these records from one checked analysis. Definition IDs
+/// Compilation admission derives these records from each checked module. Definition IDs
 /// keep that analysis's identity scope; collecting evidence does not create or
-/// import a definition table. The compiler consumes it in the same scope when
+/// import a definition table. [`CheckedModule::provenance`](crate::compile_input::program::CheckedModule::provenance)
+/// exposes it to the compiler in the same scope when
 /// constructing independently validated update records.
 ///
 /// For `static val N: i32 = helper();`, the initializer records the call to
@@ -129,7 +130,7 @@ pub struct SourceEvidence {
 }
 
 /// One bounded source collection, shared across a publication's modules.
-pub struct SourceBudget<'a> {
+pub(crate) struct SourceBudget<'a> {
     cancel: &'a CancellationToken,
     records: usize,
     bytes: usize,
@@ -288,7 +289,7 @@ fn builder(
 
 /// Collect authored identities and static expressions without following callees.
 /// Missing identities/ranges, cancellation and budget exhaustion fail atomically.
-pub fn collect(
+pub(crate) fn collect(
     module: &CheckedAnalysis,
     budget: &mut SourceBudget<'_>,
 ) -> Result<SourceEvidence, DefinitionMappingError> {

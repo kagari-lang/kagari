@@ -16,7 +16,10 @@ use kagari_contract::{
     types::ConcreteFunctionIdentity,
     updates::{BodyClassification, DemandRequests},
 };
-use kagari_hir::{AnalyzedModule, aggregates::AggregateCatalog};
+use kagari_hir::{
+    aggregates::AggregateCatalog,
+    compile_input::program::{CheckedCompilation, CheckedModule},
+};
 use kagari_mir::{
     function::MirModule,
     program::{ProgramError, ProgramErrorKind},
@@ -38,7 +41,7 @@ pub(super) struct ProgramSnapshot {
 }
 
 pub(super) struct Scheduler<'a> {
-    modules: &'a [AnalyzedModule],
+    modules: &'a [CheckedModule<'a>],
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
     root: &'a ModuleIdentity,
@@ -52,20 +55,25 @@ pub(super) struct Scheduler<'a> {
 
 impl<'a> Scheduler<'a> {
     pub fn new(
-        modules: &'a [AnalyzedModule],
-        catalog: &'a AggregateCatalog,
+        compilation: &'a CheckedCompilation<'a>,
         context: &'a DefinitionContext,
         root: &'a ModuleIdentity,
         options: &'a MirLoweringOptions,
         requests: RequestQueue,
     ) -> Self {
+        let modules = compilation.modules();
+        let catalog = compilation
+            .module(compilation.root())
+            .expect("checked root")
+            .environment()
+            .aggregates();
         Self {
             modules,
             catalog,
             context,
             root,
             options,
-            inputs: ModuleLoweringInputs::new(modules, catalog, context),
+            inputs: ModuleLoweringInputs::new(compilation, context),
             states: Vec::new(),
             requests,
             bridges: BridgeIdentities::default(),
@@ -120,7 +128,7 @@ impl<'a> Scheduler<'a> {
         let mut deferred = 0usize;
         let mut processed = false;
         for (index, module) in self.modules.iter().enumerate() {
-            let identity = module.lowered.source.module_identity();
+            let identity = module.source().module_identity();
             let handle = self
                 .context
                 .snapshot()
@@ -187,7 +195,7 @@ impl<'a> Scheduler<'a> {
             source_bodies: Vec::new(),
         };
         for (source, retained) in self.modules.iter().zip(&self.states) {
-            let identity = source.lowered.source.module_identity();
+            let identity = source.source().module_identity();
             let LoweredModule {
                 module,
                 classifications,

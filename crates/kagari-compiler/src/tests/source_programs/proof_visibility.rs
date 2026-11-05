@@ -1,5 +1,6 @@
 use super::{bytecode, checked, insert};
 use crate::source::program::lower_program_to_mir;
+use crate::tests::common::compilation;
 use kagari_bytecode::{
     program::{ModuleRef, verify_program},
     verifier::BytecodeVerificationError,
@@ -31,7 +32,8 @@ fn linked_proofs_use_each_modules_dependency_visibility() {
         "root",
         "use pkg::consumer; use pkg::provider; fn main() -> i32 { consumer::answer() }",
     );
-    let mir = lower_program_to_mir(&checked(&sources, root), &Default::default()).unwrap();
+    let mir =
+        lower_program_to_mir(&compilation(&checked(&sources, root)), &Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let mut program = bytecode(&context, &mir);
     let consumer = program

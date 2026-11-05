@@ -9,6 +9,7 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_hir::{analysis::AnalysisDatabase, declarations::DeclarationId};
 use kagari_mir::codec::encode_program;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -329,7 +330,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let checked = query
         .check_program(root, &Default::default())
         .expect("checked offline declarations");
-    let ir = lower_program_to_mir(&checked, &Default::default()).expect("MIR lowering");
+    let ir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .expect("MIR lowering");
     let program = lower_program_to_bytecode(&ir, &Default::default()).expect("bytecode lowering");
     let artifact = KbcArtifact::from_verified(
         program,

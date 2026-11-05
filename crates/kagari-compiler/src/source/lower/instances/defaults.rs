@@ -4,10 +4,8 @@ use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::native_import::NativeImport;
 use kagari_hir::{
     aggregates::traits::MethodDefault,
-    declarations::DeclarationId,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
-    typeck::table::CallTarget,
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution, semantic::raise_type},
 };
 
@@ -29,29 +27,15 @@ impl InstancePlanner<'_> {
             .modules
             .get(&self.module_handle(*method))
             .ok_or_else(invalid)?;
-        let Some(ResolvedName::Function(function)) = module.declarations.definition_target(method)
+        let Some(ResolvedName::Function(function)) = module
+            .environment()
+            .declarations()
+            .definition_target(method)
         else {
             return Err(invalid());
         };
-        let checked = module
-            .typed
-            .type_table()
-            .native_default_call(function)
-            .ok_or_else(invalid)?;
-        let target = match &checked.target {
-            CallTarget::Function(id) => {
-                let declaration = module
-                    .declarations
-                    .target(ResolvedName::Function(*id))
-                    .ok_or_else(invalid)?;
-                let DeclarationId::Definition(target) = &declaration.id else {
-                    return Err(invalid());
-                };
-                target
-            }
-            CallTarget::SourceFunction(target) => target,
-            _ => return Err(invalid()),
-        };
+        let checked = module.native_default(function).ok_or_else(invalid)?;
+        let target = &checked.declaration;
         let parameters = interface.arguments.iter().chain(arguments).cloned();
         if signature.generic_params.len() != interface.arguments.len() + arguments.len() {
             return Err(invalid());
@@ -70,11 +54,7 @@ impl InstancePlanner<'_> {
                     .with_associated_types(interface, receiver),
             )
         };
-        let template_arguments = checked
-            .type_arguments
-            .iter()
-            .map(normalize)
-            .collect::<Vec<_>>();
+        let template_arguments = checked.arguments.iter().map(normalize).collect::<Vec<_>>();
         let import = self.native_target_import(target, &template_arguments, span)?;
         if import.signature.params
             != signature

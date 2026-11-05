@@ -102,15 +102,14 @@ impl ModuleLowering {
             native_targets: products.native_targets.to_vec(),
             interface_instances: products.interface_instances.to_vec(),
             external_types,
-            dependencies: module
-                .names
-                .imports
-                .dependencies
+            dependencies: inputs
+                .compilation
+                .dependencies(module.handle())
+                .expect("checked dependencies")
                 .iter()
                 .map(|handle| {
                     module
-                        .names
-                        .catalog
+                        .environment()
                         .definitions()
                         .module_identity(*handle)
                         .expect("checked dependency")
@@ -119,8 +118,8 @@ impl ModuleLowering {
                 .collect(),
             structures: products.structures.to_vec(),
             enumerations: products.enumerations.to_vec(),
-            identity: module.lowered.source.module_identity().clone(),
-            source_name: module.lowered.source.name().to_owned(),
+            identity: module.source().module_identity().clone(),
+            source_name: module.source().name().to_owned(),
             module_slots: self.instances.static_slots.clone(),
             abi: products.abi.clone(),
             functions,

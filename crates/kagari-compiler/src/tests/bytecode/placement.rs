@@ -1,4 +1,5 @@
 //! General placement contracts over optimized MIR, not a benchmark-name shortcut.
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
     native_input::verify_native_input,
@@ -29,7 +30,7 @@ fn scalar_recurrence_commits_to_homes_without_transport_instructions(
 ) {
     let input = common::program_ok(source);
     let mir = lower_program_to_mir(
-        &input,
+        &compilation(&input),
         &MirLoweringOptions {
             optimization: Some(Default::default()),
             ..Default::default()

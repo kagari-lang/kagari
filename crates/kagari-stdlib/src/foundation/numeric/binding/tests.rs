@@ -2,7 +2,7 @@
 use crate::namespaces;
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -74,7 +74,11 @@ pub fn clamp64(value: f64, min: f64, max: f64) -> f64 { value.clamp(min, max) }
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     let program = lower_program_to_bytecode(&mir, &Default::default())
         .unwrap()
         .into_unverified();

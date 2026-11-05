@@ -1,5 +1,6 @@
+use crate::source::elaborate::ElaborationError;
 use crate::source::lower::{
-    instances::{MirLoweringOptions, bridge_identities::BridgeIdentities, state::InstanceState},
+    instances::{MirLoweringOptions, state::InstanceState},
     interface_bridges::InterfaceBridges,
     layouts::Layouts,
 };
@@ -17,11 +18,11 @@ use kagari_contract::{
     layout::{EnumLayout, StructLayout},
     native_import::NativeImport,
     types::{ConcreteFunctionIdentity, ModuleContract},
-    updates::{BodyClassification, DemandRequests, limits::UpdateError},
+    updates::{BodyClassification, limits::UpdateError},
 };
 use kagari_hir::{
-    AnalyzedModule, CheckedAnalysis,
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
+    compile_input::program::{CheckedCompilation, CheckedModule},
     hir::ids::{ExprId, FunctionId, LocalId, PlaceId},
 };
 use kagari_mir::{
@@ -30,7 +31,7 @@ use kagari_mir::{
     verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use std::{collections::HashMap, slice};
+use std::collections::HashMap;
 
 mod abi;
 mod debug;
@@ -52,6 +53,7 @@ mod support;
 #[derive(Debug)]
 pub enum MirLoweringError {
     Verification(MirVerificationError),
+    Elaboration(ElaborationError),
     Diagnostic(Box<Diagnostic>),
     Cancelled,
     /// Candidate or recursive requirement limits exhausted implementation selection.
@@ -73,6 +75,15 @@ pub enum MirLoweringError {
 impl MirLoweringError {
     pub(crate) fn diagnostic(diagnostic: Diagnostic) -> Self {
         Self::Diagnostic(Box::new(diagnostic))
+    }
+}
+
+impl From<ElaborationError> for MirLoweringError {
+    fn from(error: ElaborationError) -> Self {
+        match error {
+            ElaborationError::Cancelled => Self::Cancelled,
+            error => Self::Elaboration(error),
+        }
     }
 }
 
@@ -106,29 +117,27 @@ impl From<DefinitionMappingError> for MirLoweringError {
 /// caller-private generic arguments. Construct once and reuse for every step;
 /// states and their definition IDs must not be transferred between input contexts.
 pub(crate) struct ModuleLoweringInputs<'a> {
-    modules: &'a [AnalyzedModule],
-    modules_by_handle: HashMap<ModuleHandle, &'a AnalyzedModule>,
+    compilation: &'a CheckedCompilation<'a>,
+    modules: &'a [CheckedModule<'a>],
+    modules_by_handle: HashMap<ModuleHandle, &'a CheckedModule<'a>>,
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
 }
 
 impl<'a> ModuleLoweringInputs<'a> {
-    pub fn new(
-        modules: &'a [AnalyzedModule],
-        catalog: &'a AggregateCatalog,
-        context: &'a DefinitionContext,
-    ) -> Self {
-        let definitions = context.snapshot();
+    pub fn new(compilation: &'a CheckedCompilation<'a>, context: &'a DefinitionContext) -> Self {
+        let modules = compilation.modules();
         let modules_by_handle = modules
             .iter()
-            .map(|module| {
-                let handle = definitions
-                    .lookup_module(module.lowered.source.module_identity())
-                    .expect("checked source module");
-                (handle, module)
-            })
+            .map(|module| (module.handle(), module))
             .collect();
+        let catalog = compilation
+            .module(compilation.root())
+            .expect("checked root module")
+            .environment()
+            .aggregates();
         Self {
+            compilation,
             modules,
             modules_by_handle,
             catalog,
@@ -191,31 +200,15 @@ pub(crate) struct ModuleLoweringProducts<'a> {
 
 /// Project a checked source module's declarations for source-independent products.
 pub fn module_contract(
-    module: &CheckedAnalysis,
+    module: &CheckedModule<'_>,
     cancel: &CancellationToken,
 ) -> Result<DefinitionMetadata<ModuleContract>, MirLoweringError> {
     cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
     Ok(DefinitionMetadata::checked(
-        module.definitions().clone(),
+        module.environment().definitions().clone(),
         abi::collect_module_abi(module),
         cancel,
     )?)
-}
-
-pub fn lower_to_mir(
-    module: &CheckedAnalysis,
-    options: &MirLoweringOptions,
-) -> Result<VerifiedMirModule, MirLoweringError> {
-    let context = module.definition_context();
-    let module = module
-        .to_unverified(&options.cancel)
-        .map_err(MirLoweringError::from)?
-        .into_records();
-    let inputs = ModuleLoweringInputs::new(slice::from_ref(&module), &module.aggregates, &context);
-    let mut bridges = BridgeIdentities::default();
-    let mut state = ModuleLowering::initialize(&module, &inputs, options, &mut bridges)?;
-    state.process(&DemandRequests::default(), &inputs, options, &mut bridges)?;
-    optimize_module(state.snapshot(&inputs, options)?.module, options)
 }
 
 /// Verified lowering before optional simplification. Publication evidence must be
