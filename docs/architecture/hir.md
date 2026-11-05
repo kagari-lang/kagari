@@ -8,6 +8,10 @@ compiler handoff. Detailed contracts and source-to-field diagrams live beside
 the code; [engineering rules](../../AGENTS.md#documentation-maintenance) define
 the documentation conventions.
 
+The [HIR architecture and compiler-handoff design](../hir-architecture-design.md)
+is a separate Chinese proposal for restructuring these boundaries. It is not
+implemented; this reading guide continues to describe the current model.
+
 ## Storage and IDs
 
 Start with [LoweredModule](../../crates/kagari-hir/src/lower/mod.rs),
