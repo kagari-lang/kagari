@@ -21,6 +21,21 @@
 //! retention and logical module traversal, and [`visit::NodeRef`] for physical
 //! node traversal. A convenient `Option` getter or filtered list iterator can
 //! omit recovery details; `Ast::data()` exposes the original named fields.
+//!
+//! # Reading the grammar models
+//!
+//! Concrete definitions in [`item`], [`expr`], [`stmt`], [`ty`] and [`misc`]
+//! map source examples to their stored fields. Sketches abbreviate boxes,
+//! `Required::Present` and list entries where noted; they are not Rust values
+//! or complete debug dumps. Quoted punctuation denotes lexical tokens, while
+//! named expressions, types and patterns denote child syntax. A `Name` or
+//! `Literal` wraps a token reference rather than owning its spelling.
+//!
+//! `node!` adds a parse-local site to the declared fields; `group!` bundles
+//! related fields without a separate node site. Neither owns source text.
+//! Shared missing/optional-role semantics belong to [`site::Required`], and
+//! comma retention and filtered entry positions to [`site::SeparatedList`].
+//! Examples explain syntax shape, not successful name resolution or typing.
 
 macro_rules! node {
     ($(#[$meta:meta])* $name:ident { $($field:ident: $ty:ty),* $(,)? }) => {

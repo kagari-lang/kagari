@@ -47,6 +47,13 @@ alternatives. Concrete nodes store typed children and punctuation, rather than
 selecting matching positions from an untyped tree. `ExprView`, `StmtView`,
 `ItemView` and `TypeView` borrow these alternatives for consumers.
 
+The AST module's rustdoc explains the notation used in source-to-field examples.
+Concrete declarations in `ast/{item,expr,stmt,ty,misc}.rs` keep these mappings next
+to their definitions, distinguishing child syntax from lexical tokens and
+explaining optional clauses and recovery where their roles differ. Shared missing
+slot and separated-list rules remain with `Required` and `SeparatedList`; examples
+describe parsed structure, not successful name resolution or semantic admission.
+
 For example, `1 + 2 * 3` produces an outer `BinaryExpr` with a literal `lhs`, an
 `Add` operator and a binary `rhs`. That right child stores `Multiply`. Neither
 accessor walks descendants to infer a role; HIR matches the parsed operator and
