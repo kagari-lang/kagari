@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::{
     hir::{expr::ExprKind, ty::TypeKind},
     tests::test_analysis,

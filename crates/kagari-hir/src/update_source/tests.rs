@@ -6,10 +6,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        ModuleIdentity, PackageId, map::DefinitionContext, mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata,
-    },
+    identity::{ModuleIdentity, PackageId, mapping::DefinitionMappingError},
 };
 use kagari_source::{
     source::SourceFile,
@@ -78,30 +75,31 @@ fn initializer_retains_parentheses_and_literal_trivia() {
 #[test]
 fn static_evidence_ignores_trivia_and_callee_contents_but_not_its_expression() {
     let source = "const C: i32 = 2; fn helper() -> i32 { C + 1 } fn unused<T>(x: T) -> i32 { 1 } static val N: i32 = ((helper() + C));";
-    let left = checked(source);
-    let trivia = checked(
+    let mut sources = SourceDatabase::default();
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(catalog::shared().unwrap());
+    let mut revision = |text: &str| {
+        let root = sources
+            .set("update.kgr", text.into(), SourceLayer::Overlay)
+            .unwrap();
+        let snapshot = database
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let program = snapshot.check_program(root, &Default::default()).unwrap();
+        evidence(program.root())
+    };
+    // Revisions share their database's definition identities. Source evidence is
+    // compared in that retained scope, just as it is during source preparation.
+    let left = revision(source);
+    let trivia = revision(
         "const C:i32=2; fn helper()->i32{ C+1 } fn unused<T>(x:T)->i32{1} static val N:i32=((helper() /* comment */ + C));",
     );
-    let changed_callees = checked(&source.replace("C + 1", "C + 2").replace("{ 1 }", "{ 3 }"));
-    let changed_expression = checked(&source.replace("helper() + C", "helper() + 2"));
-    let context = DefinitionContext::new().unwrap();
-    let import = |module: &CheckedAnalysis| {
-        DefinitionMetadata::checked(
-            module.definitions().clone(),
-            evidence(module),
-            &Default::default(),
-        )
-        .unwrap()
-        .import_into(&context, &Default::default())
-        .unwrap()
-    };
-    assert_eq!(import(&left).records(), import(&trivia).records());
-    assert_eq!(import(&left).records(), import(&changed_callees).records());
-    assert_ne!(
-        import(&left).records(),
-        import(&changed_expression).records()
-    );
-    for body in evidence(&left).bodies {
+    let changed_callees = revision(&source.replace("C + 1", "C + 2").replace("{ 1 }", "{ 3 }"));
+    let changed_expression = revision(&source.replace("helper() + C", "helper() + 2"));
+    assert_eq!(left, trivia);
+    assert_eq!(left, changed_callees);
+    assert_ne!(left, changed_expression);
+    for body in left.bodies {
         if body.kind != SourceBodyKind::StaticInitializer {
             assert!(body.tokens.is_empty());
             assert!(body.facts.is_empty());

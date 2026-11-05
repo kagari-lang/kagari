@@ -1,4 +1,4 @@
-use super::tests::{analyze, insert};
+use crate::imports::tests::{analyze, insert};
 use crate::{tests::test_analysis, types::TypeId};
 use kagari_source::{
     diagnostic::DiagnosticKind,

@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::{declarations::DeclarationId, tests::test_analysis};
 use kagari_common::{
     identity::{DefinitionKind, MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity, PackageId},

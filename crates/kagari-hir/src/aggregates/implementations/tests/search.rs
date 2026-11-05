@@ -1,4 +1,4 @@
-use super::*;
+use crate::aggregates::implementations::*;
 use crate::types::TypeId;
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext};
 use kagari_types::scalar::BuiltinType;

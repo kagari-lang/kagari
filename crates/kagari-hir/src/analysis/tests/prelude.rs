@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::{
     builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
     resolver::resolved::ResolvedName, tests::test_analysis, typeck::table::CallTarget,

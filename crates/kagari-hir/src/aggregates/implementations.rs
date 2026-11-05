@@ -1015,9 +1015,6 @@ fn implementation_member(
         .expect("implementation member registered before aggregate publication")
 }
 
-#[cfg(test)]
-mod search_tests;
-
 mod mapping;
 
 impl AggregateCatalog {
@@ -1026,3 +1023,6 @@ impl AggregateCatalog {
         self.implementations.get(id).map(AsRef::as_ref)
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,7 +1,7 @@
 # HIR 架构与编译交接设计
 
-状态：用户已启动 HA0–HA5 goal，HA0 已完成，HA1a 执行中。2026-11-05–06 核对代码基线为
-`2c1fcf9b`，工作分支为 `refactor/hir-architecture`；不代表已经完成 HA0 的契约审计和测量。
+状态：用户已启动 HA0–HA5 goal，HA0、HA1a 已完成，下一检查点为 HA1b。2026-11-05–06 核对代码基线为
+`2c1fcf9b`，工作分支为 `refactor/hir-architecture`；HA0 契约及基线见第 7.4、8.4 节，实施状态以第 7.3 节为准。
 本次按用户要求使用中文。文中的新类型名和数据结构均为设计示意，不是已经存在的 API，
 也不是已批准的存储布局。实现启动与范围由[路线图](implementation-roadmap.md#other-queued-designs)管理。
 
@@ -420,13 +420,14 @@ analysis：发布前检查 → 替换缓存/返回快照
 具体证据：
 
 - [update_source 数据](../crates/kagari-hir/src/update_source.rs)含 `SourceFact`、`SourceBody`、
-  `SourceInitializer` 和 `SourceEvidence`；[mapping](../crates/kagari-hir/src/update_source/mapping.rs)
-  为四种类型分别手写只读遍历和重建转换。`SourceBody` 的遍历只需处理 `declaration` 和 `facts`。
+  `SourceInitializer` 和 `SourceEvidence`；基线中的 `mapping.rs` 为四种类型分别手写只读遍历和
+  重建转换。HA1a 已删除这些无生产需求的实现；`SourceBody` 原遍历只处理 `declaration` 和 `facts`。
 - 仓库当前生产调用位于[编译器收集入口](../crates/kagari-compiler/src/source/program/update_records.rs)：
   从 `CheckedProgram` 成员收集证据，按定义身份排序，再转换成 `SourceRecord` 等产物记录。
   这条路径没有对 `SourceEvidence` 调用 `DefinitionMetadata::import_into()`。
-- 当前发现的 `SourceEvidence` 导入发生在[静态初始化器比较测试](../crates/kagari-hir/src/update_source/tests.rs)：
-  测试分别创建独立分析，再把结果导入同一上下文以比较。这里证明的业务契约是空白与被调函数实现变化
+- 基线中唯一的 `SourceEvidence` 导入发生在[静态初始化器比较测试](../crates/kagari-hir/src/update_source/tests.rs)：
+  原测试分别创建独立分析，再把结果导入同一上下文以比较；HA1a 已改为同一数据库的连续快照。
+  这里证明的业务契约是空白与被调函数实现变化
   不改变本地初始化表达式证据，而改变表达式会改变证据；独立定义表是该测试构造方式带来的需求。
 
 建议的精简顺序：
@@ -1099,12 +1100,22 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | --- | --- | --- | --- |
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
-| HA1a–HA1c | HA1a 执行中 | 开始删除无生产需求的 SourceEvidence 映射与整理测试归属 | HA1b、HA1c 未开始 |
+| HA1a–HA1c | HA1a 完成 | 删除 SourceEvidence 四组 mapping 实现；48 个测试文件归入 tests/，637 个发现项逐项保持；11 个相关测试通过，结构/fmt/Clippy/diff 通过 | HA1b、HA1c 未开始 |
 | HA2 | 未启动 | — | 依赖 HA1 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
 
+
+HA1a 验证记录：`cargo test -p kagari-hir --lib -- --list` 在搬迁前后均发现 637 个测试，
+按实际文件移动对应的模块路径归一化后，完整名称 multiset 一致；这只是发现检查，未运行全套测试。
+局部执行 `update_source::tests::` 的 5 个测试，以及跨 body owner 拒绝、取消 signature cache、
+失败 import solve 恢复、nominal 身份、scoped reference 和 bounded trait search 各 1 个，共 11 个通过。
+这些覆盖本次能力删除及六个测试所属目录，完整语言/平台矩阵仍留 CI。
+`cargo clippy --workspace --all-targets -- -D warnings`、fmt、diff 通过；structure 检查 1815 个
+Rust 文件，零违规/例外。初次搬迁发现 `static`/`type` 是模块名关键字，已改为 `statics`/`types`，
+重新构建与测试通过，无遗留构建错误。生产代码未增加 re-export、可见性、include 或路径挂载；
+测试内保留允许的 glob，样例字符串中的 Kagari 导入不属于 Rust production imports。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 
@@ -1159,8 +1170,8 @@ SourceEvidence 映射说明没有解释真实消费需求。HA1–HA3 在上述�
 | 边界 | 必须保留的行为 | 当前可复用所有者 |
 | --- | --- | --- |
 | 分析与编译资格 | 缺失语法、错误类型、诊断截断不授权编译；有效局部事实仍可查询。 | [恢复测试](../crates/kagari-hir/src/tests/typeck/recovery.rs)、[类型事实](../crates/kagari-hir/src/tests/typeck/typed_facts.rs) |
-| 身份与来源 | 外来 arena/owner/快照被拒绝；内联模块保留物理偏移；旧快照可继续读取。 | [arena 测试](../crates/kagari-hir/src/analysis/arena_tests.rs)、[owner 测试](../crates/kagari-hir/src/analysis/owner_tests.rs)、[跨模块编译测试](../crates/kagari-compiler/src/tests/source_programs.rs) |
-| 调用与类型 | 泛型、关联类型、接口转换、native default、闭包调用在迁移前后选择相同契约。 | [trait 测试](../crates/kagari-hir/src/tests/typeck/traits.rs)、[callable 查询](../crates/kagari-hir/src/analysis/callable_tests.rs)、跨模块编译测试 |
+| 身份与来源 | 外来 arena/owner/快照被拒绝；内联模块保留物理偏移；旧快照可继续读取。 | [arena 测试](../crates/kagari-hir/src/analysis/tests/arena.rs)、[owner 测试](../crates/kagari-hir/src/analysis/tests/owner.rs)、[跨模块编译测试](../crates/kagari-compiler/src/tests/source_programs.rs) |
+| 调用与类型 | 泛型、关联类型、接口转换、native default、闭包调用在迁移前后选择相同契约。 | [trait 测试](../crates/kagari-hir/src/tests/typeck/traits.rs)、[callable 查询](../crates/kagari-hir/src/analysis/tests/callable.rs)、跨模块编译测试 |
 | 可观察执行 | 接收者/索引只求值一次，短路、trap、写入和已完成副作用次序不变。 | [值语义](spec/value-semantics.md)及其现有编译/运行时契约测试 |
 | 宿主与生命周期 | scoped borrow、声明访问、GC roots、取消、同步重入及错误清理不弱化。 | [宿主互操作](spec/host-interop.md)、[执行规范](spec/execution.md) |
 | 泛型与热更新 | 普通调用选择当前实现；已有闭包/Future/执行保留其对应计算；实例与保留需求不丢失。 | [更新契约](spec/module-activation.md)、[跨模块编译测试](../crates/kagari-compiler/src/tests/source_programs.rs) |
@@ -1194,7 +1205,7 @@ cargo test -p kagari-hir --doc
 日常修改可按示例名称过滤 doctest；HA5 检查 HIR 的完整 doctest 集，仍不运行全 workspace 测试。
 直接编译交接文档若含新增可执行示例，则对 `kagari-compiler` 的受影响示例做同等验证。
 私有实现的说明可以使用明确标记的模型图，不能用伪造 public API 作为 doctest。
-本轮仅修改设计 Markdown，以上命令留待对应实现阶段；当前只检查内容、链接和 diff。
+方案评审阶段仅修改设计 Markdown，未运行上述命令；实现阶段按变更内容执行，实际结果记录于第 7.3 节。
 
 ### 8.3 性能与资源评估
 
@@ -1348,7 +1359,8 @@ HA1c 仍需验证 body/循环内部检查和拒绝发布。此探针不修改运
 - [x] 写出 HA0–HA5 执行依赖、检查点、移除点、测量门槛及后续 goal 入口。
 - [x] 纳入 Rust 标准库风格的 HIR 文档要求，并明确各阶段所有者、示例验证和阅读任务验收。
 - [x] 定稿 HA0 契约、消费者清单和代表性基线；测量限制见第 8.4 节。
-- [ ] 完成 HA1–HA5；HA1a 开始实施，其余阶段尚未开始。
+- [x] HA1a：删除非必要 SourceEvidence 身份能力，归拢平铺测试文件并完成本地验收。
+- [ ] 完成 HA1b–HA5；当前尚未开始。
 
 实施完成后，将最终行为迁入现有架构/规范，将未完成事项保留在路线图或已有 review 所有者，
 移除本设计执行文档；Git 历史保留阶段记录。本文件是这一重构提案的唯一细化队列，

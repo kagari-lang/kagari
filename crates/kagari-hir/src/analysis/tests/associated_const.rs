@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::{
     declarations::DeclarationId,
     hir::{expr::ExprKind, pattern::PatternKind},

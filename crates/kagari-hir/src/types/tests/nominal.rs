@@ -1,4 +1,4 @@
-use super::*;
+use crate::types::*;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };

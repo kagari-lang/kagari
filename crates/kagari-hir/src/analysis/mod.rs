@@ -64,8 +64,6 @@ pub mod call_queries;
 pub mod documentation_queries;
 pub mod error;
 pub mod method_queries;
-#[cfg(test)]
-mod standard_query_tests;
 
 pub mod attributes;
 pub mod body_queries;
@@ -1089,56 +1087,6 @@ impl AnalysisSnapshot {
     }
 }
 
-#[cfg(test)]
-mod arena_tests;
-#[cfg(test)]
-mod associated_const_tests;
-#[cfg(test)]
-mod callable_tests;
-#[cfg(test)]
-mod completion_tests;
-#[cfg(test)]
-mod constructor_tests;
-#[cfg(test)]
-mod gat_tests;
-#[cfg(test)]
-mod generic_type_tests;
-#[cfg(test)]
-mod identity_tests;
-#[cfg(test)]
-mod member_tests;
-#[cfg(test)]
-mod namespace_tests;
-#[cfg(test)]
-mod native_facade_tests;
-#[cfg(test)]
-mod native_path_tests;
-#[cfg(test)]
-mod owner_tests;
-#[cfg(test)]
-mod payload_tests;
-#[cfg(test)]
-mod prelude_tests;
-#[cfg(test)]
-mod scoped_identity_tests;
-#[cfg(test)]
-mod signature_tests;
-#[cfg(test)]
-mod static_tests;
-#[cfg(test)]
-mod trait_catalog_tests;
-#[cfg(test)]
-mod trait_identity_tests;
-#[cfg(test)]
-mod trait_reference_tests;
-#[cfg(test)]
-mod type_application_tests;
-#[cfg(test)]
-mod type_name_tests;
-
-#[cfg(test)]
-mod tests;
-
 impl FileAnalysis {
     /// Borrows the table that owns scoped definition IDs in this file result.
     pub fn definitions(&self) -> &DefinitionTable {
@@ -1157,3 +1105,6 @@ impl FileAnalysis {
         )
     }
 }
+
+#[cfg(test)]
+mod tests;

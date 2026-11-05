@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::tests::test_analysis;
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;

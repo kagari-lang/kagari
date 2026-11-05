@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::tests::{common::import_facts, test_analysis};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};

@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::{
     aggregates::implementations::{ImplementationSearchContext, ImplementationSearchLimits},
     declarations::DeclarationId,

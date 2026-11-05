@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::{
     hir::{ids::HirOwner, ty::TypeKind},
     tests::test_analysis,

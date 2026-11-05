@@ -1,5 +1,5 @@
 //! Retained identity prefixes, fixed-ID remapping and analysis-local binding ownership.
-use super::*;
+use crate::analysis::*;
 use crate::{declarations::DeclarationId, tests::test_analysis};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};

@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::{hir::stmt::StmtKind, resolver::resolved::ResolvedName, tests::test_analysis};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 

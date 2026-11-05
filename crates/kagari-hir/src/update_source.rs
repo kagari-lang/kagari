@@ -23,7 +23,6 @@ use kagari_types::ty::Ty;
 use std::collections::HashMap;
 
 mod facts;
-mod mapping;
 mod order;
 #[cfg(test)]
 mod tests;
@@ -111,9 +110,21 @@ pub struct SourceInitializer {
 }
 
 /// Complete authored body inventory and static-only comparison roots.
+///
+/// [`collect`] derives these records from one checked analysis. Definition IDs
+/// keep that analysis's identity scope; collecting evidence does not create or
+/// import a definition table. The compiler consumes it in the same scope when
+/// constructing independently validated update records.
+///
+/// For `static val N: i32 = helper();`, the initializer records the call to
+/// `helper`, while the helper's own body remains outside the comparison roots.
+/// Comparisons between source revisions require a shared definition context.
+/// This transient projection deliberately has no general identity-remapping API.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourceEvidence {
+    /// Authored declarations, with local expression evidence only for static initializers.
     pub bodies: Vec<SourceBody>,
+    /// Static declarations whose initializer expressions participate in update checks.
     pub initializers: Vec<SourceInitializer>,
 }
 

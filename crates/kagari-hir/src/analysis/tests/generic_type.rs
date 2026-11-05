@@ -1,4 +1,4 @@
-use super::*;
+use crate::analysis::*;
 use crate::types::TypeId;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;

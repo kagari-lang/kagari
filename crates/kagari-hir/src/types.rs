@@ -58,9 +58,6 @@ impl FromIterator<(GenericParameterType, TypeId)> for TypeSubstitution {
     }
 }
 
-#[cfg(test)]
-mod nominal_tests;
-
 /// Names are diagnostic metadata; owner and position determine equality.
 #[derive(Debug, Clone)]
 pub struct GenericParameterType {
@@ -1154,4 +1151,4 @@ impl TypeId {
 }
 
 #[cfg(test)]
-mod identity_display;
+mod tests;

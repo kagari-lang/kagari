@@ -401,8 +401,6 @@ impl<'a> TypeCatalog<'a> {
 
 pub mod aliases;
 mod mapping;
-#[cfg(test)]
-mod reuse_tests;
 
 impl ImportedTypes {
     /// Compares reuse inputs while allowing this module's refined trait surfaces
@@ -475,3 +473,6 @@ impl ImportedTypes {
             .find(|ty| matches!(&ty.declaration.id, DeclarationId::Definition(declaration) if declaration == id))
     }
 }
+
+#[cfg(test)]
+mod tests;

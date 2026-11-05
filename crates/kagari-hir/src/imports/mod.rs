@@ -22,32 +22,16 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(test)]
-mod aggregate_tests;
-#[cfg(test)]
-mod alias_tests;
 pub mod bindings;
 mod builder;
 mod cache;
-#[cfg(test)]
-mod cache_tests;
 pub mod catalog;
 pub mod constants;
 pub mod functions;
 mod mapping;
-#[cfg(test)]
-mod provenance_tests;
 mod resolve;
-#[cfg(test)]
-mod signature_tests;
 pub mod solver;
-#[cfg(test)]
-mod solver_tests;
 pub mod statics;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod type_tests;
 pub mod types;
 
 /// Identity of one logical source module in one immutable lowering.
@@ -447,3 +431,6 @@ pub enum ModuleOrderError {
     /// Cooperative cancellation interrupted traversal.
     Cancelled,
 }
+
+#[cfg(test)]
+mod tests;
