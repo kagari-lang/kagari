@@ -50,7 +50,8 @@ impl FileAnalysis {
                     .target(ResolvedName::Function(*function))?;
                 let signature = facts
                     .typed
-                    .functions
+                    .signatures
+                    .functions()
                     .iter()
                     .find(|candidate| candidate.id == *function)?;
                 callable_signature(

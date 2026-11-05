@@ -5,7 +5,8 @@
 //! arena IDs for declarations that never had a script body.
 
 use crate::{
-    typeck::{FunctionImplementation, GenericBounds, TypedFunction},
+    semantic::signatures::{FunctionImplementation, TypedFunction},
+    typeck::GenericBounds,
     types::{GenericParameterType, TypeId},
 };
 

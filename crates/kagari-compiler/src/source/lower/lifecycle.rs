@@ -12,7 +12,8 @@ use crate::source::lower::{
 use kagari_contract::{types::identity, updates::DemandRequests};
 use kagari_hir::{
     AnalyzedModule, declarations::DeclarationId, hir::item::function::FunctionKind,
-    native::NativeBinding, resolver::resolved::ResolvedName, typeck::FunctionImplementation,
+    native::NativeBinding, resolver::resolved::ResolvedName,
+    semantic::signatures::FunctionImplementation,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use std::{collections::HashSet, mem};
@@ -291,7 +292,7 @@ fn seed(
     planner: &mut InstancePlanner<'_>,
 ) -> Result<(), MirLoweringError> {
     planner.enqueue_statics()?;
-    for function in &module.typed.functions {
+    for function in module.typed.signatures.functions() {
         if matches!(
             function.implementation,
             FunctionImplementation::Native(NativeBinding::Default(_))
@@ -322,7 +323,8 @@ fn seed(
         {
             let signature = module
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|signature| signature.id == function.id)
                 .ok_or(MirLoweringError::MissingTypedFunction(function.id))?;

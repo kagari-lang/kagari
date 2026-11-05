@@ -16,7 +16,7 @@ use kagari_mir::{function::MirFunction, instruction::Terminator};
 
 pub(super) fn static_contract(module: &AnalyzedModule, id: StaticId) -> StaticContract {
     let item = module.lowered.module.static_item(id);
-    let ty = &module.typed.statics[&id];
+    let ty = &module.typed.signatures.statics()[&id];
     let DeclarationId::Definition(declaration) = module
         .declarations
         .target(ResolvedName::Static(id))
@@ -49,7 +49,7 @@ pub(super) fn lower_initializer<'a>(
     let signature = LoweringSignature {
         name: format!("$static_init_{}", item.name),
         params: Vec::new(),
-        return_type: module.typed.statics[&id].clone(),
+        return_type: module.typed.signatures.statics()[&id].clone(),
         bounds: Default::default(),
     };
     let mut lowerer = FunctionLowerer::new(module, &signature, instance, planner)?;

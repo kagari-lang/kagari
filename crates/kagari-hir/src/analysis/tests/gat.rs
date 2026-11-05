@@ -25,7 +25,8 @@ fn main() -> i32 { make(Number {}) }
     let facts = result.facts();
     let function = facts
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| {
             function.name == "make" && !function.params.iter().any(|param| param.name == "self")

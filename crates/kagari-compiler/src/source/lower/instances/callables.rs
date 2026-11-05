@@ -19,7 +19,7 @@ use kagari_contract::{
 use kagari_hir::{
     aggregates::{implementations::ImplementationSearchLimits, traits::MethodDefault},
     native::NativeBinding,
-    typeck::FunctionImplementation,
+    semantic::signatures::FunctionImplementation,
     types::{
         TypeId, TypeSubstitution as HirSubstitution,
         semantic::{raise_nominal_type, raise_type},

@@ -31,16 +31,15 @@ use crate::{
     imports::{
         constants::ImportedConstants, functions::ImportedFunctions, statics::ImportedStatics,
     },
-    native::NativeBinding,
+    semantic::signatures::{BodySignatures, TypedFunction, TypedFunctionBuffer},
     typeck::{
         const_budget::ConstLimits, constant_facts::CheckedConstants, scalar::ScalarValue,
         table::TypeTable,
     },
-    types::{GenericParameterType, NominalType, TypeId},
+    types::{NominalType, TypeId},
 };
 
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
-use smallvec::SmallVec;
 pub(crate) mod aliases;
 pub(crate) mod applications;
 pub(crate) mod associated;
@@ -69,13 +68,10 @@ pub(crate) mod signature_reuse;
 pub mod table;
 mod ty;
 
-use std::collections::{HashMap, HashSet};
-
-/// Checked function records with eight inline slots before heap allocation.
-pub(crate) type TypedFunctionBuffer = SmallVec<[TypedFunction; 8]>;
-
-/// Checked parameters with four inline slots before heap allocation.
-pub(crate) type TypedParameterBuffer = SmallVec<[TypedParameter; 4]>;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 /// Semantic subject type to required applied traits; keys retain binder identity.
 pub type GenericBounds = HashMap<TypeId, Vec<NominalType>>;
@@ -112,76 +108,20 @@ pub struct TypedModule {
     pub checked_bodies: usize,
     /// Number of function bodies restored from compatible prior facts.
     pub reused_bodies: usize,
-    /// Typed function signatures retained for consumers.
-    pub functions: TypedFunctionBuffer,
+    /// Shared callable/static contracts normalized in this body environment.
+    pub signatures: Arc<BodySignatures>,
     /// Local constant IDs to inferred/declared semantic types.
     pub consts: HashMap<ConstId, TypeId>,
-    /// Runtime static IDs to their declared closed semantic types.
-    pub statics: HashMap<StaticId, TypeId>,
     /// Successfully evaluated scalar constants; absent entries have no published scalar value.
     pub const_values: HashMap<ConstId, ScalarValue>,
     /// Node-keyed types and selected call/member/protocol facts.
     pub type_table: TypeTable,
 }
 
-/// A declared callable's semantic signature, separate from its lowered body.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedFunction {
-    /// The implementation belongs to the declaration, independently of call syntax.
-    pub implementation: FunctionImplementation,
-    /// Generic binders, including inherited implementation binders where applicable.
-    pub generic_params: Vec<GenericParameterType>,
-    /// Checked constraints keyed by the declaring parameter, including inherited
-    /// impl parameters shadowed by a method parameter with the same name.
-    pub bounds: HashMap<TypeId, Vec<NominalType>>,
-    /// Local function slot in the matching lowered module.
-    pub id: FunctionId,
-    /// Diagnostic name of the function/method.
-    pub name: String,
-    /// Named typed parameters in call order.
-    pub params: TypedParameterBuffer,
-    /// Declared/inferred result; recovery can retain an error type.
-    pub return_type: TypeId,
-}
-
-/// Implementation provenance carried with checked callable signatures.
-/// The enclosing module/function identity selects a script body; required trait
-/// methods await an implementation. Native bindings are installed input and do
-/// not acquire authority from the declaration's name or source URI.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FunctionImplementation {
-    /// A source body selected through the enclosing function/module identity.
-    Script,
-    /// An installed native binding carrying its registered contract.
-    Native(NativeBinding),
-    /// A trait requirement awaiting an implementation, with no script body.
-    Required,
-}
-
-/// A function parameter binding paired with its semantic type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TypedParameter {
-    /// Source parameter identity belonging to the same lowering.
-    pub id: ParamId,
-    /// Declared parameter binding writeability.
-    pub writeability: Writeability,
-    /// Diagnostic parameter name.
-    pub name: String,
-    /// Resolved semantic type, possibly recovered after an error.
-    pub ty: TypeId,
-}
-
-/// Per-module function signature index used while checking calls.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct FunctionTypeIndex {
-    pub(crate) by_id: HashMap<FunctionId, TypedFunction>,
-}
-
 /// Per-module constant type index available to body checking.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TopLevelTypeIndex {
     pub(crate) consts: HashMap<ConstId, TypeId>,
-    pub(crate) statics: HashMap<StaticId, TypeId>,
     pub(crate) imported_statics: ImportedStatics,
     pub(crate) imported_constants: ImportedConstants,
 }
@@ -193,7 +133,7 @@ pub(crate) struct TypeIndexes<'a> {
     pub(crate) imported_functions: &'a ImportedFunctions,
     pub(crate) declarations: &'a Declarations,
     pub(crate) cancel: &'a CancellationToken,
-    pub(crate) function_index: &'a FunctionTypeIndex,
+    pub(crate) signatures: &'a BodySignatures,
     pub(crate) top_level_index: &'a TopLevelTypeIndex,
     pub(crate) const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
 }
@@ -205,6 +145,8 @@ pub(crate) struct BodyInputs<'a> {
     pub selection: BodySelection,
     /// Checked signature facts that seed body analysis.
     pub signatures: &'a AnalysisResult<ModuleSignatures>,
+    /// Shared normalized contracts belonging to the matching semantic environment.
+    pub body_signatures: &'a Arc<BodySignatures>,
     /// Canonical imported callable signatures available to this module.
     pub imported_functions: &'a ImportedFunctions,
     /// Canonical runtime static declarations available to this module.

@@ -20,8 +20,11 @@ use crate::{
         types::TypeCatalog,
     },
     resolver::collect::resolve_bodies,
+    semantic::signatures::BodySignatures,
     typeck::{
-        BodyInputs, ModuleSignatures, check::check_bodies_controlled, const_budget::ConstLimits,
+        BodyInputs, ModuleSignatures,
+        check::{check_bodies_controlled, prepare_body_signatures},
+        const_budget::ConstLimits,
         constant_facts::CheckedConstants,
     },
     types::TypeId,
@@ -154,6 +157,11 @@ impl SignatureSnapshot {
             result.insert(
                 *id,
                 BodyEnvironment {
+                    signatures: prepare_body_signatures(
+                        file.prepared.signatures.facts(),
+                        &file.prepared.declarations,
+                        &aggregates,
+                    ),
                     imported_statics: ImportedStatics::bindings(
                         &modules,
                         &file.prepared.names.facts,
@@ -190,6 +198,7 @@ impl SignatureSnapshot {
                     const_limits,
                     selection: BodySelection::Constants,
                     signatures: &prepared.signatures,
+                    body_signatures: &environment.signatures,
                     imported_functions: &environment.imported_functions,
                     imported_statics: &environment.imported_statics,
                     imported_constants: &environment.imported_constants,
@@ -245,6 +254,8 @@ impl SignatureSnapshot {
 /// Semantic dependencies required to check one file's bodies.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct BodyEnvironment {
+    /// Normalized local callable/static contracts shared with every body result.
+    pub signatures: Arc<BodySignatures>,
     /// Callable signatures selected by the file's imports, including inherent methods.
     pub imported_functions: ImportedFunctions,
     /// Runtime static types and rebinding permissions selected by imports.
@@ -398,6 +409,7 @@ impl RemapDefinitions for BodyEnvironment {
         mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         Ok(BodyEnvironment {
+            signatures: Arc::new(self.signatures.remap_definitions(mapper)?),
             imported_functions: self.imported_functions.remap_definitions(mapper)?,
             imported_statics: self.imported_statics.remap_definitions(mapper)?,
             imported_constants: self.imported_constants.remap_definitions(mapper)?,
@@ -417,6 +429,7 @@ impl DefinitionReferences for BodyEnvironment {
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
+        self.signatures.visit_definition_ids(visit, cancel)?;
         self.imported_functions
             .visit_definition_ids(visit, cancel)?;
         self.imported_statics.visit_definition_ids(visit, cancel)?;

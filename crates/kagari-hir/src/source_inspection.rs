@@ -6,7 +6,7 @@
 
 use crate::{
     CheckedAnalysis, hir::item::Item, program::CheckedProgram, resolver::resolved::ResolvedName,
-    typeck::FunctionImplementation, update_source::SourceBodyKind,
+    semantic::signatures::FunctionImplementation, update_source::SourceBodyKind,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -78,7 +78,8 @@ pub fn collect_authored_sources(
         for function in &hir.functions {
             let typed = module
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|typed| typed.id == function.id)
                 .ok_or(DefinitionMappingError::InvalidContract)?;

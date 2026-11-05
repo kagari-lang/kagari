@@ -36,7 +36,7 @@ impl BodyChecker<'_> {
             return None;
         }
         let id = self.local_function_id(site)?;
-        let function = self.function_index.by_id.get(&id)?;
+        let function = self.signatures.function(id)?;
         let template = TypeId::Function {
             params: function.params.iter().map(|p| p.ty.clone()).collect(),
             result: Box::new(function.return_type.clone()),

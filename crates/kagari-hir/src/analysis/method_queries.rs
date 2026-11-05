@@ -36,7 +36,8 @@ impl FileAnalysis {
         let empty = GenericBounds::default();
         let assumptions = facts
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .filter_map(|function| {
                 let span = facts.lowered.source_map.function_span(function.id);

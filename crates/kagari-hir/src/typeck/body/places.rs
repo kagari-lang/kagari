@@ -212,7 +212,7 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Param(id) => env.params.get(&id).cloned(),
                         ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                         ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
-                        ResolvedName::Static(id) => self.top_level_index.statics.get(&id).cloned(),
+                        ResolvedName::Static(id) => self.signatures.static_type(id).cloned(),
                         ResolvedName::Source(source) => self
                             .top_level_index
                             .imported_statics

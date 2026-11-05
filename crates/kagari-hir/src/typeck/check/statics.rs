@@ -72,9 +72,8 @@ pub(super) fn initializers(
         }
         let diagnostic_start = diagnostics.len();
         let expected = indexes
-            .top_level_index
-            .statics
-            .get(&item.id)
+            .signatures
+            .static_type(item.id)
             .cloned()
             .unwrap_or(TypeId::Error);
         let mut checker = BodyChecker::new(

@@ -6,8 +6,9 @@ use crate::{
     language::semantics::ProtocolSemantics,
     native::{NativeBinding, adoption},
     resolver::resolved::ResolvedName,
+    semantic::signatures::FunctionImplementation,
     tests::test_analysis,
-    typeck::{FunctionImplementation, table::CallTarget},
+    typeck::table::CallTarget,
     types::NominalType,
 };
 use kagari_common::identity::{
@@ -304,7 +305,7 @@ fn constructed() -> Pick<i32> { Pick(7) }
     let typed = &analyzed.typed;
 
     assert_eq!(
-        typed.functions[0].return_type,
+        typed.signatures.functions()[0].return_type,
         TypeId::Enum(crate::types::NominalType {
             declaration: analyzed
                 .declarations
@@ -316,7 +317,7 @@ fn constructed() -> Pick<i32> { Pick(7) }
         })
     );
     assert_eq!(
-        typed.functions[1].return_type,
+        typed.signatures.functions()[1].return_type,
         TypeId::Enum(crate::types::NominalType {
             declaration: analyzed
                 .declarations
@@ -331,7 +332,7 @@ fn constructed() -> Pick<i32> { Pick(7) }
         })
     );
     assert_eq!(
-        typed.functions[2].return_type,
+        typed.signatures.functions()[2].return_type,
         TypeId::Map {
             key: Box::new(TypeId::Builtin(BuiltinType::String)),
             value: Box::new(TypeId::Builtin(BuiltinType::I32)),
@@ -339,14 +340,14 @@ fn constructed() -> Pick<i32> { Pick(7) }
         }
     );
     assert_eq!(
-        typed.functions[3].return_type,
+        typed.signatures.functions()[3].return_type,
         TypeId::Set(
             Box::new(TypeId::Builtin(BuiltinType::String)),
             CollectionAccess::Mutable
         )
     );
     assert_eq!(
-        typed.functions[4].return_type,
+        typed.signatures.functions()[4].return_type,
         TypeId::Builtin(BuiltinType::U64)
     );
 }

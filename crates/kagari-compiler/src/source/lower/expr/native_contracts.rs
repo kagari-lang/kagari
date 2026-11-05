@@ -8,7 +8,8 @@ use kagari_hir::{
     declarations::DeclarationId,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, table::CallTarget},
+    semantic::signatures::FunctionImplementation,
+    typeck::table::CallTarget,
     types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, semantic::raise_type},
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};
@@ -45,7 +46,8 @@ impl FunctionLowerer<'_, '_> {
                     *declaration,
                     self.analyzed
                         .typed
-                        .functions
+                        .signatures
+                        .functions()
                         .iter()
                         .find(|function| function.id == *id)
                         .ok_or_else(invalid)?,

@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     declarations::DeclarationId, hir::expr::ExprKind, native::NativeBinding,
-    typeck::FunctionImplementation,
+    semantic::signatures::FunctionImplementation,
 };
 
 #[test]

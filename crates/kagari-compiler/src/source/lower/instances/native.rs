@@ -227,7 +227,8 @@ impl InstancePlanner<'_> {
         {
             module
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|function| function.id == id)
                 .ok_or_else(invalid)?

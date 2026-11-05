@@ -34,7 +34,8 @@ pub(super) fn collect(module: &AnalyzedModule) -> Vec<NamedDeclaration> {
         let mut signature = function_abi(module, function).expect("checked function contract");
         let typed = module
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|typed| typed.id == function.id)
             .expect("checked function");

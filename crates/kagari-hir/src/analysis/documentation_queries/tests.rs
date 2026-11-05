@@ -1,8 +1,8 @@
 use crate::{
     declarations::DeclarationId,
     native::{NativeBinding, render::declaration_source},
+    semantic::signatures::FunctionImplementation,
     tests::{native::function_module, test_analysis},
-    typeck::FunctionImplementation,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer, normalize_source_name};

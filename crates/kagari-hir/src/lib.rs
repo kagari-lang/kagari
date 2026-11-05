@@ -84,6 +84,7 @@ pub mod native;
 
 pub mod program;
 pub mod resolver;
+pub mod semantic;
 pub mod source_inspection;
 pub mod source_map;
 pub mod typeck;
@@ -473,6 +474,7 @@ fn analyze_prepared(
     cancel: &CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
     let BodyEnvironment {
+        signatures: body_signatures,
         imported_functions,
         imported_statics,
         imported_constants,
@@ -500,6 +502,7 @@ fn analyze_prepared(
             const_limits,
             selection: BodySelection::All,
             signatures: &signatures,
+            body_signatures: &body_signatures,
             imported_functions: &imported_functions,
             imported_statics: &imported_statics,
             imported_constants: &imported_constants,

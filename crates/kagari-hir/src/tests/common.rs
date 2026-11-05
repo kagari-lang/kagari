@@ -8,7 +8,7 @@ use crate::{
     typeck::{
         BodyInputs, TypedModule,
         applications::validate_signatures,
-        check::{check_bodies_controlled, check_signatures},
+        check::{check_bodies_controlled, check_signatures, prepare_body_signatures},
         definition_registration,
         reuse::BodyReuse,
     },
@@ -106,6 +106,11 @@ pub fn check_module(
             const_limits: Default::default(),
             selection: BodySelection::All,
             signatures: &signatures,
+            body_signatures: &prepare_body_signatures(
+                signatures.facts(),
+                &declarations,
+                &aggregates,
+            ),
             imported_functions: &Default::default(),
             imported_statics: &Default::default(),
             imported_constants: &Default::default(),

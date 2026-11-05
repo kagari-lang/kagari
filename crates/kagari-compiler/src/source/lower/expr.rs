@@ -80,7 +80,8 @@ impl FunctionLowerer<'_, '_> {
                 ResolvedName::Param(id) => self
                     .analyzed
                     .typed
-                    .functions
+                    .signatures
+                    .functions()
                     .iter()
                     .find(|function| Some(function.id) == self.instance.body.function())
                     .and_then(|function| function.params.iter().find(|param| param.id == *id))

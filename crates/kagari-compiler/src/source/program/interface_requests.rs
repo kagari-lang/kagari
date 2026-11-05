@@ -6,7 +6,7 @@ use kagari_common::{
 };
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_hir::{
-    AnalyzedModule, resolver::resolved::ResolvedName, typeck::FunctionImplementation,
+    AnalyzedModule, resolver::resolved::ResolvedName, semantic::signatures::FunctionImplementation,
 };
 use kagari_mir::program::{ProgramError, ProgramErrorKind};
 use kagari_types::ty::GenericParam;
@@ -79,7 +79,7 @@ impl ForeignInterfaces<'_> {
         {
             if let Some(ResolvedName::Function(function)) =
                 owner.declarations.definition_target(&method)
-                && owner.typed.functions.iter().any(|typed| {
+                && owner.typed.signatures.functions().iter().any(|typed| {
                     typed.id == function
                         && matches!(typed.implementation, FunctionImplementation::Native(_))
                 })
@@ -120,7 +120,12 @@ impl ForeignInterfaces<'_> {
                 .declarations
                 .definition_target(&method)
                 .and_then(|target| match target {
-                    ResolvedName::Function(id) => owner.typed.functions.iter().find(|f| f.id == id),
+                    ResolvedName::Function(id) => owner
+                        .typed
+                        .signatures
+                        .functions()
+                        .iter()
+                        .find(|f| f.id == id),
                     _ => None,
                 })
                 .is_some_and(|function| {

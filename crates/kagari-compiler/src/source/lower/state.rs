@@ -15,7 +15,8 @@ use kagari_hir::{
         writeability::Writeability,
     },
     resolver::resolved::ResolvedName,
-    typeck::{GenericBounds, TypedFunction, TypedParameter},
+    semantic::signatures::{TypedFunction, TypedParameter},
+    typeck::GenericBounds,
     types::TypeId,
 };
 use kagari_mir::{
@@ -199,7 +200,8 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 .and_then(|id| {
                     analyzed
                         .typed
-                        .functions
+                        .signatures
+                        .functions()
                         .iter()
                         .find(|function| function.id == id)
                 })

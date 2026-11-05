@@ -11,8 +11,9 @@ use crate::{
     imports::functions::ImportedFunctions,
     lower::LoweredModule,
     resolver::resolved::{ResolvedName, ResolvedNames},
+    semantic::signatures::BodySignatures,
     typeck::{
-        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, applications, completion,
+        BodyTypeEnv, TopLevelTypeIndex, TypeIndexes, applications, completion,
         scalar::ScalarValue,
         solver::Solver,
         state::TypeCheckState,
@@ -85,7 +86,7 @@ pub(crate) struct BodyChecker<'a> {
     cancel: &'a CancellationToken,
     lowered: &'a LoweredModule,
     names: &'a ResolvedNames,
-    function_index: &'a FunctionTypeIndex,
+    signatures: &'a BodySignatures,
     top_level_index: &'a TopLevelTypeIndex,
     const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
@@ -131,7 +132,7 @@ impl<'a> BodyChecker<'a> {
             cancel: indexes.cancel,
             lowered,
             names,
-            function_index: indexes.function_index,
+            signatures: indexes.signatures,
             top_level_index: indexes.top_level_index,
             const_values: indexes.const_values,
             diagnostics,
@@ -299,7 +300,7 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Param(id) => env.params.get(&id).cloned(),
                     ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                     ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
-                    ResolvedName::Static(id) => self.top_level_index.statics.get(&id).cloned(),
+                    ResolvedName::Static(id) => self.signatures.static_type(id).cloned(),
                     ResolvedName::Source(source) => {
                         if let Some(item) = self.top_level_index.imported_constants.get(&source) {
                             self.type_table.insert_scalar(expr_id, item.value.clone());

@@ -27,7 +27,8 @@ use kagari_hir::{
         ids::{BodyOwner, ExprId, FunctionId, StaticId},
     },
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, GenericBounds, TypedFunction, scalar::ScalarValue},
+    semantic::signatures::{FunctionImplementation, TypedFunction},
+    typeck::{GenericBounds, scalar::ScalarValue},
     types::{
         GenericParameterType, NominalType, TypeId, TypeSubstitution,
         semantic::{lower_nominal_type, lower_type},
@@ -559,7 +560,7 @@ impl<'a> InstancePlanner<'a> {
         let ResolvedName::Function(id) = module.declarations.definition_target(declaration)? else {
             return None;
         };
-        module.typed.functions.iter().find(|function| {
+        module.typed.signatures.functions().iter().find(|function| {
             function.id == id
                 && matches!(function.implementation, FunctionImplementation::Native(_))
         })
@@ -930,7 +931,8 @@ impl<'a> InstancePlanner<'a> {
         };
         let typed = module
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|typed| typed.id == function)
             .ok_or(MirLoweringError::MissingTypedFunction(function))?;

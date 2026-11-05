@@ -366,7 +366,8 @@ impl InstancePlanner<'_> {
             let typed = self
                 .module
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|typed| typed.id == function)
                 .ok_or(MirLoweringError::MissingTypedFunction(function))?;

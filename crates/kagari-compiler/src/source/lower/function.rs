@@ -378,7 +378,8 @@ pub(crate) fn lower_function<'a>(
 ) -> Result<MirFunction, MirLoweringError> {
     let typed = module
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|typed| typed.id == function.id)
         .ok_or(MirLoweringError::MissingTypedFunction(function.id))?;
@@ -464,7 +465,8 @@ pub(crate) fn lower_closure<'a>(
                 .ok_or(MirLoweringError::MissingLocalType(*local))?,
             ResolvedName::Param(id) => module
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|function| Some(function.id) == lowerer.instance.body.function())
                 .and_then(|function| function.params.iter().find(|param| param.id == *id))

@@ -87,7 +87,8 @@ fn boundaries() {{
         assert!(resolution.receiver.is_none(), "{name}");
         let signature = checked
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|function| function.name == name)
             .unwrap();
@@ -293,7 +294,8 @@ fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
         .expect("Self bounds in their declaring trait context");
     let typed = analyzed.typed;
     let method = typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| function.name == "size")
         .unwrap();
@@ -427,7 +429,8 @@ where T: Display
     let typed = analyzed.typed;
 
     let show_interface = typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| function.name == "show_interface")
         .expect("expected show_interface");

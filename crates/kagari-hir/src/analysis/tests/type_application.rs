@@ -297,7 +297,8 @@ fn type_bindings_shadow_standard_constructors_independently_of_value_bindings() 
             let facts = analysis.facts();
             let function = facts
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|f| f.name == "bad")
                 .unwrap();

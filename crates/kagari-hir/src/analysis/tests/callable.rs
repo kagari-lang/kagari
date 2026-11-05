@@ -3,8 +3,9 @@ use crate::{
     hir::{expr::ExprKind, stmt::StmtKind},
     native::NativeBinding,
     resolver::resolved::ResolvedName,
+    semantic::signatures::FunctionImplementation,
     tests::{native as fixture, test_analysis},
-    typeck::{FunctionImplementation, table::CallTarget},
+    typeck::table::CallTarget,
     types::TypeId,
 };
 use kagari_common::identity::{
@@ -94,7 +95,8 @@ async fn block_boundaries() -> i32 {
     let facts = analysis.result().facts();
     let nested = facts
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|f| f.name == "nested")
         .unwrap();
@@ -371,7 +373,8 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
         assert_eq!(
             facts
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|function| function.name == name)
                 .unwrap()
@@ -408,7 +411,8 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
             .records()
             .facts()
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|function| {
                 authoring
@@ -475,7 +479,8 @@ fn main() -> i32 {
         let signature = match &call.target {
             CallTarget::Function(target) if name == "identity" => facts
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|function| function.id == *target)
                 .unwrap(),
@@ -669,7 +674,8 @@ fn native_generic_bounds_and_authority_do_not_depend_on_script_visibility() {
                     .result()
                     .facts()
                     .typed
-                    .functions
+                    .signatures
+                    .functions()
                     .iter()
                     .all(|function| function.implementation == FunctionImplementation::Script)
             );
@@ -708,7 +714,8 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
     };
     let function = facts
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| function.id == target)
         .unwrap();

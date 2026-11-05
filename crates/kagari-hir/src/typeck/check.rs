@@ -18,10 +18,13 @@ use crate::{
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::{ResolvedName, ResolvedNames},
+    semantic::signatures::{
+        BodySignatures, FunctionImplementation, TypedFunction, TypedFunctionBuffer, TypedParameter,
+        TypedParameterBuffer,
+    },
     typeck::{
-        BodyInputs, BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex,
-        TypeIndexes, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
-        TypedParameterBuffer, aliases, applications, associated, associated_consts, asynchronous,
+        BodyInputs, BodyTypeEnv, ModuleSignatures, TopLevelTypeIndex, TypeIndexes, TypedModule,
+        aliases, applications, associated, associated_consts, asynchronous,
         body::BodyChecker,
         check::{
             constants::{ConstValidationInputs, validate_const_initializers},
@@ -46,6 +49,7 @@ use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePositi
 use kagari_types::{language::Protocol, scalar::BuiltinType};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 mod constants;
 mod native_defaults;
@@ -421,6 +425,34 @@ pub(crate) fn check_signatures(
     }
 }
 
+/// Normalizes declared callable/static types once for the fixed body environment.
+/// Raw signature facts remain available for source queries and incremental rebasing.
+pub(crate) fn prepare_body_signatures(
+    signatures: &ModuleSignatures,
+    declarations: &Declarations,
+    aggregates: &AggregateCatalog,
+) -> Arc<BodySignatures> {
+    let mut functions = signatures.functions.clone();
+    for function in &mut functions {
+        for param in &mut function.params {
+            param.ty = aggregates.normalize_type(declarations.definitions(), &param.ty);
+        }
+        function.return_type =
+            aggregates.normalize_type(declarations.definitions(), &function.return_type);
+    }
+    let statics = signatures
+        .statics
+        .iter()
+        .map(|(id, ty)| {
+            (
+                *id,
+                aggregates.normalize_type(declarations.definitions(), ty),
+            )
+        })
+        .collect();
+    Arc::new(BodySignatures::new(functions, statics))
+}
+
 /// Checks constant prerequisites and selected function bodies using completed signature inputs.
 ///
 /// Copies signature facts into the output table, restores compatible body facts where
@@ -441,9 +473,8 @@ pub(crate) fn check_bodies_controlled(
                 valid_static_initializers: Default::default(),
                 checked_bodies: 0,
                 reused_bodies: 0,
-                functions: Default::default(),
+                signatures: Arc::default(),
                 consts: Default::default(),
-                statics: Default::default(),
                 const_values: Default::default(),
                 type_table: Default::default(),
             },
@@ -454,6 +485,7 @@ pub(crate) fn check_bodies_controlled(
         const_limits,
         selection,
         signatures,
+        body_signatures,
         imported_functions,
         imported_statics,
         imported_constants,
@@ -469,29 +501,7 @@ pub(crate) fn check_bodies_controlled(
     } else {
         Default::default()
     };
-    let mut functions = signatures.facts.functions.clone();
-    for function in &mut functions {
-        for param in &mut function.params {
-            param.ty = aggregates.normalize_type(declarations.definitions(), &param.ty);
-        }
-        function.return_type =
-            aggregates.normalize_type(declarations.definitions(), &function.return_type);
-    }
-    let function_index = FunctionTypeIndex {
-        by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
-    };
     let mut top_level_index = TopLevelTypeIndex {
-        statics: signatures
-            .facts
-            .statics
-            .iter()
-            .map(|(id, ty)| {
-                (
-                    *id,
-                    aggregates.normalize_type(declarations.definitions(), ty),
-                )
-            })
-            .collect(),
         imported_statics: imported_statics.clone(),
         imported_constants: imported_constants.clone(),
         ..Default::default()
@@ -574,7 +584,7 @@ pub(crate) fn check_bodies_controlled(
                             imported_functions,
                             declarations,
                             cancel,
-                            function_index: &function_index,
+                            signatures: body_signatures,
                             top_level_index: &top_level_index,
                             const_values: None,
                         },
@@ -595,7 +605,7 @@ pub(crate) fn check_bodies_controlled(
                             imported_functions,
                             declarations,
                             cancel,
-                            function_index: &function_index,
+                            signatures: body_signatures,
                             top_level_index: &top_level_index,
                             const_values: None,
                         },
@@ -655,9 +665,9 @@ pub(crate) fn check_bodies_controlled(
                     valid_static_initializers: Default::default(),
                     checked_bodies: 0,
                     reused_bodies: 0,
-                    functions,
+                    signatures: body_signatures.clone(),
                     consts: top_level_index.consts,
-                    statics: top_level_index.statics,
+
                     const_values,
                     type_table: type_table.into_facts(),
                 },
@@ -673,7 +683,7 @@ pub(crate) fn check_bodies_controlled(
                 imported_functions,
                 declarations,
                 cancel,
-                function_index: &function_index,
+                signatures: body_signatures,
                 top_level_index: &top_level_index,
                 const_values: Some(&const_values),
             },
@@ -731,7 +741,7 @@ pub(crate) fn check_bodies_controlled(
             let diagnostic_start = diagnostics.len();
             checked_bodies += 1;
             let mut env = BodyTypeEnv::default();
-            if let Some(typed_function) = function_index.by_id.get(&function.id) {
+            if let Some(typed_function) = body_signatures.function(function.id) {
                 env.generics = function.generic_params.clone();
                 let context = function_type_context(&lowered.module, function, declarations);
                 env.self_type = if let Some(owner) = context.self_type {
@@ -798,7 +808,7 @@ pub(crate) fn check_bodies_controlled(
                         imported_functions,
                         declarations,
                         cancel,
-                        function_index: &function_index,
+                        signatures: body_signatures,
                         top_level_index: &top_level_index,
                         const_values: Some(&const_values),
                     },
@@ -888,7 +898,7 @@ pub(crate) fn check_bodies_controlled(
             else {
                 continue;
             };
-            let Some(signature) = function_index.by_id.get(&function.id) else {
+            let Some(signature) = body_signatures.function(function.id) else {
                 continue;
             };
             if let Some(site) =
@@ -911,9 +921,9 @@ pub(crate) fn check_bodies_controlled(
                 valid_static_initializers,
                 checked_bodies,
                 reused_bodies,
-                functions,
+                signatures: body_signatures.clone(),
                 consts: top_level_index.consts,
-                statics: top_level_index.statics,
+
                 const_values,
                 type_table: type_table.into_facts(),
             },

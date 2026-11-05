@@ -4,9 +4,8 @@ use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
 use kagari_hir::{
-    hir::ids::ExprId,
-    native::NativeBinding,
-    typeck::{FunctionImplementation, table::CallTarget},
+    hir::ids::ExprId, native::NativeBinding, semantic::signatures::FunctionImplementation,
+    typeck::table::CallTarget,
 };
 
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue, ValueBuffer};
@@ -20,7 +19,8 @@ impl FunctionLowerer<'_, '_> {
             CallTarget::Function(id) => self
                 .analyzed
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|function| function.id == *id)
                 .ok_or(MirLoweringError::MissingTypedFunction(*id))?,

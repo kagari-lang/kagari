@@ -8,7 +8,7 @@ use crate::{
     declarations::DeclarationId,
     hir::ids::{BodyOwner, HirOwner},
     resolver::resolved::ResolvedName,
-    typeck::FunctionImplementation,
+    semantic::signatures::FunctionImplementation,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -298,7 +298,8 @@ pub fn collect(
     for function in &hir.functions {
         let typed = module
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|typed| typed.id == function.id)
             .ok_or(DefinitionMappingError::InvalidContract)?;

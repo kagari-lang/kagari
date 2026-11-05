@@ -17,7 +17,8 @@ use crate::{
     lower::LoweredModule,
     native::NativeTypeKind,
     resolver::resolved::ResolvedName,
-    typeck::{GenericBounds, ModuleSignatures, TypedFunction},
+    semantic::signatures::TypedFunction,
+    typeck::{GenericBounds, ModuleSignatures},
     types::{GenericParameterType, NominalType, TypeId},
 };
 use kagari_types::{

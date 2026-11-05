@@ -87,7 +87,7 @@ fn runtime_static_initializers_have_distinct_owners_and_ordinary_inference() {
                 .is_concrete()
         );
         assert_eq!(
-            facts.typed.statics[&item.id],
+            facts.typed.signatures.statics()[&item.id],
             facts.signatures.facts().statics()[&item.id]
         );
         assert!(module.items.contains(&Item::Static(item.id)));
@@ -262,7 +262,7 @@ fn static_storage_contract_applies_contextual_interface_coercion() {
         assert!(matches!(coercion.concrete_type, TypeId::Struct(_)));
         assert_eq!(
             TypeId::Trait(coercion.interface_type.clone()),
-            facts.typed.statics[&item.id]
+            facts.typed.signatures.statics()[&item.id]
         );
         assert!(result.into_codegen().is_ok());
     }

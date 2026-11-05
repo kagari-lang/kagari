@@ -309,6 +309,18 @@ those temporary collections. The body checker separately owns its solver and
 control-flow stacks. Extracting facts does not grant compilation eligibility:
 diagnostics, cancellation and the checked boundary still govern publication.
 
+Declaration checking retains written-type contracts in `ModuleSignatures`. Once
+the visible aggregate environment is complete, body preparation normalizes their
+parameter, return and static types into
+[BodySignatures](../../crates/kagari-hir/src/semantic/signatures.rs). The environment,
+constant preparation and selected/full body results share that immutable owner
+through `Arc`; the function lookup index stores positions in its declaration-order
+sequence rather than duplicate records. These are distinct stages, not independent
+sources of truth for the same normalized contract. Local function/parameter/static
+IDs still require the matching lowering; sharing does not make IDs portable across
+source revisions. Signature recovery may retain error types and grants no executable
+qualification.
+
 ### Pattern-based declarations
 
 Every ordinary `Binding` owns one `PatternId`, declaration-wide writeability, an

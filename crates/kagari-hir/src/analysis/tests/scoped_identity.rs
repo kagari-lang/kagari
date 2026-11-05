@@ -165,13 +165,15 @@ fn checked_analysis_retains_compact_named_and_generic_metadata() {
         .unwrap();
     let function = first
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| function.name == "identity")
         .unwrap();
     let other = second
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| function.name == "identity")
         .unwrap();
@@ -218,7 +220,8 @@ fn checked_analysis_retains_compact_named_and_generic_metadata() {
         authoring
             .records()
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|function| function.name == "identity")
             .unwrap()

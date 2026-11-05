@@ -16,7 +16,8 @@ fn broken_signatures_preserve_parameter_slots_without_cascading_arity_errors() {
     let broken = analysis
         .facts()
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|f| f.name == "broken")
         .unwrap();
@@ -27,7 +28,8 @@ fn broken_signatures_preserve_parameter_slots_without_cascading_arity_errors() {
         analysis
             .facts()
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|f| f.name == "good")
             .unwrap()

@@ -1126,11 +1126,16 @@ TypeTable 字段、引用遍历或重映射中。内部 Deref 仅借用事实表
 结构（1818 文件，零违规/例外）、fmt、diff 与带 broken-link/invalid-codeblock 拒绝的 private rustdoc
 构建通过。局部编译曾报告工作状态赋值类型和关联类型插入借用冲突，均已修复，无遗留错误。
 
-HA1b 后续依据：`check_bodies_controlled` 当前把 `ModuleSignatures.functions` 克隆后按完整
+HA1b 第二个检查点：原 `check_bodies_controlled` 把 `ModuleSignatures.functions` 克隆后按完整
 aggregate 环境归一化，再克隆到 FunctionTypeIndex；constants 预备与 body 检查会分别执行。
-原始签名解析事实与归一化后的调用契约确有不同阶段含义，不能直接删一份而改变语义。
-下一步在固定 body 环境中给最终调用契约建立唯一不可变所有者，使 body 检查/查询共享；
-同时明确 body 事实的发布接口。尚未完成这些要求，因此不将 HA1b 标为完成。
+现已将归一化契约放入 `semantic::signatures::BodySignatures`，由 BodyEnvironment、常量准备和
+body 结果共享 `Arc`，函数索引只持有位置。删除 FunctionTypeIndex 及重复 static 类型副本。
+声明阶段原始契约与完整环境下的归一化契约仍区分；二者不是兼容入口，适用阶段不同。
+搬迁后编译曾发现残留旧 import，已统一修正；不保留旧类型重导出。
+6 个 HIR 定向测试通过，覆盖签名重用、约束变化、身份归属、错误恢复及 static 契约失效。
+2 个 compiler 定向测试通过，覆盖 static 描述符及 source-free 产品、关联类型签名穿过两种 artifact。
+workspace all-target Clippy、结构（1821 文件，零违规/例外）、fmt、diff 和严格 private rustdoc 通过。
+下一步明确 body 事实的只读发布接口及完成证据；HA1b 尚未完成。完整测试矩阵仍留给 CI。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 

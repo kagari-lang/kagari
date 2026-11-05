@@ -2,8 +2,9 @@ use super::*;
 use crate::{
     declarations::DeclarationId,
     native::{NativeBinding, render::declaration_source},
+    semantic::signatures::FunctionImplementation,
     tests::test_analysis,
-    typeck::{FunctionImplementation, signature_reuse::reuse_signatures},
+    typeck::signature_reuse::reuse_signatures,
     types::TypeId,
 };
 use kagari_source::{
@@ -354,7 +355,8 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
             .result()
             .facts()
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|f| f.name == "size")
             .unwrap();

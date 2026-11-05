@@ -85,7 +85,8 @@ fn shared_host_declarations_keep_external_identity_without_rust_reference_admiss
     let function = analysis
         .facts
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| function.name == "forward")
         .unwrap();

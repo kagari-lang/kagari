@@ -6,6 +6,7 @@ use crate::{
     },
     declarations::DeclarationId,
     native::{NativeBinding, render::declaration_source},
+    semantic::signatures::FunctionImplementation,
     tests::{native as fixture, test_analysis},
     typeck::table::CallTarget,
     types::NominalType,
@@ -234,7 +235,14 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
             .len(),
         2
     );
-    assert!(file.result().facts().typed.functions.is_empty());
+    assert!(
+        file.result()
+            .facts()
+            .typed
+            .signatures
+            .functions()
+            .is_empty()
+    );
     let contract = catalog
         .trait_(&implementation.trait_type.declaration)
         .unwrap();
@@ -252,12 +260,13 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
             .result()
             .facts()
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .filter(|function| {
                 matches!(
                     function.implementation,
-                    crate::typeck::FunctionImplementation::Native(NativeBinding::Default(_))
+                    FunctionImplementation::Native(NativeBinding::Default(_))
                 )
             })
     };
@@ -454,7 +463,8 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
         .methods[0];
     let signature = facts
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|f| f.name == "read")
         .unwrap();

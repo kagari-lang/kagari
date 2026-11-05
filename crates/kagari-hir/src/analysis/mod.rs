@@ -502,7 +502,8 @@ impl FileAnalysis {
                     ResolvedName::Local(id) => facts.typed.type_table.local_type(id),
                     ResolvedName::Param(id) => facts
                         .typed
-                        .functions
+                        .signatures
+                        .functions()
                         .iter()
                         .flat_map(|function| &function.params)
                         .find(|param| param.id == id)

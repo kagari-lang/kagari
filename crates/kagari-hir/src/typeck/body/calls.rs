@@ -129,7 +129,7 @@ impl<'a> BodyChecker<'a> {
             }
             return TypeId::Error;
         };
-        let Some(function) = self.function_index.by_id.get(&id) else {
+        let Some(function) = self.signatures.function(id) else {
             self.infer_call_args(args, env);
             return self.infer_expr_type(callee, env);
         };

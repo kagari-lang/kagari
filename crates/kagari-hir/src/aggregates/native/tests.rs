@@ -3,8 +3,8 @@ use crate::{
     analysis::AnalysisSnapshot,
     language::{semantics as traits, semantics::ProtocolSemantics},
     native::NativeBinding,
+    semantic::signatures::FunctionImplementation,
     tests::test_analysis,
-    typeck::FunctionImplementation,
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::identity::{DefinitionKind, table::DefinitionTable};

@@ -8,7 +8,7 @@ use crate::{
     },
     program::{CheckedProgram, ProgramCheckError},
     resolver::table::NameTable,
-    typeck::FunctionImplementation,
+    semantic::signatures::FunctionImplementation,
     types::TypeId,
 };
 use kagari_common::{

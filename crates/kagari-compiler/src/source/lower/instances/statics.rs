@@ -146,7 +146,7 @@ impl InstancePlanner<'_> {
         }
         for item in &module.lowered.module.statics {
             self.record_layout_root(
-                &module.typed.statics[&item.id],
+                &module.typed.signatures.statics()[&item.id],
                 &Default::default(),
                 module.lowered.source_map.static_span(item.id),
             )?;
@@ -196,7 +196,11 @@ impl InstancePlanner<'_> {
             .ok_or(MirLoweringError::MissingBinding("static initializer index"))?;
         let contract = static_contract(supplier, id);
         let span = supplier.lowered.source_map.static_span(id);
-        self.record_layout_root(&supplier.typed.statics[&id], &Default::default(), span)?;
+        self.record_layout_root(
+            &supplier.typed.signatures.statics()[&id],
+            &Default::default(),
+            span,
+        )?;
         if self.static_slots.len() >= u16::MAX as usize {
             return Err(MirLoweringError::diagnostic(limit_diagnostic(
                 "module slots",

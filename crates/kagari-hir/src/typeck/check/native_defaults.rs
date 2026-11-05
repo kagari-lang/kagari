@@ -8,10 +8,8 @@ use crate::{
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::{ResolvedName, ResolvedNames},
-    typeck::{
-        FunctionImplementation, TypedFunction,
-        table::{CallTarget, TypeTable},
-    },
+    semantic::signatures::{FunctionImplementation, TypedFunction},
+    typeck::table::{CallTarget, TypeTable},
     types::{
         TypeId,
         semantic::{lower_type, raise_type},

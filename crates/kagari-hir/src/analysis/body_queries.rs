@@ -303,6 +303,7 @@ impl AnalysisDatabase {
                     const_limits: self.const_limits,
                     selection,
                     signatures: &prepared.signatures,
+                    body_signatures: &environment.signatures,
                     imported_functions: &environment.imported_functions,
                     imported_statics: &environment.imported_statics,
                     imported_constants: &environment.imported_constants,

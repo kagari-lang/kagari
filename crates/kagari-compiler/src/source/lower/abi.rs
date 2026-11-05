@@ -20,7 +20,8 @@ use kagari_hir::{
     },
     native::NativeBinding,
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, GenericBounds, scalar::ScalarValue, table::CallTarget},
+    semantic::signatures::FunctionImplementation,
+    typeck::{GenericBounds, scalar::ScalarValue, table::CallTarget},
     types::{
         GenericParameterType, NominalType, TypeId,
         semantic::{lower_nominal_type, lower_type, raise_type},
@@ -464,7 +465,8 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
         .filter_map(|function| {
             let typed = module
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|typed| typed.id == function.id)?;
             if !matches!(
@@ -671,7 +673,8 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
 fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> {
     let typed = module
         .typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|typed| typed.id == function.id)?;
     Some(FnDecl {
