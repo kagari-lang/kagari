@@ -806,7 +806,7 @@ impl Lowerer {
                             name: variant.name_text().unwrap_or_default(),
                             payload: variant
                                 .payload_types()
-                                .map(|types| types.types().map(|ty| self.lower_type(&ty)).collect())
+                                .map(|types| self.lower_payload_types(&types))
                                 .unwrap_or_default(),
                         }
                     })

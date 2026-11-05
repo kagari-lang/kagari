@@ -71,7 +71,7 @@ pub(crate) fn scopes(
                 | NodeRef::ModuleDef(_)
                 | NodeRef::UseDecl(_)
         ) {
-            let range = node.full_span();
+            let range = node.body_span();
             targets.insert((range.start, range.end));
         }
     }

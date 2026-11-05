@@ -14,6 +14,7 @@ use crate::ast::{
         Field, FieldList, GenericParamList, Name, ParamList, Path, TraitBoundList, TraitRef,
         Variant, VariantList, WhereClause, Writeability,
     },
+    site::Required,
     ty::TypeSyntax,
     views::{ExprView, ItemView},
 };
@@ -136,8 +137,16 @@ impl<'a> Ast<'a, UseTree> {
         }
     }
 
+    /// Whether a written `*` selects namespace members. A recovered `a::`
+    /// suffix without its required star is not a glob import.
     pub fn is_glob(self) -> bool {
-        matches!(self.node.suffix, Some(UseSuffix::Glob { .. }))
+        matches!(
+            self.node.suffix,
+            Some(UseSuffix::Glob {
+                star: Required::Present(_),
+                ..
+            })
+        )
     }
 
     pub fn nested_trees(self) -> impl Iterator<Item = Ast<'a, UseTree>> {

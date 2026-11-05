@@ -88,6 +88,11 @@ missing. The same rule applies to `while`.
 
 `SeparatedList` stores ordered required elements and optional required separators.
 For `f(a,,b,)`, the middle element is missing and the last entry retains a comma.
+Filtered child iterators omit missing entries. Consumers whose semantics depend
+on positions must retain required slots: enum payload lowering uses
+`TuplePayload::type_entries()` so `Hole(, Point)` keeps an error slot before
+`Point`. Likewise, `UseTree::is_glob()` requires a written star; a recovered
+`use a::;` retains its path without importing namespace members.
 Skipped tokens have a parser-assigned owner, named field, list entry and
 `RecoveryPart::{Element, Separator}`. Consumers can inspect that location through
 `Ast::unexpected`; ownership is not guessed from overlapping spans. A struct

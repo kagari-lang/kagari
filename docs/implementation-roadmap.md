@@ -69,6 +69,23 @@ The complete CI matrix above remains pending. Structure checking uses the
 existing cached environment with the locked tree-sitter 0.25.2 and
 tree-sitter-rust 0.24.2 dependencies because default uv cache access is restricted.
 
+The [AST CI follow-up](https://github.com/kagari-lang/kagari/actions/runs/42021986432/job/127226740599)
+reproduces all fourteen failing tests. Enum payload lowering now retains missing
+type slots and their anchors, recovered `use a::;` does not become a glob without
+a written star, and lint policy targets use the same semantic ranges as HIR
+attributes. Five diagnostic fixtures, the empty import recovery range and the
+lowering doctest now assert written-token extents. Fresh-analysis navigation
+comparisons resolve generated native file IDs within their owning snapshots and
+compare module identity, revision, range and spelling; local file identity remains
+checked. Existing recovery, codegen rejection and snapshot retention assertions
+remain intact. Thirty-two focused tests pass across HIR recovery/signatures/imports,
+diagnostics, lint policy, syntax imports and the lowering doctest. Structure, fmt,
+workspace all-target Clippy and diff checks pass. The failed run passed structure,
+GC safety, editor tooling and Windows/AOT jobs; the complete formatter inventory,
+async example, standalone feature consumers and CLI JIT steps in the Rust job were
+skipped after the test failure. A new CI run remains required before merge; no HIR
+architecture migration is included in this repair.
+
 ### Typed AST performance follow-up
 
 The [Windows diagnostic study](performance-baseline.md#current-typed-ast-diagnostics-windows-2026-11-05)

@@ -244,8 +244,8 @@ pub(crate) fn lower_attributes(
 /// assert!(matches!(lowered.module.expr(*lhs).kind, ExprKind::Name { .. }));
 /// assert!(matches!(lowered.module.expr(*rhs).kind, ExprKind::Literal(_)));
 /// let span = lowered.source_map.expr_span(sum);
-/// // Full node ranges can include trailing trivia inherited from the syntax tree.
-/// assert_eq!(&source.text()[span.start..span.end], "x + 1 ");
+/// // Semantic ranges include written tokens, excluding outer whitespace and comments.
+/// assert_eq!(&source.text()[span.start..span.end], "x + 1");
 /// ```
 /// # Panics
 ///

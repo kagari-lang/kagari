@@ -320,7 +320,23 @@ impl<'a> Ast<'a, Variant> {
 }
 
 impl<'a> Ast<'a, TuplePayload> {
+    /// Present payload types, omitting missing slots. Use [`Self::type_entries`]
+    /// when tuple positions or recovery anchors must be preserved.
     pub fn types(self) -> impl Iterator<Item = Ast<'a, TypeSyntax>> {
         self.list(&self.node.types)
+    }
+
+    /// Payload types in authored slot order, including required missing entries.
+    /// For `Hole(, Point)`, this yields `Missing` at the comma followed by
+    /// `Present(Point)`. Punctuation remains in `data().types.entries`.
+    pub fn type_entries(self) -> impl ExactSizeIterator<Item = Required<Ast<'a, TypeSyntax>>> {
+        self.node
+            .types
+            .entries
+            .iter()
+            .map(move |entry| match &entry.element {
+                Required::Present(ty) => Required::Present(self.with(ty)),
+                Required::Missing { at } => Required::Missing { at: *at },
+            })
     }
 }

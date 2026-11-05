@@ -3,7 +3,8 @@
 use kagari_common::span::Span;
 use kagari_syntax::ast::{
     borrow::Ast,
-    misc::{GenericArgList, Name, Path},
+    misc::{GenericArgList, Name, Path, TuplePayload},
+    site::Required,
     ty::{QualifiedType, TypeSyntax},
     views::TypeView,
 };
@@ -18,6 +19,24 @@ use crate::{
 };
 
 impl Lowerer {
+    pub(crate) fn lower_payload_types(
+        &mut self,
+        payload: &Ast<'_, TuplePayload>,
+    ) -> Vec<TypeRefId> {
+        payload
+            .type_entries()
+            .map(|entry| match entry {
+                Required::Present(ty) => self.lower_type(&ty),
+                Required::Missing { at } => self.alloc_type(
+                    Span::new(at as usize, at as usize),
+                    TypeData {
+                        kind: TypeKind::Named("<missing>".into()),
+                    },
+                ),
+            })
+            .collect()
+    }
+
     pub(crate) fn lower_type(&mut self, ty: &Ast<'_, TypeSyntax>) -> TypeRefId {
         let (kind, path, terminal) = match ty.view() {
             TypeView::Grouped(grouped) => {
