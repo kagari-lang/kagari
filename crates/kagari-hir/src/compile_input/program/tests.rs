@@ -42,7 +42,7 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     };
     let value = first.block(root).unwrap().tail_expr.unwrap();
     assert_eq!(
-        first.expression_type(value),
+        first.expression_facts(value).unwrap().ty,
         Some(TypeId::Builtin(BuiltinType::I32))
     );
     let span = first.expression_span(value).unwrap();
@@ -50,8 +50,7 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     for other in &bodies {
         if other.key() != first.key() {
             assert!(other.expression(value).is_none());
-            assert!(other.expression_type(value).is_none());
-            assert!(other.call(value).is_none());
+            assert!(other.expression_facts(value).is_none());
         }
     }
     let requirement = module
@@ -74,7 +73,7 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     sources
         .set(
             "input.kgr",
-            text.replace("{ 3 }", "{ 4 }"),
+            text.replace("first() -> i32 { 3 }", "first() -> i64 { 4 }"),
             SourceLayer::Overlay,
         )
         .unwrap();
@@ -89,13 +88,35 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
         .iter()
         .find(|module| module.handle() == newer_compilation.root())
         .unwrap();
+    assert_eq!(
+        first
+            .environment()
+            .signatures()
+            .function(first_function.id)
+            .unwrap()
+            .return_type,
+        TypeId::Builtin(BuiltinType::I32),
+    );
+    let newer_first = newer_module
+        .bodies()
+        .find(|body| body.key().owner == first.key().owner)
+        .unwrap();
+    assert_eq!(
+        newer_first
+            .environment()
+            .signatures()
+            .function(first_function.id)
+            .unwrap()
+            .return_type,
+        TypeId::Builtin(BuiltinType::I64),
+    );
     assert!(newer_module.body(first.key()).is_none());
     for body in newer_module.bodies() {
         assert!(body.expression(value).is_none());
     }
     assert_eq!(value.owner(), HirOwner::Body(first.key().owner));
     assert_eq!(
-        first.expression_type(value),
+        first.expression_facts(value).unwrap().ty,
         Some(TypeId::Builtin(BuiltinType::I32))
     );
 

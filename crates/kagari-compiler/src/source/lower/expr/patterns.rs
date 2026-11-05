@@ -50,7 +50,7 @@ impl FunctionLowerer<'_, '_> {
             let irrefutable = self
                 .analyzed
                 .names
-                .pattern_is_irrefutable(&self.analyzed.lowered.module, arm.pattern);
+                .pattern_is_irrefutable(&self.analyzed.lowered.module.body, arm.pattern);
             let arm_block = self.new_block();
             let next_decision = self.new_block();
 
@@ -122,7 +122,7 @@ impl FunctionLowerer<'_, '_> {
             && !self
                 .analyzed
                 .names
-                .pattern_is_irrefutable(&self.analyzed.lowered.module, pattern)
+                .pattern_is_irrefutable(&self.analyzed.lowered.module.body, pattern)
         {
             return Err(MirLoweringError::MissingBinding(
                 "irrefutable pattern without failure continuation",
@@ -334,7 +334,7 @@ impl FunctionLowerer<'_, '_> {
         let irrefutable = alternatives.iter().position(|alternative| {
             self.analyzed
                 .names
-                .pattern_is_irrefutable(&self.analyzed.lowered.module, *alternative)
+                .pattern_is_irrefutable(&self.analyzed.lowered.module.body, *alternative)
         });
         if let Some(index) = irrefutable {
             alternatives.truncate(index + 1);
@@ -435,7 +435,7 @@ impl FunctionLowerer<'_, '_> {
                     if self
                         .analyzed
                         .names
-                        .pattern_is_irrefutable(&self.analyzed.lowered.module, *alternative)
+                        .pattern_is_irrefutable(&self.analyzed.lowered.module.body, *alternative)
                     {
                         break;
                     }

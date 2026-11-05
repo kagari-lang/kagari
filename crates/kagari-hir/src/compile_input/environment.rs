@@ -7,9 +7,10 @@ use crate::{
     imports::{
         constants::ImportedConstants, functions::ImportedFunctions, statics::ImportedStatics,
     },
+    resolver::resolved::ResolvedName,
     semantic::signatures::BodySignatures,
 };
-use kagari_common::identity::table::DefinitionTable;
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 
 /// Borrowed declaration environment of one admitted module.
 ///
@@ -37,6 +38,11 @@ impl<'a> CheckedEnvironment<'a> {
             statics: &module.imported_statics,
             constants: &module.imported_constants,
         }
+    }
+
+    /// Returns the canonical declaration selected by a resolved local/imported name.
+    pub fn definition(self, name: ResolvedName) -> Option<DefinitionId> {
+        self.declarations.definition(name).copied()
     }
 
     /// Resolves the scoped definition identities in this environment.

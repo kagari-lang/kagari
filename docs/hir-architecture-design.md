@@ -1101,7 +1101,7 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
 | HA1a–HA1c | 完成 | 删除非必要身份能力、整理测试；分离工作状态/事实，共享归一化签名；显式取消出口、批次轮询及中途取消不发布验证通过 | 性能整体对照归 HA3–HA4；不承诺固定取消毫秒数 |
-| HA2 | 执行中 | 首个检查点建立 compile_input 的固定环境/body 目录及受限只读访问；验证 owner/arena/完成证据 | 完整操作视图、closure 子 body、compiler 语义展开与差分验证待完成 |
+| HA2 | 执行中 | checked 输入绑定固定环境及 owner/arena/完成证据；新增操作事实投影、closure 子根及仅测试使用的 compiler 展开原型 | 捕获/作用域和其他真实消费者元数据、完整操作契约及新旧执行差分仍待验证；不能视为阶段完成 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
@@ -1175,6 +1175,33 @@ BodyKey 绑定 module/arena/owner；节点查询验证行 owner 和 arena。资�
 内部完成证据丢失拒绝及取消。完整操作事实和 closure/async 子 body 还没有交付，不能标记 HA2 完成。
 该契约测试及 workspace all-target Clippy、结构（1829 文件，零违规/例外）、fmt、diff、严格
 private rustdoc 通过；无遗留构建错误。生产编译/执行验证在完整切换时进行，完整矩阵仍归 CI。
+
+HA2 第二个检查点：新增 `compile_input::body::facts` 的 expression/place/pattern 投影，
+保留 decoded scalar、应用签名、构造字段、host path、传播/迭代、转换及原始来源；不公开 TypeTable。
+BodyKey 增加 nested closure/async 表达式身份，子输入保留父 allocation owner 以访问捕获。
+body 私有构造时直接绑定同一 CheckedEnvironment，展开只接受 body 输入，不允许调用者另配
+不同修订的环境。原身份测试新增签名由 i32 改为 i64 后旧输入仍保留旧签名的断言。
+pattern 不可反驳性继续调用同一 resolved 算法；其输入从整个 Module 缩至实际需要的 Body。
+
+compiler 的 `source::elaborate` 当前仅在 `cfg(test)` 编译，生产入口未切换。原型覆盖结构枚举，
+将调用目标、字段、构造、标量和转换变成显式操作；隐式转换用独立 OperationId，映射同一源位置。
+structural children 保留源 ID，`values/results` 区分转换前后；operations 数组不是执行顺序，
+实例规划必须从 root 按结构控制流消费，不能扫描数组就实例化不可达调用。
+普通方法 selector 不作为独立值展开，callable value 的 callee 独立于参数只求值一次。
+较大的 index call、iteration 和 propagation 载荷间接存储，避免所有普通节点支付最大变体体积。
+
+验证选择：两个原型测试使用已有 scalar/collection-interface/foundational-bounds fixtures，
+并验证 callable 合成操作来源、closure 子根及捕获。复用三个旧 lower 终止/once-only 契约和一个
+嵌套 or-pattern/capture 契约，在原断言前检查同一源码可展开；不另造同义执行测试。
+这些检查证明选中源码在两条入口均被接受，**尚未证明新展开结果与旧 MIR/执行等价**。
+后续 HA2 必须补齐捕获 binding 的完整名称/类型/来源与词法作用域、默认方法生成来源、
+host/propagation/async 及共享泛型等消费者契约，并建立有实质结果断言的差分验证；随后才能 HA3。
+本检查点 7 个选中测试通过（1 HIR 身份/修订契约，2 展开原型，3 终止契约，1 模式契约）；
+workspace all-target Clippy、结构（1836 文件，零违规/例外）、fmt、diff 和严格 private rustdoc 通过。
+首次 `cargo check -p kagari-compiler --tests` 暴露 Never 表示/SmallVec 接口不匹配，已在 HA2 原型
+内修正；Clippy 暴露大 enum 变体，已按上述载荷拆分修复，没有遗留构建失败。
+未运行全 workspace/backend/platform 矩阵，也未宣称新路径执行等价或性能改进；这些分别由
+HA2–HA3 的消费者/执行验证、HA3–HA4 的配对测量和最终 CI 承接。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 

@@ -157,7 +157,7 @@ impl BodyChecker<'_> {
             }
             reachable = !self
                 .names
-                .pattern_is_irrefutable(&self.lowered.module, arm.pattern)
+                .pattern_is_irrefutable(&self.lowered.module.body, arm.pattern)
                 || arm.guard.is_some();
             let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,

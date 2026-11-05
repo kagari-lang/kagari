@@ -1,4 +1,7 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::{
+    source::{elaborate::tests::assert_expands, lower::lower_to_mir},
+    tests::common,
+};
 use kagari_abi::representation::ValueType;
 use kagari_mir::instruction::{Constant, Instruction, Terminator};
 
@@ -206,6 +209,7 @@ fn nested_irrefutable_alternatives_merge_chosen_values_before_capture_allocation
          var (((0, picked) | (picked, _)), _) = ((4, 5), 0); \
          val next = || { picked = picked + 1; picked }; next() }",
     );
+    assert_expands(&checked);
     let mir = lower_to_mir(checked.root(), &Default::default()).unwrap();
     let function = mir
         .functions

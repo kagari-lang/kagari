@@ -3,11 +3,11 @@
 use crate::{
     builtin::BuiltinFunction,
     hir::{
+        body::Body,
         ids::{
             BodyOwner, ConstId, EnumId, ExprId, FunctionId, HirOwner, LocalId, ModuleId,
             OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId, StructId, TraitId, TypeAliasId,
         },
-        item::Module,
         pattern::PatternKind,
     },
     imports::{
@@ -142,20 +142,20 @@ impl ResolvedNames {
         self.lookup_hits.get(&id)
     }
 
-    /// Classifies pattern structure using resolved bare-name variants; requires the matching module and is not full type validation.
-    pub fn pattern_is_irrefutable(&self, module: &Module, id: PatternId) -> bool {
-        match &module.pattern(id).kind {
+    /// Classifies pattern structure using resolved bare-name variants; requires the matching body arena and is not full type validation.
+    pub fn pattern_is_irrefutable(&self, body: &Body, id: PatternId) -> bool {
+        match &body.pattern(id).kind {
             PatternKind::Wildcard => true,
             PatternKind::Name { .. } => !self.pattern_variants.contains_key(&id),
             PatternKind::Tuple(elements) => elements
                 .iter()
-                .all(|element| self.pattern_is_irrefutable(module, *element)),
+                .all(|element| self.pattern_is_irrefutable(body, *element)),
             PatternKind::Struct { fields, .. } => fields
                 .iter()
-                .all(|field| self.pattern_is_irrefutable(module, field.pattern)),
+                .all(|field| self.pattern_is_irrefutable(body, field.pattern)),
             PatternKind::Or(alternatives) => alternatives
                 .iter()
-                .any(|alternative| self.pattern_is_irrefutable(module, *alternative)),
+                .any(|alternative| self.pattern_is_irrefutable(body, *alternative)),
             PatternKind::Range { .. }
             | PatternKind::Literal(_)
             | PatternKind::EnumVariant { .. } => false,

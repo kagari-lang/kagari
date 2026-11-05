@@ -437,7 +437,9 @@ impl<'a> Completion<'a> {
                                 return None;
                             }
                             *stopped = arm.guard.is_none()
-                                && self.names.pattern_is_irrefutable(self.module, arm.pattern);
+                                && self
+                                    .names
+                                    .pattern_is_irrefutable(&self.module.body, arm.pattern);
                             Some(match arm.guard {
                                 Some(guard) => Node::Guarded(guard, arm.expr),
                                 None => Node::Expr(arm.expr),

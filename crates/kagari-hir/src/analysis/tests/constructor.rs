@@ -163,7 +163,7 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
             assert!(
                 !facts
                     .names
-                    .pattern_is_irrefutable(&facts.lowered.module, arm.pattern)
+                    .pattern_is_irrefutable(&facts.lowered.module.body, arm.pattern)
             );
             matches += 1;
         }

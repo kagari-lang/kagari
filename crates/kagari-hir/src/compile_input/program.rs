@@ -97,6 +97,7 @@ impl<'a> CheckedModule<'a> {
                             module: handle,
                             arena: module.lowered.module.body.arena(),
                             owner,
+                            closure: None,
                         },
                         reason: "function has no positive completion evidence",
                     });
@@ -120,6 +121,7 @@ impl<'a> CheckedModule<'a> {
                         module: handle,
                         arena: module.lowered.module.body.arena(),
                         owner,
+                        closure: None,
                     },
                     reason: "static initializer has no positive completion evidence",
                 });
@@ -143,6 +145,7 @@ impl<'a> CheckedModule<'a> {
                         module: handle,
                         arena: module.lowered.module.body.arena(),
                         owner,
+                        closure: None,
                     },
                     reason: "constant has no evaluated value",
                 });
@@ -177,8 +180,13 @@ impl<'a> CheckedModule<'a> {
 
     /// Finds a source body; callers inspect the signature implementation for bodyless declarations.
     pub fn body(&self, key: BodyKey) -> Option<CheckedBodyInput<'a>> {
-        let body = self.bodies.get(&key.owner)?;
-        (body.key() == key).then_some(*body)
+        let body = *self.bodies.get(&key.owner)?;
+        let body = if let Some(closure) = key.closure {
+            body.closure(closure)?
+        } else {
+            body
+        };
+        (body.key() == key).then_some(body)
     }
 
     /// Visits admitted bodies; order is unspecified and does not define execution order.

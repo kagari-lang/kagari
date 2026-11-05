@@ -2,21 +2,26 @@
 
 use crate::{
     CheckedAnalysis,
-    compile_input::program::AdmissionError,
+    compile_input::{environment::CheckedEnvironment, program::AdmissionError},
     hir::{
         body::Body,
-        expr::ExprData,
+        expr::{ClosureParam, ExprData, ExprKind},
         ids::{BlockId, BodyOwner, ExprId, HirArenaId, HirOwner, PatternId, PlaceId, StmtId},
         pattern::PatternData,
         place::PlaceData,
         stmt::{BlockData, StmtData},
     },
-    resolver::resolved::{ResolvedName, ResolvedNames},
+    resolver::resolved::ResolvedNames,
+    semantic::signatures::TypedFunction,
     source_map::SourceMap,
-    typeck::table::{ResolvedCall, TypeTable},
-    types::TypeId,
+    typeck::table::TypeTable,
 };
-use kagari_common::{identity::table::module::ModuleHandle, span::Span};
+pub mod facts;
+
+use kagari_common::{
+    identity::table::{DefinitionTable, module::ModuleHandle},
+    span::Span,
+};
 
 /// Identity of a source body in one admitted module and lowering.
 ///
@@ -30,6 +35,8 @@ pub struct BodyKey {
     pub arena: HirArenaId,
     /// Function or initializer declaration within that lowering.
     pub owner: BodyOwner,
+    /// Nested closure/async expression within that owner, or `None` for its root.
+    pub closure: Option<ExprId>,
 }
 
 /// Structural entry of a function or initializer; no execution has occurred.
@@ -37,15 +44,15 @@ pub struct BodyKey {
 pub enum BodyRoot {
     /// A declared function's structural block.
     Block(BlockId),
-    /// A constant or runtime static initializer.
+    /// A constant/runtime static initializer or nested callable expression root.
     Expression(ExprId),
 }
 
 /// Immutable source nodes, selected facts and origins for one admitted body.
 ///
 /// For `fn add(x: i32) -> i32 { x + 1 }`, the root is its block, whose tail is
-/// the addition expression. `expression` borrows that node; `expression_type`
-/// gives its semantic type, and `call` carries any selected operator contract.
+/// the addition expression. `expression` borrows that node; `expression_facts`
+/// projects its semantic type and any selected operator contract.
 /// A callee's member syntax need not itself be a value operation. Elaboration
 /// validates the facts required by each operation, not every optional table row.
 ///
@@ -60,6 +67,9 @@ pub struct CheckedBodyInput<'a> {
     types: &'a TypeTable,
     names: &'a ResolvedNames,
     origins: &'a SourceMap,
+    signature: Option<&'a TypedFunction>,
+    definitions: &'a DefinitionTable,
+    environment: CheckedEnvironment<'a>,
 }
 
 impl<'a> CheckedBodyInput<'a> {
@@ -74,12 +84,19 @@ impl<'a> CheckedBodyInput<'a> {
                 module: handle,
                 arena: module.lowered.module.body.arena(),
                 owner,
+                closure: None,
             },
             root,
             nodes: &module.lowered.module.body,
             types: module.typed.type_table(),
             names: &module.names,
             origins: &module.lowered.source_map,
+            definitions: module.definitions(),
+            environment: CheckedEnvironment::new(module),
+            signature: match owner {
+                BodyOwner::Function(id) => module.typed.signatures().function(id),
+                _ => None,
+            },
         };
         let exists = match root {
             BodyRoot::Block(id) => body.block(id).is_some(),
@@ -99,9 +116,17 @@ impl<'a> CheckedBodyInput<'a> {
         self.key
     }
 
-    /// Returns the function block or initializer expression to elaborate.
+    /// Returns the function block, initializer or nested callable root to elaborate.
     pub fn root(self) -> BodyRoot {
         self.root
+    }
+
+    /// Borrows the exact declaration snapshot used to check this body's facts.
+    ///
+    /// Elaboration obtains its environment here, rather than accepting a separate
+    /// environment that could belong to an older revision of the same module.
+    pub fn environment(self) -> CheckedEnvironment<'a> {
+        self.environment
     }
 
     fn owns(self, arena: HirArenaId, owner: HirOwner) -> bool {
@@ -138,27 +163,68 @@ impl<'a> CheckedBodyInput<'a> {
         (self.owns(id.arena(), id.owner()) && *owner == id.owner()).then_some(node)
     }
 
-    /// Returns a recorded value type, or `None` for non-value syntax/foreign IDs.
-    pub fn expression_type(self, id: ExprId) -> Option<TypeId> {
-        self.expression(id)?;
-        self.types.expr_type(id)
-    }
-
-    /// Returns the selected call/operator contract for this expression, if applicable.
-    pub fn call(self, id: ExprId) -> Option<ResolvedCall> {
-        self.expression(id)?;
-        self.types.call_resolution(id)
-    }
-
-    /// Returns the already resolved binding of an expression, if applicable.
-    pub fn binding(self, id: ExprId) -> Option<ResolvedName> {
-        self.expression(id)?;
-        self.names.expr_resolution(id)
-    }
-
     /// Returns the original source extent of an expression in this body.
     pub fn expression_span(self, id: ExprId) -> Option<Span> {
         self.expression(id)?;
         Some(self.origins.expr_span(id))
+    }
+
+    /// Selects a nested callable root without allocating another source arena.
+    ///
+    /// Closure captures can refer to enclosing bindings with the same allocation
+    /// owner. The nested key identifies the callable, while traversal starts at
+    /// its own expression root and never enters another named function's arena.
+    pub fn closure(self, id: ExprId) -> Option<Self> {
+        let body = match &self.expression(id)?.kind {
+            ExprKind::Closure { body, .. } | ExprKind::AsyncBlock { body } => *body,
+            _ => return None,
+        };
+        self.expression(body)?;
+        Some(Self {
+            key: BodyKey {
+                closure: Some(id),
+                ..self.key
+            },
+            root: BodyRoot::Expression(body),
+            ..self
+        })
+    }
+
+    /// Borrows explicitly bound closure parameters; async blocks have no parameters.
+    pub fn closure_parameters(self) -> Option<&'a [ClosureParam]> {
+        match &self.expression(self.key.closure?)?.kind {
+            ExprKind::Closure { params, .. } => Some(params),
+            ExprKind::AsyncBlock { .. } => Some(&[]),
+            _ => None,
+        }
+    }
+
+    /// Borrows the enclosing declaration signature, including parameters captured by closures.
+    pub fn enclosing_signature(self) -> Option<&'a TypedFunction> {
+        self.signature
+    }
+
+    /// Returns the source extent of a block belonging to this input.
+    pub fn block_span(self, id: BlockId) -> Option<Span> {
+        self.block(id)?;
+        Some(self.origins.block_span(id))
+    }
+
+    /// Returns the source extent of a statement belonging to this input.
+    pub fn statement_span(self, id: StmtId) -> Option<Span> {
+        self.statement(id)?;
+        Some(self.origins.stmt_span(id))
+    }
+
+    /// Returns the source extent of a mutation target belonging to this input.
+    pub fn place_span(self, id: PlaceId) -> Option<Span> {
+        self.place(id)?;
+        Some(self.origins.place_span(id))
+    }
+
+    /// Returns the source extent of a pattern belonging to this input.
+    pub fn pattern_span(self, id: PatternId) -> Option<Span> {
+        self.pattern(id)?;
+        Some(self.origins.pattern_span(id))
     }
 }

@@ -2,6 +2,7 @@ mod struct_updates;
 
 use crate::{
     source::{
+        elaborate::tests::assert_expands,
         lower::{MirLoweringError, instances::MirLoweringOptions, lower_to_mir},
         program::lower_program_to_mir,
     },
@@ -381,6 +382,7 @@ fn returning_aggregate_member_stops_later_members() {
         let analyzed = common::program_ok(&format!(
             "enum Pair {{ Data((), ()) }} struct PairStruct {{ val first: (), val second: () }} fn grow<T>(x: T) {{ grow((x, x)); }} fn make<T>(x: T) -> PairStruct {{ grow(x); PairStruct {{ first: (), second: () }} }} fn main() -> i32 {{ val unused = {expression}; }}"
         ));
+        assert_expands(&analyzed);
         let ir = lower_to_mir(
             analyzed.root(),
             &MirLoweringOptions {
@@ -423,6 +425,7 @@ fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
         let analyzed = common::program_ok(&format!(
             "fn grow<T>(x: T) {{ grow((x, x)); }} fn main() -> i32 {{ {expression}; }}"
         ));
+        assert_expands(&analyzed);
         let ir = lower_to_mir(
             analyzed.root(),
             &MirLoweringOptions {
@@ -454,6 +457,7 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
         let analyzed = common::program_ok(&format!(
             "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> [[i32]] {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
         ));
+        assert_expands(&analyzed);
         let ir = lower_to_mir(
             analyzed.root(),
             &MirLoweringOptions {

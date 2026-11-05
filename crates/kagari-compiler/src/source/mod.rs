@@ -1,4 +1,7 @@
 #[cfg(test)]
+pub mod elaborate;
+
+#[cfg(test)]
 pub(crate) mod work_metrics;
 
 mod logging;
