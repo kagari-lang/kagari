@@ -1,4 +1,4 @@
-use crate::{ast::traits::AstNode, tests::common};
+use crate::tests::common;
 
 #[test]
 fn byte_literal_parser_contexts_distinguish_scalars_from_arrays() {
@@ -15,7 +15,7 @@ fn byte_literal_parser_contexts_distinguish_scalars_from_arrays() {
         "{:?}",
         parsed.diagnostics()
     );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), source);
+    assert_eq!(parsed.module().text().to_owned(), source);
     for source in [
         r#"fn bad(value: [u8]) { match value { b"A" => (), _ => () } }"#,
         r#"fn bad(value: [u8]) { match value { br"" => (), _ => () } }"#,
@@ -40,7 +40,7 @@ fn unterminated_interpolation_retains_lossless_recovery() {
     let text = "\"unterminated\r\nfn next() {}";
     let parsed = common::parse(text);
     assert!(!parsed.diagnostics().is_empty());
-    assert_eq!(parsed.syntax().syntax().text().to_string(), text);
+    assert_eq!(parsed.module().text().to_owned(), text);
 }
 
 #[test]

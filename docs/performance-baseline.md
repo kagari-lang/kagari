@@ -16,10 +16,806 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
-The latest result is [BO17-BO19 scalar dispatch on the i9-12900K](#bo17-bo19-scalar-dispatch-windows-2026-10-27).
+The latest interpreter result is [BO17-BO19 scalar dispatch on the i9-12900K](#bo17-bo19-scalar-dispatch-windows-2026-10-27).
 It includes all 19 original/forms timings and arithmetic machine-code attribution.
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
+
+## Line-index newline search, Windows 2026-11-05
+
+At `c47e3df6`, a bounded experiment replaces only the newline search in
+[`LineIndex::new`](../crates/kagari-source/src/line_index.rs) with
+`for offset in memchr_iter(b'\n', text.as_bytes())`. The CRLF end adjustment,
+initial start, final end, push order and vector growth strategy remain unchanged.
+The prototype uses memchr 2.8.3 with default features; this version was already
+in Cargo.lock but was not a direct kagari-source dependency. Production files,
+manifests and lockfile were restored after measurement. No dependency or scanning
+policy change is adopted by this report.
+
+Ownership is already appropriate: `SourceFile::new` builds one immutable physical
+line index, and inline module views share it through `Arc<SourceContent>`. This
+experiment changes local byte search, not source ownership or parser execution.
+The [memchr 2.8.3 documentation](https://docs.rs/memchr/2.8.3/memchr/) describes
+byte-oriented searches and default-feature runtime SIMD detection on x86_64.
+Searching ASCII LF preserves UTF-8 boundaries; CRLF handling still belongs to
+LineIndex. This is a library primitive replacement, not a custom SIMD algorithm.
+
+### Environment and timing scope
+
+Intel Core i7-10700F, 16 logical CPUs, Windows 10 build 19045, x86_64 MSVC;
+Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`). Workspace
+release profile, default features and build parallelism, one measurement thread,
+no affinity/frequency controls. RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS,
+CARGO_PROFILE_RELEASE_LTO and CARGO_PROFILE_RELEASE_CODEGEN_UNITS were unset.
+Builds used `cargo build --offline --release -p kagari-source --example <probe>`
+with temporary examples; compilation and correctness checks are outside timing.
+Input strings are prepared once and resident; code, allocator and data are warm.
+This is neither cold startup nor disk IO measurement.
+
+An initial experiment builds separate baseline and candidate images from the
+actual production constructor, then runs seven alternating process pairs with
+three warmups and eleven samples each. Each timed iteration constructs and drops
+either `LineIndex::new(black_box(text.as_str()))` or
+`SourceFile::new("bench.kgr", black_box(text.as_str()))`, passing the result to
+`black_box` before destruction. SourceFile therefore includes text/name copying,
+identity and Arc creation. A corpus iteration processes every file separately.
+Batch sizes double until the baseline calibration reaches 3 ms, then target
+10 ms per sample. Initial images calibrate independently.
+
+That experiment's A/A control has substantial drift: the corpus SourceFile
+candidate/control paired ratio ranges from 1.0334 to 1.7989 despite identical
+binaries, and the index ratio ranges from 1.1068 to 1.5042. Its observed corpus
+SourceFile ratio of 0.8796 is not accepted as a stable end-to-end improvement.
+Several synthetic rows also fluctuate or reverse. Do not infer parser speedups
+from this noisy whole-SourceFile diagnostic.
+
+The follow-up isolates index construction in one executable: the production
+baseline and a module copy of the candidate constructor share the same harness.
+It runs seven fresh processes, three warmup batches per implementation, and
+21 adjacent sample pairs per workload, alternating baseline/candidate order on
+every pair. Both use the same batch count calibrated from the baseline to 10 ms;
+the faster candidate is deliberately allowed shorter batches. Timing includes
+allocation and destruction, not only scanning. Results can include code-generation
+and allocator effects; they do not identify an isolated instruction cost.
+Three additional A/A processes use the baseline constructor in both slots.
+The full experiment takes 83.3 s for separate images and 52.1 s for paired indexing.
+
+For reproduction, the core timed body is sketched below (setup omitted):
+
+```text
+let start = Instant::now();
+for _ in 0..iterations {
+    for text in texts {
+        // Run the original or candidate constructor in alternating batches.
+        drop(black_box(LineIndex::new(black_box(text.as_str()))));
+    }
+}
+let ns_per_iteration = start.elapsed().as_secs_f64() * 1e9 / iterations as f64;
+```
+
+The candidate is the original constructor with the loop substitution above and
+the enclosing `if byte == b'\n'` removed. No pre-count, reserve, reuse, density
+heuristic or parallel scanning is added. Use the workload recipes below and the
+sampling/calibration policy above; raw local files are not required to define
+the experiment.
+
+### Inputs and paired index results
+
+`line` is the following 77-byte UTF-8 string, including its final LF:
+
+```text
+fn sample(value: i32) -> i32 { value * 17 + 42 } // source indexing workload
+```
+
+| Workload | Recipe | Bytes | Indexed lines |
+| --- | --- | ---: | ---: |
+| empty | Empty string | 0 | 1 |
+| tiny | `x` | 1 | 1 |
+| small | `fn main() -> i32 {\n    42\n}\n` | 28 | 4 |
+| lf_medium | `line.repeat(900)` | 69,300 | 901 |
+| lf_large | `line.repeat(14_000)` | 1,078,000 | 14,001 |
+| crlf_large | lf_large with LF replaced by CRLF | 1,092,000 | 14,001 |
+| utf8_large | `"// 中文 😀 café\r\n".repeat(50_000)` | 1,100,000 | 50,001 |
+| no_newline | `"x".repeat(1_048_576)` | 1,048,576 | 1 |
+| long_lines | `("x".repeat(4095) + "\n").repeat(256)` | 1,048,576 | 257 |
+| short_lines | `"x\n".repeat(32_768)` | 65,536 | 32,769 |
+| dense_newlines | `"\n".repeat(65_536)` | 65,536 | 65,537 |
+| syntax_corpus | All 48 direct `.kgr` children of `examples/syntax`, sorted by path, read as checked out at c47e3df6 | 37,472 | 1,235 |
+
+Times are medians of seven process medians, in microseconds per complete workload.
+Each process ratio is the median of its 21 adjacent candidate/baseline sample
+ratios; the displayed ratio is their median, not the quotient of rounded times.
+The range contains all seven process ratios. A/A is the corresponding median
+over three control processes.
+
+| Workload | Original us | memchr us | Paired ratio | Process ratio range | A/A ratio |
+| --- | ---: | ---: | ---: | --- | ---: |
+| empty | 0.098 | 0.099 | 1.0067 | 1.0055..1.0179 | 0.9969 |
+| tiny | 0.099 | 0.100 | 1.0098 | 1.0035..1.0217 | 0.9938 |
+| small | 0.705 | 0.707 | 1.0038 | 0.9935..1.0065 | 1.0006 |
+| lf_medium | 39.042 | 8.241 | 0.2111 | 0.2071..0.2114 | 0.9973 |
+| lf_large | 679.613 | 193.747 | 0.2825 | 0.2784..0.2923 | 1.0003 |
+| crlf_large | 687.915 | 189.667 | 0.2752 | 0.2654..0.2911 | 0.9979 |
+| utf8_large | 833.292 | 505.500 | 0.6208 | 0.5816..0.6708 | 0.9880 |
+| no_newline | 463.086 | 17.823 | 0.0382 | 0.0378..0.0389 | 1.0009 |
+| long_lines | 473.911 | 22.314 | 0.0476 | 0.0471..0.0481 | 1.0022 |
+| short_lines | 165.987 | 253.079 | 1.5029 | 1.3258..1.6703 | 0.9980 |
+| dense_newlines | 445.072 | 656.067 | 1.4537 | 1.4002..1.5080 | 0.9963 |
+| syntax_corpus | 80.090 | 62.825 | 0.7841 | 0.7798..0.7924 | 0.9990 |
+
+All individual A/A process median ratios in the paired experiment are within
+0.9669..1.0115. This supports the direction of the ordinary-source improvements
+and dense-newline regressions; sub-percent small-file changes are not useful wins.
+The real corpus reduces index construction time by 21.6%, ordinary large LF/CRLF
+inputs by about 72%, and long sparse-newline inputs by about 95%. The workloads
+with one character per line or only empty lines instead increase time by 50.3%
+and 45.4%. These reductions
+and increases use paired ratios. Newline density is therefore material, and a
+universal speedup claim would be false. Allocation/output work remains per line;
+the experiment does not attribute each regression to a particular mechanism.
+
+For typical source files, replacing just the loop is a promising small follow-up.
+Do not add a density detector or a second scanning policy on this evidence alone.
+The real parse/lower pipeline has not been measured here; the index-only gain
+cannot be reported as an overall parsing or compiler improvement. Memory use was
+not instrumented, and no allocation-reduction claim is made.
+
+Correctness compares complete start/end arrays against the original algorithm for
+all workloads and 3,905 generated strings of lengths 1 through 5 over
+`a`, CR, LF, `中` and `😀`, plus the empty workload. This covers leading/trailing
+newlines, adjacent CR/LF combinations and multibyte text. The candidate also passes
+`cargo test --offline -p kagari-source --lib unicode_positions_reject_partial_codepoints_and_crlf`.
+Temporary probes and the candidate dependency were removed. Only this report
+remains changed; complete platform/backend suites were not run for this experiment.
+
+Frozen image SHA-256:
+
+- Separate baseline: `b710508fdc33fa7e9b454ee333cfa8c3babb3fd730256c3a104a92b5c456b139`.
+- Separate memchr candidate: `35533bc15f57c0bc11f137fe183d7f5c02c77be21f225c6c4d62f5346fa74db2`.
+- Paired index probe: `765390db811b1a33631ac15dd5ded74fcb49c64cf0f18fe07a5240faec88da05`.
+
+## Current typed AST diagnostics, Windows 2026-11-05
+
+This investigation starts from `1d8d00d4`, including the syntax/HIR correctness
+repairs. It compares current typed syntax with itself, not with Rowan. A temporary
+short-list builder did not establish a speed improvement and was removed.
+Existing visitor APIs show a concrete opportunity to avoid temporary traversal
+allocations. The later allocation investigation retains a measured lexer borrowing
+change. No AST storage migration or end-to-end compiler speedup is claimed.
+
+### Environment and method
+
+Intel Core i7-10700F, 16 logical CPUs, Windows 10 build 19045, x86_64 MSVC;
+Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`). RAM capacity
+was not available through the sandbox's machine inventory. Workspace release,
+default features/build parallelism, one measurement thread, resident sources and
+warmed allocator/code/data. No affinity or CPU-frequency controls; all four build
+environment overrides listed in the macOS report are unset. Compilation and
+tests finish before timing. The existing workload recipes, input hashes and
+three-warmup/eleven-sample configuration remain unchanged. Allocation counting is
+separate from timing. These Windows measurements are not comparable speed ratios
+against the macOS numbers below.
+
+### Short-list construction experiment: not adopted
+
+Only `Parser::list` changed: a `SmallVec<[ListEntry<T, S>; 1]>` builder replaces
+`Vec`, then `into_vec().into()` produces the same boxed AST list. All existing
+list indices, checks, recovery and ownership remain. The bounded stack buffer
+trades transient allocation for inline storage and spill/copy work. This follows
+the existing smallvec 1.16.3 dependency's
+[inline/spill ownership](https://docs.rs/smallvec/1.16.3/smallvec/struct.SmallVec.html)
+and Rust 1.99.1's [Vec-to-box conversion](https://doc.rust-lang.org/1.99.1/std/vec/struct.Vec.html#method.into_boxed_slice),
+which discards spare capacity. It does not replace retained lists with SmallVec,
+introduce an arena, or alter runtime/GC ownership.
+
+Seven fresh alternating baseline/candidate process pairs retain all samples.
+Input hashes and correctness evidence match. Times are medians of process medians
+in microseconds for lex + parse + final destruction; ratios are medians of paired
+ratios, not quotients of displayed medians. Spread is process range / median.
+
+| Workload | Current µs | Prototype µs | Paired ratio | Spread current/prototype |
+| --- | ---: | ---: | ---: | ---: |
+| small | 5.937 | 5.717 | 0.9643 | 36.5% / 59.4% |
+| medium | 1337.818 | 1324.044 | 0.9940 | 3.5% / 45.7% |
+| large | 19830.500 | 19629.250 | 0.9945 | 7.5% / 12.8% |
+| trivia | 1117.128 | 1113.547 | 0.9901 | 13.2% / 54.4% |
+| syntax_corpus | 431.250 | 435.459 | 1.0121 | 4.0% / 7.6% |
+| recovery | 101.359 | 106.931 | 1.0345 | 5.8% / 164.7% |
+| limits | 13.351 | 14.415 | 1.0799 | 5.4% / 210.1% |
+| declarations | 363.706 | 387.224 | 1.0418 | 4.8% / 35.0% |
+
+Parse-to-HIR paired ratios for small/medium/large/trivia/corpus are
+0.9960 / 0.9917 / 1.0087 / 0.9567 / 1.0121. All five have at least one process
+spread above 10%; no lowering improvement is established. The runner's historical
+Rowan-migration acceptance returns false, including its inapplicable 20% replacement
+target and unresolved noise. No thresholds were changed, samples discarded or
+favorable retries selected. This is an exploratory result, not accepted performance.
+
+Four repeated allocation lifecycles agree. Parse requests decrease from
+8474 to 8218 for medium, 135201 to 131105 for large, and 4389 to 4261 for inline
+retention. That is only about 3%, despite changing the shared list builder.
+All nine workloads have unchanged peak and retained bytes; large remains
+7,499,837 peak / 4,781,128 retained requested bytes. All owners release to zero.
+Fewer requests alone do not justify the extra builder machinery. The experiment
+does not show that parser allocation in general is cheap or that a different
+buffer size would win; CPU/allocation attribution is needed before further changes.
+
+Baseline image SHA-256:
+`7b0dcd165a96e86b7e4318bd67e154a902e2bf21105490c3838d75710c24b35a`;
+prototype: `5c917595288e82b17f9c6c7edb5cf5383425b7776330f45ea5f066561ffa276f`.
+Paired report stamp: `20261105T040723451873Z`. The earlier single-process freeze
+only supplied an immutable image/metadata; its timing is not acceptance evidence.
+
+### Existing traversal APIs
+
+The [traversal probe](../crates/kagari-hir/examples/ast_baseline/traversal.rs)
+compares physical `NodeRef::descendants()` with `NodeRef::visit()`, and logical
+`ModuleSyntax::descendants()` with `visit_owned()`. The logical pair excludes
+independently owned child-module bodies; do not compare it against the physical
+pair when nested modules exist. Every pair checks equal node counts and an
+order-sensitive checksum of kind and byte span, including malformed-source rows.
+
+Seven fresh processes use the restored production parser. Parse/setup is outside
+timing; each mode calibrates to 20 ms, takes three warmups and eleven measured
+batches, then independently counts allocations for one complete traversal.
+Mode order is fixed (physical iterator, physical visitor, owned iterator, owned
+visitor), not randomized. All processes retain identical counts/checksums and
+allocation counters; every traversal releases its temporary storage to zero.
+Values below are microseconds per complete workload. V/I is the median of each
+process's visitor/iterator ratio. This measures traversal plus the same checksum,
+not a complete lint pass, documentation query or parse-to-HIR lifecycle.
+
+| Workload | Physical iterator µs | Physical visitor µs | Physical V/I | Owned iterator µs | Owned visitor µs | Owned V/I |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| small | 10.880 | 0.935 | 0.0856 | 1.510 | 0.930 | 0.6176 |
+| medium | 2684.062 | 235.436 | 0.0907 | 319.539 | 229.499 | 0.7182 |
+| large | 42010.800 | 4259.800 | 0.1013 | 7100.133 | 4397.940 | 0.6019 |
+| trivia | 2621.333 | 245.352 | 0.0903 | 424.470 | 233.052 | 0.5488 |
+| syntax_corpus | 714.614 | 70.822 | 0.0999 | 93.570 | 70.657 | 0.7689 |
+| recovery | 221.677 | 21.353 | 0.0950 | 24.931 | 22.087 | 0.8902 |
+| limits | 9.870 | 2.222 | 0.2286 | 2.656 | 2.280 | 0.8363 |
+| declarations | 842.888 | 81.802 | 0.0975 | 87.482 | 80.769 | 0.9182 |
+
+Timing noise remains material: large physical iterator/visitor spreads are
+7.1% / 17.3%, owned spreads 36.0% / 27.0%; corpus owned spreads are 18.0% / 13.3%.
+Declarations is the quieter row: physical spreads 5.3% / 3.4%, owned 5.9% / 5.9%.
+These observations establish a useful direction and deterministic allocation
+cost, not a precise accepted speedup percentage for production consumers.
+
+| Workload/scope | Iterator allocation requests | Iterator requested bytes | Visitor requests/bytes |
+| --- | ---: | ---: | ---: |
+| medium physical | 31,502 | 3,319,696 | 0 / 0 |
+| medium owned | 13 | 786,336 | 0 / 0 |
+| large physical | 503,826 | 53,116,816 | 0 / 0 |
+| large owned | 17 | 12,582,816 | 0 / 0 |
+| syntax_corpus physical | 8,551 | 881,000 | 0 / 0 |
+| syntax_corpus owned | 82 | 169,344 | 0 / 0 |
+| declarations physical | 10,766 | 1,240,976 | 0 / 0 |
+| declarations owned | 11 | 196,512 | 0 / 0 |
+
+Requested bytes are cumulative allocator requests, including reallocations, not
+peak memory or RSS. Physical iteration materializes elements and children per
+node. Logical iteration already uses the visitor internally, but eagerly collects
+the entire logical module into a vector before its consumer starts. Lint policy,
+lint rules and documentation queries use that logical API; the much larger
+physical-iterator factor must not be attributed to those callers. Direct typed
+field access and HIR lowering do not automatically pay either iterator cost.
+
+The existing [Rust compiler visitor model](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_ast/visit/index.html)
+(documentation `rustc_ast` 1.101.0-nightly, `6f5da406b`) supports borrowed field
+walking without materializing a node inventory. Kagari already has this mechanism.
+Its authored-order and logical-module boundaries differ from rustc's documented
+execution-order traversal and must remain Kagari-owned. A future consumer change
+should reuse these visitors or a bounded lazy traversal, preserving cancellation,
+attribute ownership and independent child-module scopes. Actual lint/query timing
+must establish the end-to-end benefit before adoption; no new cache is proposed.
+
+Traversal image SHA-256:
+`d72dc8b555d4f5554614a7b55f46732cd3b1ee76d54b3911715470c5b9ca7949`.
+Reproduce with workspace release `cargo build --release -p kagari-hir --example
+ast_baseline`, then run `target/release/examples/ast_baseline --traversal` in seven
+separate sequential processes. Use the median of each mode's eleven samples,
+then report medians/ranges across processes and paired within-process ratios.
+The short-list experiment uses the unchanged runner with a frozen baseline image
+and the three builder edits described above. All raw outputs remain supplemental;
+the method, results and limits are recorded here.
+
+Validation: 13 focused typed-field/limit contracts pass for the temporary builder;
+the restored benchmark's `--check`, all seven traversal processes, structure,
+formatting, workspace all-target Clippy and diff checks pass. Full workspace and
+feature/backend testing remains CI-only. These traversal results use unchanged
+production syntax/HIR; the later lexer experiment is reported separately.
+
+### Arena and typed storage investigation
+
+This bounded experiment is complete. Its bumpalo 3.20.3/slab 0.4.12 dev-dependency
+references, allocation-event recorder, storage models and `--storage` entrypoint
+have been removed. Existing transitive dependencies of other crates are unchanged.
+The lasting decision is to eliminate avoidable temporary allocation before
+considering AST storage migration; the lexer change below is retained.
+
+On the environment above, seven fresh sequential processes rotated mode order
+inside three warmup and eleven measured rounds, calibrated to 20 ms batches.
+Compilation took 4.26 s and the measured processes took 79.1 s; builds/tests did
+not overlap them. Sources, trace buffers and replay-slot arrays were prepared
+outside timing. An initial pilot overlapping tooling is excluded.
+
+The recorder captured allocation sizes, alignments, reallocations and frees from
+parse construction through final destruction, marking live storage at parse
+return. System replay matched allocation/free counts, requested bytes and
+peak/retained memory exactly; every lifecycle released to zero. These are
+allocation-lifetime measurements, not Rust-type or CPU-stack attribution.
+For large input, 135,201 requests included 12,310 reallocations; 53,251 blocks
+were freed before parse returned, leaving 69,640 live blocks. The separate lexer
+made 53,261 requests. Inspection identified its per-identifier String builder as
+a concrete avoidable cost, isolated in the experiment below.
+
+Naively replaying every allocation into one bump arena per physical file retained
+33,550,624 bytes instead of 4,781,128 for large input, exceeding the current
+7,499,837-byte peak by about 4.5 times. This model ignores individual frees and
+copies resized buffers; scratch storage, superseded buffers and chunk slack stay
+until final drop. System/bump replay took 10.430/4.820 ms, versus 20.301 ms for
+actual parse/drop. Replay omits grammar, normal payload initialization and
+ordinary destructor work while adding event dispatch and slot checks. Its times
+cannot be subtracted from parser time to predict a speedup. Process spreads were
+10.4%/14.3% for the two replays, so exact percentages are not acceptance evidence.
+
+A separate synthetic model retained site/operator payloads, named left/right
+roles and missing-role anchors. All stores produced the same ordered checksum
+and released to zero. The nested recipe built 64 depth-seven binary trees
+(8,128 binary nodes), starting with empty stores and ordinary growing root Vecs.
+Timing included construction, checksum traversal and final destruction:
+
+| Store | Median microseconds | Retained/peak requested bytes |
+| --- | ---: | ---: |
+| Box | 623.333 | 456,192 |
+| bump references | 175.016 | 524,640 |
+| typed Vec IDs | 153.398 | 295,424 |
+| slab IDs | 157.807 | 328,192 |
+
+All four nested timing spreads were below 5%. Pointer nodes were 56 bytes,
+matching current BinaryExpr width; typed-ID model nodes were 36 bytes. These
+results concern one synthetic node family, not a complete parser or HIR pipeline.
+The append-only stores retained discarded branches in a separate missing-role
+recipe; slab removal/key reuse was deliberately unused because published syntax
+has no arbitrary-deletion requirement. No arena-backed parser was implemented.
+
+[bumpalo 3.20.3](https://docs.rs/bumpalo/3.20.3/bumpalo/struct.Bump.html) does not run
+allocated values' destructors and its allocator is not Sync. A real candidate
+would need separate builder/final-storage ownership and sound snapshot sharing.
+[slab 0.4.12](https://docs.rs/slab/0.4.12/slab/) provides uniform reusable slots,
+which have no demonstrated advantage over typed append-only storage here.
+The [Rust arena guide](https://rustc-dev-guide.rust-lang.org/memory.html)
+(consulted 2026-11-05) and
+[IndexVec documentation](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_index/vec/struct.IndexVec.html)
+(1.101.0-nightly, `7189d39d9`) supply mature ownership mechanisms. Kagari instead
+needs per-physical-file ownership lasting until the final retained view dies;
+compiler-context arenas and typed indexes alone do not establish that contract.
+
+No storage migration is queued from this experiment. Only renewed real-path
+profiling could justify one, followed by actual parse/HIR, recovery, cancellation,
+limits and old/inline-view acceptance. Historical probe image SHA-256:
+`54a4d9cb3ed88e04f5ffe25c5f9c723893628aa94337ce0ee9c48a7233b91f79`.
+The method and bounded findings remain here; the removed experiment is not a
+currently supported benchmark command.
+
+### Borrow identifier spellings: retained local optimization
+
+Allocation attribution identified a simpler production change than an AST arena:
+`lexer::lex_with_cancellation` constructed a temporary String for every ASCII
+identifier/keyword, used it for classification, then discarded it. The scanner
+already knows the start and end byte positions. It now classifies the borrowed
+source slice instead. Token construction, keyword classification, cancellation
+polling, unknown-Unicode handling and source spans use their existing paths.
+AST node layouts and source snapshot ownership do not change.
+
+Seven alternating baseline/candidate process pairs compare only this scanner
+change, using the same benchmark harness and dev dependencies in both images.
+Workload hashes, token/diagnostic counts, logical field checksums and HIR function
+counts match before/after measurement. All samples are retained. The existing
+default suite measures lex/drop, parse/drop, split construction/destruction,
+parse-to-HIR/drop and retained field reads; its three warmups and eleven samples
+are unchanged. Compilation took 37.86 s, focused tests/Clippy completed before
+timing, and the fourteen measured processes took 225.9 s. Source/code/allocator
+are warm as above; no affinity/frequency controls or background-load guarantee.
+
+| Workload | Baseline parse/drop µs | Borrowed spelling µs | Paired ratio | Process spread baseline/candidate |
+| --- | ---: | ---: | ---: | ---: |
+| small | 6.264 | 5.247 | 0.8471 | 3.9% / 7.4% |
+| medium | 1413.921 | 1161.825 | 0.8133 | 8.1% / 4.5% |
+| large | 20138.000 | 16138.850 | 0.8004 | 6.2% / 8.5% |
+| trivia | 1187.435 | 931.830 | 0.7851 | 3.0% / 3.4% |
+| syntax_corpus | 441.074 | 377.924 | 0.8557 | 4.4% / 3.0% |
+| recovery | 107.335 | 84.906 | 0.7943 | 1.4% / 5.9% |
+| limits | 13.093 | 13.473 | 1.0264 | 2.4% / 2.8% |
+| declarations | 387.054 | 257.493 | 0.6653 | 0.9% / 4.9% |
+
+The primary parse/drop rows improve about 15–21% in these paired medians, corpus
+about 14%, and declarations about 33%. The limits workload regresses about 2.6%
+(roughly 0.38 microseconds); it has only four removed requests. This observation
+is retained, not discarded as an inconvenient sample. The tiny-row cause is not
+isolated by this experiment; the local change is retained for the substantial
+ordinary-input improvement and simpler source-backed ownership.
+
+Lexer-only paired ratios for small/medium/large/trivia/corpus are
+0.3896 / 0.5733 / 0.4849 / 0.4045 / 0.4805. Medium is noisy (18.9% / 63.1% spread),
+so its exact lexer percentage is not reliable. Parse-to-HIR/drop paired ratios
+are 0.9837 / 0.8728 / 0.9325 / 0.9618 / 0.9567 respectively; medium again exceeds
+10% noise (14.6% / 18.9%). Large measures 72.922 / 68.146 ms, corpus
+1.220 / 1.165 ms. These measure syntax plus structural lowering, not full static
+analysis or compilation. Retained field-read ratios are 1.0041 / 1.0422 / 1.0091 /
+1.0023 / 1.0007; medium candidate spread is 14.8%, and node layouts are unchanged.
+No field-access optimization or precise small lowering improvement is claimed.
+
+| Workload | Parse requests before | After |
+| --- | ---: | ---: |
+| small | 46 | 33 |
+| medium | 8,474 | 5,146 |
+| large | 135,201 | 81,953 |
+| trivia | 8,484 | 5,156 |
+| syntax_corpus | 2,797 | 1,861 |
+| recovery | 858 | 538 |
+| limits | 58 | 54 |
+| declarations | 3,353 | 1,561 |
+| inline_retention | 4,389 | 2,661 |
+
+Four repeated memory lifecycles per image agree: every row retains exactly the
+same bytes and peak as before, and releases to zero including the independently
+retained inline-module view. Large eliminates 53,248 requests (39.4%) without an
+allocator or node-storage migration. The lexer/string finding explains why arena
+request-count reductions alone would have overestimated the necessary scope.
+
+Baseline image SHA-256 is the storage-probe image above. Candidate:
+`fafe73fcd505381d006ad74c5ec652ec5c3a1a1be6b3cb90b5fbbad9ea2c6886`.
+Both measured images contained the temporary storage diagnostics, now removed
+along with their dev-dependency references. These timings remain evidence for
+the isolated lexer change; no new timing claim is made for experiment cleanup.
+After cleanup, the rebuilt benchmark passes all eight correctness workloads;
+all nine memory workloads repeat four lifecycles with exactly the candidate's
+allocation evidence, including retained-view teardown. The unchanged lexer keeps
+its focused-test evidence; structure, fmt, workspace Clippy and diff checks pass.
+To reproduce, freeze one release executable with the original String builder
+and one with the borrowed source slice. Run each with no arguments in seven
+alternating process pairs and run each image's `--memory` mode separately. Use
+the existing benchmark validator for workload identity/correctness, aggregate
+eleven-sample process medians and retain each pair's candidate/baseline ratio.
+Historical Rowan replacement thresholds are not used as acceptance for this
+local optimization; no existing runner threshold is changed.
+
+Validation selects the directly affected scanner and its source/AST boundary:
+19 `cargo test -p kagari-syntax --lib lexer` tests, three `--lib cancellation`
+tests and seven `--test typed_fields` tests pass. No new duplicate test is needed.
+Benchmark identity checks, repeated memory lifecycles, structure, fmt, workspace
+all-target Clippy and diff checks pass. Structure uses the cached environment
+with the checker's locked parser dependencies because the default uv cache is
+restricted. Full-workspace and complete backend/feature validation remain CI-only.
+
+### Coarse syntax cancellation: first version
+
+This follow-up compares `18b1df0c` with the first coarse-cancellation implementation.
+The objective is simpler checkpoint ownership: ordinary token queries no longer
+poll, grammar sequence owners use one local stop helper, and long scans use about
+4 KiB of source progress or 1024 physical records. Shared literal decoding changes
+only its polling cadence. Token semantics, exact limits and AST storage are unchanged.
+The [syntax contract](architecture/syntax.md#failure-and-resource-boundaries)
+owns scope, checkpoint responsibilities and the design rationale.
+
+The machine/toolchain, workspace release profile, default features/parallelism,
+single measurement thread and warm-source methodology are the Windows environment
+above. Seven fresh alternating executable pairs use the existing eight workload
+recipes, three warmups and eleven samples; compilation/tests do not overlap timing.
+Allocation counting is separate. Reproduction: freeze the baseline release example,
+build the candidate with `cargo build --offline --locked --release -p kagari-hir
+--example ast_baseline`, then run both executables without arguments in alternating
+order seven times and with `--memory` separately. Validate workload identity and
+correctness using `scripts/benchmark_ast.py`; aggregate process medians and paired
+ratios without applying the historical Rowan replacement thresholds.
+
+The final candidate build took 34.84 s; the fourteen timed processes took 222.8 s.
+All eight workload identities and correctness records match. Times below are
+medians of process medians; ratios are medians of paired ratios, so they need not
+equal the quotient of displayed times. Spread is process range / median.
+
+| Workload | Baseline parse/drop µs | Coarse µs | Paired ratio | Spread baseline/candidate |
+| --- | ---: | ---: | ---: | ---: |
+| small | 4.985 | 4.966 | 0.9901 | 3.4% / 9.7% |
+| medium | 1105.021 | 1110.644 | 1.0215 | 8.5% / 16.2% |
+| large | 15806.050 | 15760.750 | 0.9682 | 13.9% / 19.8% |
+| trivia | 883.885 | 887.081 | 1.0012 | 5.3% / 3.3% |
+| syntax_corpus | 371.245 | 363.914 | 0.9766 | 12.6% / 9.9% |
+| recovery | 80.977 | 79.622 | 0.9800 | 2.9% / 7.5% |
+| limits | 13.121 | 12.060 | 0.9171 | 25.6% / 6.0% |
+| declarations | 246.224 | 243.014 | 0.9892 | 1.7% / 3.3% |
+
+Normal parsing is broadly similar; these noisy samples do not establish a general
+speed improvement or exclude small regressions. Medium's adverse parse ratio is
+retained. Its split-construction ratio is 1.0596 (15.0% / 44.0% spread) and
+parse-to-HIR ratio is 1.0314 (9.7% / 21.0%). Parse-to-HIR ratios for
+small/large/trivia/corpus are 1.0083 / 1.0056 / 0.9910 / 0.9893; large has
+17.8% / 17.5% spread. No HIR or end-to-end compiler improvement is claimed.
+Lexer ratios for small/medium/large/trivia/corpus/recovery/limits/declarations are
+0.9492 / 0.9759 / 0.9791 / 0.9541 / 1.0038 / 0.8960 / 0.5961 / 0.9280;
+medium/large lexer spreads exceed 40% in at least one image. Fewer atomic reads
+alone do not imply a proportional throughput gain. The first version is retained
+for simpler ownership, with the noise and adverse rows open to review.
+
+All nine memory workloads are exactly equal between images over four lifecycles,
+including allocation/reallocation counts, peak/retained bytes and complete release
+after the retained inline view is dropped. Large remains 81,953 requests,
+7,499,837 peak bytes and 4,781,128 retained bytes. No allocation optimization is
+claimed for the cancellation change. Frozen executable SHA-256 values:
+
+- Baseline: `b81837cd552782f61e2eccb2d8aad02785d7b59f0ff323145eb7263af2bdc537`.
+- Candidate: `201b38689d68d83beaf9e96a7ca4381634e35b862869e3c98b7203116c6f4a82`.
+
+The subsequent `ParseOptions` entrypoint consolidation updates benchmark callers
+without changing workload recipes. It has not been retimed; the hashes and timings
+above describe the frozen pre-consolidation images, not a new API performance claim.
+
+#### Current-version cancellation response diagnostic
+
+A temporary release-test probe extends the deterministic private test hook with
+timestamps, requests cancellation just after a successful production check, and
+records the next observing check and the outer return. It uses three warmups and
+30 measured repetitions per prepared source in one process. The ordinary benchmark
+contains no probe. Temporary timestamp instrumentation is removed; deterministic
+correctness hooks remain test-only. Probe compilation took 8.64 s; the complete
+probe test took 1.19 s, separately from normal-path timing.
+
+Recipes: an 8 MiB ASCII block comment, cancellation after byte 4096; an array with
+131,072 `1,` entries in `fn f() { val xs = [...]; }`, requested after grammar
+checkpoint 16 or 65,536 (physical record 43 or 131,083); and an attribute
+`#[meta(...)] fn f() {}` with 131,072 `1,` entries, requested after lookahead record
+1024. All requests follow real scanning/parsing work and all returns are cancelled.
+
+| Input / request point | Observation median / p95 / max µs | Return median / p95 / max µs |
+| --- | ---: | ---: |
+| Long comment | 5.5 / 6.3 / 6.3 | 5.5 / 6.3 / 6.4 |
+| Array, early | 0.2 / 0.5 / 1.0 | 114.95 / 157.3 / 203.2 |
+| Array, later | 1.1 / 1.7 / 3.6 | 763.15 / 955.9 / 1170.6 |
+| Attribute lookahead | 1.7 / 2.8 / 2.9 | 127.6 / 173.9 / 174.3 |
+
+The nearest-rank p95 includes every measured sample. Late-array return is dominated
+by scope completion and destruction after observation, rather than the interval
+between checks. These are selected same-thread request points, not a distribution
+of arbitrary cross-thread requests or an OS-scheduling bound. Test-hook/timestamp
+overhead is included. There is no matched old-version response measurement, so no
+response improvement/regression claim follows. Lexical newline search, numeric and
+character validation, conversions and larger destruction workloads are not bounded
+by this table. No hard deadline is promised; the fixed intervals remain unchanged.
+
+Local validation selects lexer/interpolation/declaration/cancellation/limit tests
+(37), source literal tests (10), and typed-field/recovery/retained-view tests (7).
+All 54 pass. The former worker-spawn race is replaced by deterministic requests
+inside text scans, grammar/recovery, speculative lookahead and final publication;
+decoder tests also cancel after emitting the first character. Full-workspace tests
+and complete backend/feature/platform matrices remain CI-only.
+Formatting, structural checks, workspace all-target Clippy with warnings denied,
+and diff checks pass. The structural checker uses its cached locked-dependency
+environment because the default uv cache is restricted.
+
+The subsequent entrypoint migration passed 29 focused tests: 13 syntax
+cancellation/limits/declaration tests, seven typed-field/retention tests, four HIR
+native-declaration/cache-invalidation tests, three formatter tests and two package
+input/recovery tests. CLI parsing of valid source, malformed source and 300 unknown
+tokens returned the expected exit codes 0/1/1, with diagnostic-budget exhaustion
+reported for the last input. The final syntax documentation has five passing
+doctests and passes rustdoc with broken intra-doc links denied. These checks
+validate the API/documentation follow-up; the frozen timing evidence is unchanged.
+
+## Strongly typed AST replacement, macOS 2026-11-05
+
+The production parser and all source consumers use owned grammar fields. The
+[syntax architecture](architecture/syntax.md) owns current contracts. Rowan,
+raw-tree construction and the bounded representation prototype are removed.
+This measurement accepts the local TA1–TA4 replacement; complete CI remains
+pending. These are parser/source-lowering results, not runtime or complete
+compilation speed claims.
+
+### Environment and measurement control
+
+Production candidate: `8fdf19e6`, plus the field-only measurement calibration
+recorded below. The Rowan control is production source from `e1b38ebb`, rebuilt
+with exactly that same calibration; no control production source changed.
+Apple M1 Max, 10 logical CPUs, 32 GiB RAM; macOS 26.6.2 arm64; rustc 1.99.1
+`58cf8f9c35b355199727627d07ae34a4e2846d67`, LLVM 23.1.1; cargo 1.99.1
+`5f94df478`. Both use workspace release, default features and Cargo parallelism,
+one measurement thread, resident inputs and warmed allocator/code/data. No
+compilation, tests or another benchmark overlap the accepted timed processes.
+CPU frequency and affinity are not fixed; normal launch/QoS and ASLR apply.
+`RUSTFLAGS`, `CARGO_ENCODED_RUSTFLAGS`, `CARGO_BUILD_JOBS` and `RUSTC_WRAPPER`
+are unset. Allocation counting is inactive during timing.
+
+Seven fresh baseline/candidate process pairs alternate execution order. Each
+stage has three warmup batches and eleven measured batches. Times are batch
+means, then process medians; C/B is the median of seven paired ratios. This is
+not individual-operation p99. Lifecycle calibration targets 20 ms with a one-call
+probe and at most 100,000 iterations. Field calibration targets 100 ms with a
+1,000-read untimed probe and at most 10,000,000 iterations. Actual iterations
+remain recorded for every stage/process.
+
+The field calibration is an explicit correction to the initial frozen method.
+The original one-call probe and 100,000 cap gave only about 1.7 ms for the new
+17 ns small-row reads; a complete initial comparison failed its 10% noise gate.
+Scheduling and fixed-address diagnostics did not resolve that row and are not
+accepted results. The same field-only correction was applied to both images.
+Inputs, logical reads, three/eleven sampling, seven pairs and every numerical
+budget remain unchanged. The original frozen image is retained with SHA-256
+`270fd10917c9f2592f1f41c8add05d1d6c7ccd7ee2099400a5434c8cdbe8557f`.
+Original/rebuilt control input/evidence and all memory counters match exactly.
+The rebuilt control's one-process freeze is metadata preparation, not acceptance.
+
+Accepted report UTC stamp: `20261104T184103054561Z`. Candidate image SHA-256
+`2293257aec7c0661224ae1a7bbff135bf7e7bacc1918d511d967fe86b61a585c`; recalibrated control
+`7b4a49f5788e22a046432f6916b6068ee06a00fc6b802ca8bd2b194e64fdd5d7`. Candidate lock SHA-256
+`8df058e58d1c0a11df6b3734b4c9dead286f65bff63bdd80bd6e724c4a73c826`; control lock
+`431f73298cb3a76908c7b488f2012acfc3b8cebfb17dccf31dee2538db00147b`.
+
+The only resolved dependency changes are orphan removal of `countme 3.0.1`, `hashbrown 0.14.5`, `memoffset 0.9.1`, `rowan 0.17.0`, `rustc-hash 1.1.0`, `text-size 1.1.1`. Retained versions, checksums, sources and other edges match; version-qualified lockfile spelling is normalized for comparison. No ABI/format identifier changed.
+
+### Workloads and timing scopes
+
+[Driver](../crates/kagari-hir/examples/ast_baseline/main.rs),
+[recipes](../crates/kagari-hir/examples/ast_baseline/workloads.rs),
+[allocator probe](../crates/kagari-hir/examples/ast_baseline/allocation.rs) and
+[runner](../scripts/benchmark_ast.py) own the reproducible method. Hashes below
+use length-delimited BLAKE3 over source bytes. Corpus fixtures normalize CRLF to
+LF. File/source/line-index setup, input loading, compilation and correctness
+walks are excluded. Every process checks input hashes, lexical counts, diagnostics,
+function counts and logical field checksums before/after timing.
+
+| Workload | Files | UTF-8 bytes | BLAKE3 |
+| --- | ---: | ---: | --- |
+| small | 1 | 77 | `669549a370d6e209ba0dbb72e6b51eceede737246d3ff85d7a5db37594492bd1` |
+| medium | 1 | 20114 | `af7413102e1b5c17c7d52864469f82a618c6f77474d5370dde8ec429f3b69a01` |
+| large | 1 | 326570 | `c1ae1c000158fbd75daf74df8bbd22ec53527661d49214070c83a3f1ae7e22e4` |
+| trivia | 1 | 34450 | `d851a4cfeebc30d42f18a178c127713ff0bf69b01bdaa5004dd890f1860a5055` |
+| syntax_corpus | 12 | 9268 | `44aeb6877a0b8c35b926f449e61dfcfd7e7420e4b47f7952b95cb138d83035aa` |
+| recovery | 1 | 2038 | `f1667a1b1211e31b3d5f8f2c888c61acf360c2cf0d3df6a0cfeb91123dd0060e` |
+| limits | 1 | 352 | `9feb535f2264a812ffa02fd8a427c128cc6d26f146b8d5bdd91675388ce50b1d` |
+| declarations | 1 | 8338 | `9d58d0c4a6e74b24af28be51b7f8418d3a42f713ba78f70c8f9dc8de47cff10c` |
+| inline_retention (memory only) | 1 | 17558 | `3125435cdfe3c659afecef0da93e5dbe944d66a9da28e3da9026bb7c5d49b2fb` |
+
+`parse_drop` includes lexing, fresh parsing and final destruction. Split
+construction/drop has extra timer reads and is diagnostic. `field_read` repeats
+lhs/operator/rhs, callee/arguments and condition/then/else reads of preselected
+nodes; discovery is excluded, so this is not complete AST traversal.
+`parse_hir_drop` calls public `lower_module`: parse, structural root-module HIR,
+SourceMap and teardown. It excludes name/type checking, full inline-child/package
+preparation and executable lowering. Do not subtract independent lexer/parse
+rows to invent parser-only or HIR-only timings.
+
+### Required lifecycle results
+
+Times are microseconds per complete workload (the corpus row contains 12 files).
+Ranges are candidate process-median minimum/maximum. Spreads are baseline/candidate
+process range divided by their respective medians. The four primary rows each
+require C/B <= 0.80; all other parse rows require <= 1.05.
+
+| Row | Baseline µs | Candidate µs | Candidate range µs | Paired C/B | Candidate MiB/s | Spread B/C |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| small | 6.249 | 3.044 | 3.017–3.160 | 0.4891 | 24.13 | 3.2% / 4.7% |
+| medium | 842.858 | 603.399 | 601.671–609.217 | 0.7157 | 31.79 | 0.6% / 1.3% |
+| large | 14094.312 | 10005.917 | 9999.917–10032.666 | 0.7105 | 31.13 | 3.3% / 0.3% |
+| trivia | 890.822 | 665.634 | 664.582–670.006 | 0.7487 | 49.36 | 1.5% / 0.8% |
+| syntax_corpus | 382.119 | 225.605 | 225.019–226.235 | 0.5903 | 39.18 | 4.0% / 0.5% |
+| recovery | 84.363 | 60.396 | 59.996–60.782 | 0.7147 | 32.18 | 3.9% / 1.3% |
+| limits | 15.873 | 7.368 | 7.361–7.384 | 0.4643 | 45.56 | 0.8% / 0.3% |
+| declarations | 265.998 | 216.976 | 216.714–217.202 | 0.8166 | 36.65 | 1.0% / 0.2% |
+
+| Valid row | Parse-to-HIR candidate µs | HIR C/B | Field candidate ns/workload | Field C/B | Maximum required spread B/C |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| small | 8.489 | 0.3623 | 17.580 | 0.0162 | 3.0% / 9.6% |
+| medium | 1755.977 | 0.3536 | 3903.948 | 0.0139 | 1.2% / 2.5% |
+| large | 32984.000 | 0.3818 | 62338.231 | 0.0139 | 6.8% / 2.4% |
+| trivia | 1895.847 | 0.3769 | 3908.774 | 0.0139 | 1.1% / 1.1% |
+| syntax_corpus | 573.068 | 0.3739 | 803.887 | 0.0166 | 0.7% / 1.1% |
+
+All five parse-to-HIR rows meet <= 1.05 and all five field rows meet <= 1.00. The maximum required process spread is 9.64%, below 10% on both images. No ratio is within 0.02 of its budget; the independent near-threshold repeat rule is not triggered.
+
+### Diagnostic intervals
+
+These ratios are reported separately and do not replace lifecycle gates. A noisy
+auxiliary row cannot establish fine-grained attribution or a standalone lexer win.
+
+| Row | Lexer C/B | Split construction C/B | Split final drop C/B | Auxiliary rows over 10% spread |
+| --- | ---: | ---: | ---: | --- |
+| small | 1.0084 | 0.5069 | 0.3774 | none |
+| medium | 0.9992 | 0.7074 | 0.7959 | none |
+| large | 1.0008 | 0.7036 | 0.7996 | none |
+| trivia | 1.0039 | 0.7454 | 0.7626 | none |
+| syntax_corpus | 0.9970 | 0.6161 | 0.4411 | none |
+| recovery | 0.9974 | 0.7176 | 0.6784 | none |
+| limits | 1.0007 | 0.5192 | 0.2326 | none |
+| declarations | 0.9953 | 0.8147 | 0.8366 | none |
+
+### Owned allocation acceptance
+
+Separate diagnostic processes forward the System allocator and count successful
+allocation/reallocation requests, requested bytes, frees, net live requested bytes
+and peak live requested bytes. Existing source text/line storage is excluded on
+both sides. These are owned requested allocation bytes, not RSS, allocator slab
+size or internal allocator/reallocation working space. Every row repeats four
+complete lifecycles with identical counters and zero live bytes after all owners
+drop. The inline case retains the first child after releasing all root parses,
+then inspects four items and its physical content range before releasing it.
+
+Each peak and retained metric must satisfy C <= B + max(0.10 B, 4096 bytes),
+separately per row. B/C below means baseline/candidate, not a ratio.
+
+| Row | Peak bytes B/C | Parsed retained bytes B/C | After parse handles drop B/C |
+| --- | ---: | ---: | ---: |
+| small | 4592 / 2207 | 3456 / 2143 | 0 / 0 |
+| medium | 764768 / 468805 | 333936 / 269641 | 0 / 0 |
+| large | 12207968 / 7499845 | 5310576 / 4781128 | 0 / 0 |
+| trivia | 805864 / 492365 | 350456 / 291153 | 0 / 0 |
+| syntax_corpus | 164888 / 107895 | 141168 / 96778 | 0 / 0 |
+| recovery | 113304 / 56261 | 54952 / 47823 | 0 / 0 |
+| limits | 32848 / 14072 | 7888 / 3790 | 0 / 0 |
+| declarations | 321664 / 222277 | 87440 / 90203 | 0 / 0 |
+| inline_retention | 572936 / 444109 | 174488 / 152111 | 174064 / 152111 |
+
+All nine rows meet every peak, parsed-retained and independently retained-view
+budget. Allocation counts are reported without a count-based speed claim.
+"After parsing" includes view creation/inspection and all owner release.
+
+| Row | Parse requests B/C | Parse requested bytes B/C | After-parsing requests B/C | After-parsing requested bytes B/C | Final frees B/C | Final freed bytes B/C |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| small | 88 / 46 | 6592 / 3447 | 0 / 0 | 0 / 0 | 88 / 46 | 6592 / 3447 |
+| medium | 6235 / 8474 | 1219976 / 1234733 | 0 / 0 | 0 / 0 | 6235 / 8474 | 1219976 / 1234733 |
+| large | 98415 / 135201 | 19529160 / 19294760 | 0 / 0 | 0 / 0 | 98415 / 135201 | 19529160 / 19294760 |
+| trivia | 6239 / 8484 | 1285648 / 1278809 | 0 / 0 | 0 / 0 | 6239 / 8484 | 1285648 / 1278809 |
+| syntax_corpus | 3418 / 2797 | 460543 / 391225 | 0 / 0 | 0 / 0 | 3418 / 2797 | 460543 / 391225 |
+| recovery | 764 / 858 | 187296 / 172211 | 0 / 0 | 0 / 0 | 764 / 858 | 187296 / 172211 |
+| limits | 77 / 58 | 55528 / 31790 | 0 / 0 | 0 / 0 | 77 / 58 | 55528 / 31790 |
+| declarations | 2629 / 3353 | 567976 / 601663 | 0 / 0 | 0 / 0 | 2629 / 3353 | 567976 / 601663 |
+| inline_retention | 3103 / 4389 | 982920 / 1041391 | 38 / 0 | 1520 / 0 | 3141 / 4389 | 984440 / 1041391 |
+
+The first owned layout exceeded several retained budgets despite lower peaks.
+Measured costs came from absent large optional payloads, retained vector headers
+and redundant lexical extent entries. The integrated model isolates rare clauses,
+uses immutable lists and compact source sites, and stores source-length-proven
+16/32-bit starts plus sparse trivia split exceptions. This retains source identity,
+recovered roles and module lifetimes without a custom allocator, node cache or
+interned graph. It does not infer the proportion of CPU time saved by each change.
+
+### Reproduction and acceptance limits
+
+Preserve the original control image/metadata and source corpus before replacing
+production code. To reproduce the corrected comparison, use an isolated checkout
+of `e1b38ebb`, apply only the field calibration above, and build its release
+`ast_baseline` example. Prepare its frozen image/metadata with the runner, retaining
+that checkout because the corpus root is compiled into the image. Build the
+integrated checkout with the same toolchain/configuration and run:
+
+```text
+cargo build --release -p kagari-hir --example ast_baseline
+target/release/examples/ast_baseline --check
+target/release/examples/ast_baseline --memory
+uv run python scripts/benchmark_ast.py --baseline-executable <recalibrated-control-image>
+```
+
+The runner archives images, exact lockfiles, harness/input hashes, raw samples,
+process ranges, paired ratios and allocation deltas. Its fail-closed tests reject
+missing/nonfinite evidence, changed inputs, invalid memory accounting, unresolved
+required noise and failed budgets. Near-threshold results require a second
+independent complete paired report with identical images. Ignored raw archives
+are supplemental; the method and accepted results are recorded here.
+
+Focused local acceptance covers explicit missing/list/skipped/trivia roles, both
+offset widths, cancellation/depth limits, lowering/source sites, physical inline
+parse/projection ownership, ordinary/native admission, documentation/navigation,
+formatter exact output/token/typed-shape preservation, lint policy and package
+external/inline visibility. Structure, fmt, workspace all-target Clippy with
+warnings denied, diff checks and benchmark-tool tests pass. The analysis-navigation
+checks exercise HIR's actual implementation; an analyzer name filter selecting
+zero tests is not evidence.
+
+Complete acceptance in CI remains outstanding: workspace tests, ignored complete
+formatter grammar inventory, complete editor/syntax inventories, standalone SDK
+feature/source-free consumers, JIT/AOT and Windows/platform contracts. The existing
+[CI workflow](../.github/workflows/ci.yml) owns those jobs. Local results do not
+assert that CI passed or that other machines/features have the same performance.
 
 ## BO08 Kagari/Lua cost attribution, Windows 2026-10-27
 

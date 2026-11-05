@@ -4,7 +4,10 @@ use crate::{
     hir::ids::HirOwner,
     tests::{common::import_facts, test_analysis},
 };
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::{
+    identity::{ModuleIdentity, PackageId},
+    span::Span,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
 
@@ -61,6 +64,11 @@ fn payload_errors_preserve_later_types_and_neighbor_queries() {
         assert_eq!(ty.owner(), HirOwner::Declaration);
         assert!(facts.typed.type_table.type_ref(*ty).is_some());
     }
+    let missing = text.find(", Point) }").unwrap();
+    assert_eq!(
+        facts.lowered.source_map.type_span(variants[2].payload[0]),
+        Span::new(missing, missing)
+    );
     let DeclarationId::Definition(id) = &facts.declarations.variant(variants[2].id).unwrap().id
     else {
         panic!("variant identity")

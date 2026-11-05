@@ -7,7 +7,7 @@
         "span": {
           "end": 18,
           "path": "test.kg",
-          "start": 11
+          "start": 12
         }
       }
     ],
@@ -16,7 +16,7 @@
     "primary": {
       "end": 18,
       "path": "test.kg",
-      "start": 11
+      "start": 12
     },
     "severity": "error"
   }

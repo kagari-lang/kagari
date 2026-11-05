@@ -1,8 +1,7 @@
+use crate::ast::views::ItemView;
+
 use crate::{
-    ast::{
-        expr::Expr,
-        item::{Item, Visibility},
-    },
+    ast::{item::VisibilityKind, views::ExprView},
     tests::common,
 };
 use kagari_source::diagnostic::{DiagnosticKind, Severity};
@@ -13,18 +12,14 @@ fn parses_unit_type_and_unit_value() {
     let function = common::first_function(&module);
 
     let return_type = function.return_type().expect("expected unit return type");
-    assert_eq!(
-        return_type
-            .tuple_type()
-            .expect("expected tuple type")
-            .element_types()
-            .count(),
-        0
-    );
+    let crate::ast::views::TypeView::Tuple(tuple) = return_type.view() else {
+        panic!("tuple type")
+    };
+    assert_eq!(tuple.element_types().count(), 0);
 
     let body = function.body().expect("expected function body");
     match body.tail_expr().expect("expected unit tail expression") {
-        Expr::TupleExpr(tuple) => assert_eq!(tuple.elements().count(), 0),
+        ExprView::TupleExpr(tuple) => assert_eq!(tuple.elements().count(), 0),
         other => panic!("unexpected unit expression: {other:?}"),
     }
 }
@@ -39,20 +34,16 @@ fn apply(effect: effects::SkillEffect) -> crate::Result {
 "#,
     );
     let function = common::first_function(&module);
-    let params = function
-        .param_list()
-        .expect("expected parameter list")
-        .params()
-        .collect::<Vec<_>>();
+    let params = function.param_list().params().collect::<Vec<_>>();
 
     assert_eq!(
-        params[0].ty().and_then(|ty| ty.name_text()).as_deref(),
+        params[0].ty().and_then(common::type_name).as_deref(),
         Some("effects::SkillEffect")
     );
     assert_eq!(
         function
             .return_type()
-            .and_then(|ty| ty.name_text())
+            .and_then(common::type_name)
             .as_deref(),
         Some("crate::Result")
     );
@@ -96,8 +87,8 @@ where T: Display + Clone
     assert_eq!(items.len(), 5);
 
     match &items[0] {
-        Item::StructDef(struct_def) => {
-            assert!(struct_def.visibility() == Visibility::Public);
+        ItemView::StructDef(struct_def) => {
+            assert!(struct_def.visibility() == VisibilityKind::Public);
             assert_eq!(struct_def.name_text().as_deref(), Some("PlayerInfo"));
             assert_eq!(
                 struct_def
@@ -112,7 +103,7 @@ where T: Display + Clone
     }
 
     match &items[1] {
-        Item::EnumDef(enum_def) => {
+        ItemView::EnumDef(enum_def) => {
             let variants = enum_def
                 .variant_list()
                 .expect("expected variants")
@@ -133,26 +124,19 @@ where T: Display + Clone
     }
 
     match &items[2] {
-        Item::TraitDef(trait_def) => {
+        ItemView::TraitDef(trait_def) => {
             assert_eq!(trait_def.name_text().as_deref(), Some("Display"));
             let methods = trait_def.methods().collect::<Vec<_>>();
             assert_eq!(methods.len(), 1);
             assert_eq!(methods[0].name_text().as_deref(), Some("to_string"));
-            assert_eq!(
-                methods[0]
-                    .param_list()
-                    .expect("expected method params")
-                    .params()
-                    .count(),
-                1
-            );
+            assert_eq!(methods[0].param_list().params().count(), 1);
             assert!(methods[0].body().is_none());
         }
         other => panic!("unexpected third item: {other:?}"),
     }
 
     match &items[3] {
-        Item::ImplBlock(impl_block) => {
+        ItemView::ImplBlock(impl_block) => {
             assert_eq!(
                 impl_block
                     .generic_params()
@@ -171,14 +155,14 @@ where T: Display + Clone
             );
             let methods = impl_block.methods().collect::<Vec<_>>();
             assert_eq!(methods.len(), 1);
-            assert!(methods[0].visibility() == Visibility::Public);
+            assert!(methods[0].visibility() == VisibilityKind::Public);
             assert!(methods[0].body().is_some());
         }
         other => panic!("unexpected fourth item: {other:?}"),
     }
 
     match &items[4] {
-        Item::FnDef(function) => {
+        ItemView::FnDef(function) => {
             assert_eq!(function.name_text().as_deref(), Some("identity"));
             assert!(function.generic_params().is_some());
             assert!(function.where_clause().is_some());

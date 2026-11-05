@@ -22,7 +22,7 @@ use kagari_types::visibility::Visibility;
 /// ```
 ///
 /// This illustrates the offline/native declaration surface accepted by
-/// `kagari_syntax::parser::parse_declarations`; ordinary script parsing rejects
+/// `kagari_syntax::parser::parse` with declaration mode; ordinary script parsing rejects
 /// opaque `type Handle;` declarations. Ordinary `type Alias = Target;` declarations
 /// have their own transparent alias model. This is not a script-created storage definition
 /// or ordinary type alias. A matching installed declaration is required. Omitted generics/where/output bounds leave their buffers empty;

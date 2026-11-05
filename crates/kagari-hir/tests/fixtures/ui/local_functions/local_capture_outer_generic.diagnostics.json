@@ -7,7 +7,7 @@
         "span": {
           "end": 33,
           "path": "locals.kgr",
-          "start": 31
+          "start": 32
         }
       }
     ],
@@ -16,7 +16,7 @@
     "primary": {
       "end": 33,
       "path": "locals.kgr",
-      "start": 31
+      "start": 32
     },
     "severity": "error"
   }

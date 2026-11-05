@@ -1,7 +1,7 @@
 //! Shared HIR construction state, synchronized allocation and source-range helpers.
 
 use kagari_common::{cancellation::CancellationToken, span::Span};
-use kagari_syntax::{ast::traits::AstNode, kind::SyntaxKind};
+use kagari_syntax::ast::{borrow::AstNode, expr::BinaryOp as AstBinaryOp};
 
 use crate::{
     hir::{
@@ -163,51 +163,38 @@ impl Lowerer {
     }
 }
 
-/// Returns the full AST node's half-open byte range, including retained trivia.
+/// Returns the authored node range, excluding outer trivia owned by syntax layout.
+/// Semantic locations and replacement extents must stay within written tokens.
 pub(crate) fn syntax_span(node: &impl AstNode) -> Span {
-    let range = node.syntax().text_range();
-    Span::new(range.start().into(), range.end().into())
+    node.body_span()
 }
 
-/// Returns first-to-last nontrivia token bytes, falling back to the node range when empty.
+/// The body's constant-time first/last lexical boundaries, including internal recovery.
 pub(crate) fn token_span(node: &impl AstNode) -> Span {
-    let mut tokens = node
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|element| element.into_token())
-        .filter(|token| !token.kind().is_trivia());
-    let Some(first) = tokens.next() else {
-        return syntax_span(node);
-    };
-    let last = tokens.last().unwrap_or_else(|| first.clone());
-    Span::new(
-        first.text_range().start().into(),
-        last.text_range().end().into(),
-    )
+    node.body_span()
 }
 
-pub(crate) fn lower_binary_op(kind: Option<SyntaxKind>) -> BinaryOp {
+pub(crate) fn lower_binary_op(kind: AstBinaryOp) -> BinaryOp {
     match kind {
-        Some(SyntaxKind::Minus) => BinaryOp::Sub,
-        Some(SyntaxKind::Star) => BinaryOp::Mul,
-        Some(SyntaxKind::Slash) => BinaryOp::Div,
-        Some(SyntaxKind::Percent) => BinaryOp::Rem,
-        Some(SyntaxKind::Amp) => BinaryOp::BitAnd,
-        Some(SyntaxKind::Pipe) => BinaryOp::BitOr,
-        Some(SyntaxKind::Caret) => BinaryOp::BitXor,
-        Some(SyntaxKind::Shl) => BinaryOp::Shl,
-        Some(SyntaxKind::Shr) => BinaryOp::Shr,
-
-        Some(SyntaxKind::EqEq) => BinaryOp::Eq,
-        Some(SyntaxKind::NotEq) => BinaryOp::NotEq,
-        Some(SyntaxKind::IdentityEq) => BinaryOp::IdentityEq,
-        Some(SyntaxKind::IdentityNotEq) => BinaryOp::IdentityNotEq,
-        Some(SyntaxKind::Lt) => BinaryOp::Lt,
-        Some(SyntaxKind::Gt) => BinaryOp::Gt,
-        Some(SyntaxKind::Le) => BinaryOp::Le,
-        Some(SyntaxKind::Ge) => BinaryOp::Ge,
-        Some(SyntaxKind::AmpAmp) => BinaryOp::AndAnd,
-        Some(SyntaxKind::PipePipe) => BinaryOp::OrOr,
-        _ => BinaryOp::Add,
+        AstBinaryOp::Add => BinaryOp::Add,
+        AstBinaryOp::Subtract => BinaryOp::Sub,
+        AstBinaryOp::Multiply => BinaryOp::Mul,
+        AstBinaryOp::Divide => BinaryOp::Div,
+        AstBinaryOp::Remainder => BinaryOp::Rem,
+        AstBinaryOp::BitAnd => BinaryOp::BitAnd,
+        AstBinaryOp::BitOr => BinaryOp::BitOr,
+        AstBinaryOp::BitXor => BinaryOp::BitXor,
+        AstBinaryOp::ShiftLeft => BinaryOp::Shl,
+        AstBinaryOp::ShiftRight => BinaryOp::Shr,
+        AstBinaryOp::And => BinaryOp::AndAnd,
+        AstBinaryOp::Or => BinaryOp::OrOr,
+        AstBinaryOp::Equal => BinaryOp::Eq,
+        AstBinaryOp::NotEqual => BinaryOp::NotEq,
+        AstBinaryOp::IdentityEqual => BinaryOp::IdentityEq,
+        AstBinaryOp::IdentityNotEqual => BinaryOp::IdentityNotEq,
+        AstBinaryOp::Less => BinaryOp::Lt,
+        AstBinaryOp::LessEqual => BinaryOp::Le,
+        AstBinaryOp::Greater => BinaryOp::Gt,
+        AstBinaryOp::GreaterEqual => BinaryOp::Ge,
     }
 }

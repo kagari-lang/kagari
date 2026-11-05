@@ -1,1750 +1,833 @@
-//! Expression and pattern views over the CST.
+//! Expressions retain authored roles, grouping, operators and interpolation order.
 //!
-//! Each concrete type shows its actual children; [`Expr`] groups expression kinds
-//! without adding another tree node. See [`crate::ast`] for traversal and recovery
-//! conventions. Operators are syntax tokens; evaluation and typing happen later.
+//! ```text
+//! f(a,,b,)       CallExpr { callee: f, arguments: [a, missing, b], ... }
+//! 1 + 2 * 3      BinaryExpr { lhs: 1, operator: Add, rhs: BinaryExpr(Multiply) }
+//! if {} else     IfExpr { condition: missing, then_body: {}, else_clause: missing body }
+//! "hi {name}"    InterpolatedString.parts = [Text("hi "), Hole(path=name)]
+//! ```
+//!
+//! Lists retain their punctuation separately from elements. Recursive alternatives
+//! own boxes; text/token spellings stay in the retained source. Recovery preserves
+//! each named role rather than substituting another matching child.
 
-use crate::{
-    ast::{
-        misc::{GenericArgList, Name, Path},
-        stmt::Stmt,
-        support,
-        traits::AstNode,
-        ty::TypeRef,
-    },
-    kind::SyntaxKind,
-    syntax_node::SyntaxNode,
+use crate::ast::{
+    misc::{GenericArgList, Name, Path, TypeAnnotation},
+    site::{Required, SeparatedList, SyntaxSite},
+    stmt::Stmt,
+    tokens::{self, OperatorToken, Token},
+    ty::{QualifiedType, TypeSyntax},
 };
 
-use rowan::NodeOrToken;
-
-ast_node!(
-    /// A braced sequence of statements with an optional trailing expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `{ val x = 1; x + 2 }`:
-    ///
-    /// ```text
-    /// BlockExpr
-    /// +-- LBrace "{" [token]
-    /// +-- BindingStmt (val x = 1;) [node] -> statements()
-    /// +-- BinaryExpr (x + 2) [node] [Expr #0] -> tail_expr()
-    /// `-- RBrace "}" [token]
-    /// ```
-    ///
-    /// Statements are wrapped nodes; the tail is a direct expression without an `ExprStmt` wrapper.
-    /// `statements()` filters to `Stmt`; `tail_expr()` takes the last direct `Expr`,
-    /// returning `None` for a block containing only statements.
-    BlockExpr,
-    BlockExpr
-);
-
-ast_node!(
-    /// An unresolved expression path or qualified member spelling.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `math::total`:
-    ///
-    /// ```text
-    /// PathExpr
-    /// `-- Path (math::total) [node] -> path()
-    /// ```
-    ///
-    /// `Box<i32>::make`:
-    ///
-    /// ```text
-    /// PathExpr
-    /// +-- Path (Box) [node] -> path()
-    /// +-- GenericArgList (<i32>) [node] -> generic_args()
-    /// +-- ColonColon "::" [token]
-    /// `-- Name (make) [node] -> name()
-    /// ```
-    ///
-    /// `identity::<i32>` as a function value:
-    ///
-    /// ```text
-    /// PathExpr
-    /// +-- Path (identity) [node] -> path()
-    /// +-- ColonColon "::" [token]
-    /// `-- GenericArgList (<i32>) [node] -> generic_args()
-    /// ```
-    ///
-    /// `<T as Read>::make`:
-    ///
-    /// ```text
-    /// PathExpr
-    /// `-- TypeRef (<T as Read>::make) [node] -> qualified_type()
-    /// ```
-    ///
-    /// The plain form contains `Path`; `Box<i32>::make` adds direct generic arguments
-    /// and a member `Name`. The fully qualified form contains `TypeRef -> QualifiedType`.
-    /// `name_text()` omits generic arguments; for a qualified form it returns only the
-    /// member name. These are source spellings, not resolved declarations.
-    PathExpr,
-    PathExpr
-);
-
-ast_node!(
-    /// A literal token, retaining its spelling rather than a decoded value.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `42`:
-    ///
-    /// ```text
-    /// Literal
-    /// `-- Number "42" [token] -> text(), kind()
-    /// ```
-    ///
-    /// `text()` and `kind()` read the first token; they do not decode or type-check it.
-    Literal,
-    Literal
-);
-
-ast_node!(
-    /// A parenthesized expression that preserves explicit grouping.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `(1 + 2)`:
-    ///
-    /// ```text
-    /// ParenExpr
-    /// +-- LParen "(" [token]
-    /// +-- BinaryExpr (1 + 2) [node] [Expr #0] -> expr()
-    /// `-- RParen ")" [token]
-    /// ```
-    ParenExpr,
-    ParenExpr
-);
-
-ast_node!(
-    /// A unary `-` or `!` expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `-1`:
-    ///
-    /// ```text
-    /// PrefixExpr
-    /// +-- Minus "-" [token] -> operator()
-    /// `-- Literal (1) [node] [Expr #0] -> expr()
-    /// ```
-    PrefixExpr,
-    PrefixExpr
-);
-
-ast_node!(
-    /// An `as` expression with a target type spelling.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `1 as i64`:
-    ///
-    /// ```text
-    /// CastExpr
-    /// +-- Literal (1) [node] [Expr #0] -> expr()
-    /// +-- AsKw "as" [token]
-    /// `-- TypeRef (i64) [node] -> ty()
-    /// ```
-    CastExpr,
-    CastExpr
-);
-
-ast_node!(
-    /// A postfix `.await` expression retaining its operand as a direct child.
-    ///
-    /// `read().await` contains a `CallExpr`, a dot and the `await` keyword.
-    /// Semantic checking determines the permitted context and result type.
-    AwaitExpr,
-    AwaitExpr
-);
-
-ast_node!(
-    /// A postfix `?` expression; propagation semantics are checked in HIR.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `read()?`:
-    ///
-    /// ```text
-    /// PropagateExpr
-    /// +-- CallExpr (read()) [node] [Expr #0] -> expr()
-    /// `-- Question "?" [token]
-    /// ```
-    PropagateExpr,
-    PropagateExpr
-);
-
-ast_node!(
-    /// Two operands joined by an arithmetic, comparison, bitwise or logical operator.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `total + 1`:
-    ///
-    /// ```text
-    /// BinaryExpr
-    /// +-- PathExpr (total) [node] [Expr #0] -> lhs()
-    /// +-- Plus "+" [token] -> operator()
-    /// `-- Literal (1) [node] [Expr #1] -> rhs()
-    /// ```
-    ///
-    /// `total +` (recovered syntax with diagnostics):
-    ///
-    /// ```text
-    /// BinaryExpr
-    /// +-- PathExpr (total) [node] [Expr #0] -> lhs()
-    /// `-- Plus "+" [token] -> operator()
-    /// ```
-    BinaryExpr,
-    BinaryExpr
-);
-
-ast_node!(
-    /// An exclusive `..` or inclusive `..=` range with optional endpoints.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `1..=3`:
-    ///
-    /// ```text
-    /// RangeExpr
-    /// +-- Literal (1) [node] [Expr #0] -> start()
-    /// +-- DotDotEq "..=" [token]
-    /// `-- Literal (3) [node] [Expr #1] -> end()
-    /// ```
-    ///
-    /// `..3`:
-    ///
-    /// ```text
-    /// RangeExpr
-    /// +-- DotDot ".." [token]
-    /// `-- Literal (3) [node] [Expr #0] -> end()
-    /// ```
-    ///
-    /// `1..`:
-    ///
-    /// ```text
-    /// RangeExpr
-    /// +-- Literal (1) [node] [Expr #0] -> start()
-    /// `-- DotDot ".." [token]
-    /// ```
-    ///
-    /// `..`:
-    ///
-    /// ```text
-    /// RangeExpr
-    /// `-- DotDot ".." [token]
-    /// ```
-    ///
-    /// Endpoints are selected relative to the `..`/`..=` token, not by fixed expression
-    /// indices. An exclusive range can omit either endpoint; an inclusive range requires
-    /// an end in valid syntax. Missing required parts remain possible after recovery.
-    RangeExpr,
-    RangeExpr
-);
-
-ast_node!(
-    /// A callee followed by arguments, with an optional generic argument list.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `sum(1, 2)`:
-    ///
-    /// ```text
-    /// CallExpr
-    /// +-- PathExpr (sum) [node] [Expr #0] -> callee()
-    /// +-- LParen "(" [token]
-    /// +-- Literal (1) [node] [Expr #1] -> args()
-    /// +-- Comma "," [token]
-    /// +-- Literal (2) [node] [Expr #2] -> args()
-    /// `-- RParen ")" [token]
-    /// ```
-    ///
-    /// `sum::<i32>(1, 2)`:
-    ///
-    /// ```text
-    /// CallExpr
-    /// +-- PathExpr (sum) [node] [Expr #0] -> callee()
-    /// +-- ColonColon "::" [token]
-    /// +-- GenericArgList (<i32>) [node] -> generic_args()
-    /// +-- LParen "(" [token]
-    /// +-- Literal (1) [node] [Expr #1] -> args()
-    /// +-- Comma "," [token]
-    /// +-- Literal (2) [node] [Expr #2] -> args()
-    /// `-- RParen ")" [token]
-    /// ```
-    ///
-    /// The filtered expression sequence starts with the callee. `args()` uses `skip(1)`
-    /// on that sequence; punctuation and generic arguments do not occupy expression
-    /// positions. There is no separate argument-list node.
-    CallExpr,
-    CallExpr
-);
-
-ast_node!(
-    /// A named member access on a receiver expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `point.x`:
-    ///
-    /// ```text
-    /// FieldExpr
-    /// +-- PathExpr (point) [node] [Expr #0] -> receiver()
-    /// +-- Dot "." [token]
-    /// `-- Name (x) [node] -> name()
-    /// ```
-    FieldExpr,
-    FieldExpr
-);
-
-ast_node!(
-    /// An indexed access with a receiver and index expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `values[0]`:
-    ///
-    /// ```text
-    /// IndexExpr
-    /// +-- PathExpr (values) [node] [Expr #0] -> receiver()
-    /// +-- LBracket "[" [token]
-    /// +-- Literal (0) [node] [Expr #1] -> index()
-    /// `-- RBracket "]" [token]
-    /// ```
-    IndexExpr,
-    IndexExpr
-);
-
-ast_node!(
-    /// A conditional with an expression or binding condition and optional else branch.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `if ready { 1 } else { 2 }`:
-    ///
-    /// ```text
-    /// IfExpr
-    /// +-- IfKw "if" [token]
-    /// +-- PathExpr (ready) [node] [Expr #0] -> condition()
-    /// +-- BlockExpr ({ 1 }) [node] [Expr #1] -> then_branch()
-    /// +-- ElseKw "else" [token]
-    /// `-- BlockExpr ({ 2 }) [node] [Expr #2] -> else_branch()
-    /// ```
-    ///
-    /// `if val Some(x) = value { x } else if ready { 1 } else { 2 }`:
-    ///
-    /// ```text
-    /// IfExpr
-    /// +-- IfKw "if" [token]
-    /// +-- BindingCondition (val Some(x) = value) [node] -> binding_condition()
-    /// +-- BlockExpr ({ x }) [node] [Expr #0] -> condition(), then_branch()
-    /// +-- ElseKw "else" [token]
-    /// `-- IfExpr (if ready { 1 } else { 2 }) [node] [Expr #1] -> else_branch()
-    /// ```
-    ///
-    /// `if {}` (recovered syntax with diagnostics):
-    ///
-    /// ```text
-    /// IfExpr
-    /// +-- IfKw "if" [token]
-    /// +-- BlockExpr ({}) [node] [Expr #0] -> condition(), then_branch()
-    /// `-- BlockExpr () [node] [Expr #1] -> else_branch()
-    /// ```
-    ///
-    /// Check `binding_condition()` before using `condition()`: `BindingCondition` is
-    /// not an `Expr`, while `BlockExpr` is. For a binding condition, `condition()` selects
-    /// the then block. `then_branch()` selects the first direct block; `else_branch()`
-    /// selects the first expression after that block. Recovery can change these roles: in
-    /// `if {}`, a condition block and an empty recovered body are both block children.
-    IfExpr,
-    IfExpr
-);
-
-ast_node!(
-    /// A constructor path, explicit field initializers and an optional terminal update base.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `Point { x: 1, y, ..base }`:
-    ///
-    /// ```text
-    /// StructExpr
-    /// +-- PathExpr (Point) [node] [Expr #0] -> path()
-    /// +-- LBrace "{" [token]
-    /// +-- FieldInitList (x: 1, y,) [node] -> field_list()
-    /// +-- StructUpdateBase (..base) [node] -> update_base()
-    /// `-- RBrace "}" [token]
-    /// ```
-    ///
-    /// Braces are direct tokens here; `FieldInitList` owns explicit fields and their
-    /// commas, including the separator before the base. Its list is empty in
-    /// `Point { ..base }`. Generic constructor arguments, when present, are direct
-    /// children before the opening brace. `StructUpdateBase` is not an `Expr`, so
-    /// filtering direct children by `Expr::cast` selects only the constructor path,
-    /// not the nested base operand. An absent marker yields `update_base() == None`;
-    /// recovered `Point { .. }` retains a base node whose `value()` is `None`.
-    StructExpr,
-    StructExpr
-);
-
-ast_node!(
-    /// The explicit field initializer list of a struct expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `x: 1, y: 2`:
-    ///
-    /// ```text
-    /// FieldInitList
-    /// +-- FieldInit (x: 1) [node] -> fields()
-    /// +-- Comma "," [token]
-    /// `-- FieldInit (y: 2) [node] -> fields()
-    /// ```
-    ///
-    /// Iterates only direct `FieldInit` children in source order; commas are tokens.
-    /// The enclosing braces and optional `StructUpdateBase` belong to `StructExpr`,
-    /// not this list. The list is present but empty for `Point {}` and `Point { ..base }`.
-    FieldInitList,
-    FieldInitList
-);
-
-ast_node!(
-    /// A struct update marker with its expression operand, not a standalone expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// In `Point { x: 1, ..make_point() }`, the direct `StructExpr` child is:
-    ///
-    /// ```text
-    /// StructUpdateBase
-    /// +-- DotDot ".." [token]
-    /// `-- CallExpr (make_point()) [node] [Expr #0] -> value()
-    /// ```
-    ///
-    /// Trivia is omitted and the call's descendants are collapsed. `value()` selects
-    /// the first direct expression node, not physical child/token #0. The marker
-    /// is not a range expression or a pattern rest token. A base is terminal and
-    /// permits no trailing comma. Recovered `Point { .. }` retains `DotDot` but no
-    /// expression child; `value()` returns `None` without hiding marker presence.
-    /// An invalid `..=` marker is retained in an error node instead. Repeated bases
-    /// and post-base fields are retained under error nodes, outside the explicit list.
-    StructUpdateBase,
-    StructUpdateBase
-);
-
-ast_node!(
-    /// One named field initializer, with an optional explicit value.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `x: 1`:
-    ///
-    /// ```text
-    /// FieldInit
-    /// +-- Name (x) [node] -> name()
-    /// +-- Colon ":" [token]
-    /// `-- Literal (1) [node] [Expr #0] -> value()
-    /// ```
-    ///
-    /// `x`:
-    ///
-    /// ```text
-    /// FieldInit
-    /// `-- Name (x) [node] -> name()
-    /// ```
-    ///
-    /// A shorthand initializer such as `Point { x }` has only `Name`; `value()` returns
-    /// `None`. Lowering decides how to interpret shorthand.
-    FieldInit,
-    FieldInit
-);
-
-ast_node!(
-    /// A scrutinee followed by a list of pattern arms.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `match value { 0 => 1, _ => 2 }`:
-    ///
-    /// ```text
-    /// MatchExpr
-    /// +-- MatchKw "match" [token]
-    /// +-- PathExpr (value) [node] [Expr #0] -> scrutinee()
-    /// +-- LBrace "{" [token]
-    /// +-- MatchArmList (0 => 1, _ => 2) [node] -> arms()
-    /// `-- RBrace "}" [token]
-    /// ```
-    ///
-    /// The scrutinee is the first direct expression; arm expressions are nested below
-    /// `MatchArmList` and do not enter that selection.
-    MatchExpr,
-    MatchExpr
-);
-
-ast_node!(
-    /// A `loop` used in expression position, such as a binding initializer.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `loop { break 1; }`:
-    ///
-    /// ```text
-    /// LoopExpr
-    /// +-- LoopKw "loop" [token]
-    /// `-- BlockExpr ({ break 1; }) [node] [Expr #0] -> body()
-    /// ```
-    LoopExpr,
-    LoopExpr
-);
-
-ast_node!(
-    /// A cold future expression with its own return and suspension boundary.
-    ///
-    /// ```text
-    /// AsyncBlockExpr
-    /// +-- AsyncKw "async" [token]
-    /// `-- BlockExpr { fetch().await } [node] -> body()
-    /// ```
-    ///
-    /// The braces belong to the child block. `body()` is absent when recovery
-    /// retains an `async` keyword without an opening brace; an incomplete block
-    /// remains available with its successfully parsed children.
-    AsyncBlockExpr,
-    AsyncBlockExpr
-);
-
-ast_node!(
-    /// A closure parameter list followed by its expression body.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `|x: i32, y| x + y`:
-    ///
-    /// ```text
-    /// ClosureExpr
-    /// +-- Pipe "|" [token]
-    /// +-- ClosureParamList (x: i32, y) [node] -> params() via list
-    /// +-- Pipe "|" [token]
-    /// `-- BinaryExpr (x + y) [node] [Expr #0] -> body()
-    /// ```
-    ///
-    /// `|| 1`:
-    ///
-    /// ```text
-    /// ClosureExpr
-    /// +-- PipePipe "||" [token]
-    /// `-- Literal (1) [node] [Expr #0] -> body()
-    /// ```
-    ///
-    /// `params()` traverses through `ClosureParamList`; `body()` takes the last direct
-    /// expression. The `||` form has no parameter-list node and yields an empty iterator.
-    ClosureExpr,
-    ClosureExpr
-);
-
-ast_node!(
-    /// The parameters between a closure's pipes.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `x: i32, y`:
-    ///
-    /// ```text
-    /// ClosureParamList
-    /// +-- ClosureParam (x: i32) [node]
-    /// +-- Comma "," [token]
-    /// `-- ClosureParam (y) [node]
-    /// ```
-    ///
-    /// Pipes belong to `ClosureExpr`. Read parameter nodes through
-    /// [`ClosureExpr::params`], which preserves their order.
-    ClosureParamList,
-    ClosureParamList
-);
-
-ast_node!(
-    /// A closure parameter with an optional type annotation.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `x: i32`:
-    ///
-    /// ```text
-    /// ClosureParam
-    /// +-- Name (x) [node] -> name()
-    /// +-- Colon ":" [token]
-    /// `-- TypeRef (i32) [node] -> ty()
-    /// ```
-    ///
-    /// An omitted type annotation is legal; `ty()` then returns `None`.
-    ClosureParam,
-    ClosureParam
-);
-
-ast_node!(
-    /// The list of match arms; enclosing braces belong to the match expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `0 => 1, _ => 2`:
-    ///
-    /// ```text
-    /// MatchArmList
-    /// +-- MatchArm (0 => 1) [node] -> arms()
-    /// +-- Comma "," [token]
-    /// `-- MatchArm (_ => 2) [node] -> arms()
-    /// ```
-    MatchArmList,
-    MatchArmList
-);
-
-ast_node!(
-    /// A pattern, optional `if` guard, and result expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `x if ready => x`:
-    ///
-    /// ```text
-    /// MatchArm
-    /// +-- Pattern (x) [node] -> pattern()
-    /// +-- IfKw "if" [token]
-    /// +-- PathExpr (ready) [node] [Expr #0] -> guard()
-    /// +-- FatArrow "=>" [token]
-    /// `-- PathExpr (x) [node] [Expr #1] -> expr()
-    /// ```
-    ///
-    /// With a guard, the first direct expression is the guard and the last is the arm
-    /// result. Without `if`, `guard()` returns `None`. Recovery may leave only one
-    /// expression, in which case both positional accessors can select the same node.
-    MatchArm,
-    MatchArm
-);
-
-ast_node!(
-    /// A `val pattern = expression` condition in `if` or `while`.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `val Some(x) = value`:
-    ///
-    /// ```text
-    /// BindingCondition
-    /// +-- ValKw "val" [token]
-    /// +-- Pattern (Some(x)) [node] -> pattern()
-    /// +-- Eq "=" [token]
-    /// `-- PathExpr (value) [node] [Expr #0] -> initializer()
-    /// ```
-    BindingCondition,
-    BindingCondition
-);
-
-ast_node!(
-    /// A syntactic pattern; binding and constructor meanings are resolved later.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `Some(x)`:
-    ///
-    /// ```text
-    /// Pattern
-    /// +-- PathExpr (Some) [node] [Expr #0] -> range_bounds(), path()
-    /// +-- LParen "(" [token]
-    /// +-- Pattern (x) [node] -> elements()
-    /// `-- RParen ")" [token]
-    /// ```
-    ///
-    /// `_`:
-    ///
-    /// ```text
-    /// Pattern
-    /// `-- PathExpr (_) [node] [Expr #0] -> range_bounds(), path()
-    /// ```
-    ///
-    /// `1`:
-    ///
-    /// ```text
-    /// Pattern
-    /// `-- Literal (1) [node] [Expr #0] -> range_bounds(), literal()
-    /// ```
-    ///
-    /// `1..=3`:
-    ///
-    /// ```text
-    /// Pattern
-    /// +-- Literal (1) [node] [Expr #0] -> range_bounds(), literal()
-    /// +-- DotDotEq "..=" [token]
-    /// `-- Literal (3) [node] [Expr #1] -> range_bounds()
-    /// ```
-    ///
-    /// `A | B`:
-    ///
-    /// ```text
-    /// Pattern
-    /// +-- Pattern (A) [node] -> elements()
-    /// +-- Pipe "|" [token]
-    /// `-- Pattern (B) [node] -> elements()
-    /// ```
-    ///
-    /// `(a, b)`:
-    ///
-    /// ```text
-    /// Pattern
-    /// +-- LParen "(" [token]
-    /// +-- Pattern (a) [node] -> elements()
-    /// +-- Comma "," [token]
-    /// +-- Pattern (b) [node] -> elements()
-    /// `-- RParen ")" [token]
-    /// ```
-    ///
-    /// `(a)`:
-    ///
-    /// ```text
-    /// Pattern
-    /// +-- LParen "(" [token]
-    /// +-- Pattern (a) [node] -> elements()
-    /// `-- RParen ")" [token]
-    /// ```
-    ///
-    /// `Point { x, y: n }`:
-    ///
-    /// ```text
-    /// Pattern
-    /// +-- PathExpr (Point) [node] [Expr #0] -> range_bounds(), path()
-    /// +-- LBrace "{" [token]
-    /// +-- PatternField (x) [node] -> fields()
-    /// +-- Comma "," [token]
-    /// +-- PatternField (y: n) [node] -> fields()
-    /// `-- RBrace "}" [token]
-    /// ```
-    ///
-    /// The diagrams show constructor, wildcard, literal, range, alternative, tuple,
-    /// grouped and struct forms. `elements()` reads direct nested patterns; `fields()`
-    /// reads direct `PatternField` nodes. `range_bounds()` reads direct literals/paths,
-    /// including those on non-range patterns: check `range_inclusive()` first.
-    /// `(a)` is grouped; `(a,)` is a tuple. These views do not resolve identifiers.
-    Pattern,
-    Pattern
-);
-
-ast_node!(
-    /// A named struct-pattern field with an optional explicit subpattern.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `x: n`:
-    ///
-    /// ```text
-    /// PatternField
-    /// +-- Name (x) [node] -> name()
-    /// +-- Colon ":" [token]
-    /// `-- Pattern (n) [node] -> pattern()
-    /// ```
-    ///
-    /// Shorthand `Point { x }` has only `Name`; `pattern()` returns `None`.
-    /// An explicit `x: n` adds a direct subpattern.
-    PatternField,
-    PatternField
-);
-
-ast_node!(
-    /// A comma-separated tuple expression, including the empty tuple.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `(1, 2)`:
-    ///
-    /// ```text
-    /// TupleExpr
-    /// +-- LParen "(" [token]
-    /// +-- Literal (1) [node] [Expr #0] -> elements()
-    /// +-- Comma "," [token]
-    /// +-- Literal (2) [node] [Expr #1] -> elements()
-    /// `-- RParen ")" [token]
-    /// ```
-    ///
-    /// `()` has no expression children; `(x,)` is a one-element tuple.
-    /// `(x)` is instead a [`ParenExpr`].
-    TupleExpr,
-    TupleExpr
-);
-
-ast_node!(
-    /// An array list or repeated-element array expression.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `[1, 2]`:
-    ///
-    /// ```text
-    /// ArrayExpr
-    /// +-- LBracket "[" [token]
-    /// +-- Literal (1) [node] [Expr #0] -> elements()
-    /// +-- Comma "," [token]
-    /// +-- Literal (2) [node] [Expr #1] -> elements()
-    /// `-- RBracket "]" [token]
-    /// ```
-    ///
-    /// `[0; 3]`:
-    ///
-    /// ```text
-    /// ArrayExpr
-    /// +-- LBracket "[" [token]
-    /// +-- Literal (0) [node] [Expr #0] -> elements()
-    /// +-- Semi ";" [token]
-    /// +-- Literal (3) [node] [Expr #1] -> elements()
-    /// `-- RBracket "]" [token]
-    /// ```
-    ///
-    /// For `[value; count]`, `elements()` yields both the value and the count expression
-    /// in source order; it does not expand the repetition. `is_repeat()` detects `;`.
-    ArrayExpr,
-    ArrayExpr
-);
-
-ast_node!(
-    /// An ordinary `"..."` string containing text tokens and name-only holes.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `"value={x}"`:
-    ///
-    /// ```text
-    /// InterpolatedString
-    /// +-- FormatStart "\"" [token]
-    /// +-- FormatText "value=" [token]
-    /// +-- Interpolation ({x}) [node]
-    /// `-- FormatEnd "\"" [token]
-    /// ```
-    ///
-    /// Text is retained in `FormatText` tokens; name holes are `Interpolation`
-    /// nodes. Inspect the underlying syntax elements to preserve their interleaving.
-    /// Escaped or doubled braces inside text are not expression-hole delimiters.
-    InterpolatedString,
-    InterpolatedString
-);
-
-ast_node!(
-    /// One name hole, optionally requesting debug formatting with `:?`.
-    /// Whitespace, paths and arbitrary expressions are rejected, not normalized.
-    ///
-    /// See [AST conventions](crate::ast) for storage and diagram notation.
-    ///
-    /// # Tree shape
-    ///
-    /// Trivia is omitted; child-node descendants are collapsed.
-    ///
-    /// `{x:?}`:
-    ///
-    /// ```text
-    /// Interpolation
-    /// +-- FormatOpen "{" [token]
-    /// +-- PathExpr (x) [node] [Expr #0] -> expr()
-    /// +-- Colon ":" [token]
-    /// +-- Question "?" [token]
-    /// `-- FormatClose "}" [token]
-    /// ```
-    ///
-    /// `debug()` checks for the direct `:` marker. Valid debug syntax is `:?`; the
-    /// accessor does not independently validate the following `?` token.
-    Interpolation,
-    Interpolation
-);
-
-/// A typed choice of expression views; no additional CST node is allocated.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One written expression. Recursive alternatives own boxes; literals need only
+/// a lexical reference. For `a + f(b)`, `BinaryExpr` stores its two operands and
+/// the actual `+` site; the call stores `f` separately from argument `b`.
+#[derive(Debug)]
 pub enum Expr {
-    /// A block with statements and an optional tail, such as `{ val x = 1; x + 2 }`.
-    BlockExpr(BlockExpr),
-    /// An unresolved name or path, such as `value`, `math::total`, or `Box<i32>::make`.
-    PathExpr(PathExpr),
-    /// A literal spelling, such as `42`, `true`, or `"text"`.
+    BlockExpr(Box<BlockExpr>),
+    PathExpr(Box<PathExpr>),
     Literal(Literal),
-    /// Explicit grouping, such as `(x + 1)`; `(x,)` is a tuple instead.
-    ParenExpr(ParenExpr),
-    /// A unary operation, such as `-count` or `!ready`.
-    PrefixExpr(PrefixExpr),
-    /// A cast with a written target type, such as `value as i64`.
-    CastExpr(CastExpr),
-    /// Result/Option propagation, such as `parse(text)?`.
-    PropagateExpr(PropagateExpr),
-    /// An await operation, such as `fetch().await`.
-    AwaitExpr(AwaitExpr),
-    /// A binary operation, such as `a + b`, `x == y`, or `ready && enabled`.
-    BinaryExpr(BinaryExpr),
-    /// A range, such as `1..3`, `1..=3`, `..end`, or `start..`.
-    RangeExpr(RangeExpr),
-    /// A call, such as `add(a, b)`, `identity<i32>(x)`, or `obj.read()`.
-    CallExpr(CallExpr),
-    /// Member access, such as `player.hp` or the callee `obj.read` in `obj.read()`.
-    FieldExpr(FieldExpr),
-    /// Indexed access, such as `values[i + 1]`.
-    IndexExpr(IndexExpr),
-    /// A conditional, such as `if ready { a } else { b }` or `if val Some(x) = value { x }`.
-    IfExpr(IfExpr),
-    /// Struct construction, such as `Point { x: 1, y, ..base }`, including shorthand and update.
-    StructExpr(StructExpr),
-    /// Pattern selection, such as `match value { Some(x) => x, _ => 0 }`.
-    MatchExpr(MatchExpr),
-    /// A loop in expression position, such as the initializer in `val x = loop { break 1; };`.
-    LoopExpr(LoopExpr),
-    /// An anonymous callable, such as `|x| x + 1`, `|| 1`, or `async || fetch().await`.
-    ClosureExpr(ClosureExpr),
-    /// A cold future, such as `async { fetch().await }`.
-    AsyncBlockExpr(AsyncBlockExpr),
-    /// A tuple, such as `(x, y)`, `(x,)`, or `()`; `(x)` is grouping instead.
-    TupleExpr(TupleExpr),
-    /// An array list `[a, b]` or repeated array `[value; count]`.
-    ArrayExpr(ArrayExpr),
-    /// A formatted string, such as `"value={x}"` or `"{x:?}"`.
-    InterpolatedString(InterpolatedString),
+    ParenExpr(Box<ParenExpr>),
+    PrefixExpr(Box<PrefixExpr>),
+    CastExpr(Box<CastExpr>),
+    PropagateExpr(Box<PropagateExpr>),
+    AwaitExpr(Box<AwaitExpr>),
+    BinaryExpr(Box<BinaryExpr>),
+    RangeExpr(Box<RangeExpr>),
+    CallExpr(Box<CallExpr>),
+    FieldExpr(Box<FieldExpr>),
+    IndexExpr(Box<IndexExpr>),
+    IfExpr(Box<IfExpr>),
+    StructExpr(Box<StructExpr>),
+    MatchExpr(Box<MatchExpr>),
+    LoopExpr(Box<LoopExpr>),
+    ClosureExpr(Box<ClosureExpr>),
+    AsyncBlockExpr(Box<AsyncBlockExpr>),
+    TupleExpr(Box<TupleExpr>),
+    ArrayExpr(Box<ArrayExpr>),
+    InterpolatedString(Box<InterpolatedString>),
+    Error(SyntaxSite),
 }
 
-impl AstNode for Expr {
-    fn can_cast(kind: SyntaxKind) -> bool {
-        matches!(
-            kind,
-            SyntaxKind::BlockExpr
-                | SyntaxKind::PathExpr
-                | SyntaxKind::Literal
-                | SyntaxKind::ParenExpr
-                | SyntaxKind::AwaitExpr
-                | SyntaxKind::PropagateExpr
-                | SyntaxKind::CastExpr
-                | SyntaxKind::PrefixExpr
-                | SyntaxKind::BinaryExpr
-                | SyntaxKind::RangeExpr
-                | SyntaxKind::CallExpr
-                | SyntaxKind::FieldExpr
-                | SyntaxKind::IndexExpr
-                | SyntaxKind::IfExpr
-                | SyntaxKind::StructExpr
-                | SyntaxKind::MatchExpr
-                | SyntaxKind::LoopExpr
-                | SyntaxKind::ClosureExpr
-                | SyntaxKind::AsyncBlockExpr
-                | SyntaxKind::TupleExpr
-                | SyntaxKind::InterpolatedString
-                | SyntaxKind::ArrayExpr
-        )
+node!(
+    /// A braced sequence of statements and an optional final expression.
+    ///
+    /// ```text
+    /// { val x = 1; x + 2 }
+    /// open = '{' token, statements = [BindingStmt], tail = Some(BinaryExpr), close = '}' token
+    /// ```
+    ///
+    /// Present required delimiters are abbreviated. A trailing `x + 2;` instead
+    /// belongs to `statements` as an [`ExprStmt`](crate::ast::stmt::ExprStmt).
+    /// An unclosed block retains a missing `close`, without consuming another role.
+    BlockExpr {
+        open: Required<Token<tokens::LBrace>>,
+        statements: Vec<Stmt>,
+        tail: Option<Expr>,
+        close: Required<Token<tokens::RBrace>>,
     }
+);
 
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        match syntax.kind() {
-            SyntaxKind::BlockExpr => BlockExpr::cast(syntax).map(Self::BlockExpr),
-            SyntaxKind::PathExpr => PathExpr::cast(syntax).map(Self::PathExpr),
-            SyntaxKind::Literal => Literal::cast(syntax).map(Self::Literal),
-            SyntaxKind::ParenExpr => ParenExpr::cast(syntax).map(Self::ParenExpr),
-            SyntaxKind::AwaitExpr => AwaitExpr::cast(syntax).map(Self::AwaitExpr),
-            SyntaxKind::PropagateExpr => PropagateExpr::cast(syntax).map(Self::PropagateExpr),
-            SyntaxKind::CastExpr => CastExpr::cast(syntax).map(Self::CastExpr),
-            SyntaxKind::PrefixExpr => PrefixExpr::cast(syntax).map(Self::PrefixExpr),
-            SyntaxKind::BinaryExpr => BinaryExpr::cast(syntax).map(Self::BinaryExpr),
-            SyntaxKind::RangeExpr => RangeExpr::cast(syntax).map(Self::RangeExpr),
-            SyntaxKind::CallExpr => CallExpr::cast(syntax).map(Self::CallExpr),
-            SyntaxKind::FieldExpr => FieldExpr::cast(syntax).map(Self::FieldExpr),
-            SyntaxKind::IndexExpr => IndexExpr::cast(syntax).map(Self::IndexExpr),
-            SyntaxKind::IfExpr => IfExpr::cast(syntax).map(Self::IfExpr),
-            SyntaxKind::StructExpr => StructExpr::cast(syntax).map(Self::StructExpr),
-            SyntaxKind::MatchExpr => MatchExpr::cast(syntax).map(Self::MatchExpr),
-            SyntaxKind::LoopExpr => LoopExpr::cast(syntax).map(Self::LoopExpr),
-            SyntaxKind::ClosureExpr => ClosureExpr::cast(syntax).map(Self::ClosureExpr),
-            SyntaxKind::AsyncBlockExpr => AsyncBlockExpr::cast(syntax).map(Self::AsyncBlockExpr),
-            SyntaxKind::TupleExpr => TupleExpr::cast(syntax).map(Self::TupleExpr),
-            SyntaxKind::InterpolatedString => {
-                InterpolatedString::cast(syntax).map(Self::InterpolatedString)
-            }
-            SyntaxKind::ArrayExpr => ArrayExpr::cast(syntax).map(Self::ArrayExpr),
-            _ => None,
-        }
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        match self {
-            Self::BlockExpr(node) => node.syntax(),
-            Self::PathExpr(node) => node.syntax(),
-            Self::Literal(node) => node.syntax(),
-            Self::ParenExpr(node) => node.syntax(),
-            Self::PropagateExpr(node) => node.syntax(),
-            Self::AwaitExpr(node) => node.syntax(),
-            Self::CastExpr(node) => node.syntax(),
-            Self::PrefixExpr(node) => node.syntax(),
-            Self::BinaryExpr(node) => node.syntax(),
-            Self::RangeExpr(node) => node.syntax(),
-            Self::CallExpr(node) => node.syntax(),
-            Self::FieldExpr(node) => node.syntax(),
-            Self::IndexExpr(node) => node.syntax(),
-            Self::IfExpr(node) => node.syntax(),
-            Self::StructExpr(node) => node.syntax(),
-            Self::MatchExpr(node) => node.syntax(),
-            Self::LoopExpr(node) => node.syntax(),
-            Self::ClosureExpr(node) => node.syntax(),
-            Self::AsyncBlockExpr(node) => node.syntax(),
-            Self::TupleExpr(node) => node.syntax(),
-            Self::InterpolatedString(node) => node.syntax(),
-            Self::ArrayExpr(node) => node.syntax(),
-        }
-    }
+/// A plain, explicitly applied or qualified path used as an expression.
+///
+/// `value` selects `Plain`; `Box<T>::new` selects `Applied`;
+/// `<T as Trait>::member` selects `Qualified`. These forms retain syntax,
+/// without deciding which declaration the path names.
+#[derive(Debug)]
+pub enum PathExpr {
+    Plain(Path),
+    Applied(Box<AppliedPath>),
+    Qualified(Box<QualifiedType>),
 }
 
-impl BlockExpr {
-    /// Iterates `val x = 1;` then `log(x);` in `{ val x = 1; log(x); x }`.
-    /// The tail `x` is excluded; `{ x }` yields no statements.
-    pub fn statements(&self) -> impl Iterator<Item = Stmt> {
-        support::children(self.syntax())
+node!(
+    /// A path application with an optional following associated member.
+    ///
+    /// ```text
+    /// Box<T>::new     path = Path(Box), application_separator = None
+    ///                 arguments = <T>, member = Some(PathMember('::', new))
+    /// Box::<T>::new   application_separator = Some('::' token), other roles as above
+    /// ```
+    ///
+    /// Present required slots are abbreviated. The member separator belongs to
+    /// [`PathMember`]; call-site applications are represented by [`CallApplication`].
+    AppliedPath {
+        path: Required<Path>,
+        application_separator: Option<Token<tokens::ColonColon>>,
+        arguments: GenericArgList,
+        member: Option<PathMember>,
     }
+);
 
-    /// Returns `x + 2` in `{ val x = 1; x + 2 }`.
-    /// Returns `None` for `{ x + 2; }`: the semicolon makes it a statement.
-    /// Only the last direct expression is selected, never one nested in a statement.
-    pub fn tail_expr(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).last()
+group!(
+    /// The separator and required name after an applied path.
+    ///
+    /// In `Box<T>::new`, `separator` holds the `::` token and `name` holds `new`.
+    /// The enclosing [`AppliedPath`] owns `Box` and `<T>`.
+    PathMember {
+        pub separator: Token<tokens::ColonColon>,
+        pub name: Required<Name>,
     }
+);
+
+/// Raw spelling and category resolve through the owning parse; decoding is source-owned.
+///
+/// For `42` or `"hello"`, `token` refers to the original literal token,
+/// including its suffix or delimiters. This wrapper stores neither the decoded
+/// value nor a separately allocated spelling. Strings with holes instead use
+/// [`InterpolatedString`] and its ordered parts.
+#[derive(Debug)]
+pub struct Literal {
+    pub(crate) token: Token<tokens::LiteralToken>,
 }
 
-impl PathExpr {
-    /// Returns the type wrapper for `<T as Read>::make`.
-    /// Returns `None` for ordinary paths such as `math::total`.
-    pub fn qualified_type(&self) -> Option<TypeRef> {
-        self.syntax().children().find_map(TypeRef::cast)
+node!(
+    /// A grouped expression, preserving parentheses separately from its child.
+    ///
+    /// For `(x + 1)`, `expression` holds a required [`BinaryExpr`], and
+    /// `open`/`close` hold the parenthesis tokens. `(x,)` is a [`TupleExpr`] instead.
+    ParenExpr {
+        open: Token<tokens::LParen>,
+        expression: Required<Expr>,
+        close: Required<Token<tokens::RParen>>,
     }
+);
 
-    /// Returns `<i32>` in `Box<i32>::make` or the function value `identity::<i32>`.
-    /// Returns `None` for `math::total`; qualified forms use `qualified_type()`.
-    pub fn generic_args(&self) -> Option<GenericArgList> {
-        support::child(self.syntax())
-    }
-
-    /// Returns the member `make` in `Box<i32>::make`.
-    /// For `math::total`, the names are inside `path()`, so this returns `None`.
-    pub fn name(&self) -> Option<Name> {
-        support::child(self.syntax())
-    }
-
-    /// Returns `math::total` for `math :: total`, omitting trivia.
-    /// `Box<i32>::make` yields `Box::make`; `<T as Read>::make` yields only `make`.
-    /// The function value `identity::<i32>` yields `identity`, without a member name.
-    /// Returns `None` if the required path/name components are missing.
-    pub fn name_text(&self) -> Option<String> {
-        if let Some(ty) = self.qualified_type() {
-            return ty.qualified_type()?.member()?.text();
-        }
-        if self.generic_args().is_some() && self.name().is_some() {
-            return Some(format!(
-                "{}::{}",
-                self.path()?.text()?,
-                self.name()?.text()?
-            ));
-        }
-        self.path()
-            .and_then(|path| path.text())
-            .or_else(|| self.name().and_then(|name| name.text()))
-    }
-
-    /// Returns `math::total` in `math::total`, or `Box` in `Box<i32>::make`.
-    /// Returns `None` for `<T as Read>::make`; use `qualified_type()` for that form.
-    pub fn path(&self) -> Option<Path> {
-        support::child(self.syntax())
-    }
+/// The parsed unary operation: `-x` is `Negate`, `!x` is `Not`.
+///
+/// The enclosing [`OperatorToken`] retains the actual lexical token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefixOp {
+    Negate,
+    Not,
 }
 
-impl Literal {
-    /// Returns the source spelling: `42` stays `42`, and `"a\n"` keeps its quotes and escape.
-    /// Copies the first token without decoding it; an empty recovered literal yields `None`.
-    pub fn text(&self) -> Option<String> {
-        self.syntax()
-            .first_token()
-            .map(|token| token.text().to_string())
+node!(
+    /// A prefix operator and its required operand.
+    ///
+    /// `-value` stores `operator.operation = Negate` and a path `expression`;
+    /// `!ready` uses `Not`. [`OperatorToken`] retains spelling, and a lone operator
+    /// retains a missing operand rather than borrowing the next grammar field.
+    PrefixExpr {
+        operator: Required<OperatorToken<PrefixOp>>,
+        expression: Required<Expr>,
     }
+);
 
-    /// Returns `SyntaxKind::Number` for `42`, `SyntaxKind::TrueKw` for `true`,
-    /// `SyntaxKind::Char` for `'🙂'`, `ByteChar` for `b'A'`, and `ByteString`
-    /// for `b"A"`/`br"A"`; all retain their original delimiters and escapes.
-    /// Reads the first token; an empty recovered literal yields `None`.
-    pub fn kind(&self) -> Option<SyntaxKind> {
-        self.syntax().first_token().map(|token| token.kind())
-    }
+/// The parsed binary operation, independent of its lexical storage.
+///
+/// `a + b` uses `Add`; `a >> b` uses `ShiftRight` while its [`OperatorToken`]
+/// retains two `>` tokens. [`BinaryExpr`] nesting represents precedence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder,
+    BitAnd,
+    BitOr,
+    BitXor,
+    ShiftLeft,
+    ShiftRight,
+    And,
+    Or,
+    Equal,
+    NotEqual,
+    IdentityEqual,
+    IdentityNotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
 }
 
-impl ParenExpr {
-    /// Returns `x + 1` in `(x + 1)`, without the grouping parentheses.
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(self.syntax())
+node!(
+    /// A binary operation with explicit left and right child roles.
+    ///
+    /// ```text
+    /// 1 + 2 * 3
+    /// lhs = Literal(1), operator.operation = Add
+    /// rhs = BinaryExpr { lhs: Literal(2), operator: Multiply, rhs: Literal(3) }
+    /// ```
+    ///
+    /// The sketch abbreviates required slots. Operator tokens retain source spelling;
+    /// precedence is represented by nesting, not reconstructed by consumers.
+    BinaryExpr {
+        lhs: Required<Expr>,
+        operator: Required<OperatorToken<BinaryOp>>,
+        rhs: Required<Expr>,
     }
+);
+
+node!(
+    /// An expression followed by an `as` token and required target type.
+    ///
+    /// `value as i64` maps to `expression = PathExpr(value)`, `keyword = 'as'`
+    /// and `ty = Named(i64)`, abbreviating present required children.
+    CastExpr {
+        expression: Required<Expr>,
+        keyword: Token<tokens::AsKw>,
+        ty: Required<TypeSyntax>,
+    }
+);
+
+node!(
+    /// A postfix propagation expression retaining its question-mark token.
+    ///
+    /// `read()?` stores a required [`CallExpr`] in `expression` and `?` in
+    /// `question`; Result/Option eligibility is checked after parsing.
+    PropagateExpr {
+        expression: Required<Expr>,
+        question: Token<tokens::Question>,
+    }
+);
+
+node!(
+    /// A postfix await with separate dot and keyword tokens.
+    ///
+    /// `task.await` stores the `task` path in `expression`, `.` in `dot`,
+    /// and `await` in the required `keyword` slot.
+    AwaitExpr {
+        expression: Required<Expr>,
+        dot: Token<tokens::Dot>,
+        keyword: Required<Token<tokens::AwaitKw>>,
+    }
+);
+
+/// The written range operator: `..` is `Exclusive`, `..=` is `Inclusive`.
+///
+/// [`RangeExpr`] and [`RangePattern`] share these spellings but own different
+/// endpoint requirements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeOp {
+    Exclusive,
+    Inclusive,
 }
 
-impl AwaitExpr {
-    /// Returns `fetch()` in `fetch().await`.
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(self.syntax())
+node!(
+    /// A range expression with independently represented endpoints.
+    ///
+    /// ```text
+    /// 1..       start = Some(Literal(1)), operator = Exclusive, end = None
+    /// ..=3      start = None, operator = Inclusive, end = Some(Present(Literal(3)))
+    /// 1..=      start = Some(Literal(1)), operator = Inclusive, end = Some(Missing)
+    /// ```
+    ///
+    /// Operators retain their lexical spelling. An absent exclusive end is distinct
+    /// from a missing required inclusive end; see [`Required`].
+    RangeExpr {
+        start: Option<Expr>,
+        operator: OperatorToken<RangeOp>,
+        end: Option<Required<Expr>>,
     }
+);
+
+node!(
+    /// A callee, optional type application and parenthesized value arguments.
+    ///
+    /// ```text
+    /// f::<T>(a, b)
+    /// callee = PathExpr(f), application = Some(CallApplication('::', <T>))
+    /// open = '(' token, arguments = [PathExpr(a), PathExpr(b)], close = ')' token
+    /// ```
+    ///
+    /// Present required slots and list entries are abbreviated. Type arguments belong
+    /// to `application`, value arguments to `arguments`. [`SeparatedList`] retains
+    /// commas and missing entries even when convenience accessors filter them out.
+    CallExpr {
+        callee: Required<Expr>,
+        application: Option<Box<CallApplication>>,
+        open: Required<Token<tokens::LParen>>,
+        arguments: SeparatedList<Expr>,
+        close: Required<Token<tokens::RParen>>,
+    }
+);
+
+group!(
+    /// A call's explicit type arguments and optional application separator.
+    ///
+    /// For `f::<T>(x)`, `separator` holds the `::` token and `arguments` owns
+    /// `<T>`; the enclosing [`CallExpr`] owns the value argument list `(x)`.
+    CallApplication {
+        pub separator: Option<Token<tokens::ColonColon>>,
+        pub arguments: GenericArgList,
+    }
+);
+
+node!(
+    /// A receiver and field name separated by a dot token.
+    ///
+    /// `point.x` stores a path `receiver`, the `.` token and `name = Name(x)`.
+    /// `point.` retains a missing required name; receiver syntax remains intact.
+    FieldExpr {
+        receiver: Required<Expr>,
+        dot: Token<tokens::Dot>,
+        name: Required<Name>,
+    }
+);
+
+node!(
+    /// An indexed receiver with bracket tokens and a required index expression.
+    ///
+    /// `items[i + 1]` maps `receiver` to the `items` path and `index` to a
+    /// [`BinaryExpr`]; `open`/`close` retain `[`/`]`. Bounds semantics belong to analysis/runtime.
+    IndexExpr {
+        receiver: Required<Expr>,
+        open: Token<tokens::LBracket>,
+        index: Required<Expr>,
+        close: Required<Token<tokens::RBracket>>,
+    }
+);
+
+node!(
+    /// An if expression with distinct condition, then-body and optional else roles.
+    ///
+    /// ```text
+    /// if ready { yes } else { no }
+    /// keyword = 'if' token, condition = Expression(PathExpr(ready))
+    /// then_body = BlockExpr(tail = yes), else_clause = Some(ElseClause('else', BlockExpr(no)))
+    /// ```
+    ///
+    /// Present required slots are abbreviated. `if {}` has a missing condition
+    /// and a present body; `if { ready } { yes }` retains the first block as its
+    /// condition. A written `else` at EOF retains a missing required body,
+    /// whereas no else clause is `None`.
+    IfExpr {
+        keyword: Token<tokens::IfKw>,
+        condition: Required<Condition>,
+        then_body: Required<Box<BlockExpr>>,
+        else_clause: Option<ElseClause>,
+    }
+);
+
+/// An ordinary expression or a conditional pattern binding.
+///
+/// `if ready {}` uses `Expression`; `if val Some(x) = value {}` uses
+/// `Binding`. The enclosing `if` or `while` node owns the body separately.
+#[derive(Debug)]
+pub enum Condition {
+    Expression(Expr),
+    Binding(Box<BindingCondition>),
 }
 
-impl PropagateExpr {
-    /// Returns `parse(text)` in `parse(text)?`, without the propagation operator.
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(self.syntax())
+node!(
+    /// A conditional `val` binding with explicit pattern and initializer roles.
+    ///
+    /// In `if val Some(x) = value {}`, this node owns the `val` and `=` tokens,
+    /// `pattern = TupleStruct(Some(x))` and `initializer = PathExpr(value)`.
+    /// The enclosing control-flow node owns its keyword and body.
+    BindingCondition {
+        keyword: Token<tokens::ValKw>,
+        pattern: Required<Pattern>,
+        equal: Required<Token<tokens::Eq>>,
+        initializer: Required<Expr>,
     }
+);
+
+group!(
+    /// An else keyword with a required expression, including nested `if`.
+    ///
+    /// `else { value }` stores a block in `body`; `else if ready {}` stores an
+    /// [`IfExpr`]. A written `else` at EOF retains the keyword and a missing body.
+    ElseClause {
+        pub keyword: Token<tokens::ElseKw>,
+        pub body: Required<Expr>,
+    }
+);
+
+node!(
+    /// A constructor path, optional type arguments and named field initializers.
+    ///
+    /// For `Point<T> { x: value }`, `path` is `Plain(Point)`, `arguments` stores
+    /// `<T>`, and `fields` owns the brace-delimited [`FieldInitList`].
+    /// Present required children are abbreviated; path resolution is deferred.
+    StructExpr {
+        path: Required<PathExpr>,
+        arguments: Option<Box<GenericArgList>>,
+        fields: FieldInitList,
+    }
+);
+
+node!(
+    /// A braced, comma-preserving list of fields and an optional final update.
+    ///
+    /// For `{ x: 1, y, ..base }`, `entries` contains two `Field` alternatives and
+    /// one `Update`; `open`/`close` hold brace tokens. Entries after an update are
+    /// recovered unexpected content, not additional admitted fields.
+    FieldInitList {
+        open: Required<Token<tokens::LBrace>>,
+        entries: SeparatedList<StructEntry>,
+        close: Required<Token<tokens::RBrace>>,
+    }
+);
+
+/// A named field initializer or final struct-update base.
+///
+/// In `Point { x: 1, ..base }`, entries are `Field(FieldInit)` then
+/// `Update(StructUpdateBase)`; list commas belong to [`FieldInitList`].
+#[derive(Debug)]
+pub enum StructEntry {
+    Field(FieldInit),
+    Update(StructUpdateBase),
 }
 
-impl PrefixExpr {
-    /// Returns `count` in `-count`, or `ready` in `!ready`.
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(self.syntax())
+node!(
+    /// A named initializer, distinguishing shorthand from an explicit value.
+    ///
+    /// ```text
+    /// x          name = Name(x), value = None
+    /// x: next    name = Name(x), value = Some(FieldValue(':' token, PathExpr(next)))
+    /// ```
+    ///
+    /// Present required names are abbreviated. `x:` retains a present value clause
+    /// with a missing expression; it does not become shorthand.
+    FieldInit {
+        name: Required<Name>,
+        value: Option<FieldValue>,
     }
+);
 
-    /// Returns `Some(SyntaxKind::Minus)` for `-count` and `Some(SyntaxKind::Bang)` for `!ready`.
-    /// Returns `None` if neither direct operator token is present.
-    pub fn operator(&self) -> Option<SyntaxKind> {
-        self.syntax()
-            .children_with_tokens()
-            .find_map(|element| match element {
-                NodeOrToken::Token(token)
-                    if matches!(token.kind(), SyntaxKind::Minus | SyntaxKind::Bang) =>
-                {
-                    Some(token.kind())
-                }
-                _ => None,
-            })
+group!(
+    /// The colon token and required expression of an explicit field initializer.
+    ///
+    /// In `x: next`, `colon` holds `:` and `expression` holds `PathExpr(next)`;
+    /// the enclosing [`FieldInit`] owns the name `x`.
+    FieldValue {
+        pub colon: Token<tokens::Colon>,
+        pub expression: Required<Expr>,
     }
+);
+
+node!(
+    /// A struct update entry with a dots token and required base expression.
+    ///
+    /// `Point { ..base }` stores `dots = '..'` and `value = PathExpr(base)` in
+    /// this entry; the enclosing [`FieldInitList`] owns braces and any comma.
+    StructUpdateBase {
+        dots: Token<tokens::DotDot>,
+        value: Required<Expr>,
+    }
+);
+
+node!(
+    /// A match keyword, required scrutinee and arm list.
+    ///
+    /// For `match value { Some(x) => x, _ => 0 }`, `scrutinee` is the `value`
+    /// path and `arms` owns two [`MatchArm`] nodes plus the brace tokens.
+    MatchExpr {
+        keyword: Token<tokens::MatchKw>,
+        scrutinee: Required<Expr>,
+        arms: MatchArmList,
+    }
+);
+
+node!(
+    /// The braces and comma-preserving arms of a match expression.
+    ///
+    /// For `{ A => 1, B => 2 }`, `arms` contains two [`MatchArm`] entries.
+    /// Missing arms or separators remain visible through [`SeparatedList`].
+    MatchArmList {
+        open: Required<Token<tokens::LBrace>>,
+        arms: SeparatedList<MatchArm>,
+        close: Required<Token<tokens::RBrace>>,
+    }
+);
+
+node!(
+    /// A pattern, optional guard and result expression separated by an arrow.
+    ///
+    /// ```text
+    /// Some(x) if ready => x
+    /// pattern = TupleStruct(Some(x)), guard = Some(MatchGuard('if', ready))
+    /// arrow = '=>' token, expression = PathExpr(x)
+    /// ```
+    ///
+    /// Present required slots are abbreviated. The enclosing [`MatchArmList`] owns
+    /// any trailing comma, while a written `if` with no expression retains its guard.
+    MatchArm {
+        pattern: Required<Pattern>,
+        guard: Option<MatchGuard>,
+        arrow: Required<Token<tokens::FatArrow>>,
+        expression: Required<Expr>,
+    }
+);
+
+group!(
+    /// The `if` token and required expression guarding a match arm.
+    ///
+    /// In `x if ready => x`, `keyword` holds `if` and `expression` holds the
+    /// `ready` path. The surrounding [`MatchArm`] owns the pattern and arrow.
+    MatchGuard {
+        pub keyword: Token<tokens::IfKw>,
+        pub expression: Required<Expr>,
+    }
+);
+
+node!(
+    /// An expression-form loop with a keyword token and required block.
+    ///
+    /// In `val x = loop { break 1; };`, `keyword` holds `loop` and `body`
+    /// holds a [`BlockExpr`] containing the break statement.
+    LoopExpr {
+        keyword: Token<tokens::LoopKw>,
+        body: Required<BlockExpr>,
+    }
+);
+
+node!(
+    /// An async keyword followed by a required block expression.
+    ///
+    /// `async { work().await }` stores `async` in `keyword` and the block in
+    /// `body`; capture and Future construction semantics belong to later phases.
+    AsyncBlockExpr {
+        keyword: Token<tokens::AsyncKw>,
+        body: Required<BlockExpr>,
+    }
+);
+
+node!(
+    /// A closure's optional async token, parameter form and required body.
+    ///
+    /// ```text
+    /// |x: i32| x + 1    async_keyword = None, parameters = List(x: i32), body = BinaryExpr
+    /// async || { 1 }    async_keyword = Some('async'), parameters = Empty('||'), body = BlockExpr
+    /// ```
+    ///
+    /// Present required slots are abbreviated. The body may be any admitted
+    /// expression; capture decisions are not stored in this syntax node.
+    ClosureExpr {
+        async_keyword: Option<Token<tokens::AsyncKw>>,
+        parameters: Required<ClosureParams>,
+        body: Required<Expr>,
+    }
+);
+
+/// The compact empty closure delimiter or a pipe-delimited parameter list.
+///
+/// `|| 1` retains one `PipePipe` token in `Empty`; `|x| x` retains a
+/// [`ClosureParamList`] with two delimiter tokens in `List`.
+#[derive(Debug)]
+pub enum ClosureParams {
+    Empty(Token<tokens::PipePipe>),
+    List(ClosureParamList),
 }
 
-impl BinaryExpr {
-    /// Returns `a` in `a + b * c`.
-    /// Selects the first direct expression; it does not descend into either operand.
-    pub fn lhs(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
+node!(
+    /// Pipe-delimited closure parameters with retained commas.
+    ///
+    /// For `|x, y: i32|`, `open`/`close` hold pipe tokens and `parameters`
+    /// contains two [`ClosureParam`] entries. The compact `||` form uses
+    /// [`ClosureParams::Empty`] instead.
+    ClosureParamList {
+        open: Token<tokens::Pipe>,
+        parameters: SeparatedList<ClosureParam>,
+        close: Required<Token<tokens::Pipe>>,
     }
+);
 
-    /// Returns the whole `b * c` expression in `a + b * c`.
-    /// Selects the second direct expression, or `None` if recovery leaves fewer than two.
-    pub fn rhs(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).nth(1)
+node!(
+    /// A closure parameter name with an optional type annotation.
+    ///
+    /// `x` has `annotation = None`; `x: i32` has `Some(TypeAnnotation)`.
+    /// The required `name` retains its own token site, independent of the type.
+    ClosureParam {
+        name: Required<Name>,
+        annotation: Option<Box<TypeAnnotation>>,
     }
+);
 
-    /// Returns `Some(SyntaxKind::Plus)` for the outer expression in `a + b * c`.
-    /// Ignores nested operators such as `*`; returns `None` if no direct binary operator remains.
-    pub fn operator(&self) -> Option<SyntaxKind> {
-        self.syntax()
-            .children_with_tokens()
-            .find_map(|element| match element {
-                NodeOrToken::Token(token)
-                    if matches!(
-                        token.kind(),
-                        SyntaxKind::Plus
-                            | SyntaxKind::Minus
-                            | SyntaxKind::Star
-                            | SyntaxKind::Slash
-                            | SyntaxKind::Percent
-                            | SyntaxKind::Amp
-                            | SyntaxKind::Pipe
-                            | SyntaxKind::Caret
-                            | SyntaxKind::Shl
-                            | SyntaxKind::Shr
-                            | SyntaxKind::IdentityEq
-                            | SyntaxKind::IdentityNotEq
-                            | SyntaxKind::EqEq
-                            | SyntaxKind::NotEq
-                            | SyntaxKind::Lt
-                            | SyntaxKind::Gt
-                            | SyntaxKind::Le
-                            | SyntaxKind::Ge
-                            | SyntaxKind::AmpAmp
-                            | SyntaxKind::PipePipe
-                    ) =>
-                {
-                    Some(token.kind())
-                }
-                _ => None,
-            })
+node!(
+    /// A parenthesized, comma-preserving tuple expression.
+    ///
+    /// `(x,)` has one `elements` entry with a trailing comma; `()` has none.
+    /// `open`/`close` are parenthesis tokens. `(x)` is [`ParenExpr`] instead;
+    /// see [`SeparatedList`] for the stored entry and separator representation.
+    TupleExpr {
+        open: Token<tokens::LParen>,
+        elements: SeparatedList<Expr>,
+        close: Required<Token<tokens::RParen>>,
     }
+);
+
+node!(
+    /// A bracketed array with element-list or repeat contents.
+    ///
+    /// `[a, b]` stores `contents = List(...)`; `[value; count]` stores `Repeat`.
+    /// `open`/`close` retain bracket tokens, and [`ArrayContents`] owns the contents'
+    /// children and internal punctuation.
+    ArrayExpr {
+        open: Token<tokens::LBracket>,
+        contents: ArrayContents,
+        close: Required<Token<tokens::RBracket>>,
+    }
+);
+
+/// Array elements or the distinct value/count roles of a repeat form.
+///
+/// `[a, b]` uses a comma-preserving `List`; `[x; n]` uses `Repeat` with
+/// required `value = x`, semicolon `separator` and required `count = n`.
+/// The enclosing [`ArrayExpr`] owns the brackets.
+#[derive(Debug)]
+pub enum ArrayContents {
+    List(SeparatedList<Expr>),
+    Repeat {
+        value: Required<Expr>,
+        separator: Token<tokens::Semi>,
+        count: Required<Expr>,
+    },
 }
 
-impl RangeExpr {
-    /// Returns `start` in `start..end` and `start..=end`.
-    /// Returns `None` for `..end` or `..`; selects only expressions before the range token.
-    pub fn start(&self) -> Option<Expr> {
-        self.syntax()
-            .children_with_tokens()
-            .take_while(|part| !matches!(part.kind(), SyntaxKind::DotDot | SyntaxKind::DotDotEq))
-            .filter_map(|part| part.into_node().and_then(Expr::cast))
-            .next()
+node!(
+    /// An interpolated string with ordered text tokens and hole nodes.
+    ///
+    /// ```text
+    /// "hi {name}"
+    /// open = FormatStart token, parts = [Text("hi " token), Hole(Interpolation(name))]
+    /// close = FormatEnd token
+    /// ```
+    ///
+    /// Present required slots are abbreviated. Text remains source-backed;
+    /// [`Interpolation`] owns each hole's delimiters and optional debug marker.
+    InterpolatedString {
+        open: Token<tokens::FormatStart>,
+        parts: Vec<StringPart>,
+        close: Required<Token<tokens::FormatEnd>>,
     }
+);
 
-    /// Returns `end` in `start..end` and `..=end`.
-    /// Returns `None` for `start..`, `..`, or a missing recovered end.
-    pub fn end(&self) -> Option<Expr> {
-        self.syntax()
-            .children_with_tokens()
-            .skip_while(|part| !matches!(part.kind(), SyntaxKind::DotDot | SyntaxKind::DotDotEq))
-            .filter_map(|part| part.into_node().and_then(Expr::cast))
-            .next()
-    }
-
-    /// Whether the range includes its end: true for `1..=3`, false for `1..3`.
-    /// Checks the direct `..=` token without validating either endpoint.
-    pub fn inclusive(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::DotDotEq).is_some()
-    }
+/// A source-backed text token or an interpolation node, in authored order.
+///
+/// For `"a{name}b"`, parts are `Text`, `Hole`, `Text`. Hole delimiters belong
+/// to [`Interpolation`]; quote delimiters belong to [`InterpolatedString`].
+#[derive(Debug)]
+pub enum StringPart {
+    Text(Token<tokens::FormatText>),
+    Hole(Interpolation),
 }
 
-impl CallExpr {
-    /// Returns `<i32>` in `identity<i32>(value)`; returns `None` in `identity(value)`.
-    pub fn generic_args(&self) -> Option<GenericArgList> {
-        support::child(self.syntax())
+node!(
+    /// A string hole containing a required path and optional debug marker.
+    ///
+    /// For `"{name:?}"`, `open`/`close` hold hole delimiter tokens, `expression`
+    /// holds `PathExpr(name)`, and `debug` is `Some(DebugMarker)`. The child is a
+    /// path expression, not an unrestricted [`Expr`]; an absent marker is `None`.
+    Interpolation {
+        open: Token<tokens::FormatOpen>,
+        expression: Required<PathExpr>,
+        debug: Option<DebugMarker>,
+        close: Required<Token<tokens::FormatClose>>,
     }
+);
 
-    /// Returns `add` in `add(a, b)`, or `obj.read` in `obj.read()`.
-    /// Selects the first direct expression, excluding type arguments.
-    pub fn callee(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
+group!(
+    /// The colon and required question mark of a debug-format hole suffix.
+    ///
+    /// In `"{name:?}"`, `colon` holds `:` and `question` holds `?`;
+    /// the enclosing [`Interpolation`] owns `name` and the hole delimiters.
+    DebugMarker {
+        pub colon: Token<tokens::Colon>,
+        pub question: Required<Token<tokens::Question>>,
     }
+);
 
-    /// Iterates `a` then `b + 1` in `add<i32>(a, b + 1)`; `add()` yields no arguments.
-    /// Skips the first direct expression (the callee); tokens and type arguments do not count.
-    pub fn args(&self) -> impl Iterator<Item = Expr> {
-        self.syntax().children().filter_map(Expr::cast).skip(1)
-    }
+/// Explicit pattern alternatives; expression/place classification is not parser policy.
+///
+/// `_` is a wildcard token, `Some(x)` is a tuple-struct node, and
+/// `Point { x, .. }` is a struct-pattern node. `(x)` preserves grouping while
+/// `(x,)` preserves a tuple and its comma. `Error` retains source coverage;
+/// binding names and constructor paths are resolved after parsing.
+#[derive(Debug)]
+pub enum Pattern {
+    Wildcard(Token<tokens::NameToken>),
+    Path(Box<PathExpr>),
+    Literal(Literal),
+    Or(Box<OrPattern>),
+    Range(Box<RangePattern>),
+    Grouped(Box<GroupedPattern>),
+    Tuple(Box<TuplePattern>),
+    TupleStruct(Box<TupleStructPattern>),
+    Struct(Box<StructPattern>),
+    Error(SyntaxSite),
 }
 
-impl FieldExpr {
-    /// Returns `player` in `player.hp`, or `players[i]` in `players[i].hp`.
-    pub fn receiver(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
+node!(
+    /// An initial pattern followed by pipe-prefixed alternatives.
+    ///
+    /// For `A | B | C`, `first` holds `A` and `alternatives` has two
+    /// [`PatternAlternative`] values for `| B` and `| C`. A final bare pipe
+    /// retains an alternative with a missing required pattern.
+    OrPattern {
+        first: Required<Pattern>,
+        alternatives: Vec<PatternAlternative>,
     }
+);
 
-    /// Returns the field name `hp` in `player.hp`.
-    pub fn name(&self) -> Option<Name> {
-        self.syntax().children().filter_map(Name::cast).next()
+group!(
+    /// A pipe token and required next pattern in an alternative chain.
+    ///
+    /// In `A | B`, `separator` holds `|` and `pattern` holds `B`;
+    /// the enclosing [`OrPattern`] owns the initial `A`.
+    PatternAlternative {
+        pub separator: Token<tokens::Pipe>,
+        pub pattern: Required<Pattern>,
     }
+);
 
-    /// Returns `Some("hp")` for `player.hp`, or `None` if the name/token is missing.
-    pub fn name_text(&self) -> Option<String> {
-        self.name().and_then(|name| name.text())
+node!(
+    /// A bounded pattern range with required endpoints and an operator.
+    ///
+    /// `1..=3` stores literal `start`/`end` bounds and an `Inclusive` operator;
+    /// `LOW..HIGH` stores path bounds and `Exclusive`. Unlike [`RangeExpr`],
+    /// both endpoints are required grammar roles.
+    RangePattern {
+        start: Required<PatternBound>,
+        operator: OperatorToken<RangeOp>,
+        end: Required<PatternBound>,
     }
-}
+);
 
-impl IndexExpr {
-    /// Returns `values` in `values[i + 1]`, without inspecting the index.
-    pub fn receiver(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
-    }
-
-    /// Returns `i + 1` in `values[i + 1]`.
-    /// Selects the second direct expression, or `None` if recovery leaves fewer than two.
-    pub fn index(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).nth(1)
-    }
-}
-
-impl IfExpr {
-    /// Returns `val Some(x) = value` in `if val Some(x) = value { x }`.
-    /// Returns `None` for a Boolean condition such as `if ready { work(); }`.
-    pub fn binding_condition(&self) -> Option<BindingCondition> {
-        support::child(self.syntax())
-    }
-
-    /// Returns `ready` in `if ready { work(); }`.
-    /// For `if val Some(x) = value { x }`, returns the then block `{ x }` instead:
-    /// the initializer is nested under `binding_condition()`. Check that accessor first.
-    pub fn condition(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
-    }
-
-    /// Returns `{ a }` in `if ready { a } else { b }`.
-    /// Selects the first direct block, including for an `if val` condition.
-    pub fn then_branch(&self) -> Option<BlockExpr> {
-        self.syntax().children().filter_map(BlockExpr::cast).next()
-    }
-
-    /// Returns `{ b }` in `if ready { a } else { b }`, or the nested `if` in `else if`.
-    /// Returns `None` when there is no expression after the first direct block.
-    /// Recovery can change these positional roles; see the type diagrams.
-    pub fn else_branch(&self) -> Option<Expr> {
-        let mut blocks = self.syntax().children().filter_map(BlockExpr::cast);
-        let then_branch = blocks.next()?;
-
-        let mut seen_then_branch = false;
-        self.syntax()
-            .children()
-            .filter_map(Expr::cast)
-            .find(|expr| {
-                if !seen_then_branch && expr.syntax() == then_branch.syntax() {
-                    seen_then_branch = true;
-                    return false;
-                }
-
-                seen_then_branch
-            })
-    }
-}
-
-impl BindingCondition {
-    /// Returns `Some(x)` in the condition `val Some(x) = value`.
-    pub fn pattern(&self) -> Option<Pattern> {
-        support::child(self.syntax())
-    }
-
-    /// Returns `value` in the condition `val Some(x) = value`.
-    pub fn initializer(&self) -> Option<Expr> {
-        support::child(self.syntax())
-    }
-}
-
-impl StructExpr {
-    /// Returns `<i32>` in `Box<i32> { value: 1 }`; returns `None` in `Point { x: 1 }`.
-    pub fn generic_args(&self) -> Option<GenericArgList> {
-        support::child(self.syntax())
-    }
-
-    /// Returns `Point` in `Point { x: 1 }`, or `Box` in `Box<i32> { value: 1 }`.
-    pub fn path(&self) -> Option<PathExpr> {
-        self.syntax().children().filter_map(PathExpr::cast).next()
-    }
-
-    /// Returns the explicit field list, including shorthand fields but never the base.
-    /// In `Point { x: 1, y, ..base }` this selects `x: 1, y,`; in `Point { ..base }`
-    /// it selects an empty list. The braces belong to the struct expression.
-    pub fn field_list(&self) -> Option<FieldInitList> {
-        self.syntax()
-            .children()
-            .filter_map(FieldInitList::cast)
-            .next()
-    }
-
-    /// Returns the written `..base` node, independently of whether its operand exists.
-    /// Ordinary construction returns `None`; recovered `Point { .. }` returns `Some`
-    /// with `value() == None`. Only the first direct base is selected; repeated bases
-    /// retained under recovery error nodes are not additional valid bases.
-    pub fn update_base(&self) -> Option<StructUpdateBase> {
-        support::child(self.syntax())
-    }
-}
-
-impl StructUpdateBase {
-    /// Returns `base` in `Point { ..base }`, or `None` for recovered `Point { .. }`.
-    /// The surrounding base node records marker presence independently of this operand.
-    pub fn value(&self) -> Option<Expr> {
-        support::child(self.syntax())
-    }
-}
-
-impl FieldInitList {
-    /// Iterates explicit `x: 1` then shorthand `y` in `{ x: 1, y, ..base }`.
-    /// Both `{}` and `{ ..base }` yield no fields; the update base is never a field.
-    pub fn fields(&self) -> impl Iterator<Item = FieldInit> {
-        self.syntax().children().filter_map(FieldInit::cast)
-    }
-}
-
-impl FieldInit {
-    /// Returns `x` in both `x: value` and shorthand `x`.
-    pub fn name(&self) -> Option<Name> {
-        self.syntax().children().filter_map(Name::cast).next()
-    }
-
-    /// Returns `Some("x")` for both `x: value` and shorthand `x`.
-    /// Returns `None` if the name/token is missing.
-    pub fn name_text(&self) -> Option<String> {
-        self.name().and_then(|name| name.text())
-    }
-
-    /// Returns `value` in `x: value`; returns `None` for shorthand `x`.
-    /// The shorthand's implicit value is not an expression child.
-    pub fn value(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
-    }
-}
-
-impl MatchExpr {
-    /// Returns `value` in `match value { Some(x) => x, _ => 0 }`.
-    pub fn scrutinee(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
-    }
-
-    /// Returns the arm list `Some(x) => x, _ => 0` in `match value { Some(x) => x, _ => 0 }`.
-    /// The braces belong to the match expression; use the list's `arms()` to visit each arm.
-    pub fn arms(&self) -> Option<MatchArmList> {
-        self.syntax()
-            .children()
-            .filter_map(MatchArmList::cast)
-            .next()
-    }
-}
-
-impl LoopExpr {
-    /// Returns `{ break 42; }` in the expression `loop { break 42; }`.
-    pub fn body(&self) -> Option<BlockExpr> {
-        support::child(self.syntax())
-    }
-}
-
-impl AsyncBlockExpr {
-    /// Returns `{ value }` in `async { value }`, or `None` for a missing body.
-    pub fn body(&self) -> Option<BlockExpr> {
-        support::child(self.syntax())
-    }
-}
-
-impl ClosureExpr {
-    /// Whether the closure explicitly starts with `async`: true for `async || 1`, false for `|| 1`.
-    pub fn is_async(&self) -> bool {
-        self.syntax()
-            .children_with_tokens()
-            .any(|child| child.kind() == SyntaxKind::AsyncKw)
-    }
-
-    /// Iterates `x: i32` then `y` in `|x: i32, y| x + y`; `|| 1` yields no parameters.
-    /// Reads parameters inside direct parameter-list nodes, excluding the body.
-    pub fn params(&self) -> impl Iterator<Item = ClosureParam> {
-        self.syntax()
-            .children()
-            .filter_map(ClosureParamList::cast)
-            .flat_map(|list| {
-                list.syntax()
-                    .children()
-                    .filter_map(ClosureParam::cast)
-                    .collect::<Vec<_>>()
-            })
-    }
-
-    /// Returns `x + 1` in `|x| x + 1`, or `{ x + 1 }` in `|x| { x + 1 }`.
-    /// Selects the last direct expression.
-    pub fn body(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).last()
-    }
-}
-
-impl ClosureParam {
-    /// Returns `x` in both `|x| x` and `|x: i32| x`.
-    pub fn name(&self) -> Option<Name> {
-        support::child(self.syntax())
-    }
-
-    /// Returns `i32` for `x` in `|x: i32| x`; returns `None` in `|x| x`.
-    pub fn ty(&self) -> Option<TypeRef> {
-        support::child(self.syntax())
-    }
-}
-
-impl MatchArmList {
-    /// Iterates `Some(x) => x` then `_ => 0` in `{ Some(x) => x, _ => 0 }`.
-    pub fn arms(&self) -> impl Iterator<Item = MatchArm> {
-        self.syntax().children().filter_map(MatchArm::cast)
-    }
-}
-
-impl MatchArm {
-    /// Returns `Some(x)` in `Some(x) if x > 0 => x`.
-    pub fn pattern(&self) -> Option<Pattern> {
-        self.syntax().children().filter_map(Pattern::cast).next()
-    }
-
-    /// Returns the result `x` in `Some(x) if x > 0 => x`, excluding the guard `x > 0`.
-    /// Selects the last direct expression.
-    pub fn expr(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).last()
-    }
-
-    /// Returns `x > 0` in `Some(x) if x > 0 => x`; returns `None` in `Some(x) => x`.
-    /// With an `if` token, selects the first direct expression; recovery can leave it sharing the result node.
-    pub fn guard(&self) -> Option<Expr> {
-        if support::token(self.syntax(), SyntaxKind::IfKw).is_some() {
-            self.syntax().children().filter_map(Expr::cast).next()
-        } else {
-            None
-        }
-    }
-}
-
-impl Pattern {
-    /// Whether the pattern has alternatives, such as `Some(_) | None`.
-    /// Checks a direct `|`; the outer `(Some(_) | None)` is grouped, so it returns false.
-    pub fn is_or(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::Pipe).is_some()
-    }
-
-    /// Returns `Some(true)` for `1..=3`, `Some(false)` for `1..3`, and `None` for `1`.
-    /// Checks only the direct range token, not whether both bounds are valid.
-    /// Struct-pattern rest, such as `Point { .. }`, is not a range.
-    pub fn range_inclusive(&self) -> Option<bool> {
-        if self.is_struct() {
-            return None;
-        }
-        if support::token(self.syntax(), SyntaxKind::DotDotEq).is_some() {
-            Some(true)
-        } else if support::token(self.syntax(), SyntaxKind::DotDot).is_some() {
-            Some(false)
-        } else {
-            None
-        }
-    }
-
-    /// Iterates `1` then `MAX` in `1..=MAX`, as literal and path bounds respectively.
-    /// Also yields `1` for the non-range pattern `1`; check `range_inclusive()` first.
-    pub fn range_bounds(&self) -> impl Iterator<Item = PatternBound> {
-        self.syntax().children().filter_map(|child| {
-            Literal::cast(child.clone())
-                .map(PatternBound::Literal)
-                .or_else(|| PathExpr::cast(child).map(PatternBound::Path))
-        })
-    }
-
-    /// Iterates `x` then `y` in `(x, y)` or `Pair(x, y)`, and `A` then `B` in `A | B`.
-    /// `(x)` yields one nested pattern; a plain `x` yields none. Does not descend into fields.
-    pub fn elements(&self) -> impl Iterator<Item = Pattern> {
-        self.syntax().children().filter_map(Pattern::cast)
-    }
-
-    /// Whether the pattern's first direct path spells `_`.
-    /// True for `_`, false for `value` or the outer grouped pattern `(_)`.
-    pub fn is_wildcard(&self) -> bool {
-        self.path().and_then(|path| path.name_text()).as_deref() == Some("_")
-    }
-
-    /// Returns `Some` in `Some(x)`, `Point` in `Point { x }`, or `x` in plain `x`.
-    /// Returns `None` for literal `1` and tuple `(x, y)` patterns.
-    pub fn path(&self) -> Option<PathExpr> {
-        self.syntax().children().filter_map(PathExpr::cast).next()
-    }
-
-    /// Returns the literal in `42`, or the first literal `1` in `1..=3`.
-    /// Returns `None` for `name`; use `range_bounds()` to read both range endpoints.
-    pub fn literal(&self) -> Option<Literal> {
-        self.syntax().children().filter_map(Literal::cast).next()
-    }
-
-    /// Whether this is a struct-shaped pattern, such as `Point { x, y }`.
-    /// Recognized by a direct `{` token.
-    pub fn is_struct(&self) -> bool {
-        support::token(self.syntax(), SyntaxKind::LBrace).is_some()
-    }
-
-    /// Whether this struct pattern contains an explicit rest marker, as in `Point { x, .. }`.
-    /// Reads only a direct `..` token; nested rests and ordinary ranges return false.
-    /// The marker is not a field or a nested pattern, and may omit zero fields.
-    pub fn has_rest(&self) -> bool {
-        self.is_struct() && support::token(self.syntax(), SyntaxKind::DotDot).is_some()
-    }
-
-    /// Whether this is a tuple-struct-shaped pattern, such as `Some(value)`.
-    /// Requires a direct path and `(` token; false for `(value,)`.
-    pub fn is_tuple_struct(&self) -> bool {
-        self.path().is_some() && support::token(self.syntax(), SyntaxKind::LParen).is_some()
-    }
-
-    /// Whether this is a tuple or grouped pattern: `()`, `(x,)`, `(x, y)`, or `(x)`.
-    /// False for `Some(x)`; use `is_grouped()` to distinguish `(x)` from tuple patterns.
-    pub fn is_tuple(&self) -> bool {
-        self.path().is_none() && support::token(self.syntax(), SyntaxKind::LParen).is_some()
-    }
-
-    /// Whether parentheses group a single pattern, such as `(x)`.
-    /// False for tuple patterns `()`, `(x,)`, `(x, y)` and constructor patterns `Some(x)`.
-    pub fn is_grouped(&self) -> bool {
-        self.is_tuple()
-            && support::token(self.syntax(), SyntaxKind::Comma).is_none()
-            && self.elements().count() == 1
-    }
-
-    /// Iterates shorthand `x` then `y: value` in `Point { x, y: value }`.
-    /// Tuple patterns such as `(x, y)` yield no fields; use `elements()` for them.
-    pub fn fields(&self) -> impl Iterator<Item = PatternField> {
-        self.syntax().children().filter_map(PatternField::cast)
-    }
-}
-
-/// A literal or path selected as a possible pattern range endpoint.
+/// A literal or path endpoint of a bounded pattern range.
+///
+/// `1..=MAX` stores `Literal(1)` and `Path(MAX)` in the enclosing
+/// [`RangePattern`]; endpoints are not unrestricted expressions.
+#[derive(Debug)]
 pub enum PatternBound {
-    /// A literal endpoint, such as `1` in `1..=MAX`.
     Literal(Literal),
-    /// A named endpoint, such as `MAX` in `1..=MAX`; constant resolution happens later.
     Path(PathExpr),
 }
 
-impl PatternField {
-    /// Returns the field name `x` in both `Point { x }` and `Point { x: value }`.
-    pub fn name(&self) -> Option<Name> {
-        support::child(self.syntax())
+node!(
+    /// Parentheses around one pattern, distinct from a tuple pattern.
+    ///
+    /// `(A | B)` stores an [`OrPattern`] in `pattern` with separate
+    /// `open`/`close` tokens; `(x,)` instead uses [`TuplePattern`].
+    GroupedPattern {
+        open: Token<tokens::LParen>,
+        pattern: Required<Pattern>,
+        close: Required<Token<tokens::RParen>>,
     }
+);
 
-    /// Returns `value` for `x: value` in `Point { x: value }`.
-    /// Returns `None` for shorthand `Point { x }`; no implicit nested pattern is created.
-    pub fn pattern(&self) -> Option<Pattern> {
-        support::child(self.syntax())
+node!(
+    /// A parenthesized list of patterns with retained comma positions.
+    ///
+    /// `(x, _)` stores path and wildcard entries in `elements`; `(x,)` stores
+    /// one entry and its trailing comma. `open`/`close` retain parentheses.
+    TuplePattern {
+        open: Token<tokens::LParen>,
+        elements: SeparatedList<Pattern>,
+        close: Required<Token<tokens::RParen>>,
     }
-}
+);
 
-impl TupleExpr {
-    /// Iterates `x` then `y + 1` in `(x, y + 1)`; `(x,)` yields one element and `()` none.
-    pub fn elements(&self) -> impl Iterator<Item = Expr> {
-        self.syntax().children().filter_map(Expr::cast)
+node!(
+    /// A constructor path followed by parenthesized payload patterns.
+    ///
+    /// `Some(x)` stores the `Some` path in `path`, one pattern in `elements`,
+    /// and separate `open`/`close` tokens. The constructor path is not a payload entry.
+    TupleStructPattern {
+        path: PathExpr,
+        open: Token<tokens::LParen>,
+        elements: SeparatedList<Pattern>,
+        close: Required<Token<tokens::RParen>>,
     }
-}
+);
 
-impl ArrayExpr {
-    /// Whether this is a repeated array: true for `[0; 3]`, false for `[0, 0, 0]`.
-    /// Checks the direct `;` token without evaluating the count.
-    pub fn is_repeat(&self) -> bool {
-        self.syntax()
-            .children_with_tokens()
-            .any(|part| part.kind() == SyntaxKind::Semi)
+node!(
+    /// A constructor path and named pattern fields with an optional rest marker.
+    ///
+    /// ```text
+    /// Point { x, y: other, .. }
+    /// path = Plain(Point), fields = [PatternField(x), PatternField(y: other)]
+    /// rest = Some(PatternRest('..')), open = '{' token, close = '}' token
+    /// ```
+    ///
+    /// The sketch abbreviates present required slots and list entries. `rest` is
+    /// separate from the comma-preserving `fields` list; it is not an ordinary field.
+    StructPattern {
+        path: PathExpr,
+        open: Token<tokens::LBrace>,
+        fields: SeparatedList<PatternField>,
+        rest: Option<PatternRest>,
+        close: Required<Token<tokens::RBrace>>,
     }
+);
 
-    /// Iterates `a` then `b` in `[a, b]`; `[]` yields no elements.
-    /// For `[value; count]`, yields `value` then `count`, not expanded copies of `value`.
-    /// Check `is_repeat()` before interpreting the children.
-    pub fn elements(&self) -> impl Iterator<Item = Expr> {
-        self.syntax().children().filter_map(Expr::cast)
+group!(
+    /// A struct pattern's dots token and optional following comma.
+    ///
+    /// `Point { .., }` has `dots = '..'` and `comma = Some(',')`.
+    /// The surrounding [`StructPattern`] owns the closing brace.
+    PatternRest {
+        pub dots: Token<tokens::DotDot>,
+        pub comma: Option<Token<tokens::Comma>>,
     }
-}
+);
 
-impl Interpolation {
-    /// Returns the name expression `value` in both `"{value}"` and `"{value:?}"`.
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(self.syntax())
+node!(
+    /// A named field pattern with shorthand or an explicit nested pattern.
+    ///
+    /// ```text
+    /// x          name = Name(x), pattern = None
+    /// x: other   name = Name(x), pattern = Some(FieldPattern(':' token, Path(other)))
+    /// ```
+    ///
+    /// Present required names are abbreviated. A written `x:` retains a present
+    /// clause with a missing required pattern, distinct from shorthand.
+    PatternField {
+        name: Required<Name>,
+        pattern: Option<FieldPattern>,
     }
+);
 
-    /// Whether interpolation requests debug formatting: true in `"{value:?}"`, false in `"{value}"`.
-    /// Checks only the direct `:` marker; does not revalidate a recovered `:?` suffix.
-    pub fn debug(&self) -> bool {
-        self.syntax()
-            .children_with_tokens()
-            .any(|element| element.kind() == SyntaxKind::Colon)
+group!(
+    /// The colon token and required nested pattern after a field name.
+    ///
+    /// In `Point { x: other }`, `colon` holds `:` and `pattern` holds `other`;
+    /// the enclosing [`PatternField`] owns `x`.
+    FieldPattern {
+        pub colon: Token<tokens::Colon>,
+        pub pattern: Required<Pattern>,
     }
-}
-
-impl CastExpr {
-    /// Returns `value` in `value as i64`.
-    pub fn expr(&self) -> Option<Expr> {
-        support::child(self.syntax())
-    }
-
-    /// Returns the target type `i64` in `value as i64`.
-    pub fn ty(&self) -> Option<TypeRef> {
-        support::child(self.syntax())
-    }
-}
+);

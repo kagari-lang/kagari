@@ -1,11 +1,10 @@
-//! Grammar handlers extending the shared [`super::core::Parser`] state.
-//!
-//! `item` owns file/declaration structure, `stmt` owns block contents, `expr` owns
-//! precedence and patterns, and `types` owns type spellings. Handlers write CST
-//! nodes directly; [`crate::ast`] documents their resulting child layouts.
-//! Missing expected tokens produce diagnostics rather than synthetic token leaves.
+//! Grammar handlers construct named fields directly; there is no builder replay or CST.
 
+mod attributes;
 mod expr;
-mod item;
+mod items;
+mod members;
+mod patterns;
+mod signature;
 mod stmt;
 mod types;

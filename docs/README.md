@@ -49,6 +49,7 @@ below; the public Pages site has not been activated by this work.
 - [Editor tooling and installation](../editors/README.md): standalone Zed/VS Code
   syntax adapters and the separate [stdio analyzer foundation](architecture.md#language-server-foundation).
 - [Performance measurements](performance-baseline.md), including the completed
+  [typed AST acceptance](performance-baseline.md#strongly-typed-ast-replacement-macos-2026-11-05),
   [runtime storage evaluation](performance-baseline.md#runtime-storage-2026-10-16) and
   [object overhead evaluation](performance-baseline.md#object-storage-overhead-2026-10-18), and
   [Kagari/Lua benchmark instructions](../benchmarks/lua-comparison/README.md).
@@ -82,10 +83,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   goal explicitly unmet. Further frontend preparation work is deferred; the
   [measurements](performance-baseline.md#direct-source-preparation-2026-10-21)
   retain the evidence and limits. Full incremental compilation stays separate.
-- [Compilation cancellation polling](compilation-cancellation-plan.md): proposed
-  CP01-CP04 measure polling cost/latency and batch selected bounded traversals,
-  preserving limits, cache/error boundaries and runtime cancellation semantics.
-  Implementation is not started or authorized; intervals and gates remain proposals.
+- [Compilation cancellation polling](implementation-roadmap.md#compilation-cancellation-polling):
+  coarse syntax checkpoints and a unified parser entrypoint are implemented and
+  locally validated. Architecture owns the contracts; measurements retain noise
+  and response limitations. Complete workspace/backend validation remains CI-only.
 - [Program-owned generic instance scheduling](implementation-roadmap.md#program-owned-generic-instance-worklist):
   R7-01 through R7-04 are implemented and locally accepted. Retained module state
   and delta extraction replace whole-module regeneration, preserving shared bodies

@@ -26,13 +26,15 @@ use crate::{
     lower::context::{self, Lowerer, syntax_span, token_span},
 };
 use kagari_syntax::ast::{
+    borrow::Ast,
     item::{
-        AssociatedType as AstAssociatedType, ConstDef, EnumDef, FnDef, ImplBlock, Item as AstItem,
-        MethodDef, ModuleDef, StaticDef, StructDef, TraitDef as AstTraitDef, TypeAliasDef, UseDecl,
-        UseTree, Visibility as AstVisibility,
+        AssociatedType as AstAssociatedType, ConstDef, EnumDef, FnDef, ImplBlock, MethodDef,
+        ModuleDef, OpaqueTypeDef, StaticDef, StructDef, TraitDef as AstTraitDef,
+        TypeAlias as AstTypeAlias, UseDecl, UseTree, VisibilityKind as AstVisibility,
     },
     misc::{GenericParamList, ParamList, TraitRef as AstTraitRef, WhereClause},
     module::ModuleSyntax,
+    views::ItemView,
 };
 use kagari_types::visibility::Visibility;
 
@@ -64,52 +66,53 @@ impl Lowerer {
                 break;
             }
             match item {
-                AstItem::TypeAliasDef(declaration) => {
+                ItemView::Error(_) => {}
+                ItemView::TypeAlias(declaration) => {
                     let item = self.lower_type_alias(&declaration);
                     self.module.items.push(Item::TypeAlias(item.id));
                     self.module.type_aliases.push(item);
                 }
-                AstItem::TypeDecl(declaration) => {
+                ItemView::OpaqueTypeDef(declaration) => {
                     let item = self.lower_opaque_type(&declaration);
                     self.module.items.push(Item::OpaqueType(item.id));
                     self.module.opaque_types.push(item);
                 }
-                AstItem::ModuleDef(module_def) => {
+                ItemView::ModuleDef(module_def) => {
                     let hir_module = self.lower_module_decl(&module_def);
                     self.module.items.push(Item::Module(hir_module.id));
                     self.module.modules.push(hir_module);
                 }
-                AstItem::UseDecl(use_decl) => self.lower_use_decl(&use_decl),
-                AstItem::TraitDef(trait_def) => {
+                ItemView::UseDecl(use_decl) => self.lower_use_decl(&use_decl),
+                ItemView::TraitDef(trait_def) => {
                     let hir_trait = self.lower_trait(&trait_def);
                     self.module.items.push(Item::Trait(hir_trait.id));
                     self.module.traits.push(hir_trait);
                 }
-                AstItem::ImplBlock(impl_block) => {
+                ItemView::ImplBlock(impl_block) => {
                     let hir_impl = self.lower_impl(&impl_block);
                     self.module.items.push(Item::Impl(hir_impl.id));
                     self.module.impls.push(hir_impl);
                 }
-                AstItem::FnDef(function) => {
+                ItemView::FnDef(function) => {
                     let id = self.lower_function(&function, FunctionKind::User);
                     self.module.items.push(Item::Function(id));
                 }
-                AstItem::ConstDef(const_def) => {
+                ItemView::ConstDef(const_def) => {
                     let hir_const = self.lower_const(&const_def);
                     self.module.items.push(Item::Const(hir_const.id));
                     self.module.consts.push(hir_const);
                 }
-                AstItem::StaticDef(definition) => {
+                ItemView::StaticDef(definition) => {
                     let item = self.lower_static(&definition);
                     self.module.items.push(Item::Static(item.id));
                     self.module.statics.push(item);
                 }
-                AstItem::StructDef(struct_def) => {
+                ItemView::StructDef(struct_def) => {
                     let hir_struct = self.lower_struct(&struct_def);
                     self.module.items.push(Item::Struct(hir_struct.id));
                     self.module.structs.push(hir_struct);
                 }
-                AstItem::EnumDef(enum_def) => {
+                ItemView::EnumDef(enum_def) => {
                     let hir_enum = self.lower_enum(&enum_def);
                     self.module.items.push(Item::Enum(hir_enum.id));
                     self.module.enums.push(hir_enum);
@@ -118,7 +121,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_type_alias(&mut self, declaration: &TypeAliasDef) -> TypeAlias {
+    fn lower_type_alias(&mut self, declaration: &Ast<'_, AstTypeAlias>) -> TypeAlias {
         let id = self.source_map.push_type_alias(syntax_span(declaration));
         if let Some(name) = declaration.name() {
             self.source_map
@@ -140,7 +143,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_opaque_type(&mut self, declaration: &AstAssociatedType) -> OpaqueType {
+    fn lower_opaque_type(&mut self, declaration: &Ast<'_, OpaqueTypeDef>) -> OpaqueType {
         let id = self.source_map.push_opaque_type(syntax_span(declaration));
         if let Some(name) = declaration.name() {
             self.source_map
@@ -162,11 +165,11 @@ impl Lowerer {
                 .bounds()
                 .map(|bounds| self.lower_trait_refs(bounds.bounds()))
                 .unwrap_or_default(),
-            definition: declaration.ty().map(|ty| self.lower_type(&ty)),
+            definition: None,
         }
     }
 
-    fn lower_module_decl(&mut self, module_def: &ModuleDef) -> ModuleDecl {
+    fn lower_module_decl(&mut self, module_def: &Ast<'_, ModuleDef>) -> ModuleDecl {
         let id = self.source_map.push_module(syntax_span(module_def));
         if let Some(name) = module_def.name() {
             self.source_map
@@ -176,11 +179,11 @@ impl Lowerer {
             id,
             visibility: lower_visibility(module_def.visibility()),
             name: module_def.name_text().unwrap_or_default(),
-            inline: module_def.block().is_some(),
+            inline: module_def.body().is_some(),
         }
     }
 
-    fn lower_use_decl(&mut self, use_decl: &UseDecl) {
+    fn lower_use_decl(&mut self, use_decl: &Ast<'_, UseDecl>) {
         let Some(tree) = use_decl.tree() else {
             return;
         };
@@ -202,7 +205,7 @@ impl Lowerer {
         &mut self,
         visibility: Visibility,
         base: Option<ImportPath>,
-        tree: &UseTree,
+        tree: &Ast<'_, UseTree>,
         root_span: Span,
     ) {
         let mut path = base.unwrap_or_default();
@@ -229,7 +232,7 @@ impl Lowerer {
         &mut self,
         visibility: Visibility,
         path: ImportPath,
-        tree: &UseTree,
+        tree: &Ast<'_, UseTree>,
         root_span: Span,
     ) {
         let explicit = tree.alias().and_then(|alias| alias.text());
@@ -249,7 +252,7 @@ impl Lowerer {
         });
     }
 
-    pub(crate) fn lower_trait(&mut self, trait_def: &AstTraitDef) -> TraitDef {
+    pub(crate) fn lower_trait(&mut self, trait_def: &Ast<'_, AstTraitDef>) -> TraitDef {
         let id = self.source_map.push_trait(syntax_span(trait_def));
         if let Some(name) = trait_def.name() {
             self.source_map
@@ -284,7 +287,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_impl(&mut self, impl_block: &ImplBlock) -> Impl {
+    fn lower_impl(&mut self, impl_block: &Ast<'_, ImplBlock>) -> Impl {
         let generic_params = impl_block
             .generic_params()
             .map(|params| self.lower_generic_params(&params))
@@ -320,7 +323,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_associated_type(&mut self, item: &AstAssociatedType) -> AssociatedType {
+    fn lower_associated_type(&mut self, item: &Ast<'_, AstAssociatedType>) -> AssociatedType {
         let name = item.name_text().unwrap_or_default();
         let name_ref = self.alloc_type(
             item.name()
@@ -352,7 +355,7 @@ impl Lowerer {
 
     fn lower_trait_method(
         &mut self,
-        method: &MethodDef,
+        method: &Ast<'_, MethodDef>,
         inherited_generics: &[GenericParam],
     ) -> TraitMethod {
         let function =
@@ -370,7 +373,7 @@ impl Lowerer {
 
     fn lower_impl_method(
         &mut self,
-        method: &MethodDef,
+        method: &Ast<'_, MethodDef>,
         receiver_ty: Option<TypeRefId>,
         inherited_generics: &[GenericParam],
     ) -> ImplMethod {
@@ -391,7 +394,7 @@ impl Lowerer {
     /// Builds a method's function slot under its owner, combining inherited and method generic binders.
     fn lower_method_function(
         &mut self,
-        method: &MethodDef,
+        method: &Ast<'_, MethodDef>,
         kind: FunctionKind,
         receiver_ty: Option<TypeRefId>,
         inherited_generics: &[GenericParam],
@@ -404,10 +407,7 @@ impl Lowerer {
         let previous_owner = self
             .source_map
             .set_owner(HirOwner::Body(BodyOwner::Function(id)));
-        let params = method
-            .param_list()
-            .map(|param_list| self.lower_method_params(&param_list, receiver_ty))
-            .unwrap_or_default();
+        let params = self.lower_method_params(&method.param_list(), receiver_ty);
         let mut generic_params = inherited_generics.to_vec();
         generic_params.extend(
             method
@@ -436,7 +436,7 @@ impl Lowerer {
 
     fn lower_method_params(
         &mut self,
-        param_list: &ParamList,
+        param_list: &Ast<'_, ParamList>,
         receiver_ty: Option<TypeRefId>,
     ) -> Vec<Param> {
         param_list
@@ -467,7 +467,11 @@ impl Lowerer {
     }
 
     /// Allocates a function ID, lowers signature/body under its owner, then restores the prior owner.
-    pub(crate) fn lower_function(&mut self, function: &FnDef, kind: FunctionKind) -> FunctionId {
+    pub(crate) fn lower_function(
+        &mut self,
+        function: &Ast<'_, FnDef>,
+        kind: FunctionKind,
+    ) -> FunctionId {
         let id = self.reserve_function(syntax_span(function));
         if let Some(name) = function.name() {
             self.source_map
@@ -478,26 +482,22 @@ impl Lowerer {
             .set_owner(HirOwner::Body(BodyOwner::Function(id)));
         let params = function
             .param_list()
-            .map(|param_list| {
-                param_list
-                    .params()
-                    .map(|param| Param {
-                        id: self.source_map.push_param(
-                            param
-                                .name()
-                                .map(|name| token_span(&name))
-                                .unwrap_or_else(|| syntax_span(&param)),
-                        ),
-                        writeability: Writeability::Val,
-                        name: param.name_text().unwrap_or_default(),
-                        ty: param
-                            .ty()
-                            .map(|ty| self.lower_type(&ty))
-                            .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
-                    })
-                    .collect::<Vec<_>>()
+            .params()
+            .map(|param| Param {
+                id: self.source_map.push_param(
+                    param
+                        .name()
+                        .map(|name| token_span(&name))
+                        .unwrap_or_else(|| syntax_span(&param)),
+                ),
+                writeability: Writeability::Val,
+                name: param.name_text().unwrap_or_default(),
+                ty: param
+                    .ty()
+                    .map(|ty| self.lower_type(&ty))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
             })
-            .unwrap_or_default();
+            .collect();
 
         let result = Function {
             id,
@@ -522,7 +522,7 @@ impl Lowerer {
         id
     }
 
-    fn lower_generic_params(&mut self, params: &GenericParamList) -> Vec<GenericParam> {
+    fn lower_generic_params(&mut self, params: &Ast<'_, GenericParamList>) -> Vec<GenericParam> {
         params
             .params()
             .map(|param| GenericParam {
@@ -541,7 +541,7 @@ impl Lowerer {
             .collect::<Vec<_>>()
     }
 
-    fn lower_where_clause(&mut self, where_clause: &WhereClause) -> Vec<TraitBound> {
+    fn lower_where_clause(&mut self, where_clause: &Ast<'_, WhereClause>) -> Vec<TraitBound> {
         where_clause
             .predicates()
             .map(|predicate| {
@@ -561,28 +561,31 @@ impl Lowerer {
             .collect::<Vec<_>>()
     }
 
-    fn lower_trait_refs(&mut self, refs: impl Iterator<Item = AstTraitRef>) -> Vec<TraitRef> {
+    fn lower_trait_refs<'a>(
+        &mut self,
+        refs: impl Iterator<Item = Ast<'a, AstTraitRef>>,
+    ) -> Vec<TraitRef> {
         refs.map(|reference| self.lower_trait_ref(&reference))
             .collect()
     }
 
     /// Encodes trait syntax as type syntax; callable inputs become a tuple argument and an `Output` binding.
-    pub(crate) fn lower_trait_ref(&mut self, trait_ref: &AstTraitRef) -> TraitRef {
+    pub(crate) fn lower_trait_ref(&mut self, trait_ref: &Ast<'_, AstTraitRef>) -> TraitRef {
         let name = trait_ref.path_text().unwrap_or_default();
         let args: SmallVec<[TypeRefId; 4]> = trait_ref
             .generic_args()
             .map(|args| args.args().map(|arg| self.lower_type(&arg)).collect())
             .unwrap_or_default();
-        let kind = if let Some(inputs) = trait_ref.callable_inputs() {
-            let input_span = token_span(&inputs);
-            let inputs = inputs.types().map(|ty| self.lower_type(&ty)).collect();
+        let kind = if let Some(callable) = trait_ref.callable() {
+            let input_span = callable.input_span();
+            let inputs = callable.inputs().map(|ty| self.lower_type(&ty)).collect();
             let tuple = self.alloc_type(
                 input_span,
                 TypeData {
                     kind: TypeKind::Tuple(inputs),
                 },
             );
-            let output = if let Some(output) = trait_ref.callable_output() {
+            let output = if let Some(output) = callable.output() {
                 self.lower_type(&output)
             } else {
                 let end = token_span(trait_ref).end;
@@ -621,7 +624,7 @@ impl Lowerer {
     }
 
     /// Lowers annotation and initializer under a fresh constant body owner, restoring the caller's owner.
-    fn lower_const(&mut self, const_def: &ConstDef) -> ConstItem {
+    fn lower_const(&mut self, const_def: &Ast<'_, ConstDef>) -> ConstItem {
         let id = self.source_map.push_const(syntax_span(const_def));
         if let Some(name) = const_def.name() {
             self.source_map
@@ -645,7 +648,7 @@ impl Lowerer {
         result
     }
 
-    fn lower_static(&mut self, definition: &StaticDef) -> StaticItem {
+    fn lower_static(&mut self, definition: &Ast<'_, StaticDef>) -> StaticItem {
         let id = self.source_map.push_static(syntax_span(definition));
         if let Some(initializer) = definition.initializer() {
             self.source_map
@@ -665,7 +668,7 @@ impl Lowerer {
                 .name()
                 .and_then(|name| name.text())
                 .unwrap_or_default(),
-            writeability: if definition.is_mutable() {
+            writeability: if definition.is_var() {
                 Writeability::Var
             } else {
                 Writeability::Val
@@ -680,7 +683,11 @@ impl Lowerer {
         item
     }
 
-    fn lower_associated_const(&mut self, item: &ConstDef, owner: ConstOwner) -> AssociatedConst {
+    fn lower_associated_const(
+        &mut self,
+        item: &Ast<'_, ConstDef>,
+        owner: ConstOwner,
+    ) -> AssociatedConst {
         let name = item.name_text().unwrap_or_default();
         let name_ref = self.alloc_type(
             item.name()
@@ -715,7 +722,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_struct(&mut self, struct_def: &StructDef) -> Struct {
+    fn lower_struct(&mut self, struct_def: &Ast<'_, StructDef>) -> Struct {
         let id = self.source_map.push_struct(syntax_span(struct_def));
         if let Some(name) = struct_def.name() {
             self.source_map
@@ -769,7 +776,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_enum(&mut self, enum_def: &EnumDef) -> Enum {
+    fn lower_enum(&mut self, enum_def: &Ast<'_, EnumDef>) -> Enum {
         let id = self.source_map.push_enum(syntax_span(enum_def));
         if let Some(name) = enum_def.name() {
             self.source_map
@@ -799,7 +806,7 @@ impl Lowerer {
                             name: variant.name_text().unwrap_or_default(),
                             payload: variant
                                 .payload_types()
-                                .map(|types| types.types().map(|ty| self.lower_type(&ty)).collect())
+                                .map(|types| self.lower_payload_types(&types))
                                 .unwrap_or_default(),
                         }
                     })

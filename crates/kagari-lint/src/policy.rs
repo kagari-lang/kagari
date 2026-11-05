@@ -14,7 +14,7 @@ use kagari_source::{
     diagnostic::Severity, identity::FileSpan, literal::decode_string_literal,
     presentation::DiagnosticRecord,
 };
-use kagari_syntax::kind::SyntaxKind;
+use kagari_syntax::ast::visit::NodeRef;
 use serde::Deserialize;
 use std::{
     cmp::Reverse,
@@ -56,22 +56,23 @@ pub(crate) fn scopes(
     for node in file.syntax().descendants() {
         cancel.check()?;
         if matches!(
-            node.kind(),
-            SyntaxKind::FnDef
-                | SyntaxKind::MethodDef
-                | SyntaxKind::StructDef
-                | SyntaxKind::EnumDef
-                | SyntaxKind::TraitDef
-                | SyntaxKind::TypeAliasDef
-                | SyntaxKind::ImplBlock
-                | SyntaxKind::ConstDef
-                | SyntaxKind::StaticDef
-                | SyntaxKind::AssociatedType
-                | SyntaxKind::ModuleDef
-                | SyntaxKind::UseDecl
+            node,
+            NodeRef::FnDef(_)
+                | NodeRef::MethodDef(_)
+                | NodeRef::StructDef(_)
+                | NodeRef::EnumDef(_)
+                | NodeRef::TraitDef(_)
+                | NodeRef::TypeAlias(_)
+                | NodeRef::ImplBlock(_)
+                | NodeRef::ConstDef(_)
+                | NodeRef::StaticDef(_)
+                | NodeRef::AssociatedType(_)
+                | NodeRef::OpaqueTypeDef(_)
+                | NodeRef::ModuleDef(_)
+                | NodeRef::UseDecl(_)
         ) {
-            let range = node.text_range();
-            targets.insert((usize::from(range.start()), usize::from(range.end())));
+            let range = node.body_span();
+            targets.insert((range.start, range.end));
         }
     }
     let mut scopes = Vec::new();

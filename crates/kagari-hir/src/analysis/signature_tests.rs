@@ -8,9 +8,9 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
         .unwrap()
 }
 
-fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
-    let fresh = snapshot(&mut test_analysis(), sources);
-    let fresh = fresh.file(file.source().id()).unwrap();
+fn assert_fresh(previous: &AnalysisSnapshot, file: &FileAnalysis, sources: &SourceDatabase) {
+    let fresh_snapshot = snapshot(&mut test_analysis(), sources);
+    let fresh = fresh_snapshot.file(file.source().id()).unwrap();
     file.signatures().as_ref().facts().assert_same_source_facts(
         file.definitions(),
         fresh.signatures().as_ref().facts(),
@@ -51,12 +51,31 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
                 .records()
                 .type_ref(fresh.result().facts().lowered.source_map.type_id(index))
         );
-        let location = |analysis: &FileAnalysis| {
-            analysis
-                .definition_at(span.start)
-                .map(|d| (d.name.clone(), d.location))
+        // Independent databases allocate different file IDs for generated native
+        // sources. Resolve each location through its own snapshot, then compare
+        // the authoritative source identity, revision, range and spelling.
+        let location = |analysis: &FileAnalysis, snapshot: &AnalysisSnapshot| {
+            analysis.definition_at(span.start).map(|d| {
+                let source = snapshot
+                    .source(d.location.file)
+                    .expect("retained declaration source");
+                let range = source
+                    .local_range(d.location)
+                    .expect("matching source revision and range");
+                if source.module_identity() == file.source().module_identity() {
+                    assert_eq!(d.location.file, file.source().id());
+                }
+                (
+                    d.name.clone(),
+                    source.module_identity().clone(),
+                    source.name().to_owned(),
+                    d.location.revision,
+                    range,
+                    source.text()[range.start..range.end].to_owned(),
+                )
+            })
         };
-        assert_eq!(location(file), location(fresh));
+        assert_eq!(location(file, previous), location(fresh, &fresh_snapshot));
     }
 }
 
@@ -93,7 +112,7 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
     let second = snapshot(&mut db, &sources);
     let file = second.file(id).unwrap();
     assert!(file.signatures_reused());
-    assert_fresh(file, &sources);
+    assert_fresh(&second, file, &sources);
     assert_eq!(first.declaration(&old_target.id), Some(&old_target));
     let new_target = second.declaration(&old_target.id).unwrap();
     assert_ne!(new_target.location, old_target.location);
@@ -108,7 +127,7 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
         .unwrap();
     let third = snapshot(&mut db, &sources);
     assert!(!third.file(id).unwrap().signatures_reused());
-    assert_fresh(third.file(id).unwrap(), &sources);
+    assert_fresh(&third, third.file(id).unwrap(), &sources);
 }
 
 #[test]
@@ -136,7 +155,7 @@ fn erroneous_signatures_reuse_with_rebased_diagnostics_and_fresh_body_errors() {
         .unwrap();
     let second = snapshot(&mut db, &sources);
     assert!(second.file(id).unwrap().signatures_reused());
-    assert_fresh(second.file(id).unwrap(), &sources);
+    assert_fresh(&second, second.file(id).unwrap(), &sources);
     assert_ne!(
         first.file(id).unwrap().signatures().diagnostics(),
         second.file(id).unwrap().signatures().diagnostics()
@@ -174,5 +193,5 @@ fn cancelled_or_older_queries_cannot_replace_signature_cache() {
         latest.file(id).unwrap(),
         again.file(id).unwrap()
     ));
-    assert_fresh(again.file(id).unwrap(), &sources);
+    assert_fresh(&again, again.file(id).unwrap(), &sources);
 }

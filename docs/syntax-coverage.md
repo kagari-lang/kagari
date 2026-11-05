@@ -85,8 +85,8 @@ When changing syntax, update the EBNF, reuse or update an existing parser case o
 executable example, and update the affected inventory rows. Add a witness only
 for a previously uncovered grammar rule or alternative. Keep `unverified` when
 the available example only happens to parse but does not demonstrate the
-particular branch. The parser's Rowan CST, semantic analysis, artifact loading,
-and runtime execution require their own tests; this audit measures their
+particular branch. The parser's typed AST/lossless lexical table, semantic
+analysis, artifact loading and runtime execution require their own tests; this audit measures their
 source-grammar inputs only.
 
 Character literals have a source witness in

@@ -9,7 +9,7 @@ use kagari_source::{
 use rstest::rstest;
 
 use crate::{
-    parser::parse,
+    parser::{ParseOptions, parse},
     tests::{
         common,
         diagnostics::{project_records, read_expectations},
@@ -20,7 +20,8 @@ use crate::{
 fn diagnostic_fixtures(#[files("tests/fixtures/ui/parser/*.kgr")] path: PathBuf) {
     let input = fs::read_to_string(&path).expect("UI source must be readable UTF-8");
     let source = common::source(&input);
-    let parsed = parse(&source);
+    let parsed = parse(&source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
     let records = parser_records(parsed.diagnostics(), &source).expect("valid parser spans");
     let expected_path = path.with_extension("diagnostics.json");
     let text = fs::read_to_string(&expected_path)

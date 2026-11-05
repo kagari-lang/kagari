@@ -3,7 +3,7 @@ use crate::native::adoption::adopt;
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::source::SourceFile;
 use kagari_stdlib::catalog;
-use kagari_syntax::parser::parse_declarations;
+use kagari_syntax::parser::{ParseMode, ParseOptions, parse};
 
 #[test]
 fn native_views_preserve_canonical_text_and_scoped_navigation() {
@@ -19,7 +19,15 @@ fn native_views_preserve_canonical_text_and_scoped_navigation() {
         assert_eq!(left_source.uri, right_source.uri);
         assert_eq!(left_source.text, right_source.text);
         let source = SourceFile::new(&left_source.uri, &left_source.text);
-        let parsed = parse_declarations(&source, Default::default(), &Default::default()).unwrap();
+        let parsed = parse(
+            &source,
+            ParseOptions {
+                mode: ParseMode::Declarations,
+                limits: Default::default(),
+            },
+            &Default::default(),
+        )
+        .unwrap();
         assert!(
             parsed.diagnostics().is_empty(),
             "{:?}",

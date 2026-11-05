@@ -22,6 +22,113 @@ snapshots and generation-pinned execution remain separate contracts. See
 [definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
 
+## Strongly typed syntax CI acceptance
+
+The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
+Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
+sharing, retained inline views, source provenance, explicit recovered roles and
+checked executable admission remain implemented contracts.
+
+[Local performance and memory acceptance](performance-baseline.md#strongly-typed-ast-replacement-macos-2026-11-05)
+passes all required rows: each of the four primary parse lifecycles improves by
+at least 20%, lowering/field reads meet their budgets, both-image required noise
+is below 10%, and all nine allocation lifecycles meet peak/retained limits and
+release to zero. The report records the field-only calibration correction applied
+identically to the unchanged Rowan control and candidate, with the original
+baseline retained. Focused contracts, structure, fmt, workspace all-target Clippy
+and diff checks pass.
+
+Complete CI remains pending under the [existing workflow](../.github/workflows/ci.yml):
+workspace tests, complete ignored formatter and editor/syntax inventories,
+standalone SDK feature/source-free consumers, JIT/AOT and Windows/platform
+contracts. Browser/feature coverage also remains in its existing CI scope. Local
+acceptance does not claim these matrices ran or passed. The completed TA1–TA4 plan
+and its phase ledger are retained in Git history. Incremental parsing, LSP
+expansion and broader HIR/runtime redesign were outside this replacement.
+
+Review follow-up preserves block-expression conditions and complete-list recovery
+coordinates, as specified in [syntax ownership](architecture/syntax.md#grammar-fields-and-recovered-roles).
+The previously failing while-condition contract now passes. Focused local coverage
+selects typed fields (including continuation recovery for expressions, types,
+patterns and receiver parameters), control flow, parser limits and formatter
+layout fixtures: 33 tests pass. These checks cover the changed syntax boundaries
+and their direct formatter consumer; exhaustive HIR, editor and backend coverage
+remains in the CI scope above. Structure, formatting, workspace all-target Clippy
+and diff checks pass. No performance remeasurement is claimed.
+
+SDK follow-up reproduces and repairs all ten reported failures: nine source
+location/inspection/update failures came from assigning outer trivia to HIR
+semantic ranges, and the recursive-syntax query panicked on a recovered grouped
+pattern with no child. HIR now uses written-token extents for source maps and
+attribute targets, and lowers the missing pattern through its existing recovery
+path. Replacement containment checks, runtime provenance and test assertions are
+unchanged. The ten named SDK regressions and ten selected HIR lowering/ownership
+tests pass; this covers source-free/native/async traces, retained source queries,
+update admission and recoverable analysis without running the workspace suite.
+The complete CI matrix above remains pending. Structure checking uses the
+existing cached environment with the locked tree-sitter 0.25.2 and
+tree-sitter-rust 0.24.2 dependencies because default uv cache access is restricted.
+
+The [AST CI follow-up](https://github.com/kagari-lang/kagari/actions/runs/42021986432/job/127226740599)
+reproduces all fourteen failing tests. Enum payload lowering now retains missing
+type slots and their anchors, recovered `use a::;` does not become a glob without
+a written star, and lint policy targets use the same semantic ranges as HIR
+attributes. Five diagnostic fixtures, the empty import recovery range and the
+lowering doctest now assert written-token extents. Fresh-analysis navigation
+comparisons resolve generated native file IDs within their owning snapshots and
+compare module identity, revision, range and spelling; local file identity remains
+checked. Existing recovery, codegen rejection and snapshot retention assertions
+remain intact. Thirty-two focused tests pass across HIR recovery/signatures/imports,
+diagnostics, lint policy, syntax imports and the lowering doctest. Structure, fmt,
+workspace all-target Clippy and diff checks pass. The failed run passed structure,
+GC safety, editor tooling and Windows/AOT jobs; the complete formatter inventory,
+async example, standalone feature consumers and CLI JIT steps in the Rust job were
+skipped after the test failure. A new CI run remains required before merge; no HIR
+architecture migration is included in this repair.
+
+PR #51 review follow-up corrects trait/impl recovery ownership to the `members`
+field and rejects import aliases/globs without a path and prefixed groups without
+`::`. Recovery still retains written syntax and subsequent declarations; root
+groups remain valid. The two affected tests reproduced the review findings before
+the fix. Eighteen focused tests cover recovery traversal, import grammar, parser
+limits, HIR import provenance and representative formatter contracts. Structure,
+formatting, workspace all-target Clippy and diff checks pass. Complete workspace
+and platform acceptance remain in CI; HIR redesign is not activated.
+
+### Typed AST performance follow-up
+
+The [Windows diagnostic study](performance-baseline.md#current-typed-ast-diagnostics-windows-2026-11-05)
+compares current typed syntax with itself. A one-entry inline list builder saved
+only about 3% of parse allocation requests on generated functions, with unchanged
+retained/peak bytes and no reliable timing win; the prototype was removed.
+The subsequent allocation study finds substantial lexer temporaries; borrowing
+identifier spellings removes 39.4% of large-input parse requests and improves its
+measured parse/drop lifecycle about 20%, with unchanged retained/peak memory.
+The small limits row is about 2.6% slower; the report retains this limitation and
+the noisy lowering/field-read rows. Historical Rowan replacement thresholds are
+not a target for these local comparisons.
+
+[Storage diagnostics](performance-baseline.md#arena-and-typed-storage-investigation)
+reject an all-allocation bump model: it retains 33.55 MB instead of 4.78 MB for
+large input. Synthetic typed binary stores favor grouped allocation and compact
+IDs, but do not establish a complete parser or HIR speedup. Production AST storage
+is unchanged. The experimental dependencies, allocation recorder, storage models
+and command have been removed; no storage migration is queued. Prioritize
+eliminating temporary allocations in the existing source pipeline. Any future
+storage proposal needs renewed real-path profiling and must preserve per-file
+sharing, immutable cross-thread access, cleanup and foreign-owner validation.
+The report retains the bounded results and Rust arena/IndexVec ownership
+comparison; allocation replay must not be reported as CPU-stack attribution.
+
+The concrete follow-up is consumer traversal: logical-module `descendants()`
+eagerly materializes all nodes before lint or documentation consumers start.
+Existing `visit_owned()` avoids those allocations and preserves independent
+child-module scopes. Measure real lint/query workloads before migrating callers;
+preserve authored order, cancellation, attributes and retained-source ownership.
+The separate physical iterator's much larger cost mostly concerns tests/tools
+and must not be presented as compiler speedup. The report records the Rust visitor
+comparison, reproducible probe, allocation evidence and timing limitations.
+
 ## Package acceptance and follow-ups
 
 [Source packages and workspaces](spec/packages.md) define the implemented local and
@@ -389,19 +496,20 @@ expansion remain separate.
 
 ## Compilation cancellation polling
 
-The [polling plan](compilation-cancellation-plan.md) proposes CP01-CP04: establish
-actual read-cost/response baselines, pilot operation-owned batching in syntax
-scanning, integrate selected compiler lowering/update-budget paths, then validate
-and hand off. It is proposed only; implementation and commits are not authorized.
+Coarse syntax checkpoints and the unified `parse(source, options, cancel)` API
+are implemented and locally validated. The
+[syntax architecture](architecture/syntax.md#failure-and-resource-boundaries)
+owns checkpoint placement, cleanup and exact limits; its entrypoint and AST
+documentation covers options, diagnostics, recovery, retention and traversal.
+The completed plan is retired. Shared token/runtime behavior is unchanged.
 
-Keep `CancellationToken::check()` immediate and retain exact resource accounting,
-latched failures, error precedence and cache/result boundary checks. Batch only
-bounded cheap traversal work under an explicit owner; do not mechanically remove
-checks from every loop. HIR's exact iterator cancellation contracts remain intact.
-VM instruction checks, GC, native/host/await boundaries and runtime cancellation
-semantics are excluded. The plan owns the finite scope, proposed latency gates and
-progress ledger. No polling overhead, speedup or responsiveness result is claimed,
-and this does not reopen the general startup-latency project.
+The previous compiler-lowering/update-budget integration proposal remains deferred,
+not an automatic follow-up. Full workspace and complete feature/backend/platform
+validation remain CI-only and were not run locally.
+The [performance report](performance-baseline.md#coarse-syntax-cancellation-first-version)
+records matched normal-path measurements and current-version response diagnostics;
+ordinary parsing is broadly unchanged with noisy adverse rows, and no universal
+response-latency guarantee or end-to-end compiler speedup is claimed.
 
 ## Program-owned generic instance worklist
 

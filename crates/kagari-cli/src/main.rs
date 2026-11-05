@@ -38,7 +38,7 @@ use kagari_source::{
     diagnostic::Diagnostic, presentation::DiagnosticRecord, source::SourceFile,
     source_database::SourceSnapshot,
 };
-use kagari_syntax::parser::parse_module;
+use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::declaration::logging;
 use kagari_vm::vm::ExecutionReport;
 use std::{
@@ -94,16 +94,14 @@ fn run_cli(cli: Cli) -> Result<(), CliError> {
 
 fn parse_source(path: &Path) -> Result<(), CliError> {
     let source = read_source(path)?;
-    match parse_module(&source) {
-        Ok(_) => {
-            println!("parsed {}", path.display());
-            Ok(())
-        }
-        Err(diagnostics) => {
-            print_common_diagnostics(&diagnostics);
-            Err(CliError::message(1, "parse failed"))
-        }
+    let parsed = parse(&source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
+    if !parsed.diagnostics().is_empty() {
+        print_common_diagnostics(parsed.diagnostics());
+        return Err(CliError::message(1, "parse failed"));
     }
+    println!("parsed {}", path.display());
+    Ok(())
 }
 
 fn source_engine(declaration_cache: impl Into<PathBuf>) -> Result<KagariEngine, CliError> {

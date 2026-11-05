@@ -1,81 +1,129 @@
-//! Typed views of the lossless concrete syntax tree.
+//! Directly stored, lossless and recoverable grammar. Nodes are immutable after parsing.
 //!
-//! Every concrete wrapper stores just `syntax: SyntaxNode`. Logical components
-//! such as a binary expression's left operand are selected from that node's
-//! children on demand; there are no separately stored `lhs`/`rhs` fields.
-//! Casting checks the node kind, without reparsing or validating its children.
-//! Cloning a wrapper retains a handle to the same tree rather than deep-copying it.
-//! Handles retain the tree independently of the original source and parse wrapper.
+//! Owned node fields are declared once with `node!`; the same declaration derives
+//! authored-order traversal and recovery field names. `Ast<T>` borrows those fields
+//! with their physical source owner. `ModuleSyntax` is the independently retained
+//! module handle; ordinary nodes do not own reference-counted handles.
 //!
-//! # Reading accessor examples
+//! ```text
+//! fn f() { if {} }
+//! FnDef.body -> BlockExpr.tail -> Expr::IfExpr
+//! IfExpr.condition = Missing { at: byte offset of `{` }
+//! IfExpr.then_body = Present(BlockExpr { open, statements: [], tail: None, close })
+//! IfExpr.else_clause = None
+//! ```
 //!
-//! Accessors describe the source fragment they select. For `add(a, b + 1)`,
-//! `CallExpr::callee()` selects `add`, while `args()` yields `a` then `b + 1`.
-//! Each result is a typed view of the existing node, not a copied source string or
-//! an evaluated value. Methods such as `name_text()` explicitly return strings.
+//! Missing roles consume no text. Real punctuation refers to the single lexical
+//! table; unexpected contents retain an explicit owner/field/entry position.
 //!
-//! Examples use Kagari syntax and describe well-formed fragments unless marked
-//! otherwise. A child accessor returns `None` if its matching node is missing;
-//! a list accessor yields no entries if no matching children remain. An existing
-//! node can itself be incomplete, so `Some` does not establish valid syntax.
-//! Boolean predicates recognize the written shape, without resolving its meaning.
-//! See the recovery rules below and each node's diagram for positional details.
+//! Start with [`borrow::Ast`] for source-aware access, [`site::Required`] and
+//! [`site::SeparatedList`] for recovery states, [`module::ModuleSyntax`] for
+//! retention and logical module traversal, and [`visit::NodeRef`] for physical
+//! node traversal. A convenient `Option` getter or filtered list iterator can
+//! omit recovery details; `Ast::data()` exposes the original named fields.
 //!
-//! # Reading the node diagrams
+//! # Reading the grammar models
 //!
-//! Diagrams show direct child nesting in source order. A quoted spelling denotes
-//! a token; unquoted kinds denote nodes. Where a node is followed by a source
-//! example in parentheses, its descendants are collapsed. Trivia is omitted
-//! unless stated otherwise. Accessor arrows identify the selected node/token.
-//! Schemas mark optional children with `?`, repetitions with `*`, and alternatives
-//! with `|`; these marks are notation, not additional nodes.
+//! Concrete definitions in [`item`], [`expr`], [`stmt`], [`ty`] and [`misc`]
+//! map source examples to their stored fields. Sketches abbreviate boxes,
+//! `Required::Present` and list entries where noted; they are not Rust values
+//! or complete debug dumps. Quoted punctuation denotes lexical tokens, while
+//! named expressions, types and patterns denote child syntax. A `Name` or
+//! `Literal` wraps a token reference rather than owning its spelling.
 //!
-//! [`SyntaxNode::children`](crate::syntax_node::SyntaxNode::children) skips tokens.
-//! `filter_map(Expr::cast)` then keeps only expression nodes: `next()` selects
-//! matching child #0, `nth(1)` matching child #1, `skip(1)` all matches after #0,
-//! and `last()` the final match. These positions are not indices into all CST
-//! elements. [`support::child`] finds the first matching *direct* node;
-//! [`support::children`] returns all matching direct nodes in source order.
-//!
-//! # Recovery
-//!
-//! `Option` can mean legally omitted syntax or an incomplete recovered tree.
-//! Iterators skip children of other kinds, including error nodes. Positional
-//! accessors do not reconstruct missing slots. For example, in `if {}` the block
-//! can be the first expression child, so `IfExpr::condition()` can select it.
-//! Check binding conditions separately, and consult diagnostics before assuming
-//! that a child's syntactic position establishes a valid language construct.
+//! `node!` adds a parse-local site to the declared fields; `group!` bundles
+//! related fields without a separate node site. Neither owns source text.
+//! Shared missing/optional-role semantics belong to [`site::Required`], and
+//! comma retention and filtered entry positions to [`site::SeparatedList`].
+//! Examples explain syntax shape, not successful name resolution or typing.
 
-/// Generates a kind-checked node handle and forwards Rustdoc to its public type.
-macro_rules! ast_node {
-    ($(#[$meta:meta])* $name:ident, $kind:ident) => {
+macro_rules! node {
+    ($(#[$meta:meta])* $name:ident { $($field:ident: $ty:ty),* $(,)? }) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, PartialEq, Eq)]
+        #[derive(Debug)]
         pub struct $name {
-            syntax: $crate::syntax_node::SyntaxNode,
+            pub(crate) site: $crate::ast::site::SyntaxSite,
+            $(pub $field: $ty,)*
         }
 
-        impl $crate::ast::traits::AstNode for $name {
-            fn can_cast(kind: $crate::kind::SyntaxKind) -> bool {
-                kind == $crate::kind::SyntaxKind::$kind
+        impl $crate::ast::borrow::NodeData for $name {
+            fn site(&self) -> $crate::ast::site::SyntaxSite {
+                self.site
             }
 
-            fn cast(syntax: $crate::syntax_node::SyntaxNode) -> Option<Self> {
-                Self::can_cast(syntax.kind()).then_some(Self { syntax })
+            fn field_name(&self, field: u16) -> Option<&'static str> {
+                const FIELDS: &[&str] = &[$(stringify!($field),)*];
+                FIELDS.get(usize::from(field)).copied()
             }
+        }
 
-            fn syntax(&self) -> &$crate::syntax_node::SyntaxNode {
-                &self.syntax
+        impl $crate::ast::visit::Fields for $name {
+            fn fields<'a>(
+                &'a self,
+                owner: &'a std::sync::Arc<$crate::parser::ParsedFile>,
+                output: &mut dyn FnMut($crate::ast::visit::ElementRef<'a>),
+            ) {
+                let context = $crate::ast::visit::FieldContext::new(owner, self.site);
+                let mut index = 0;
+                $(
+                    $crate::ast::visit::Walk::walk(&self.$field, context.field(index), output);
+                    index += 1;
+                )*
+                context.remaining(index, output);
             }
         }
     };
 }
 
+macro_rules! group {
+    ($(#[$meta:meta])* $name:ident { $($visibility:vis $field:ident: $ty:ty),* $(,)? }) => {
+        $(#[$meta])*
+        #[derive(Debug)]
+        pub struct $name { $($visibility $field: $ty,)* }
+
+        impl $crate::ast::visit::Walk for $name {
+            fn walk<'a>(&'a self, context: $crate::ast::visit::FieldContext<'a>, output: &mut dyn FnMut($crate::ast::visit::ElementRef<'a>)) {
+                context.element(0, output);
+                $($crate::ast::visit::Walk::walk(&self.$field, context.clear(), output);)*
+            }
+        }
+    };
+}
+
+macro_rules! required_child {
+    ($method:ident, $ty:ty, $($field:ident).+) => {
+        pub fn $method(self) -> Option<$crate::ast::borrow::Ast<'a, $ty>> {
+            self.node.$($field).+.as_ref().map(|node| self.with::<$ty>(node))
+        }
+    };
+}
+
+macro_rules! optional_child {
+    ($method:ident, $ty:ty, $($field:ident).+) => {
+        pub fn $method(self) -> Option<$crate::ast::borrow::Ast<'a, $ty>> {
+            self.node.$($field).+.as_ref().map(|node| self.with::<$ty>(node))
+        }
+    };
+}
+
+macro_rules! required_expression {
+    ($method:ident, $($field:ident).+) => {
+        pub fn $method(self) -> Option<$crate::ast::views::ExprView<'a>> {
+            self.node.$($field).+.as_ref().map(|node| self.with::<$crate::ast::expr::Expr>(node).view())
+        }
+    };
+}
+
+mod access;
+
+pub mod borrow;
 pub mod expr;
 pub mod item;
 pub mod misc;
 pub mod module;
+pub mod site;
 pub mod stmt;
-pub mod support;
-pub mod traits;
+pub mod tokens;
 pub mod ty;
+pub mod views;
+pub mod visit;

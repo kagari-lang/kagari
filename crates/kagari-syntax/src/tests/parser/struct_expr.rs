@@ -1,12 +1,11 @@
+use crate::ast::visit::NodeRef;
+
+use crate::ast::views::ExprView;
+
 use kagari_source::diagnostic::DiagnosticKind;
 
 use crate::{
-    ast::{
-        expr::{Expr, StructExpr, StructUpdateBase},
-        item::Item,
-        stmt::Stmt,
-        traits::AstNode,
-    },
+    ast::{views::ItemView, views::StmtView},
     kind::SyntaxKind,
     tests::common,
 };
@@ -15,8 +14,8 @@ use crate::{
 fn explicit_enum_path_preserves_arguments_and_variant_name() {
     let text = "fn main() { model::Token<Map<i32, [bool]>>::Empty }";
     let module = common::parse_ok(text);
-    assert_eq!(module.syntax().to_string(), text);
-    let Expr::PathExpr(path) = common::first_function(&module)
+    assert_eq!(module.text().to_owned(), text);
+    let ExprView::PathExpr(path) = common::first_function(&module)
         .body()
         .unwrap()
         .tail_expr()
@@ -32,8 +31,8 @@ fn explicit_enum_path_preserves_arguments_and_variant_name() {
 fn explicit_constructor_arguments_preserve_nested_types_and_comparisons() {
     let text = "fn main() { model::Marker<Map<i32, [bool]>> { value: 7 } }";
     let module = common::parse_ok(text);
-    assert_eq!(module.syntax().to_string(), text);
-    let Expr::StructExpr(expr) = common::first_function(&module)
+    assert_eq!(module.text().to_owned(), text);
+    let ExprView::StructExpr(expr) = common::first_function(&module)
         .body()
         .unwrap()
         .tail_expr()
@@ -48,7 +47,7 @@ fn explicit_constructor_arguments_preserve_nested_types_and_comparisons() {
             .body()
             .unwrap()
             .tail_expr(),
-        Some(Expr::BinaryExpr(_))
+        Some(ExprView::BinaryExpr(_))
     ));
 }
 
@@ -59,7 +58,7 @@ fn parses_struct_literal_expression() {
     let body = function.body().expect("expected function body");
 
     match body.tail_expr().expect("expected tail expression") {
-        Expr::StructExpr(struct_expr) => {
+        ExprView::StructExpr(struct_expr) => {
             assert_eq!(
                 struct_expr
                     .path()
@@ -68,19 +67,19 @@ fn parses_struct_literal_expression() {
                 Some("Player")
             );
 
-            let field_list = struct_expr.field_list().expect("expected field list");
+            let field_list = struct_expr.field_list();
             let fields: Vec<_> = field_list.fields().collect();
 
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].name_text().as_deref(), Some("hp"));
             match fields[0].value().expect("expected hp value") {
-                Expr::Literal(literal) => assert_eq!(literal.text().as_deref(), Some("10")),
+                ExprView::Literal(literal) => assert_eq!(literal.text().as_deref(), Some("10")),
                 other => panic!("unexpected hp value: {other:?}"),
             }
 
             assert_eq!(fields[1].name_text().as_deref(), Some("name"));
             match fields[1].value().expect("expected name value") {
-                Expr::PathExpr(path) => assert_eq!(path.name_text().as_deref(), Some("value")),
+                ExprView::PathExpr(path) => assert_eq!(path.name_text().as_deref(), Some("value")),
                 other => panic!("unexpected name value: {other:?}"),
             }
         }
@@ -117,13 +116,13 @@ fn struct_update_base_keeps_explicit_fields_and_physical_children_separate() {
     ] {
         let text = format!("fn main() {{ {constructor} }}");
         let module = common::parse_ok(&text);
-        assert_eq!(module.syntax().to_string(), text);
-        let Some(Expr::StructExpr(expr)) =
+        assert_eq!(module.text().to_owned(), text);
+        let Some(ExprView::StructExpr(expr)) =
             common::first_function(&module).body().unwrap().tail_expr()
         else {
             panic!("expected struct expression: {constructor}");
         };
-        let fields = expr.field_list().unwrap();
+        let fields = expr.field_list();
         assert_eq!(
             fields
                 .fields()
@@ -132,25 +131,34 @@ fn struct_update_base_keeps_explicit_fields_and_physical_children_separate() {
             names,
             "{constructor}"
         );
-        let base = expr.update_base().expect("written base");
-        assert_eq!(base.syntax().parent(), Some(expr.syntax().clone()));
-        assert_eq!(base.value().unwrap().syntax().kind(), operand_kind);
+        let base = expr.field_list().update_base().expect("written base");
+        assert!(expr.body_span().start <= base.body_span().start);
+        assert!(base.body_span().end <= expr.body_span().end);
+        assert_eq!(NodeRef::from(base.value().unwrap()).kind(), operand_kind);
         assert_eq!(
-            base.syntax()
-                .children_with_tokens()
+            NodeRef::from(base)
+                .elements()
+                .into_iter()
+                .filter_map(|element| match element {
+                    crate::ast::visit::ElementRef::Token(token) => Some(token),
+                    _ => None,
+                })
                 .filter(|child| child.kind() == SyntaxKind::DotDot)
                 .count(),
             1
         );
-        assert_eq!(expr.syntax().children().filter_map(Expr::cast).count(), 1);
-        assert_eq!(base.syntax().children().filter_map(Expr::cast).count(), 1);
-        assert!(!Expr::can_cast(SyntaxKind::StructUpdateBase));
-        assert!(StructUpdateBase::can_cast(SyntaxKind::StructUpdateBase));
-        assert!(
-            fields
-                .syntax()
+        assert!(expr.path().is_some());
+        assert_eq!(
+            NodeRef::from(base)
                 .children()
-                .all(|child| child.kind() == SyntaxKind::FieldInit)
+                .filter_map(NodeRef::expression)
+                .count(),
+            1
+        );
+        assert!(
+            NodeRef::from(fields)
+                .children()
+                .all(|child| matches!(child, NodeRef::FieldInit(_) | NodeRef::StructUpdateBase(_)))
         );
     }
 }
@@ -174,18 +182,23 @@ fn struct_update_missing_operand_is_not_an_absent_marker() {
                 DiagnosticKind::ExpectedExpression
             );
         }
-        let module = parse.syntax();
-        let expr = module
-            .syntax()
+        let module = parse.module();
+        let expr = NodeRef::ModuleBody(module.body())
             .descendants()
-            .find_map(StructExpr::cast)
+            .find_map(|node| match node {
+                NodeRef::StructExpr(node) => Some(node),
+                _ => None,
+            })
             .unwrap();
-        assert_eq!(expr.update_base().is_some(), has_marker);
+        assert_eq!(expr.field_list().update_base().is_some(), has_marker);
         assert_eq!(
-            expr.update_base().and_then(|base| base.value()).is_some(),
+            expr.field_list()
+                .update_base()
+                .and_then(|base| base.value())
+                .is_some(),
             has_value
         );
-        assert_eq!(module.syntax().to_string(), text);
+        assert_eq!(module.text().to_owned(), text);
     }
 }
 
@@ -212,23 +225,35 @@ fn invalid_struct_updates_preserve_following_statements_and_items() {
         );
         let parse = common::parse(&text);
         assert!(!parse.diagnostics().is_empty(), "{constructor}");
-        let module = parse.syntax();
-        assert_eq!(module.syntax().to_string(), text);
-        let expr = module
-            .syntax()
+        let module = parse.module();
+        assert_eq!(module.text().to_owned(), text);
+        let expr = NodeRef::ModuleBody(module.body())
             .descendants()
-            .find_map(StructExpr::cast)
+            .find_map(|node| match node {
+                NodeRef::StructExpr(node) => Some(node),
+                _ => None,
+            })
             .unwrap();
-        assert_eq!(expr.update_base().is_some(), has_base, "{constructor}");
         assert_eq!(
-            expr.update_base().and_then(|base| base.value()).is_some(),
+            expr.field_list().update_base().is_some(),
+            has_base,
+            "{constructor}"
+        );
+        assert_eq!(
+            expr.field_list()
+                .update_base()
+                .and_then(|base| base.value())
+                .is_some(),
             has_value
         );
-        assert_eq!(expr.field_list().unwrap().fields().count(), explicit_fields);
+        assert_eq!(expr.field_list().fields().count(), explicit_fields);
         assert_eq!(
-            expr.syntax()
+            NodeRef::from(expr.field_list())
                 .children()
-                .filter_map(StructUpdateBase::cast)
+                .filter_map(|node| match node {
+                    NodeRef::StructUpdateBase(node) => Some(node),
+                    _ => None,
+                })
                 .count(),
             usize::from(has_base)
         );
@@ -236,13 +261,13 @@ fn invalid_struct_updates_preserve_following_statements_and_items() {
         assert_eq!(body.statements().count(), 2, "{constructor}");
         assert!(matches!(
             body.statements().nth(1),
-            Some(Stmt::BindingStmt(_))
+            Some(StmtView::BindingStmt(_))
         ));
-        let Some(Expr::PathExpr(tail)) = body.tail_expr() else {
+        let Some(ExprView::PathExpr(tail)) = body.tail_expr() else {
             panic!("lost following tail: {constructor}");
         };
         assert_eq!(tail.name_text().as_deref(), Some("after"));
-        let Some(Item::FnDef(later)) = module.items().nth(1) else {
+        let Some(ItemView::FnDef(later)) = module.items().nth(1) else {
             panic!("lost following function: {constructor}");
         };
         assert_eq!(later.name_text().as_deref(), Some("later"));
@@ -263,14 +288,14 @@ fn struct_update_recovery_leaves_enclosing_delimiters_and_following_source() {
         let text = format!("fn main() {{ {expression}; val after = 7; after }} fn later() {{ 1 }}");
         let parse = common::parse(&text);
         assert!(!parse.diagnostics().is_empty(), "{expression}");
-        let module = parse.syntax();
-        assert_eq!(module.syntax().to_string(), text);
+        let module = parse.module();
+        assert_eq!(module.text().to_owned(), text);
         let body = common::first_function(&module).body().unwrap();
         assert!(
-            matches!(body.statements().last(), Some(Stmt::BindingStmt(_))),
+            matches!(body.statements().last(), Some(StmtView::BindingStmt(_))),
             "{expression}"
         );
-        let Some(Expr::PathExpr(tail)) = body.tail_expr() else {
+        let Some(ExprView::PathExpr(tail)) = body.tail_expr() else {
             panic!("lost following tail: {expression}");
         };
         assert_eq!(tail.name_text().as_deref(), Some("after"));
@@ -286,18 +311,19 @@ fn struct_update_marker_does_not_change_range_or_pattern_rest_syntax() {
          match p { Point { x, .., } => Point { x, ..base } } }",
     );
     assert_eq!(
-        module
-            .syntax()
+        NodeRef::ModuleBody(module.body())
             .descendants()
             .filter(|node| node.kind() == SyntaxKind::RangeExpr)
             .count(),
         5
     );
     assert_eq!(
-        module
-            .syntax()
+        NodeRef::ModuleBody(module.body())
             .descendants()
-            .filter_map(StructUpdateBase::cast)
+            .filter_map(|node| match node {
+                NodeRef::StructUpdateBase(node) => Some(node),
+                _ => None,
+            })
             .count(),
         2
     );

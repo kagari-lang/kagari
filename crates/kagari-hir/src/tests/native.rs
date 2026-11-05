@@ -1,10 +1,12 @@
 //! Application-owned declaration fixtures; no runtime or bundled-library implementation.
+
 use crate::{analysis::AnalysisDatabase, native::render::declaration_source, tests::test_analysis};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_contract::language::primitive;
 use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
+use kagari_syntax::parser::{ParseMode, ParseOptions, parse};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
     declaration::{
@@ -201,9 +203,12 @@ fn native_fixture_source_is_a_valid_offline_declaration() {
         let generated =
             declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
         let source = kagari_source::source::SourceFile::new(&generated.uri, &generated.text);
-        let parsed = kagari_syntax::parser::parse_declarations(
+        let parsed = parse(
             &source,
-            Default::default(),
+            ParseOptions {
+                mode: ParseMode::Declarations,
+                limits: Default::default(),
+            },
             &Default::default(),
         )
         .unwrap();
