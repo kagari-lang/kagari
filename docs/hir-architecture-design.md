@@ -1101,7 +1101,7 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
 | HA1a–HA1c | 完成 | 删除非必要身份能力、整理测试；分离工作状态/事实，共享归一化签名；显式取消出口、批次轮询及中途取消不发布验证通过 | 性能整体对照归 HA3–HA4；不承诺固定取消毫秒数 |
-| HA2 | 执行中 | 已开始核对现有 checked gate、编译器 body/实例输入与完整操作清单 | 更窄的 checked 输入与仅供测试的完整展开待实现 |
+| HA2 | 执行中 | 首个检查点建立 compile_input 的固定环境/body 目录及受限只读访问；验证 owner/arena/完成证据 | 完整操作视图、closure 子 body、compiler 语义展开与差分验证待完成 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
 | HA5 | 未启动 | — | 本地最终验收与完整 CI 均未执行 |
@@ -1163,6 +1163,18 @@ workspace all-target Clippy、结构（1824 文件，零违规/例外）、fmt�
 中间构建曾发现恢复 lowerer 被机械加上 `?`、Cancelled 到 identity error 的转换缺失，均已修复；
 测试 hook 曾位于 namespace 遍历而非兼容性比较，已移到比较循环并重跑验证，无遗留错误。
 全量 workspace/backend/platform 测试未在本地执行；整体正常路径对照在 HA3–HA4 沿用 HA0 方法。
+
+HA2 首个检查点：`compile_input::{program,environment,body}` 建立借用固定闭包的
+CheckedCompilation、CheckedModule、CheckedEnvironment 和 CheckedBodyInput。
+目前由受限的旧 CheckedProgram 证明入口建立验证视图，不修改生产 compiler 选择；
+`from_program` 是此检查点的迁移入口，HA3 将新资格门整合到唯一编译输入并删除旧宽访问职责。
+视图不返回 AnalyzedModule、TypeTable、可变数据库或可写事实，也不复制归一化签名/源码节点。
+BodyKey 绑定 module/arena/owner；节点查询验证行 owner 和 arena。资格检查覆盖 source map arena、
+函数签名参数归属、正向完成证据、constant 值及显式 script/native/required 类型。
+一个定向契约覆盖两种 initializer、两个函数、required 方法、跨 body/修订拒绝、旧输入保留、
+内部完成证据丢失拒绝及取消。完整操作事实和 closure/async 子 body 还没有交付，不能标记 HA2 完成。
+该契约测试及 workspace all-target Clippy、结构（1829 文件，零违规/例外）、fmt、diff、严格
+private rustdoc 通过；无遗留构建错误。生产编译/执行验证在完整切换时进行，完整矩阵仍归 CI。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 

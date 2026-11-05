@@ -354,6 +354,21 @@ source, and bound ordinary visited nodes after a request. This is a progress
 bound, not a wall-clock latency guarantee; destruction and a concurrent request
 after the final check still follow cooperative cancellation semantics.
 
+The architecture migration is introducing
+[compile_input](../../crates/kagari-hir/src/compile_input/mod.rs) as the narrower
+HIR handoff. `CheckedCompilation` borrows an already checked complete dependency
+closure and admits each module's environment and body directory. `CheckedEnvironment`
+exposes declaration contracts, while `CheckedBodyInput` ties source nodes, selected
+facts and spans to a `BodyKey { module, arena, owner }`. Foreign-owner/arena node
+lookups return `None`; a missing source body never implies a native implementation.
+Admission also requires positive function/static completion evidence, evaluated
+constants, matched signature parameters and a matching source-map arena.
+
+This handoff currently has validation consumers only. The production compiler still
+uses the earlier checked program/module APIs until the complete semantic elaborator
+and consumer migration replace them. The execution plan owns that removal checkpoint;
+these views must not become a second long-lived compilation path.
+
 ### Pattern-based declarations
 
 Every ordinary `Binding` owns one `PatternId`, declaration-wide writeability, an
