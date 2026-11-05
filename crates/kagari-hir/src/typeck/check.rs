@@ -18,13 +18,14 @@ use crate::{
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::{ResolvedName, ResolvedNames},
+    semantic::body::ModuleFacts,
     semantic::signatures::{
         BodySignatures, FunctionImplementation, TypedFunction, TypedFunctionBuffer, TypedParameter,
         TypedParameterBuffer,
     },
     typeck::{
-        BodyInputs, BodyTypeEnv, ModuleSignatures, TopLevelTypeIndex, TypeIndexes, TypedModule,
-        aliases, applications, associated, associated_consts, asynchronous,
+        BodyInputs, BodyTypeEnv, ModuleSignatures, TopLevelTypeIndex, TypeIndexes, aliases,
+        applications, associated, associated_consts, asynchronous,
         body::BodyChecker,
         check::{
             constants::{ConstValidationInputs, validate_const_initializers},
@@ -465,10 +466,10 @@ pub(crate) fn check_bodies_controlled(
     inputs: BodyInputs<'_>,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
-) -> AnalysisResult<TypedModule> {
+) -> AnalysisResult<ModuleFacts> {
     if !lowered.source.module_identity().within_path_limit() {
         return AnalysisResult {
-            facts: TypedModule {
+            facts: ModuleFacts {
                 valid_bodies: Default::default(),
                 valid_static_initializers: Default::default(),
                 checked_bodies: 0,
@@ -660,7 +661,7 @@ pub(crate) fn check_bodies_controlled(
         );
         if matches!(selection, BodySelection::Constants) {
             return AnalysisResult {
-                facts: TypedModule {
+                facts: ModuleFacts {
                     valid_bodies: Default::default(),
                     valid_static_initializers: Default::default(),
                     checked_bodies: 0,
@@ -916,7 +917,7 @@ pub(crate) fn check_bodies_controlled(
             }
         }
         AnalysisResult {
-            facts: TypedModule {
+            facts: ModuleFacts {
                 valid_bodies,
                 valid_static_initializers,
                 checked_bodies,

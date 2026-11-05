@@ -41,7 +41,7 @@ impl FunctionLowerer<'_, '_> {
         let scrutinee_ty = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(scrutinee)
             .ok_or(MirLoweringError::MissingExprType(scrutinee))?;
 
@@ -137,7 +137,7 @@ impl FunctionLowerer<'_, '_> {
         if self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .pattern_variant(pattern)
             .is_some()
         {
@@ -158,7 +158,7 @@ impl FunctionLowerer<'_, '_> {
                 let (start, end) = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .pattern_range(pattern)
                     .cloned()
                     .ok_or(MirLoweringError::MissingBinding("checked range pattern"))?;
@@ -205,7 +205,7 @@ impl FunctionLowerer<'_, '_> {
                 let scalar = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .pattern_scalar_value(pattern)
                     .cloned()
                     .ok_or(MirLoweringError::MissingBinding("checked pattern literal"))?;
@@ -268,7 +268,7 @@ impl FunctionLowerer<'_, '_> {
                 let resolved = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .pattern_fields(pattern)
                     .ok_or(MirLoweringError::MissingBinding("checked struct pattern"))?
                     .to_vec();
@@ -374,7 +374,7 @@ impl FunctionLowerer<'_, '_> {
                     let ty = self
                         .analyzed
                         .typed
-                        .type_table
+                        .type_table()
                         .local_type(local)
                         .ok_or(MirLoweringError::MissingLocalType(local))?;
                     let semantic = self.semantic_type(&ty)?;
@@ -413,7 +413,7 @@ impl FunctionLowerer<'_, '_> {
         if self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .pattern_variant(pattern)
             .is_some()
         {
@@ -537,7 +537,7 @@ impl FunctionLowerer<'_, '_> {
         let variant = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .pattern_variant(pattern)
             .ok_or(MirLoweringError::MissingBinding("checked enum variant"))?;
         let signature = self

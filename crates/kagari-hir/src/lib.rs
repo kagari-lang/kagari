@@ -41,6 +41,7 @@ use crate::{
         collect::{collect_declarations, resolve_bodies},
         resolved::{DeclarationNames, ResolvedNames},
     },
+    semantic::body::ModuleFacts,
     typeck::{
         applications::validate_signatures,
         check::{check_bodies_controlled, check_signatures},
@@ -105,7 +106,7 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 /// +-- names: ResolvedNames       -> ExprId/PlaceId -> bindings, shared namespaces
 /// +-- declarations              -> source declarations and scoped identities
 /// +-- signatures: Arc<AnalysisResult<ModuleSignatures>>
-/// +-- typed: TypedModule      -> per-body types and selected operations
+/// +-- typed: ModuleFacts      -> per-body types and selected operations
 /// +-- aggregates                -> nominal/trait/implementation catalog
 /// `-- imported_functions        -> callable facts for cross-module targets
 /// ```
@@ -130,7 +131,7 @@ pub struct AnalyzedModule {
     /// Declaration/binding metadata and definition identity context.
     pub declarations: declarations::Declarations,
     /// Checked or recovered function/constant facts, including expression types.
-    pub typed: typeck::TypedModule,
+    pub typed: ModuleFacts,
     /// Shared signature-stage facts and their diagnostics.
     pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
     /// Signatures/identities of callable declarations reached through imports.

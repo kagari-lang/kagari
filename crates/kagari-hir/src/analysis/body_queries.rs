@@ -7,6 +7,7 @@ use crate::{
     analysis::{
         AnalysisDatabase,
         declaration_queries::DeclarationSnapshot,
+        eligibility::BodyEligibility,
         error::AnalysisError,
         ownership,
         signature_queries::{FileSignatures, SignatureSnapshot},
@@ -21,9 +22,8 @@ use crate::{
         collect::resolve_bodies,
         resolved::{ResolvedName, ResolvedNames},
     },
-    typeck::{
-        BodyInputs, TypedModule, check::check_bodies_controlled, reuse::BodyReuse, table::TypeTable,
-    },
+    semantic::body::ModuleFacts,
+    typeck::{BodyInputs, check::check_bodies_controlled, reuse::BodyReuse, table::TypeTable},
     types::TypeId,
 };
 
@@ -48,6 +48,12 @@ mod tests;
 /// `names`, `declarations` and `typed` contain the selected analysis facts; they do not
 /// imply every function in the file was checked. Scoped definition IDs resolve through
 /// [`Self::definitions`], while position type queries return portable identities.
+///
+/// For `fn good() -> i32 { 1 } fn bad() -> i32 { true }`, querying `good` retains
+/// its expression facts and both declarations' signatures, but does not check
+/// `bad`'s body. [`Self::eligibility`] reports positive completion evidence for the
+/// selected body; absent facts are not evidence of success. Cancellation returns
+/// an error from [`AnalysisDatabase::body`] and publishes no partial result.
 #[derive(Debug)]
 pub struct FunctionAnalysis {
     /// Returns the selected declaration's identity in this result's definition table.
@@ -63,10 +69,27 @@ pub struct FunctionAnalysis {
     names: ResolvedNames,
     /// Borrows declaration sites including bindings collected for the selected body.
     declarations: Declarations,
-    typed: AnalysisResult<TypedModule>,
+    typed: AnalysisResult<ModuleFacts>,
 }
 
 impl FunctionAnalysis {
+    /// Reports whether the selected body completed under valid shared inputs.
+    ///
+    /// Signature/parser failures anywhere in the prepared environment invalidate
+    /// this evidence, even when local recovery produced useful expression types.
+    /// The body proof was recorded before diagnostic presentation truncation.
+    /// A complete body does not authorize compilation of the dependency closure;
+    /// constants, other bodies and linking still require their own checks.
+    pub fn eligibility(&self) -> BodyEligibility {
+        if self.signatures.shared_inputs_valid()
+            && self.typed.facts.valid_bodies.contains(&self.function)
+        {
+            BodyEligibility::Complete
+        } else {
+            BodyEligibility::Unavailable
+        }
+    }
+
     fn contains(&self, offset: usize) -> bool {
         self.names.scopes().iter().any(|scope| {
             scope.owner == BodyOwner::Function(self.function)

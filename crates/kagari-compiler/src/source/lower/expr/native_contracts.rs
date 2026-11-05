@@ -46,7 +46,7 @@ impl FunctionLowerer<'_, '_> {
                     *declaration,
                     self.analyzed
                         .typed
-                        .signatures
+                        .signatures()
                         .functions()
                         .iter()
                         .find(|function| function.id == *id)

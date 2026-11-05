@@ -200,7 +200,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 .and_then(|id| {
                     analyzed
                         .typed
-                        .signatures
+                        .signatures()
                         .functions()
                         .iter()
                         .find(|function| function.id == id)

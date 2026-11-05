@@ -102,7 +102,7 @@ impl FunctionLowerer<'_, '_> {
         let ty = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .local_type(hir_local)
             .as_ref()
             .map(|ty| self.value_type(ty))
@@ -122,7 +122,7 @@ impl FunctionLowerer<'_, '_> {
             &self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .local_type(hir_local)
                 .ok_or(MirLoweringError::MissingLocalType(hir_local))?,
         )?;
@@ -170,7 +170,7 @@ impl FunctionLowerer<'_, '_> {
         let ty = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(expr_id)
             .ok_or(MirLoweringError::MissingExprType(expr_id))?;
         let TypeId::Array(item) = ty else {
@@ -184,7 +184,7 @@ impl FunctionLowerer<'_, '_> {
     pub(crate) fn expr_type(&self, expr_id: ExprId) -> Result<ValueType, MirLoweringError> {
         self.analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(expr_id)
             .as_ref()
             .map(|ty| self.value_type(ty))
@@ -195,7 +195,7 @@ impl FunctionLowerer<'_, '_> {
     pub(crate) fn place_type(&self, place_id: PlaceId) -> Result<ValueType, MirLoweringError> {
         self.analyzed
             .typed
-            .type_table
+            .type_table()
             .place_type(place_id)
             .as_ref()
             .map(|ty| self.value_type(ty))
@@ -260,7 +260,7 @@ impl FunctionLowerer<'_, '_> {
         let ty = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(id)
             .ok_or(MirLoweringError::MissingExprType(id))?;
         self.nominal_instance(&ty)
@@ -342,7 +342,7 @@ impl FunctionLowerer<'_, '_> {
                 let constant = self
                     .analyzed
                     .typed
-                    .const_values
+                    .const_values()
                     .get(&id)
                     .cloned()
                     .ok_or(MirLoweringError::MissingBinding("const value"))?;

@@ -113,7 +113,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
             .result()
             .facts()
             .typed
-            .reused_bodies,
+            .reused_bodies(),
         0
     );
 }
@@ -147,7 +147,7 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
             .result()
             .facts()
             .typed
-            .reused_bodies,
+            .reused_bodies(),
         2
     );
     let reused = engine.compile_snapshot(snapshot, id, &token).unwrap();
@@ -634,7 +634,7 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
             .result()
             .facts()
             .typed
-            .const_values
+            .const_values()
             .is_empty()
     );
     assert!(limited.check_program(id, &Default::default()).is_err());

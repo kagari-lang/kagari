@@ -5,8 +5,9 @@ use crate::{
     hir::ids::BodySelection,
     lower::{LoweredModule, lower_module},
     resolver::resolved::{DeclarationNames, ResolvedNames},
+    semantic::body::ModuleFacts,
     typeck::{
-        BodyInputs, TypedModule,
+        BodyInputs,
         applications::validate_signatures,
         check::{check_bodies_controlled, check_signatures, prepare_body_signatures},
         definition_registration,
@@ -55,7 +56,7 @@ pub fn check_module(
     lowered: &LoweredModule,
     names: &ResolvedNames,
     reuse: Option<&BodyReuse<'_>>,
-) -> AnalysisResult<TypedModule> {
+) -> AnalysisResult<ModuleFacts> {
     let names = names.clone();
     let mut declarations = Declarations::collect_named(
         &lowered.source,

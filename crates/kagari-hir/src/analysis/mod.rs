@@ -830,11 +830,7 @@ impl AnalysisDatabase {
     ) -> Result<AnalysisSnapshot, AnalysisError> {
         cancel.check()?;
         let signature_snapshot = self.prepare_signatures(source.clone(), cancel)?;
-        let shared_valid = signature_snapshot.files.values().all(|file| {
-            file.declaration.parsed.physical().diagnostics().is_empty()
-                && file.prepared.names.diagnostics().is_empty()
-                && file.prepared.signatures.diagnostics().is_empty()
-        });
+        let shared_valid = signature_snapshot.shared_inputs_valid();
         let graph = signature_snapshot.declarations.graph.clone();
         let signatures = signature_snapshot
             .files

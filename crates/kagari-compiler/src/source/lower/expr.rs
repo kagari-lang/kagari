@@ -74,13 +74,13 @@ impl FunctionLowerer<'_, '_> {
                 ResolvedName::Local(id) => self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .local_type(*id)
                     .ok_or(MirLoweringError::MissingLocalType(*id))?,
                 ResolvedName::Param(id) => self
                     .analyzed
                     .typed
-                    .signatures
+                    .signatures()
                     .functions()
                     .iter()
                     .find(|function| Some(function.id) == self.instance.body.function())
@@ -118,7 +118,7 @@ impl FunctionLowerer<'_, '_> {
             let ty = self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .expr_type(expr_id)
                 .ok_or(MirLoweringError::MissingExprType(expr_id))?;
             let future = self.semantic_type(&ty)?;
@@ -152,7 +152,7 @@ impl FunctionLowerer<'_, '_> {
         let ty = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(expr_id)
             .ok_or(MirLoweringError::MissingExprType(expr_id))?;
         self.planner.record_layout_root(
@@ -174,7 +174,7 @@ impl FunctionLowerer<'_, '_> {
             if let Some((receiver, interface)) = self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .callable_coercion(expr_id)
                 .cloned()
             {
@@ -205,7 +205,7 @@ impl FunctionLowerer<'_, '_> {
             if let Some(coercion) = self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .interface_coercion(expr_id)
                 .cloned()
             {
@@ -216,7 +216,7 @@ impl FunctionLowerer<'_, '_> {
             let ty = self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .coerced_expr_type(&self.planner.definitions(), expr_id)
                 .ok_or(MirLoweringError::MissingExprType(expr_id))?;
             if ty != TypeId::Unknown && ty != TypeId::Error {
@@ -248,7 +248,7 @@ impl FunctionLowerer<'_, '_> {
         if let Some(fact) = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .associated_const(expr_id)
             .cloned()
         {
@@ -292,7 +292,7 @@ impl FunctionLowerer<'_, '_> {
         if let Some(target) = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .enum_constructor(expr_id)
             .cloned()
         {
@@ -341,7 +341,7 @@ impl FunctionLowerer<'_, '_> {
         if let Some(value) = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .scalar_value(expr_id)
             .cloned()
         {
@@ -384,7 +384,7 @@ impl FunctionLowerer<'_, '_> {
                 if self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .call_resolution(expr_id)
                     .is_none()
                 {
@@ -400,13 +400,13 @@ impl FunctionLowerer<'_, '_> {
                 let source = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .expr_type(expr)
                     .ok_or(MirLoweringError::MissingExprType(expr))?;
                 let target = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .expr_type(expr_id)
                     .ok_or(MirLoweringError::MissingExprType(expr_id))?;
                 let (TypeId::Builtin(source), TypeId::Builtin(target)) = (source, target) else {
@@ -432,7 +432,7 @@ impl FunctionLowerer<'_, '_> {
                 if self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .call_resolution(expr_id)
                     .is_some()
                 {
@@ -453,7 +453,7 @@ impl FunctionLowerer<'_, '_> {
                 let operand_ty = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .expr_type(lhs)
                     .ok_or(MirLoweringError::MissingExprType(lhs))?;
                 let lhs = self.lower_expr(lhs)?;
@@ -479,7 +479,7 @@ impl FunctionLowerer<'_, '_> {
                 ) && self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .call_resolution(expr_id)
                     .is_some()
                 {
@@ -491,7 +491,7 @@ impl FunctionLowerer<'_, '_> {
                 ) && self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .call_resolution(expr_id)
                     .is_some()
                 {
@@ -603,7 +603,7 @@ impl FunctionLowerer<'_, '_> {
                 let ty = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .expr_type(initializer)
                     .ok_or(MirLoweringError::MissingExprType(initializer))?;
                 self.lower_pattern_decision(pattern, cond, &ty, Some(else_block), &mut bindings)?;

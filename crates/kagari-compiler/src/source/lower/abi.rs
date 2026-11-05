@@ -91,13 +91,13 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                 };
                 let ty = module
                     .typed
-                    .consts
+                    .consts()
                     .get(&id)
                     .map(|ty| abi_type(module, ty))
                     .expect("checked const fact must exist");
                 let value = module
                     .typed
-                    .const_values
+                    .const_values()
                     .get(&id)
                     .map(|value| const_abi_value(value, module.declarations.definitions()))
                     .expect("checked const fact must exist");
@@ -148,14 +148,14 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                             ty: lower_type(
                                 &module
                                     .typed
-                                    .type_table
+                                    .type_table()
                                     .type_ref(member.ty)
                                     .expect("constant signature")
                                     .ty,
                             ),
                             default_value: member
                                 .initializer
-                                .and_then(|id| module.typed.const_values.get(&id))
+                                .and_then(|id| module.typed.const_values().get(&id))
                                 .map(|value| {
                                     const_abi_value(value, module.declarations.definitions())
                                 }),
@@ -165,7 +165,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                         .supertraits
                         .iter()
                         .filter_map(|reference| {
-                            let parent = module.typed.type_table.constraint(reference.ty)?;
+                            let parent = module.typed.type_table().constraint(reference.ty)?;
                             Some(lower_nominal_type(
                                 &module.aggregates.canonical_interface_application(
                                     module.declarations.definitions(),
@@ -190,7 +190,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                                 generic_params: generic_param_abi(module, &member.generic_params),
                                 parameter_bounds: module
                                     .typed
-                                    .type_table
+                                    .type_table()
                                     .associated_type_parameters(
                                         &module
                                             .declarations
@@ -226,7 +226,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                                         .bounds
                                         .iter()
                                         .filter_map(|bound| {
-                                            module.typed.type_table.constraint(bound.ty)
+                                            module.typed.type_table().constraint(bound.ty)
                                         })
                                         .map(|constraint| {
                                             constraint_abi(
@@ -314,7 +314,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     .expect("checked inherent impl identity");
                 let for_type = &impl_block
                     .for_type
-                    .and_then(|ty| module.typed.type_table.type_ref(ty))
+                    .and_then(|ty| module.typed.type_table().type_ref(ty))
                     .expect("checked inherent receiver")
                     .ty;
                 let mut bounds = parameter_bounds(module, &impl_block.generic_params);
@@ -324,7 +324,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                             module,
                             &module
                                 .typed
-                                .type_table
+                                .type_table()
                                 .type_ref(bound.target_ref)
                                 .expect("checked inherent bound target")
                                 .ty,
@@ -338,7 +338,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                                     module.declarations.definitions(),
                                     module
                                         .typed
-                                        .type_table
+                                        .type_table()
                                         .constraint(reference.ty)
                                         .expect("checked inherent bound"),
                                 )
@@ -360,13 +360,13 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
         let trait_type = TypeId::Trait(
             module
                 .typed
-                .type_table
+                .type_table()
                 .constraint(reference.ty)
                 .expect("checked impl trait"),
         );
         let for_type = &impl_block
             .for_type
-            .and_then(|ty| module.typed.type_table.type_ref(ty))
+            .and_then(|ty| module.typed.type_table().type_ref(ty))
             .expect("checked impl target must exist")
             .ty;
         let name = format!(
@@ -413,7 +413,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     ty: lower_type(
                         &module
                             .typed
-                            .type_table
+                            .type_table()
                             .type_ref(member.ty)
                             .expect("constant signature")
                             .ty,
@@ -421,7 +421,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     value: const_abi_value(
                         module
                             .typed
-                            .const_values
+                            .const_values()
                             .get(&member.initializer.expect("impl initializer"))
                             .expect("checked constant"),
                         module.declarations.definitions(),
@@ -465,7 +465,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
         .filter_map(|function| {
             let typed = module
                 .typed
-                .signatures
+                .signatures()
                 .functions()
                 .iter()
                 .find(|typed| typed.id == function.id)?;
@@ -673,7 +673,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
 fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> {
     let typed = module
         .typed
-        .signatures
+        .signatures()
         .functions()
         .iter()
         .find(|typed| typed.id == function.id)?;
@@ -703,7 +703,7 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
             FunctionImplementation::Required => CallableImplementation::Required,
             FunctionImplementation::Script => CallableImplementation::Script,
             FunctionImplementation::Native(NativeBinding::Default(_)) => {
-                let call = module.typed.type_table.native_default_call(function.id)?;
+                let call = module.typed.type_table().native_default_call(function.id)?;
                 let declaration = match call.target {
                     CallTarget::Function(id) => {
                         let target = module.declarations.target(ResolvedName::Function(id))?;
@@ -875,7 +875,7 @@ fn parameter_bounds(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<
                         module.declarations.definitions(),
                         module
                             .typed
-                            .type_table
+                            .type_table()
                             .constraint(bound.ty)
                             .expect("checked constraint"),
                     )

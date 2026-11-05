@@ -63,7 +63,7 @@ impl FunctionLowerer<'_, '_> {
         let source = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(expr_id)
             .ok_or(MirLoweringError::MissingExprType(expr_id))?;
         let ty = self
@@ -97,7 +97,7 @@ impl FunctionLowerer<'_, '_> {
         let target = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .struct_init(expr_id)
             .cloned()
             .ok_or(MirLoweringError::MissingBinding(
@@ -135,7 +135,7 @@ impl FunctionLowerer<'_, '_> {
             let receiver = self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .expr_type(base_id)
                 .ok_or(MirLoweringError::MissingExprType(base_id))?;
             let receiver = self
@@ -229,7 +229,7 @@ impl FunctionLowerer<'_, '_> {
         expr_id: ExprId,
         receiver: ExprId,
     ) -> Result<MirValue, MirLoweringError> {
-        if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
+        if let Some(checked) = self.analyzed.typed.type_table().host_path(expr_id).cloned() {
             return self.lower_host_path_read(expr_id, checked);
         }
         let base = self.lower_expr(receiver)?;
@@ -239,13 +239,13 @@ impl FunctionLowerer<'_, '_> {
         let field = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_field(expr_id)
             .ok_or(MirLoweringError::MissingBinding("checked field read"))?;
         let receiver_ty = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(receiver)
             .ok_or(MirLoweringError::MissingExprType(receiver))?;
         let field = self.aggregate_field_ref(field, &receiver_ty)?;
@@ -260,7 +260,7 @@ impl FunctionLowerer<'_, '_> {
         receiver: ExprId,
         index: ExprId,
     ) -> Result<MirValue, MirLoweringError> {
-        if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
+        if let Some(checked) = self.analyzed.typed.type_table().host_path(expr_id).cloned() {
             return self.lower_host_path_read(expr_id, checked);
         }
         let base = self.lower_expr(receiver)?;
@@ -274,7 +274,7 @@ impl FunctionLowerer<'_, '_> {
         if self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .call_resolution(expr_id)
             .is_some()
         {

@@ -41,7 +41,7 @@ pub(super) fn lower(module: &AnalyzedModule, item: Item) -> (Visibility, TypeDec
                                 module,
                                 &module
                                     .typed
-                                    .type_table
+                                    .type_table()
                                     .field_type(field.id)
                                     .expect("checked field type must exist"),
                             ),
@@ -81,7 +81,7 @@ pub(super) fn lower(module: &AnalyzedModule, item: Item) -> (Visibility, TypeDec
                                         module,
                                         &module
                                             .typed
-                                            .type_table
+                                            .type_table()
                                             .type_ref(*ty)
                                             .expect("checked enum payload type must exist")
                                             .ty,

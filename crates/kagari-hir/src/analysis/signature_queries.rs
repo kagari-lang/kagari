@@ -128,6 +128,15 @@ pub struct SignatureSnapshot {
 }
 
 impl SignatureSnapshot {
+    /// Shared parser/name/signature validity, before body diagnostic presentation.
+    pub(super) fn shared_inputs_valid(&self) -> bool {
+        self.files.values().all(|file| {
+            file.declaration.parsed.physical().diagnostics().is_empty()
+                && file.prepared.names.diagnostics().is_empty()
+                && file.prepared.signatures.diagnostics().is_empty()
+        })
+    }
+
     /// Prepares constant prerequisites once, then projects checked imports and aggregates.
     /// Signature-only queries do not call this body-stage preparation.
     pub(super) fn body_environments(

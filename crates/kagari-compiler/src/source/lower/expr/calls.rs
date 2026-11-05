@@ -54,14 +54,14 @@ impl FunctionLowerer<'_, '_> {
         let call = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .call_resolution(expr)
             .ok_or(MirLoweringError::MissingBinding("checked call target"))?;
         let span = self.analyzed.lowered.source_map.expr_span(expr);
         if let Some(receiver_type) = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .protocol_receiver(expr)
             .cloned()
         {
@@ -110,7 +110,7 @@ impl FunctionLowerer<'_, '_> {
             let ty = self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .expr_type(receiver)
                 .ok_or(MirLoweringError::MissingExprType(receiver))?;
             let value = self.lower_expr(receiver)?;
@@ -153,7 +153,7 @@ impl FunctionLowerer<'_, '_> {
                 let receiver_type = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .expr_type(receiver)
                     .ok_or(MirLoweringError::MissingExprType(receiver))?;
                 let receiver_type = self
@@ -193,7 +193,7 @@ impl FunctionLowerer<'_, '_> {
             let ty = self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .expr_type(receiver)
                 .ok_or(MirLoweringError::MissingExprType(receiver))?;
             let ty = self
@@ -229,7 +229,7 @@ impl FunctionLowerer<'_, '_> {
             ref interface,
         } = call.target
             && let Some(receiver) = call.receiver
-            && let Some(ty) = self.analyzed.typed.type_table.expr_type(receiver)
+            && let Some(ty) = self.analyzed.typed.type_table().expr_type(receiver)
             && matches!(
                 ty.instantiate(&self.instance.substitution),
                 TypeId::Generic(_)
@@ -264,7 +264,7 @@ impl FunctionLowerer<'_, '_> {
             let ty = self
                 .analyzed
                 .typed
-                .type_table
+                .type_table()
                 .expr_type(receiver)
                 .ok_or(MirLoweringError::MissingExprType(receiver))?;
             let mut types = self
@@ -336,7 +336,7 @@ impl FunctionLowerer<'_, '_> {
                     ))),
                 )
             } else if let Some((implementation, impl_arguments)) =
-                self.analyzed.typed.type_table.implementation_method(
+                self.analyzed.typed.type_table().implementation_method(
                     self.planner.catalog,
                     &self.planner.definitions(),
                     &method,
@@ -789,7 +789,7 @@ impl FunctionLowerer<'_, '_> {
     }
 
     pub(super) fn checked_field_name(&self, expr: ExprId) -> Result<String, MirLoweringError> {
-        match self.analyzed.typed.type_table.scalar_value(expr) {
+        match self.analyzed.typed.type_table().scalar_value(expr) {
             Some(ScalarValue::String(value)) => Ok(value.clone()),
             _ => Err(MirLoweringError::MissingBinding(
                 "checked reflection field name",

@@ -560,10 +560,15 @@ impl<'a> InstancePlanner<'a> {
         let ResolvedName::Function(id) = module.declarations.definition_target(declaration)? else {
             return None;
         };
-        module.typed.signatures.functions().iter().find(|function| {
-            function.id == id
-                && matches!(function.implementation, FunctionImplementation::Native(_))
-        })
+        module
+            .typed
+            .signatures()
+            .functions()
+            .iter()
+            .find(|function| {
+                function.id == id
+                    && matches!(function.implementation, FunctionImplementation::Native(_))
+            })
     }
 
     pub fn constant(&self, declaration: &DefinitionId) -> Option<ScalarValue> {
@@ -571,7 +576,7 @@ impl<'a> InstancePlanner<'a> {
         let ResolvedName::Const(id) = module.declarations.definition_target(declaration)? else {
             return None;
         };
-        module.typed.const_values.get(&id).cloned()
+        module.typed.const_values().get(&id).cloned()
     }
 
     pub fn enqueue_declaration(
@@ -931,7 +936,7 @@ impl<'a> InstancePlanner<'a> {
         };
         let typed = module
             .typed
-            .signatures
+            .signatures()
             .functions()
             .iter()
             .find(|typed| typed.id == function)

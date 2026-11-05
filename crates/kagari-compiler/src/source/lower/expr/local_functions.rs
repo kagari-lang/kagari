@@ -19,7 +19,7 @@ impl FunctionLowerer<'_, '_> {
         ) {
             return Ok(None);
         }
-        let Some(application) = self.analyzed.typed.type_table.call_resolution(expr) else {
+        let Some(application) = self.analyzed.typed.type_table().call_resolution(expr) else {
             return Ok(None);
         };
         let CallTarget::Function(function) = application.target else {

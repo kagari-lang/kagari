@@ -292,13 +292,13 @@ fn seed(
     planner: &mut InstancePlanner<'_>,
 ) -> Result<(), MirLoweringError> {
     planner.enqueue_statics()?;
-    for function in module.typed.signatures.functions() {
+    for function in module.typed.signatures().functions() {
         if matches!(
             function.implementation,
             FunctionImplementation::Native(NativeBinding::Default(_))
         ) && module
             .typed
-            .type_table
+            .type_table()
             .native_default_call(function.id)
             .is_none()
         {
@@ -323,7 +323,7 @@ fn seed(
         {
             let signature = module
                 .typed
-                .signatures
+                .signatures()
                 .functions()
                 .iter()
                 .find(|signature| signature.id == function.id)

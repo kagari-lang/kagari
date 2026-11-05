@@ -76,7 +76,7 @@ impl FunctionLowerer<'_, '_> {
                 let ty = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .coerced_expr_type(&self.planner.definitions(), initializer)
                     .ok_or(MirLoweringError::MissingExprType(initializer))?;
                 let mut bindings = Vec::new();
@@ -93,8 +93,8 @@ impl FunctionLowerer<'_, '_> {
                 }
                 let numeric = match (
                     op,
-                    self.analyzed.typed.type_table.place_type(target),
-                    self.analyzed.typed.type_table.expr_type(value),
+                    self.analyzed.typed.type_table().place_type(target),
+                    self.analyzed.typed.type_table().expr_type(value),
                 ) {
                     (Some(op), Some(TypeId::Builtin(input)), Some(TypeId::Builtin(rhs))) => {
                         types::lower_numeric_operation(op, input, rhs)
@@ -193,7 +193,7 @@ impl FunctionLowerer<'_, '_> {
                 let ty = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .expr_type(initializer)
                     .ok_or(MirLoweringError::MissingExprType(initializer))?;
                 self.lower_pattern_decision(pattern, cond, &ty, Some(exit_block), &mut bindings)?;
@@ -247,7 +247,7 @@ impl FunctionLowerer<'_, '_> {
         let fact = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .iteration(iterable)
             .cloned()
             .ok_or(MirLoweringError::MissingBinding("checked for protocol"))?;
@@ -266,7 +266,7 @@ impl FunctionLowerer<'_, '_> {
         let receiver = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(iterable)
             .ok_or(MirLoweringError::MissingExprType(iterable))?;
         let source = self.lower_expr(iterable)?;

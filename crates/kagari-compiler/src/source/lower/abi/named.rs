@@ -34,7 +34,7 @@ pub(super) fn collect(module: &AnalyzedModule) -> Vec<NamedDeclaration> {
         let mut signature = function_abi(module, function).expect("checked function contract");
         let typed = module
             .typed
-            .signatures
+            .signatures()
             .functions()
             .iter()
             .find(|typed| typed.id == function.id)
@@ -81,14 +81,14 @@ pub(super) fn collect(module: &AnalyzedModule) -> Vec<NamedDeclaration> {
                     module,
                     module
                         .typed
-                        .consts
+                        .consts()
                         .get(&item.id)
                         .expect("checked constant type"),
                 ),
                 value: const_abi_value(
                     module
                         .typed
-                        .const_values
+                        .const_values()
                         .get(&item.id)
                         .expect("checked constant value"),
                     module.declarations.definitions(),
@@ -128,7 +128,7 @@ pub(super) fn collect(module: &AnalyzedModule) -> Vec<NamedDeclaration> {
             module,
             &module
                 .typed
-                .type_table
+                .type_table()
                 .type_ref(implementation.for_type.expect("checked receiver"))
                 .expect("checked receiver type")
                 .ty,
@@ -139,7 +139,7 @@ pub(super) fn collect(module: &AnalyzedModule) -> Vec<NamedDeclaration> {
                 module.declarations.definitions(),
                 module
                     .typed
-                    .type_table
+                    .type_table()
                     .constraint(reference.ty)
                     .expect("checked implemented trait"),
             ))
@@ -159,7 +159,7 @@ pub(super) fn collect(module: &AnalyzedModule) -> Vec<NamedDeclaration> {
                             module,
                             &module
                                 .typed
-                                .type_table
+                                .type_table()
                                 .type_ref(bound.target_ref)
                                 .expect("checked impl bound target")
                                 .ty,
@@ -173,7 +173,7 @@ pub(super) fn collect(module: &AnalyzedModule) -> Vec<NamedDeclaration> {
                                     module.declarations.definitions(),
                                     module
                                         .typed
-                                        .type_table
+                                        .type_table()
                                         .constraint(reference.ty)
                                         .expect("checked impl bound"),
                                 )

@@ -69,7 +69,7 @@ impl FunctionLowerer<'_, '_> {
         let call = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .call_resolution(site)
             .ok_or(MirLoweringError::MissingBinding("operator contract"))?;
         let HirCallTarget::TraitMethod { method, interface } = call.target else {
@@ -81,7 +81,7 @@ impl FunctionLowerer<'_, '_> {
         let receiver = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(receiver)
             .ok_or(MirLoweringError::MissingExprType(receiver))?;
         self.lower_applied_method(interface, receiver, &method, &call.type_arguments, args)

@@ -283,12 +283,12 @@ pub struct ResolvedHostPlacePath {
 
 impl TypeTable {
     /// Records/replaces the selected iterator interfaces and element type under the matching node ID.
-    pub fn insert_iteration(&mut self, id: ExprId, fact: ResolvedIteration) {
+    pub(crate) fn insert_iteration(&mut self, id: ExprId, fact: ResolvedIteration) {
         self.iterations.insert(id, fact);
     }
 
     /// Records/replaces the receiver type retained for a protocol operation under the matching node ID.
-    pub fn insert_protocol_receiver(&mut self, id: ExprId, ty: TypeId) {
+    pub(crate) fn insert_protocol_receiver(&mut self, id: ExprId, ty: TypeId) {
         self.protocol_receivers.insert(id, ty);
     }
 
@@ -729,12 +729,12 @@ impl TypeTable {
     }
 
     /// Records/replaces the field definitions in pattern field order under the matching node ID.
-    pub fn insert_pattern_fields(&mut self, id: PatternId, fields: Vec<DefinitionId>) {
+    pub(crate) fn insert_pattern_fields(&mut self, id: PatternId, fields: Vec<DefinitionId>) {
         self.pattern_fields.insert(id, fields);
     }
 
     /// Records/replaces the selected enum variant under the matching node ID.
-    pub fn insert_pattern_variant(&mut self, id: PatternId, variant: DefinitionId) {
+    pub(crate) fn insert_pattern_variant(&mut self, id: PatternId, variant: DefinitionId) {
         self.pattern_variants.insert(id, variant);
     }
 

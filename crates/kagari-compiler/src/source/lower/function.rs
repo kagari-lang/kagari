@@ -378,7 +378,7 @@ pub(crate) fn lower_function<'a>(
 ) -> Result<MirFunction, MirLoweringError> {
     let typed = module
         .typed
-        .signatures
+        .signatures()
         .functions()
         .iter()
         .find(|typed| typed.id == function.id)
@@ -428,7 +428,7 @@ pub(crate) fn lower_closure<'a>(
         };
     let ty = module
         .typed
-        .type_table
+        .type_table()
         .expr_type(closure)
         .ok_or(MirLoweringError::MissingExprType(closure))?;
     let result = if is_block {
@@ -460,12 +460,12 @@ pub(crate) fn lower_closure<'a>(
         let ty = match capture {
             ResolvedName::Local(local) => module
                 .typed
-                .type_table
+                .type_table()
                 .local_type(*local)
                 .ok_or(MirLoweringError::MissingLocalType(*local))?,
             ResolvedName::Param(id) => module
                 .typed
-                .signatures
+                .signatures()
                 .functions()
                 .iter()
                 .find(|function| Some(function.id) == lowerer.instance.body.function())
@@ -543,7 +543,7 @@ pub(crate) fn lower_closure<'a>(
     for param in params {
         let ty = module
             .typed
-            .type_table
+            .type_table()
             .local_type(param.local)
             .ok_or(MirLoweringError::MissingLocalType(param.local))?;
         let value_type = lowerer.value_type(&ty)?;

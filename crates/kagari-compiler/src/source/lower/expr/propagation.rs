@@ -19,7 +19,7 @@ impl FunctionLowerer<'_, '_> {
         let fact = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .propagation(site)
             .cloned()
             .ok_or(MirLoweringError::MissingBinding(
@@ -28,7 +28,7 @@ impl FunctionLowerer<'_, '_> {
         let receiver = self
             .analyzed
             .typed
-            .type_table
+            .type_table()
             .expr_type(operand)
             .ok_or(MirLoweringError::MissingExprType(operand))?;
         let branch_type = fact

@@ -146,7 +146,7 @@ impl InstancePlanner<'_> {
         }
         for item in &module.lowered.module.statics {
             self.record_layout_root(
-                &module.typed.signatures.statics()[&item.id],
+                &module.typed.signatures().statics()[&item.id],
                 &Default::default(),
                 module.lowered.source_map.static_span(item.id),
             )?;
@@ -197,7 +197,7 @@ impl InstancePlanner<'_> {
         let contract = static_contract(supplier, id);
         let span = supplier.lowered.source_map.static_span(id);
         self.record_layout_root(
-            &supplier.typed.signatures.statics()[&id],
+            &supplier.typed.signatures().statics()[&id],
             &Default::default(),
             span,
         )?;

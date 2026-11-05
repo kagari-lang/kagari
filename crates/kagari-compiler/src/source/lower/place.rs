@@ -52,7 +52,13 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         id: PlaceId,
     ) -> Result<Option<PreparedPlace>, MirLoweringError> {
-        if let Some(checked) = self.analyzed.typed.type_table.host_place_path(id).cloned() {
+        if let Some(checked) = self
+            .analyzed
+            .typed
+            .type_table()
+            .host_place_path(id)
+            .cloned()
+        {
             let Some(prepared) = self.prepare_place_inner(checked.root, true)? else {
                 return Ok(None);
             };
@@ -126,7 +132,7 @@ impl FunctionLowerer<'_, '_> {
                 let root_type = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .place_type(id)
                     .ok_or(MirLoweringError::UnresolvedPlace(id))?;
                 // Identity semantics belong to the instantiated receiver, including
@@ -179,7 +185,7 @@ impl FunctionLowerer<'_, '_> {
                 let field = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .place_field(id)
                     .ok_or(MirLoweringError::MissingBinding("checked field assignment"))?;
                 let Some(mut place) = self.prepare_place_inner(base, true)? else {
@@ -188,7 +194,7 @@ impl FunctionLowerer<'_, '_> {
                 let receiver_ty = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .place_type(base)
                     .ok_or(MirLoweringError::UnresolvedPlace(base))?;
                 place.projections.push(Projection {
@@ -205,7 +211,7 @@ impl FunctionLowerer<'_, '_> {
                 let receiver = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .place_type(base)
                     .ok_or(MirLoweringError::UnresolvedPlace(base))?;
                 let receiver = self
@@ -219,14 +225,14 @@ impl FunctionLowerer<'_, '_> {
                 if let Some(write) = self
                     .analyzed
                     .typed
-                    .type_table
+                    .type_table()
                     .place_index_write(id)
                     .map(|(interface, method)| (interface.clone(), *method))
                 {
                     let read = self
                         .analyzed
                         .typed
-                        .type_table
+                        .type_table()
                         .place_index(id)
                         .cloned()
                         .ok_or(MirLoweringError::MissingBinding(
@@ -248,11 +254,11 @@ impl FunctionLowerer<'_, '_> {
                     });
                     return Ok(Some(place));
                 }
-                if let Some(interface) = self.analyzed.typed.type_table.place_index(id).cloned() {
+                if let Some(interface) = self.analyzed.typed.type_table().place_index(id).cloned() {
                     let receiver_ty = self
                         .analyzed
                         .typed
-                        .type_table
+                        .type_table()
                         .place_type(base)
                         .ok_or(MirLoweringError::UnresolvedPlace(base))?;
                     let mut value = match place.root {
@@ -299,7 +305,7 @@ impl FunctionLowerer<'_, '_> {
                     kind: ProjectionKind::Index(index),
                     ty: self.place_type(id)?,
                     tuple_base: matches!(
-                        self.analyzed.typed.type_table.place_type(base),
+                        self.analyzed.typed.type_table().place_type(base),
                         Some(TypeId::Tuple(_))
                     ),
                 });

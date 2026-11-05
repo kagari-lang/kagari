@@ -79,7 +79,7 @@ impl ForeignInterfaces<'_> {
         {
             if let Some(ResolvedName::Function(function)) =
                 owner.declarations.definition_target(&method)
-                && owner.typed.signatures.functions().iter().any(|typed| {
+                && owner.typed.signatures().functions().iter().any(|typed| {
                     typed.id == function
                         && matches!(typed.implementation, FunctionImplementation::Native(_))
                 })
@@ -122,7 +122,7 @@ impl ForeignInterfaces<'_> {
                 .and_then(|target| match target {
                     ResolvedName::Function(id) => owner
                         .typed
-                        .signatures
+                        .signatures()
                         .functions()
                         .iter()
                         .find(|f| f.id == id),

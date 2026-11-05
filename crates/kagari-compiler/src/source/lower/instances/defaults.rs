@@ -35,7 +35,7 @@ impl InstancePlanner<'_> {
         };
         let checked = module
             .typed
-            .type_table
+            .type_table()
             .native_default_call(function)
             .ok_or_else(invalid)?;
         let target = match &checked.target {

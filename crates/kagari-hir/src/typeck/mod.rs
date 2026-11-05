@@ -1,7 +1,7 @@
 //! Signature checking, body inference and node-keyed semantic facts.
 //!
 //! The internal `check` module prepares signatures before checking selected bodies. [`table::TypeTable`]
-//! records types and selected operations; [`TypedModule`] retains the resulting
+//! records types and selected operations; [`crate::semantic::body::ModuleFacts`] retains the resulting
 //! functions/constants. Declaration identities come from [`crate::declarations`],
 //! and nominal/trait contracts from [`crate::aggregates`].
 //!
@@ -9,7 +9,7 @@
 //! declarations + imports -> check_signatures -> ModuleSignatures + diagnostics
 //! signatures + aggregates + resolved names -> check_bodies_controlled
 //!   -> inference/constraints -> selected call/member/protocol facts
-//!   -> solve/seal temporary inference -> TypedModule + diagnostics
+//!   -> solve/seal temporary inference -> ModuleFacts + diagnostics
 //! ```
 //!
 //! Unknown/error types keep incomplete-source queries useful. Unresolved inference
@@ -24,7 +24,7 @@ use crate::{
     aggregates::AggregateCatalog,
     declarations::Declarations,
     hir::{
-        ids::{BodySelection, ConstId, ExprId, FunctionId, LocalId, ParamId, StaticId},
+        ids::{BodySelection, ConstId, ExprId, LocalId, ParamId, StaticId},
         item::behavior::GenericParam,
         writeability::Writeability,
     },
@@ -68,10 +68,7 @@ pub(crate) mod signature_reuse;
 pub mod table;
 mod ty;
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 /// Semantic subject type to required applied traits; keys retain binder identity.
 pub type GenericBounds = HashMap<TypeId, Vec<NominalType>>;
@@ -91,31 +88,6 @@ pub struct ModuleSignatures {
     pub(crate) statics: HashMap<StaticId, TypeId>,
     /// Signature type-reference, field and constraint facts.
     pub(crate) type_table: TypeTable,
-}
-
-/// Signature and body facts produced by type checking, alongside external diagnostics.
-///
-/// Counters distinguish freshly checked from reused function bodies. Error types
-/// can remain in a recovered result; [`crate::AnalysisResult`] owns diagnostics and
-/// the checked conversion gate. The table is not embedded into each HIR node.
-#[derive(Debug, Clone)]
-pub struct TypedModule {
-    /// Bodies completed without errors, recorded before presentation truncation.
-    pub(crate) valid_bodies: HashSet<FunctionId>,
-    /// Initializers completed without errors, before diagnostic truncation.
-    pub(crate) valid_static_initializers: HashSet<StaticId>,
-    /// Number of function bodies freshly checked for this result.
-    pub checked_bodies: usize,
-    /// Number of function bodies restored from compatible prior facts.
-    pub reused_bodies: usize,
-    /// Shared callable/static contracts normalized in this body environment.
-    pub signatures: Arc<BodySignatures>,
-    /// Local constant IDs to inferred/declared semantic types.
-    pub consts: HashMap<ConstId, TypeId>,
-    /// Successfully evaluated scalar constants; absent entries have no published scalar value.
-    pub const_values: HashMap<ConstId, ScalarValue>,
-    /// Node-keyed types and selected call/member/protocol facts.
-    pub type_table: TypeTable,
 }
 
 /// Per-module constant type index available to body checking.

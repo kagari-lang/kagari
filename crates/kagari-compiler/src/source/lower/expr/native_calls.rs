@@ -19,7 +19,7 @@ impl FunctionLowerer<'_, '_> {
             CallTarget::Function(id) => self
                 .analyzed
                 .typed
-                .signatures
+                .signatures()
                 .functions()
                 .iter()
                 .find(|function| function.id == *id)

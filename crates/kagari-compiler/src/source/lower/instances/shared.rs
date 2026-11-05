@@ -366,7 +366,7 @@ impl InstancePlanner<'_> {
             let typed = self
                 .module
                 .typed
-                .signatures
+                .signatures()
                 .functions()
                 .iter()
                 .find(|typed| typed.id == function)

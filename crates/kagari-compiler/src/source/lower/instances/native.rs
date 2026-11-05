@@ -227,7 +227,7 @@ impl InstancePlanner<'_> {
         {
             module
                 .typed
-                .signatures
+                .signatures()
                 .functions()
                 .iter()
                 .find(|function| function.id == id)

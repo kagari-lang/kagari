@@ -27,7 +27,7 @@ impl InstancePlanner<'_> {
         };
         let function = module
             .typed
-            .signatures
+            .signatures()
             .functions()
             .iter()
             .find(|function| function.id == id)

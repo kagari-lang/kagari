@@ -321,6 +321,19 @@ IDs still require the matching lowering; sharing does not make IDs portable acro
 source revisions. Signature recovery may retain error types and grants no executable
 qualification.
 
+[ModuleFacts](../../crates/kagari-hir/src/semantic/body.rs) publishes the shared
+signatures, constant results and node-keyed facts through read-only accessors.
+Writers are internal to HIR; the former `typeck::TypedModule` is removed.
+[FunctionAnalysis](../../crates/kagari-hir/src/analysis/body_queries.rs) already
+owns the selected function, lowering, signature snapshot, environment, bindings,
+diagnostics and result. It serves as the selected-body result rather than adding
+a second wrapper called `BodyAnalysis`. `eligibility()` uses positive body evidence
+and shared-input validity, independently of diagnostic display truncation.
+Unrequested/bodyless functions return no selected result, recovery returns facts
+with unavailable completion evidence, and cancellation returns an error before
+publication. A complete selected function is not proof that its entire dependency
+closure is executable.
+
 ### Pattern-based declarations
 
 Every ordinary `Binding` owns one `PatternId`, declaration-wide writeability, an

@@ -61,6 +61,7 @@ fn unrelated_applied_bound_errors_stay_in_the_signature_snapshot() {
     let good = owner(&mut db, &sources, file, "good");
     let result = query(&mut db, &sources, &good);
     assert_eq!(result.checked_bodies(), 1);
+    assert_eq!(result.eligibility(), BodyEligibility::Unavailable);
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -93,6 +94,7 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
     let result = query(&mut db, &sources, &good);
     assert_eq!(result.checked_bodies(), 1);
     assert_eq!(result.reused_bodies(), 0);
+    assert_eq!(result.eligibility(), BodyEligibility::Complete);
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -188,6 +190,7 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     assert_eq!(third.checked_bodies(), 1);
     assert_eq!(third.reused_bodies(), 0);
     assert!(!third.diagnostics().is_empty());
+    assert_eq!(third.eligibility(), BodyEligibility::Unavailable);
     assert!(db.files.is_empty());
 }
 
