@@ -3,7 +3,7 @@ use crate::{
     AnalyzedModule, PreparedAnalysis,
     analysis::{FileAnalysis, signature_queries::BodyEnvironment},
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::{CancellationToken, Cancelled};
 
 impl FileAnalysis {
     /// Requires identical source revision/arena and semantic dependencies before sharing the whole file result.
@@ -13,22 +13,24 @@ impl FileAnalysis {
         previous: &AnalyzedModule,
         environment: &BodyEnvironment,
         cancel: &CancellationToken,
-    ) -> bool {
+    ) -> Result<bool, Cancelled> {
+        cancel.check()?;
         let old = self.result.records().facts();
         let names = &prepared.names.facts;
-        self.source.revision() == prepared.lowered.source.revision()
+        let compatible = self.source.revision() == prepared.lowered.source.revision()
             && old.lowered.module.body.arena() == prepared.lowered.module.body.arena()
             && old.names.imports == names.imports
             && old
                 .names
                 .catalog
-                .same_namespaces(&names.catalog, &names.items, cancel)
-                .unwrap_or(false)
+                .same_namespaces(&names.catalog, &names.items, cancel)?
             && previous.imported_functions == environment.imported_functions
             && previous.imported_statics == environment.imported_statics
             && previous.imported_constants == environment.imported_constants
             && previous.aggregates == environment.aggregates
-            && previous.declarations.imported_types == prepared.declarations.imported_types
+            && previous.declarations.imported_types == prepared.declarations.imported_types;
+        cancel.check()?;
+        Ok(compatible)
     }
 
     /// Checks semantic compatibility before attempting per-body remapping into a new arena.
@@ -42,17 +44,19 @@ impl FileAnalysis {
         previous: &AnalyzedModule,
         environment: &BodyEnvironment,
         cancel: &CancellationToken,
-    ) -> bool {
+    ) -> Result<bool, Cancelled> {
+        cancel.check()?;
         let old = self.result.records().facts();
         let names = &prepared.names.facts;
-        self.parsed.physical().diagnostics().is_empty()
+        let compatible = self.parsed.physical().diagnostics().is_empty()
             && self.shared_valid
             && old.names.imports.same_bindings(&names.imports)
-            && old
-                .names
-                .catalog
-                .same_reuse_namespaces(&names.catalog, &old.names.items, &names.items, cancel)
-                .unwrap_or(false)
+            && old.names.catalog.same_reuse_namespaces(
+                &names.catalog,
+                &old.names.items,
+                &names.items,
+                cancel,
+            )?
             && previous.imported_functions == environment.imported_functions
             && previous.imported_statics == environment.imported_statics
             && previous.imported_constants == environment.imported_constants
@@ -62,6 +66,8 @@ impl FileAnalysis {
                 old.names.items.unit.as_ref(),
                 names.items.unit.as_ref(),
             )
-            && self.source.module_identity() == prepared.lowered.source.module_identity()
+            && self.source.module_identity() == prepared.lowered.source.module_identity();
+        cancel.check()?;
+        Ok(compatible)
     }
 }

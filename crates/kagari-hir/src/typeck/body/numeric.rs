@@ -35,7 +35,7 @@ impl BodyChecker<'_> {
         } else if self.body_inference {
             let variable = self.solver.numeric_variable(site, fallback);
             if let Some(expected) = expected {
-                let _ = self.solver.constrain(&variable, expected, self.cancel);
+                self.constrain_types(&variable, expected);
             }
             self.solver.resolve(&variable)
         } else {

@@ -1,5 +1,8 @@
 //! Bounded trait matching, inherited constraints, defaults and associated-type normalization.
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use crate::{
     aggregates::{
         AggregateCatalog,
@@ -94,6 +97,8 @@ impl<'a> SearchBudget<'a> {
     }
 
     fn check_candidate(&mut self) -> Result<(), ImplementationSearchError> {
+        #[cfg(test)]
+        checkpoint(Checkpoint::TraitCandidates);
         self.cancel
             .check()
             .map_err(|_| ImplementationSearchError::Cancelled)?;

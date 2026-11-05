@@ -1,5 +1,8 @@
 //! Body-local constraint variables, occurs-checked substitutions and deferred numeric/never defaults.
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use crate::{
     hir::ids::{ExprId, TypeRefId},
     types::TypeId,
@@ -120,6 +123,8 @@ impl Solver {
         let mut pending = vec![(left.clone(), right.clone())];
         let mut compatible = true;
         while let Some((left, right)) = pending.pop() {
+            #[cfg(test)]
+            checkpoint(Checkpoint::Constraints);
             cancel.check()?;
             let left = self.resolve(&left);
             let right = self.resolve(&right);

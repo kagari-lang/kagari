@@ -15,7 +15,6 @@ impl RemapDefinitions for DeclarationId {
         &self,
         mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
         Ok(match self {
             Self::Definition(field0) => DeclarationId::Definition(mapper.reference(field0)?),
             Self::GenericParameter { owner, position } => DeclarationId::GenericParameter {
@@ -39,11 +38,9 @@ impl DefinitionReferences for DeclarationId {
         check_cancel(cancel)?;
         match self {
             Self::Definition(field0) => {
-                check_cancel(cancel)?;
                 visit(field0)?;
             }
             Self::GenericParameter { owner, position: _ } => {
-                check_cancel(cancel)?;
                 visit(owner)?;
             }
             Self::Binding(binding) => visit(&binding.body)?,
@@ -57,7 +54,6 @@ impl RemapDefinitions for Declaration {
         &self,
         mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
         Ok(Declaration {
             id: self.id.remap_definitions(mapper)?,
             name: self.name.clone(),
@@ -72,9 +68,7 @@ impl DefinitionReferences for Declaration {
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        self.id.visit_definition_ids(visit, cancel)?;
-        Ok(())
+        self.id.visit_definition_ids(visit, cancel)
     }
 }
 

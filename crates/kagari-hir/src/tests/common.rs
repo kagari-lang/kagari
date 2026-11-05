@@ -71,7 +71,7 @@ pub fn check_module(
     )
     .unwrap()
     .with_bindings(lowered, &names, &Default::default());
-    let mut signatures = check_signatures(lowered, &declarations, &Default::default());
+    let mut signatures = check_signatures(lowered, &declarations, &Default::default()).unwrap();
     let definitions = definition_registration::implementation_members(
         lowered,
         &declarations,
@@ -111,7 +111,9 @@ pub fn check_module(
                 signatures.facts(),
                 &declarations,
                 &aggregates,
-            ),
+                &Default::default(),
+            )
+            .unwrap(),
             imported_functions: &Default::default(),
             imported_statics: &Default::default(),
             imported_constants: &Default::default(),
@@ -121,6 +123,7 @@ pub fn check_module(
         reuse,
         &Default::default(),
     )
+    .unwrap()
 }
 
 /// Import checked semantic facts into a test-owned comparison scope. Source-local

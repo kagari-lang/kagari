@@ -87,7 +87,8 @@ pub(crate) fn recover_invalid_identity(
         prepared.signatures.facts(),
         &prepared.declarations,
         &aggregates,
-    );
+        &cancel,
+    )?;
     Ok(analyze_parsed(
         prepared,
         &ParsedModule::root(parsed),
@@ -105,5 +106,5 @@ pub(crate) fn recover_invalid_identity(
         },
         None,
         &cancel,
-    ))
+    )?)
 }

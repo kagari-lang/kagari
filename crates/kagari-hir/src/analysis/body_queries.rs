@@ -1,6 +1,9 @@
 //! A function query checks its selected body, module constants and runtime static initializers.
 //! Local bodies additionally resolve lexical ancestors without checking their bodies.
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use super::signature_queries::BodyEnvironment;
 use crate::{
     AnalysisResult,
@@ -254,9 +257,10 @@ impl AnalysisDatabase {
                     .declarations
                     .clone()
                     .with_bindings(&prepared.lowered, &names, cancel);
-            let reuse = previous
-                .filter(|old| {
-                    old.file
+            let reusable = previous
+                .map(|old| -> Result<bool, AnalysisError> {
+                    Ok(old
+                        .file
                         .declaration
                         .parsed
                         .physical()
@@ -273,16 +277,12 @@ impl AnalysisDatabase {
                             .facts
                             .imports
                             .same_bindings(&prepared.names.facts.imports)
-                        && old
-                            .names
-                            .catalog
-                            .same_reuse_namespaces(
-                                &prepared.names.facts.catalog,
-                                &old.names.items,
-                                &prepared.names.facts.items,
-                                cancel,
-                            )
-                            .unwrap_or(false)
+                        && old.names.catalog.same_reuse_namespaces(
+                            &prepared.names.facts.catalog,
+                            &old.names.items,
+                            &prepared.names.facts.items,
+                            cancel,
+                        )?
                         && old
                             .file
                             .prepared
@@ -304,20 +304,22 @@ impl AnalysisDatabase {
                             .as_ref()
                             .expect("previous body environment")
                             .aggregates
-                            .same_contracts(&environment.aggregates)
+                            .same_contracts(&environment.aggregates))
                 })
-                .map(|old| BodyReuse {
-                    previous_valid_bodies: &old.typed.facts().valid_bodies,
-                    previous_diagnostics: old.diagnostics(),
-                    previous_lowered: old.lowered(),
-                    previous_types: &previous_types
-                        .as_ref()
-                        .expect("previous body types")
-                        .facts()
-                        .type_table,
-                    old_text: old.source().text(),
-                    new_text: file.source().text(),
-                });
+                .transpose()?
+                .unwrap_or(false);
+            let reuse = previous.filter(|_| reusable).map(|old| BodyReuse {
+                previous_valid_bodies: &old.typed.facts().valid_bodies,
+                previous_diagnostics: old.diagnostics(),
+                previous_lowered: old.lowered(),
+                previous_types: &previous_types
+                    .as_ref()
+                    .expect("previous body types")
+                    .facts()
+                    .type_table,
+                old_text: old.source().text(),
+                new_text: file.source().text(),
+            });
             let typed = check_bodies_controlled(
                 &prepared.lowered,
                 &names,
@@ -335,7 +337,7 @@ impl AnalysisDatabase {
                 },
                 reuse.as_ref(),
                 cancel,
-            );
+            )?;
             let environment =
                 ownership::scope(&environment, &self.definitions, cancel)?.into_records();
             let mut declarations =
@@ -355,6 +357,8 @@ impl AnalysisDatabase {
                 typed,
             })
         };
+        #[cfg(test)]
+        checkpoint(Checkpoint::Publish);
         cancel.check()?;
         self.publish_body(signatures.declaration_snapshot(), Some(result.clone()));
         self.publish_signatures(signatures);

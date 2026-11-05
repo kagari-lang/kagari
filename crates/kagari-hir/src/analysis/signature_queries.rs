@@ -170,7 +170,8 @@ impl SignatureSnapshot {
                         file.prepared.signatures.facts(),
                         &file.prepared.declarations,
                         &aggregates,
-                    ),
+                        cancel,
+                    )?,
                     imported_statics: ImportedStatics::bindings(
                         &modules,
                         &file.prepared.names.facts,
@@ -216,7 +217,7 @@ impl SignatureSnapshot {
                 },
                 None,
                 cancel,
-            );
+            )?;
             checked.insert(
                 *id,
                 Arc::new(CheckedConstants {

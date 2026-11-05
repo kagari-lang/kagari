@@ -103,7 +103,7 @@ impl BodyChecker<'_> {
                         );
                     } else if else_completes {
                         // Unify unresolved constructor payloads without converting values.
-                        let _ = self.solver.constrain(&then_ty, &else_ty, self.cancel);
+                        self.constrain_types(&then_ty, &else_ty);
                         then_ty.recover_from(&else_ty);
                         if !then_ty.is_unresolved()
                             && let Some(tail) = self.lowered.module.block(then_branch).tail_expr
@@ -145,7 +145,7 @@ impl BodyChecker<'_> {
         let mut hint: Option<TypeId> = None;
         let mut completing = Vec::new();
         for arm in arms {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return TypeId::Unknown;
             }
             let sibling = hint.as_ref().filter(|_| reachable).map(inference_hint);
@@ -206,7 +206,8 @@ impl BodyChecker<'_> {
                     .with_span(self.lowered.source_map.expr_span(expr)),
                 );
             } else {
-                let _ = self.solver.constrain(&found, &result, self.cancel);
+                self.stopped =
+                    self.stopped || self.solver.constrain(&found, &result, self.cancel).is_err();
                 if !result.is_unresolved() {
                     self.refine_standard_tail(expr, &result, &mut arm_env);
                 }

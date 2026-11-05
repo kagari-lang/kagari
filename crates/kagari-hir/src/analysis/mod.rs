@@ -5,6 +5,9 @@ pub mod inputs;
 mod namespace_queries;
 pub(crate) mod source_preparation;
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
@@ -864,16 +867,16 @@ impl AnalysisDatabase {
                                 .facts(),
                             &environment,
                             cancel,
-                        ) =>
+                        )? =>
                 {
                     previous.clone()
                 }
                 _ => {
                     let signatures_reused = prepared.signatures_reused;
-                    let reuse = self
+                    let reusable = self
                         .files
                         .get(&id)
-                        .filter(|old| {
+                        .map(|old| {
                             old.can_reuse_body(
                                 &prepared,
                                 previous_facts
@@ -884,6 +887,12 @@ impl AnalysisDatabase {
                                 cancel,
                             )
                         })
+                        .transpose()?
+                        .unwrap_or(false);
+                    let reuse = self
+                        .files
+                        .get(&id)
+                        .filter(|_| reusable)
                         .map(|old| BodyReuse {
                             previous_valid_bodies: &old.result().facts().typed.valid_bodies,
                             previous_diagnostics: old.result.records().diagnostics(),
@@ -907,7 +916,7 @@ impl AnalysisDatabase {
                         environment,
                         reuse.as_ref(),
                         cancel,
-                    );
+                    )?;
                     let metadata = ownership::scope(&result, &self.definitions, cancel)?;
                     let definitions = metadata.definitions().clone();
                     let mut records = metadata.into_records();
@@ -930,6 +939,8 @@ impl AnalysisDatabase {
             };
             files.insert(id, analysis);
         }
+        #[cfg(test)]
+        checkpoint(Checkpoint::Publish);
         cancel.check()?;
         self.publish_signatures(signature_snapshot.clone());
         if source.revision() >= self.latest_revision {

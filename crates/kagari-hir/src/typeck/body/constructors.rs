@@ -211,7 +211,7 @@ impl<'a> BodyChecker<'a> {
             &mut substitution,
             env,
         );
-        if self.cancel.check().is_err() {
+        if self.cancelled() {
             return Some(TypeId::Unknown);
         }
         let Ok(completes) = completion::expr_can_complete(
@@ -257,7 +257,7 @@ impl<'a> BodyChecker<'a> {
                 );
             }
             for (index, expected) in variant.payload.iter().enumerate() {
-                if self.cancel.check().is_err() {
+                if self.cancelled() {
                     return Some(TypeId::Unknown);
                 }
                 self.check_arg_type(
@@ -359,7 +359,7 @@ impl<'a> BodyChecker<'a> {
             for (index, parameter) in struct_def.generic_params.iter().enumerate() {
                 let variable = self.inference_variable(expr_id, index + 1024);
                 if let Some(seeded) = substitution.get(parameter) {
-                    let _ = self.solver.constrain(&variable, seeded, self.cancel);
+                    self.constrain_types(&variable, seeded);
                 }
                 substitution.entry(parameter.clone()).or_insert(variable);
             }
@@ -367,7 +367,7 @@ impl<'a> BodyChecker<'a> {
         let mut field_tys = Vec::with_capacity(fields.len());
         let mut completes = true;
         for field in fields {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return TypeId::Unknown;
             }
             let parameter = struct_def.fields.iter().find(|member| {
@@ -403,7 +403,7 @@ impl<'a> BodyChecker<'a> {
                 && field_completes
                 && let Some(expected) = &expected
             {
-                let _ = self.solver.constrain(expected, &actual, self.cancel);
+                self.constrain_types(expected, &actual);
             }
             if field_completes
                 && let Some(parameter) = parameter
@@ -457,7 +457,7 @@ impl<'a> BodyChecker<'a> {
             };
             completes &= base_completes;
             if base_completes {
-                let _ = self.solver.constrain(&expected, &actual, self.cancel);
+                self.constrain_types(&expected, &actual);
                 if inference::infer(
                     &template,
                     &actual,
@@ -563,7 +563,7 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
             if *field_completes {
-                let _ = self.solver.constrain(&expected, value_ty, self.cancel);
+                self.constrain_types(&expected, value_ty);
             }
             if *field_completes && expected.conflicts_with(value_ty) {
                 self.diagnostics.push(

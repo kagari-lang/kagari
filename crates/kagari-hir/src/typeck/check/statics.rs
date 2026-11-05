@@ -15,7 +15,7 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity};
 use std::collections::{HashMap, HashSet};
 
@@ -61,15 +61,14 @@ pub(super) fn initializers(
     indexes: TypeIndexes<'_>,
     table: &mut TypeCheckState,
     diagnostics: &mut DiagnosticBuffer,
-) -> HashSet<StaticId> {
+) -> Result<HashSet<StaticId>, Cancelled> {
+    indexes.cancel.check()?;
     let shared_valid = !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
     let mut valid = HashSet::new();
     for item in &lowered.module.statics {
-        if indexes.cancel.check().is_err() {
-            break;
-        }
+        indexes.cancel.check()?;
         let diagnostic_start = diagnostics.len();
         let expected = indexes
             .signatures
@@ -90,15 +89,14 @@ pub(super) fn initializers(
             &mut BodyTypeEnv::default(),
             Some(&expected),
         );
+        checker.finish()?;
         if completion::expr_can_complete(
             &lowered.module,
             names,
             table,
             item.initializer,
             indexes.cancel,
-        )
-        .unwrap_or(false)
-            && actual.conflicts_with(&expected)
+        )? && actual.conflicts_with(&expected)
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
@@ -117,5 +115,6 @@ pub(super) fn initializers(
             valid.insert(item.id);
         }
     }
-    valid
+    indexes.cancel.check()?;
+    Ok(valid)
 }

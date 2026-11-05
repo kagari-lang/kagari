@@ -125,7 +125,10 @@ impl BodyChecker<'_> {
             body,
             self.cancel,
         )
-        .unwrap_or(false);
+        .unwrap_or_else(|_| {
+            self.stopped = true;
+            false
+        });
         let mut result = if completes {
             body_result
         } else {

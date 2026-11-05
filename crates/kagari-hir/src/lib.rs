@@ -360,49 +360,62 @@ impl DeclaredAnalysis {
         self.declarations.imported_types = imported_types;
         self.declarations
             .publish_definitions(self.declarations.context().snapshot());
-        let previous = previous_analysis.and_then(|old| {
-            if !(old
-                .names
-                .facts
-                .imports
-                .same_signature_bindings(&self.names.facts.imports)
-                && old
+        let previous = previous_analysis
+            .map(|old| -> Result<_, DefinitionMappingError> {
+                if !(old
                     .names
                     .facts
-                    .catalog
-                    .same_signature_namespaces(
-                        &self.names.facts.catalog,
-                        &old.names.facts.items,
-                        &self.names.facts.items,
-                        cancel,
-                    )
-                    .unwrap_or(false)
-                && old.declarations.imported_types.same_reuse_inputs(
-                    &self.declarations.imported_types,
-                    old.names.facts.items.unit.as_ref(),
-                    self.names.facts.items.unit.as_ref(),
-                ))
-            {
-                return None;
-            }
-            if old.lowered.source.revision() == self.lowered.source.revision()
-                && old.lowered.source.module_identity() == self.lowered.source.module_identity()
-                && old.lowered.module.body.arena() == self.lowered.module.body.arena()
-            {
-                Some(old.signatures.clone())
-            } else {
-                reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel).map(Arc::new)
-            }
-        });
+                    .imports
+                    .same_signature_bindings(&self.names.facts.imports)
+                    && old
+                        .names
+                        .facts
+                        .catalog
+                        .same_signature_namespaces(
+                            &self.names.facts.catalog,
+                            &old.names.facts.items,
+                            &self.names.facts.items,
+                            cancel,
+                        )
+                        .map_err(|_| DefinitionMappingError::Cancelled)?
+                    && old.declarations.imported_types.same_reuse_inputs(
+                        &self.declarations.imported_types,
+                        old.names.facts.items.unit.as_ref(),
+                        self.names.facts.items.unit.as_ref(),
+                    ))
+                {
+                    return Ok(None);
+                }
+                if old.lowered.source.revision() == self.lowered.source.revision()
+                    && old.lowered.source.module_identity() == self.lowered.source.module_identity()
+                    && old.lowered.module.body.arena() == self.lowered.module.body.arena()
+                {
+                    Ok(Some(old.signatures.clone()))
+                } else {
+                    let reused =
+                        reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel)
+                            .map(Arc::new);
+                    cancel
+                        .check()
+                        .map_err(|_| DefinitionMappingError::Cancelled)?;
+                    Ok(reused)
+                }
+            })
+            .transpose()?
+            .flatten();
         let signatures_reused = previous.is_some();
         let reused_local_diagnostics = previous.as_ref().map(|_| {
             previous_analysis
                 .expect("signature reuse source")
                 .local_signature_diagnostics
         });
-        let signatures = previous.unwrap_or_else(|| {
-            Arc::new(check_signatures(&self.lowered, &self.declarations, cancel))
-        });
+        let signatures = match previous {
+            Some(signatures) => signatures,
+            None => Arc::new(
+                check_signatures(&self.lowered, &self.declarations, cancel)
+                    .map_err(|_| DefinitionMappingError::Cancelled)?,
+            ),
+        };
         let definitions = definition_registration::implementation_members(
             &self.lowered,
             &self.declarations,
@@ -473,7 +486,7 @@ fn analyze_prepared(
     environment: BodyEnvironment,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
-) -> AnalysisResult<AnalyzedModule> {
+) -> Result<AnalysisResult<AnalyzedModule>, Cancelled> {
     let BodyEnvironment {
         signatures: body_signatures,
         imported_functions,
@@ -512,10 +525,11 @@ fn analyze_prepared(
         },
         reuse,
         cancel,
-    );
+    )?;
     let mut diagnostics = names.diagnostics.clone();
     diagnostics.extend(typed.diagnostics);
-    AnalysisResult {
+    cancel.check()?;
+    Ok(AnalysisResult {
         facts: AnalyzedModule {
             source_diagnostics: Arc::default(),
             aggregates,
@@ -529,7 +543,7 @@ fn analyze_prepared(
             typed: typed.facts,
         },
         diagnostics,
-    }
+    })
 }
 
 /// Analyzes one source with explicitly installed native/foundation providers.
@@ -591,8 +605,8 @@ pub(crate) fn analyze_parsed(
     environment: BodyEnvironment,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
-) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, reuse, cancel);
+) -> Result<AnalysisResult<AnalyzedModule>, Cancelled> {
+    let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, reuse, cancel)?;
 
     analyzed.facts.source_diagnostics = parsed.physical().shared_diagnostics();
     for attribute in &analyzed.facts.lowered.attributes {
@@ -630,7 +644,8 @@ pub(crate) fn analyze_parsed(
             }));
     }
     analyzed.diagnostics.extend(parsed.diagnostics().cloned());
-    analyzed
+    cancel.check()?;
+    Ok(analyzed)
 }
 
 #[cfg(test)]

@@ -1,5 +1,8 @@
 //! Scalar const facts belong to semantic analysis, never to a backend.
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use super::const_budget::ConstBudget;
 use crate::{
     hir::{
@@ -78,6 +81,8 @@ impl Evaluator<'_> {
     }
 
     fn expression(&mut self, owner: ConstId, id: ExprId) -> Option<ScalarValue> {
+        #[cfg(test)]
+        checkpoint(Checkpoint::Constants);
         self.cancel.check().ok()?;
         if !self
             .budget
@@ -91,7 +96,6 @@ impl Evaluator<'_> {
     }
 
     fn expression_inner(&mut self, owner: ConstId, id: ExprId) -> Option<ScalarValue> {
-        self.cancel.check().ok()?;
         if let Some(value) = self.type_table.scalar_value(id) {
             return Some(value.clone());
         }

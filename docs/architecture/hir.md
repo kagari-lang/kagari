@@ -334,6 +334,26 @@ with unavailable completion evidence, and cancellation returns an error before
 publication. A complete selected function is not proof that its entire dependency
 closure is executable.
 
+Cancellation has three owners. Analysis checks requests and cache publication;
+signature/body stages return `Result<_, Cancelled>`; long algorithms retain their
+own internal checkpoints. Cache namespace comparisons propagate cancellation as
+an error rather than treating it as a cache miss. The private body checker shares
+one counter across ordinary statement/expression visits, polling every 64 visits,
+and retains an observed stop flag. Solver cancellation also sets that flag.
+`finish` rejects stopped work before any recovery placeholder can escape as a
+returned fact. Trait candidate/depth limits, inference rounds and constant budgets
+still count every semantic step independently of polling.
+
+Declaration identity forwarding polls at the ID leaf instead of repeating the
+same read in both enclosing records and their branch. Mapping still validates
+every target and rejects duplicate keys; the shared identity API is unchanged.
+Deterministic cancellation tests interrupt ordinary visits, solver constraints,
+trait candidates, constant evaluation, namespace comparison and full/selected
+publication. They require the previous cached result to retain its identity and
+source, and bound ordinary visited nodes after a request. This is a progress
+bound, not a wall-clock latency guarantee; destruction and a concurrent request
+after the final check still follow cooperative cancellation semantics.
+
 ### Pattern-based declarations
 
 Every ordinary `Binding` owns one `PatternId`, declaration-wide writeability, an
