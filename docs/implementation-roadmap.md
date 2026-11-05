@@ -69,6 +69,40 @@ The complete CI matrix above remains pending. Structure checking uses the
 existing cached environment with the locked tree-sitter 0.25.2 and
 tree-sitter-rust 0.24.2 dependencies because default uv cache access is restricted.
 
+### Typed AST performance follow-up
+
+The [Windows diagnostic study](performance-baseline.md#current-typed-ast-diagnostics-windows-2026-11-05)
+compares current typed syntax with itself. A one-entry inline list builder saved
+only about 3% of parse allocation requests on generated functions, with unchanged
+retained/peak bytes and no reliable timing win; the prototype was removed.
+The subsequent allocation study finds substantial lexer temporaries; borrowing
+identifier spellings removes 39.4% of large-input parse requests and improves its
+measured parse/drop lifecycle about 20%, with unchanged retained/peak memory.
+The small limits row is about 2.6% slower; the report retains this limitation and
+the noisy lowering/field-read rows. Historical Rowan replacement thresholds are
+not a target for these local comparisons.
+
+[Storage diagnostics](performance-baseline.md#arena-and-typed-storage-investigation)
+reject an all-allocation bump model: it retains 33.55 MB instead of 4.78 MB for
+large input. Synthetic typed binary stores favor grouped allocation and compact
+IDs, but do not establish a complete parser or HIR speedup. Production AST storage
+is unchanged. The experimental dependencies, allocation recorder, storage models
+and command have been removed; no storage migration is queued. Prioritize
+eliminating temporary allocations in the existing source pipeline. Any future
+storage proposal needs renewed real-path profiling and must preserve per-file
+sharing, immutable cross-thread access, cleanup and foreign-owner validation.
+The report retains the bounded results and Rust arena/IndexVec ownership
+comparison; allocation replay must not be reported as CPU-stack attribution.
+
+The concrete follow-up is consumer traversal: logical-module `descendants()`
+eagerly materializes all nodes before lint or documentation consumers start.
+Existing `visit_owned()` avoids those allocations and preserves independent
+child-module scopes. Measure real lint/query workloads before migrating callers;
+preserve authored order, cancellation, attributes and retained-source ownership.
+The separate physical iterator's much larger cost mostly concerns tests/tools
+and must not be presented as compiler speedup. The report records the Rust visitor
+comparison, reproducible probe, allocation evidence and timing limitations.
+
 ## Package acceptance and follow-ups
 
 [Source packages and workspaces](spec/packages.md) define the implemented local and

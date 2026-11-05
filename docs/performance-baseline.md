@@ -21,6 +21,322 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## Current typed AST diagnostics, Windows 2026-11-05
+
+This investigation starts from `1d8d00d4`, including the syntax/HIR correctness
+repairs. It compares current typed syntax with itself, not with Rowan. A temporary
+short-list builder did not establish a speed improvement and was removed.
+Existing visitor APIs show a concrete opportunity to avoid temporary traversal
+allocations. The later allocation investigation retains a measured lexer borrowing
+change. No AST storage migration or end-to-end compiler speedup is claimed.
+
+### Environment and method
+
+Intel Core i7-10700F, 16 logical CPUs, Windows 10 build 19045, x86_64 MSVC;
+Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`). RAM capacity
+was not available through the sandbox's machine inventory. Workspace release,
+default features/build parallelism, one measurement thread, resident sources and
+warmed allocator/code/data. No affinity or CPU-frequency controls; all four build
+environment overrides listed in the macOS report are unset. Compilation and
+tests finish before timing. The existing workload recipes, input hashes and
+three-warmup/eleven-sample configuration remain unchanged. Allocation counting is
+separate from timing. These Windows measurements are not comparable speed ratios
+against the macOS numbers below.
+
+### Short-list construction experiment: not adopted
+
+Only `Parser::list` changed: a `SmallVec<[ListEntry<T, S>; 1]>` builder replaces
+`Vec`, then `into_vec().into()` produces the same boxed AST list. All existing
+list indices, checks, recovery and ownership remain. The bounded stack buffer
+trades transient allocation for inline storage and spill/copy work. This follows
+the existing smallvec 1.16.3 dependency's
+[inline/spill ownership](https://docs.rs/smallvec/1.16.3/smallvec/struct.SmallVec.html)
+and Rust 1.99.1's [Vec-to-box conversion](https://doc.rust-lang.org/1.99.1/std/vec/struct.Vec.html#method.into_boxed_slice),
+which discards spare capacity. It does not replace retained lists with SmallVec,
+introduce an arena, or alter runtime/GC ownership.
+
+Seven fresh alternating baseline/candidate process pairs retain all samples.
+Input hashes and correctness evidence match. Times are medians of process medians
+in microseconds for lex + parse + final destruction; ratios are medians of paired
+ratios, not quotients of displayed medians. Spread is process range / median.
+
+| Workload | Current µs | Prototype µs | Paired ratio | Spread current/prototype |
+| --- | ---: | ---: | ---: | ---: |
+| small | 5.937 | 5.717 | 0.9643 | 36.5% / 59.4% |
+| medium | 1337.818 | 1324.044 | 0.9940 | 3.5% / 45.7% |
+| large | 19830.500 | 19629.250 | 0.9945 | 7.5% / 12.8% |
+| trivia | 1117.128 | 1113.547 | 0.9901 | 13.2% / 54.4% |
+| syntax_corpus | 431.250 | 435.459 | 1.0121 | 4.0% / 7.6% |
+| recovery | 101.359 | 106.931 | 1.0345 | 5.8% / 164.7% |
+| limits | 13.351 | 14.415 | 1.0799 | 5.4% / 210.1% |
+| declarations | 363.706 | 387.224 | 1.0418 | 4.8% / 35.0% |
+
+Parse-to-HIR paired ratios for small/medium/large/trivia/corpus are
+0.9960 / 0.9917 / 1.0087 / 0.9567 / 1.0121. All five have at least one process
+spread above 10%; no lowering improvement is established. The runner's historical
+Rowan-migration acceptance returns false, including its inapplicable 20% replacement
+target and unresolved noise. No thresholds were changed, samples discarded or
+favorable retries selected. This is an exploratory result, not accepted performance.
+
+Four repeated allocation lifecycles agree. Parse requests decrease from
+8474 to 8218 for medium, 135201 to 131105 for large, and 4389 to 4261 for inline
+retention. That is only about 3%, despite changing the shared list builder.
+All nine workloads have unchanged peak and retained bytes; large remains
+7,499,837 peak / 4,781,128 retained requested bytes. All owners release to zero.
+Fewer requests alone do not justify the extra builder machinery. The experiment
+does not show that parser allocation in general is cheap or that a different
+buffer size would win; CPU/allocation attribution is needed before further changes.
+
+Baseline image SHA-256:
+`7b0dcd165a96e86b7e4318bd67e154a902e2bf21105490c3838d75710c24b35a`;
+prototype: `5c917595288e82b17f9c6c7edb5cf5383425b7776330f45ea5f066561ffa276f`.
+Paired report stamp: `20261105T040723451873Z`. The earlier single-process freeze
+only supplied an immutable image/metadata; its timing is not acceptance evidence.
+
+### Existing traversal APIs
+
+The [traversal probe](../crates/kagari-hir/examples/ast_baseline/traversal.rs)
+compares physical `NodeRef::descendants()` with `NodeRef::visit()`, and logical
+`ModuleSyntax::descendants()` with `visit_owned()`. The logical pair excludes
+independently owned child-module bodies; do not compare it against the physical
+pair when nested modules exist. Every pair checks equal node counts and an
+order-sensitive checksum of kind and byte span, including malformed-source rows.
+
+Seven fresh processes use the restored production parser. Parse/setup is outside
+timing; each mode calibrates to 20 ms, takes three warmups and eleven measured
+batches, then independently counts allocations for one complete traversal.
+Mode order is fixed (physical iterator, physical visitor, owned iterator, owned
+visitor), not randomized. All processes retain identical counts/checksums and
+allocation counters; every traversal releases its temporary storage to zero.
+Values below are microseconds per complete workload. V/I is the median of each
+process's visitor/iterator ratio. This measures traversal plus the same checksum,
+not a complete lint pass, documentation query or parse-to-HIR lifecycle.
+
+| Workload | Physical iterator µs | Physical visitor µs | Physical V/I | Owned iterator µs | Owned visitor µs | Owned V/I |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| small | 10.880 | 0.935 | 0.0856 | 1.510 | 0.930 | 0.6176 |
+| medium | 2684.062 | 235.436 | 0.0907 | 319.539 | 229.499 | 0.7182 |
+| large | 42010.800 | 4259.800 | 0.1013 | 7100.133 | 4397.940 | 0.6019 |
+| trivia | 2621.333 | 245.352 | 0.0903 | 424.470 | 233.052 | 0.5488 |
+| syntax_corpus | 714.614 | 70.822 | 0.0999 | 93.570 | 70.657 | 0.7689 |
+| recovery | 221.677 | 21.353 | 0.0950 | 24.931 | 22.087 | 0.8902 |
+| limits | 9.870 | 2.222 | 0.2286 | 2.656 | 2.280 | 0.8363 |
+| declarations | 842.888 | 81.802 | 0.0975 | 87.482 | 80.769 | 0.9182 |
+
+Timing noise remains material: large physical iterator/visitor spreads are
+7.1% / 17.3%, owned spreads 36.0% / 27.0%; corpus owned spreads are 18.0% / 13.3%.
+Declarations is the quieter row: physical spreads 5.3% / 3.4%, owned 5.9% / 5.9%.
+These observations establish a useful direction and deterministic allocation
+cost, not a precise accepted speedup percentage for production consumers.
+
+| Workload/scope | Iterator allocation requests | Iterator requested bytes | Visitor requests/bytes |
+| --- | ---: | ---: | ---: |
+| medium physical | 31,502 | 3,319,696 | 0 / 0 |
+| medium owned | 13 | 786,336 | 0 / 0 |
+| large physical | 503,826 | 53,116,816 | 0 / 0 |
+| large owned | 17 | 12,582,816 | 0 / 0 |
+| syntax_corpus physical | 8,551 | 881,000 | 0 / 0 |
+| syntax_corpus owned | 82 | 169,344 | 0 / 0 |
+| declarations physical | 10,766 | 1,240,976 | 0 / 0 |
+| declarations owned | 11 | 196,512 | 0 / 0 |
+
+Requested bytes are cumulative allocator requests, including reallocations, not
+peak memory or RSS. Physical iteration materializes elements and children per
+node. Logical iteration already uses the visitor internally, but eagerly collects
+the entire logical module into a vector before its consumer starts. Lint policy,
+lint rules and documentation queries use that logical API; the much larger
+physical-iterator factor must not be attributed to those callers. Direct typed
+field access and HIR lowering do not automatically pay either iterator cost.
+
+The existing [Rust compiler visitor model](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_ast/visit/index.html)
+(documentation `rustc_ast` 1.101.0-nightly, `6f5da406b`) supports borrowed field
+walking without materializing a node inventory. Kagari already has this mechanism.
+Its authored-order and logical-module boundaries differ from rustc's documented
+execution-order traversal and must remain Kagari-owned. A future consumer change
+should reuse these visitors or a bounded lazy traversal, preserving cancellation,
+attribute ownership and independent child-module scopes. Actual lint/query timing
+must establish the end-to-end benefit before adoption; no new cache is proposed.
+
+Traversal image SHA-256:
+`d72dc8b555d4f5554614a7b55f46732cd3b1ee76d54b3911715470c5b9ca7949`.
+Reproduce with workspace release `cargo build --release -p kagari-hir --example
+ast_baseline`, then run `target/release/examples/ast_baseline --traversal` in seven
+separate sequential processes. Use the median of each mode's eleven samples,
+then report medians/ranges across processes and paired within-process ratios.
+The short-list experiment uses the unchanged runner with a frozen baseline image
+and the three builder edits described above. All raw outputs remain supplemental;
+the method, results and limits are recorded here.
+
+Validation: 13 focused typed-field/limit contracts pass for the temporary builder;
+the restored benchmark's `--check`, all seven traversal processes, structure,
+formatting, workspace all-target Clippy and diff checks pass. Full workspace and
+feature/backend testing remains CI-only. These traversal results use unchanged
+production syntax/HIR; the later lexer experiment is reported separately.
+
+### Arena and typed storage investigation
+
+This bounded experiment is complete. Its bumpalo 3.20.3/slab 0.4.12 dev-dependency
+references, allocation-event recorder, storage models and `--storage` entrypoint
+have been removed. Existing transitive dependencies of other crates are unchanged.
+The lasting decision is to eliminate avoidable temporary allocation before
+considering AST storage migration; the lexer change below is retained.
+
+On the environment above, seven fresh sequential processes rotated mode order
+inside three warmup and eleven measured rounds, calibrated to 20 ms batches.
+Compilation took 4.26 s and the measured processes took 79.1 s; builds/tests did
+not overlap them. Sources, trace buffers and replay-slot arrays were prepared
+outside timing. An initial pilot overlapping tooling is excluded.
+
+The recorder captured allocation sizes, alignments, reallocations and frees from
+parse construction through final destruction, marking live storage at parse
+return. System replay matched allocation/free counts, requested bytes and
+peak/retained memory exactly; every lifecycle released to zero. These are
+allocation-lifetime measurements, not Rust-type or CPU-stack attribution.
+For large input, 135,201 requests included 12,310 reallocations; 53,251 blocks
+were freed before parse returned, leaving 69,640 live blocks. The separate lexer
+made 53,261 requests. Inspection identified its per-identifier String builder as
+a concrete avoidable cost, isolated in the experiment below.
+
+Naively replaying every allocation into one bump arena per physical file retained
+33,550,624 bytes instead of 4,781,128 for large input, exceeding the current
+7,499,837-byte peak by about 4.5 times. This model ignores individual frees and
+copies resized buffers; scratch storage, superseded buffers and chunk slack stay
+until final drop. System/bump replay took 10.430/4.820 ms, versus 20.301 ms for
+actual parse/drop. Replay omits grammar, normal payload initialization and
+ordinary destructor work while adding event dispatch and slot checks. Its times
+cannot be subtracted from parser time to predict a speedup. Process spreads were
+10.4%/14.3% for the two replays, so exact percentages are not acceptance evidence.
+
+A separate synthetic model retained site/operator payloads, named left/right
+roles and missing-role anchors. All stores produced the same ordered checksum
+and released to zero. The nested recipe built 64 depth-seven binary trees
+(8,128 binary nodes), starting with empty stores and ordinary growing root Vecs.
+Timing included construction, checksum traversal and final destruction:
+
+| Store | Median microseconds | Retained/peak requested bytes |
+| --- | ---: | ---: |
+| Box | 623.333 | 456,192 |
+| bump references | 175.016 | 524,640 |
+| typed Vec IDs | 153.398 | 295,424 |
+| slab IDs | 157.807 | 328,192 |
+
+All four nested timing spreads were below 5%. Pointer nodes were 56 bytes,
+matching current BinaryExpr width; typed-ID model nodes were 36 bytes. These
+results concern one synthetic node family, not a complete parser or HIR pipeline.
+The append-only stores retained discarded branches in a separate missing-role
+recipe; slab removal/key reuse was deliberately unused because published syntax
+has no arbitrary-deletion requirement. No arena-backed parser was implemented.
+
+[bumpalo 3.20.3](https://docs.rs/bumpalo/3.20.3/bumpalo/struct.Bump.html) does not run
+allocated values' destructors and its allocator is not Sync. A real candidate
+would need separate builder/final-storage ownership and sound snapshot sharing.
+[slab 0.4.12](https://docs.rs/slab/0.4.12/slab/) provides uniform reusable slots,
+which have no demonstrated advantage over typed append-only storage here.
+The [Rust arena guide](https://rustc-dev-guide.rust-lang.org/memory.html)
+(consulted 2026-11-05) and
+[IndexVec documentation](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_index/vec/struct.IndexVec.html)
+(1.101.0-nightly, `7189d39d9`) supply mature ownership mechanisms. Kagari instead
+needs per-physical-file ownership lasting until the final retained view dies;
+compiler-context arenas and typed indexes alone do not establish that contract.
+
+No storage migration is queued from this experiment. Only renewed real-path
+profiling could justify one, followed by actual parse/HIR, recovery, cancellation,
+limits and old/inline-view acceptance. Historical probe image SHA-256:
+`54a4d9cb3ed88e04f5ffe25c5f9c723893628aa94337ce0ee9c48a7233b91f79`.
+The method and bounded findings remain here; the removed experiment is not a
+currently supported benchmark command.
+
+### Borrow identifier spellings: retained local optimization
+
+Allocation attribution identified a simpler production change than an AST arena:
+`lexer::lex_with_cancellation` constructed a temporary String for every ASCII
+identifier/keyword, used it for classification, then discarded it. The scanner
+already knows the start and end byte positions. It now classifies the borrowed
+source slice instead. Token construction, keyword classification, cancellation
+polling, unknown-Unicode handling and source spans use their existing paths.
+AST node layouts and source snapshot ownership do not change.
+
+Seven alternating baseline/candidate process pairs compare only this scanner
+change, using the same benchmark harness and dev dependencies in both images.
+Workload hashes, token/diagnostic counts, logical field checksums and HIR function
+counts match before/after measurement. All samples are retained. The existing
+default suite measures lex/drop, parse/drop, split construction/destruction,
+parse-to-HIR/drop and retained field reads; its three warmups and eleven samples
+are unchanged. Compilation took 37.86 s, focused tests/Clippy completed before
+timing, and the fourteen measured processes took 225.9 s. Source/code/allocator
+are warm as above; no affinity/frequency controls or background-load guarantee.
+
+| Workload | Baseline parse/drop µs | Borrowed spelling µs | Paired ratio | Process spread baseline/candidate |
+| --- | ---: | ---: | ---: | ---: |
+| small | 6.264 | 5.247 | 0.8471 | 3.9% / 7.4% |
+| medium | 1413.921 | 1161.825 | 0.8133 | 8.1% / 4.5% |
+| large | 20138.000 | 16138.850 | 0.8004 | 6.2% / 8.5% |
+| trivia | 1187.435 | 931.830 | 0.7851 | 3.0% / 3.4% |
+| syntax_corpus | 441.074 | 377.924 | 0.8557 | 4.4% / 3.0% |
+| recovery | 107.335 | 84.906 | 0.7943 | 1.4% / 5.9% |
+| limits | 13.093 | 13.473 | 1.0264 | 2.4% / 2.8% |
+| declarations | 387.054 | 257.493 | 0.6653 | 0.9% / 4.9% |
+
+The primary parse/drop rows improve about 15–21% in these paired medians, corpus
+about 14%, and declarations about 33%. The limits workload regresses about 2.6%
+(roughly 0.38 microseconds); it has only four removed requests. This observation
+is retained, not discarded as an inconvenient sample. The tiny-row cause is not
+isolated by this experiment; the local change is retained for the substantial
+ordinary-input improvement and simpler source-backed ownership.
+
+Lexer-only paired ratios for small/medium/large/trivia/corpus are
+0.3896 / 0.5733 / 0.4849 / 0.4045 / 0.4805. Medium is noisy (18.9% / 63.1% spread),
+so its exact lexer percentage is not reliable. Parse-to-HIR/drop paired ratios
+are 0.9837 / 0.8728 / 0.9325 / 0.9618 / 0.9567 respectively; medium again exceeds
+10% noise (14.6% / 18.9%). Large measures 72.922 / 68.146 ms, corpus
+1.220 / 1.165 ms. These measure syntax plus structural lowering, not full static
+analysis or compilation. Retained field-read ratios are 1.0041 / 1.0422 / 1.0091 /
+1.0023 / 1.0007; medium candidate spread is 14.8%, and node layouts are unchanged.
+No field-access optimization or precise small lowering improvement is claimed.
+
+| Workload | Parse requests before | After |
+| --- | ---: | ---: |
+| small | 46 | 33 |
+| medium | 8,474 | 5,146 |
+| large | 135,201 | 81,953 |
+| trivia | 8,484 | 5,156 |
+| syntax_corpus | 2,797 | 1,861 |
+| recovery | 858 | 538 |
+| limits | 58 | 54 |
+| declarations | 3,353 | 1,561 |
+| inline_retention | 4,389 | 2,661 |
+
+Four repeated memory lifecycles per image agree: every row retains exactly the
+same bytes and peak as before, and releases to zero including the independently
+retained inline-module view. Large eliminates 53,248 requests (39.4%) without an
+allocator or node-storage migration. The lexer/string finding explains why arena
+request-count reductions alone would have overestimated the necessary scope.
+
+Baseline image SHA-256 is the storage-probe image above. Candidate:
+`fafe73fcd505381d006ad74c5ec652ec5c3a1a1be6b3cb90b5fbbad9ea2c6886`.
+Both measured images contained the temporary storage diagnostics, now removed
+along with their dev-dependency references. These timings remain evidence for
+the isolated lexer change; no new timing claim is made for experiment cleanup.
+After cleanup, the rebuilt benchmark passes all eight correctness workloads;
+all nine memory workloads repeat four lifecycles with exactly the candidate's
+allocation evidence, including retained-view teardown. The unchanged lexer keeps
+its focused-test evidence; structure, fmt, workspace Clippy and diff checks pass.
+To reproduce, freeze one release executable with the original String builder
+and one with the borrowed source slice. Run each with no arguments in seven
+alternating process pairs and run each image's `--memory` mode separately. Use
+the existing benchmark validator for workload identity/correctness, aggregate
+eleven-sample process medians and retain each pair's candidate/baseline ratio.
+Historical Rowan replacement thresholds are not used as acceptance for this
+local optimization; no existing runner threshold is changed.
+
+Validation selects the directly affected scanner and its source/AST boundary:
+19 `cargo test -p kagari-syntax --lib lexer` tests, three `--lib cancellation`
+tests and seven `--test typed_fields` tests pass. No new duplicate test is needed.
+Benchmark identity checks, repeated memory lifecycles, structure, fmt, workspace
+all-target Clippy and diff checks pass. Structure uses the cached environment
+with the checker's locked parser dependencies because the default uv cache is
+restricted. Full-workspace and complete backend/feature validation remain CI-only.
+
 ## Strongly typed AST replacement, macOS 2026-11-05
 
 The production parser and all source consumers use owned grammar fields. The

@@ -1,8 +1,9 @@
-//! Representation migration benchmark. See docs/performance-baseline.md.
+//! Syntax lifecycle and retained-traversal benchmarks. See docs/performance-baseline.md.
 
 mod allocation;
 mod layout;
 mod memory;
+mod traversal;
 mod workloads;
 
 #[global_allocator]
@@ -202,9 +203,9 @@ fn main() {
     assert!(
         args.iter().all(|arg| matches!(
             arg.as_str(),
-            "--check" | "--memory" | "--inputs" | "--layout"
+            "--check" | "--memory" | "--inputs" | "--layout" | "--traversal"
         )),
-        "usage: ast_baseline [--check | --memory | --inputs | --layout]"
+        "usage: ast_baseline [--check | --memory | --inputs | --layout | --traversal]"
     );
     let check_only = args.iter().any(|arg| arg == "--check");
     if args.iter().any(|arg| arg == "--layout") {
@@ -213,6 +214,10 @@ fn main() {
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let workloads = workloads::load(&root);
+    if args.iter().any(|arg| arg == "--traversal") {
+        println!("{}", traversal::report(&workloads));
+        return;
+    }
     if args.iter().any(|arg| arg == "--inputs") {
         let rows = workloads
             .iter()

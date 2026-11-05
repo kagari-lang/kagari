@@ -449,17 +449,15 @@ pub fn lex_with_cancellation(
             }
             '_' | 'a'..='z' | 'A'..='Z' => {
                 let mut end = index;
-                let mut ident = String::new();
                 while let Some((next_index, next)) = chars.peek().copied() {
                     if !(next == '_' || next.is_ascii_alphanumeric()) {
                         break;
                     }
                     end = next_index;
-                    ident.push(next);
                     chars.next();
                 }
 
-                let kind = identifier_kind(&ident);
+                let kind = identifier_kind(&input[index..end + 1]);
                 tokens.push(token(kind, index, end + 1));
             }
             _ => {
