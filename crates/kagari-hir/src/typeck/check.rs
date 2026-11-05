@@ -32,7 +32,7 @@ use crate::{
         const_budget::ConstBudget,
         const_eval, constraints,
         reuse::BodyReuse,
-        table::TypeTable,
+        state::TypeCheckState,
         ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
@@ -73,7 +73,7 @@ pub(crate) fn check_signatures(
     }
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
-    let mut type_table = TypeTable::default();
+    let mut type_table = TypeCheckState::default();
     aliases::check_definitions(
         lowered,
         declarations,
@@ -415,7 +415,7 @@ pub(crate) fn check_signatures(
             type_bounds,
             statics,
             functions,
-            type_table,
+            type_table: type_table.into_facts(),
         },
         diagnostics,
     }
@@ -496,11 +496,11 @@ pub(crate) fn check_bodies_controlled(
         imported_constants: imported_constants.clone(),
         ..Default::default()
     };
-    let mut type_table = signatures.facts.type_table.clone();
+    let mut type_table = TypeCheckState::from_facts(signatures.facts.type_table.clone());
     {
         let const_values = if let Some(constants) = constants {
             top_level_index.consts = constants.types.clone();
-            type_table = constants.table.clone();
+            type_table = TypeCheckState::from_facts(constants.table.clone());
             diagnostics.extend(constants.diagnostics.iter().cloned());
             constants.values.clone()
         } else {
@@ -659,7 +659,7 @@ pub(crate) fn check_bodies_controlled(
                     consts: top_level_index.consts,
                     statics: top_level_index.statics,
                     const_values,
-                    type_table,
+                    type_table: type_table.into_facts(),
                 },
                 diagnostics,
             };
@@ -915,7 +915,7 @@ pub(crate) fn check_bodies_controlled(
                 consts: top_level_index.consts,
                 statics: top_level_index.statics,
                 const_values,
-                type_table,
+                type_table: type_table.into_facts(),
             },
             diagnostics,
         }

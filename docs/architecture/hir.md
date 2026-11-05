@@ -299,6 +299,16 @@ on [ModuleSignatures](../../crates/kagari-hir/src/typeck/mod.rs). Missing facts 
 mean an inapplicable operation, a stage not requested or source recovery; each
 table's accessor contract explains which applies.
 
+Type checking owns a private
+[TypeCheckState](../../crates/kagari-hir/src/typeck/state.rs) while resolving syntax.
+It keeps annotation holes and the active type-resolution stack beside the fact
+table. For `val items: Vec<_> = Vec::new()`, the written `_` temporarily names an
+inference variable; it is not a retained signature fact. Consuming the workspace
+extracts only `TypeTable`, so published results and identity mapping cannot carry
+those temporary collections. The body checker separately owns its solver and
+control-flow stacks. Extracting facts does not grant compilation eligibility:
+diagnostics, cancellation and the checked boundary still govern publication.
+
 ### Pattern-based declarations
 
 Every ordinary `Binding` owns one `PatternId`, declaration-wide writeability, an

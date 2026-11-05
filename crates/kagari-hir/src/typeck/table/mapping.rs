@@ -341,12 +341,6 @@ impl RemapDefinitions for TypeTable {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypeTable {
-            inference_holes: map_hash_entries(
-                self.inference_holes.len(),
-                self.inference_holes
-                    .iter()
-                    .map(|(key, value)| Ok((*(key), (value).remap_definitions(mapper)?))),
-            )?,
             iterations: map_hash_entries(
                 self.iterations.len(),
                 self.iterations
@@ -371,8 +365,6 @@ impl RemapDefinitions for TypeTable {
                     .iter()
                     .map(|(key, value)| Ok((*(key), (value).remap_definitions(mapper)?))),
             )?,
-            resolving_types: self.resolving_types.clone(),
-
             associated_bounds: map_hash_entries(
                 self.associated_bounds.len(),
                 self.associated_bounds.iter().map(|(key, value)| {
@@ -558,9 +550,6 @@ impl DefinitionReferences for TypeTable {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        for value0 in self.inference_holes.values() {
-            (value0).visit_definition_ids(visit, cancel)?;
-        }
         for value in self.propagations.values() {
             value.visit_definition_ids(visit, cancel)?;
         }

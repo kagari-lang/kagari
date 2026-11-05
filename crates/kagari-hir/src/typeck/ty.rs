@@ -15,7 +15,8 @@ use crate::{
     typeck::{
         aliases::ExpansionBudget,
         associated,
-        table::{ResolvedTypeRef, TypeTable, TypeTarget},
+        state::TypeCheckState,
+        table::{ResolvedTypeRef, TypeTarget},
     },
     types::{NominalType, TypeId},
 };
@@ -186,7 +187,7 @@ pub(super) fn resolve_type(
     module: &Module,
     ty: TypeRefId,
     declarations: &Declarations,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     cancel: &CancellationToken,
 ) -> TypeId {
     resolve_type_in(
@@ -208,7 +209,7 @@ pub(super) fn resolve_type_in(
     module: &Module,
     ty: TypeRefId,
     context: TypeContext<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     cancel: &CancellationToken,
 ) -> TypeId {
     resolve_type_bounded(
@@ -225,7 +226,7 @@ fn resolve_type_bounded(
     module: &Module,
     ty: TypeRefId,
     context: TypeContext<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     cancel: &CancellationToken,
     budget: &mut ExpansionBudget,
 ) -> TypeId {
@@ -545,7 +546,7 @@ fn resolve_type_argument(
     module: &Module,
     ty: TypeRefId,
     context: TypeContext<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     cancel: &CancellationToken,
     enclosing: &ExpansionBudget,
 ) -> TypeId {
@@ -568,7 +569,7 @@ fn resolve_composite_members(
     module: &Module,
     members: impl Iterator<Item = TypeRefId>,
     context: TypeContext<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     cancel: &CancellationToken,
     budget: &mut ExpansionBudget,
 ) -> Option<Vec<TypeId>> {

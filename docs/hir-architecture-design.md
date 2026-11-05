@@ -1,6 +1,6 @@
 # HIR 架构与编译交接设计
 
-状态：用户已启动 HA0–HA5 goal，HA0、HA1a 已完成，下一检查点为 HA1b。2026-11-05–06 核对代码基线为
+状态：用户已启动 HA0–HA5 goal，HA0、HA1a 已完成，HA1b 执行中。2026-11-05–06 核对代码基线为
 `2c1fcf9b`，工作分支为 `refactor/hir-architecture`；HA0 契约及基线见第 7.4、8.4 节，实施状态以第 7.3 节为准。
 本次按用户要求使用中文。文中的新类型名和数据结构均为设计示意，不是已经存在的 API，
 也不是已批准的存储布局。实现启动与范围由[路线图](implementation-roadmap.md#other-queued-designs)管理。
@@ -1100,7 +1100,7 @@ HA4 最多做一个测量支持的实验；收益不足则撤销并记录，不�
 | --- | --- | --- | --- |
 | 方案评审 | 完成 | 已审查代码、成熟实现与迁移风险；三个文档的 327 个本地链接/锚点与代码围栏检查通过，diff 检查通过 | 无生产变更；无性能测量；文档变更未运行构建/测试 |
 | HA0 | 完成 | 第 7.4 节定稿消费者/身份/操作契约；第 8.4 节记录基线、计数与限制 | 新旧配对比较归 HA3–HA4；长算法取消验证归 HA1c |
-| HA1a–HA1c | HA1a 完成 | 删除 SourceEvidence 四组 mapping 实现；48 个测试文件归入 tests/，637 个发现项逐项保持；11 个相关测试通过，结构/fmt/Clippy/diff 通过 | HA1b、HA1c 未开始 |
+| HA1a–HA1c | HA1a 完成；HA1b 执行中 | HA1a 能力/测试整理已验收；HA1b 首个检查点将类型解析工作状态移出 TypeTable，并迁移较长的测试比较方法；11 个相关测试及结构/fmt/Clippy/rustdoc/diff 通过 | HA1b 的签名事实唯一所有者与 body 结果边界仍待完成；HA1c 未开始 |
 | HA2 | 未启动 | — | 依赖 HA1 |
 | HA3 | 未启动 | — | 依赖 HA2 |
 | HA4 | 未启动 | — | 依赖 HA3 的对照测量 |
@@ -1116,6 +1116,21 @@ HA1a 验证记录：`cargo test -p kagari-hir --lib -- --list` 在搬迁前后�
 Rust 文件，零违规/例外。初次搬迁发现 `static`/`type` 是模块名关键字，已改为 `statics`/`types`，
 重新构建与测试通过，无遗留构建错误。生产代码未增加 re-export、可见性、include 或路径挂载；
 测试内保留允许的 glob，样例字符串中的 Kagari 导入不属于 Rust production imports。
+
+HA1b 首个检查点：私有 `typeck::state::TypeCheckState` 拥有正在构造的 TypeTable、annotation
+holes 与 active type-resolution guard；签名、常量和 body 出口只提取事实。工作状态不再出现在
+TypeTable 字段、引用遍历或重映射中。内部 Deref 仅借用事实表以复用读写算法，不是公开兼容入口；
+`into_facts` 不授予 checked 资格。BodyChecker 原有 solver/控制流状态继续归检查过程。
+较长的 ModuleSignatures/TypeTable 测试比较实现移入各自 tests/，不扩大可见性。
+9 个恢复/旧快照签名/类型上下文测试和 2 个递归别名测试通过；workspace all-target Clippy、
+结构（1818 文件，零违规/例外）、fmt、diff 与带 broken-link/invalid-codeblock 拒绝的 private rustdoc
+构建通过。局部编译曾报告工作状态赋值类型和关联类型插入借用冲突，均已修复，无遗留错误。
+
+HA1b 后续依据：`check_bodies_controlled` 当前把 `ModuleSignatures.functions` 克隆后按完整
+aggregate 环境归一化，再克隆到 FunctionTypeIndex；constants 预备与 body 检查会分别执行。
+原始签名解析事实与归一化后的调用契约确有不同阶段含义，不能直接删一份而改变语义。
+下一步在固定 body 环境中给最终调用契约建立唯一不可变所有者，使 body 检查/查询共享；
+同时明确 body 事实的发布接口。尚未完成这些要求，因此不将 HA1b 标为完成。
 
 ### 7.4 HA0 消费者审计与已定稿契约
 
@@ -1360,7 +1375,7 @@ HA1c 仍需验证 body/循环内部检查和拒绝发布。此探针不修改运
 - [x] 纳入 Rust 标准库风格的 HIR 文档要求，并明确各阶段所有者、示例验证和阅读任务验收。
 - [x] 定稿 HA0 契约、消费者清单和代表性基线；测量限制见第 8.4 节。
 - [x] HA1a：删除非必要 SourceEvidence 身份能力，归拢平铺测试文件并完成本地验收。
-- [ ] 完成 HA1b–HA5；当前尚未开始。
+- [ ] 完成 HA1b–HA5；HA1b 工作状态分离已验收，签名/body 事实所有权仍在进行。
 
 实施完成后，将最终行为迁入现有架构/规范，将未完成事项保留在路线图或已有 review 所有者，
 移除本设计执行文档；Git 历史保留阶段记录。本文件是这一重构提案的唯一细化队列，

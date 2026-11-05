@@ -14,6 +14,7 @@ use crate::{
     resolver::resolved::ResolvedName,
     typeck::{
         GenericBounds, ModuleSignatures, applications, associated, check, constraints, interfaces,
+        state::TypeCheckState,
         table::{TypeTable, TypeTarget},
         ty::{TypeContext, resolve_type_in},
     },
@@ -32,7 +33,7 @@ pub(crate) fn prepare(
     let identity = declarations
         .definition(ResolvedName::TypeAlias(alias.id))
         .expect("alias declaration");
-    let mut table = TypeTable::default();
+    let mut table = TypeCheckState::default();
     let mut diagnostics = DiagnosticBuffer::default();
     constraints::resolve_owner(
         lowered,
@@ -460,7 +461,7 @@ impl AliasValidation<'_> {
 pub(super) fn check_definitions(
     lowered: &LoweredModule,
     declarations: &Declarations,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {

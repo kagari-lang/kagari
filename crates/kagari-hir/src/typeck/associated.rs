@@ -11,6 +11,7 @@ use crate::{
     resolver::resolved::ResolvedName,
     typeck::{
         constraints,
+        state::TypeCheckState,
         table::{ResolvedTypeRef, TypeTable, TypeTarget, match_implementation},
         ty::{self, TypeContext, resolve_named_type, resolve_type_in},
     },
@@ -27,7 +28,7 @@ use std::{cell::RefCell, collections::HashSet};
 pub(super) fn prepare(
     lowered: &LoweredModule,
     declarations: &Declarations,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
@@ -80,9 +81,8 @@ pub(super) fn prepare(
                 cancel,
             );
             if !member.generic_params.is_empty() {
-                table
-                    .associated_type_parameters
-                    .insert(member_id, family_inputs(member, declarations, table));
+                let inputs = family_inputs(member, declarations, table);
+                table.associated_type_parameters.insert(member_id, inputs);
             } else if !member.parameter_bounds.is_empty() {
                 diagnostics.push(error(
                     member,
@@ -105,14 +105,12 @@ pub(super) fn prepare(
                     cancel,
                 );
             }
-            table.associated_bounds.insert(
-                member_id,
-                member
-                    .bounds
-                    .iter()
-                    .filter_map(|bound| table.constraint(bound.ty))
-                    .collect(),
-            );
+            let bounds = member
+                .bounds
+                .iter()
+                .filter_map(|bound| table.constraint(bound.ty))
+                .collect();
+            table.associated_bounds.insert(member_id, bounds);
         }
     }
     for item in &lowered.module.impls {
@@ -233,13 +231,10 @@ pub(super) fn prepare(
                         interface.associated_types.insert(target, value);
                     }
                 } else {
-                    table.associated_type_families.insert(
-                        member_id,
-                        AssociatedTypeFamily {
-                            inputs: family_inputs(member, declarations, table),
-                            value,
-                        },
-                    );
+                    let inputs = family_inputs(member, declarations, table);
+                    table
+                        .associated_type_families
+                        .insert(member_id, AssociatedTypeFamily { inputs, value });
                 }
             }
         }
@@ -337,7 +332,7 @@ pub(super) fn resolve_projection_name(
     name: &str,
     arguments: Vec<TypeId>,
     context: TypeContext<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     cancel: &CancellationToken,
 ) -> ResolvedTypeRef {
     let Some((base, member)) = name.rsplit_once("::") else {
@@ -548,7 +543,7 @@ pub(super) fn qualified_projection(
     interface: TypeId,
     member: (&str, Vec<TypeId>),
     context: TypeContext<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     cancel: &CancellationToken,
 ) -> TypeId {
     let (member, arguments) = member;
@@ -728,7 +723,7 @@ fn inherited_traits(
     declarations: &Declarations,
     interface: &NominalType,
     receiver: &TypeId,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     cancel: &CancellationToken,
 ) -> Vec<NominalType> {
     let table = RefCell::new(table);

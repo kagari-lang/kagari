@@ -6,6 +6,7 @@ use crate::{
     declarations::Declarations,
     lower::LoweredModule,
     typeck::{
+        state::TypeCheckState,
         table::TypeTable,
         ty::{TypeContext, resolve_type_in},
     },
@@ -49,7 +50,7 @@ pub(crate) fn scalar_type(ty: &TypeId) -> bool {
 pub(super) fn prepare(
     lowered: &LoweredModule,
     declarations: &Declarations,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {

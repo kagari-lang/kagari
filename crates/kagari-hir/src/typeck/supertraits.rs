@@ -8,7 +8,7 @@ use crate::{
     lower::LoweredModule,
     typeck::{
         applications,
-        table::TypeTable,
+        state::TypeCheckState,
         ty::{self, TypeContext},
     },
     types::{NominalType, TypeId},
@@ -25,7 +25,7 @@ pub(crate) fn trait_supertrait_surface(
     declarations: &Declarations,
     cancel: &CancellationToken,
 ) -> Vec<NominalType> {
-    let mut table = TypeTable::default();
+    let mut table = TypeCheckState::default();
     item.supertraits
         .iter()
         .filter_map(|reference| {

@@ -19,16 +19,12 @@ use crate::{
         TypeSubstitution,
     },
 };
-#[cfg(test)]
-use crate::{hir::ids::HirArenaId, tests::common::import_facts};
-#[cfg(test)]
-use kagari_common::identity::map::DefinitionContext;
 use kagari_common::{
     identity::table::{DefinitionId, DefinitionTable},
     span::Span,
 };
 use kagari_types::declaration::path::{HostPathContract, HostPathDeclaration};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Declaration/binder identity selected for a source type reference, separate from its resulting type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,19 +170,16 @@ pub struct ResolvedIteration {
 /// Constraint storage also distinguishes an attempted unresolved constraint from
 /// an unvisited one, although the public getter flattens both to `None`.
 ///
-/// Temporary inference holes and recursion guards are checker state, removed/cleared
-/// before publication. Semantic definition mapping does not remap HIR arenas; body
-/// and signature reuse use explicit source-map remappers for local IDs.
+/// Temporary inference holes and recursion guards belong to the private checking
+/// workspace and cannot be stored in this table. Semantic definition mapping does
+/// not remap HIR arenas; body and signature reuse use explicit source-map remappers
+/// for local IDs.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TypeTable {
-    /// Temporary body-local placeholders; removed before publishing facts.
-    pub(super) inference_holes: HashMap<TypeRefId, TypeId>,
     iterations: HashMap<ExprId, ResolvedIteration>,
     propagations: HashMap<ExprId, ResolvedPropagation>,
     protocol_receivers: HashMap<ExprId, TypeId>,
     associated_consts: HashMap<ExprId, ResolvedAssociatedConst>,
-    /// Active type-resolution recursion guard; an ID here is being resolved, not a published type fact.
-    pub(super) resolving_types: HashSet<TypeRefId>,
 
     /// Associated member identities mapped to declared constraint targets.
     pub(crate) associated_bounds: HashMap<DefinitionId, Vec<NominalType>>,
@@ -326,80 +319,6 @@ impl TypeTable {
     /// Records/replaces the declared host read path under the matching node ID.
     pub(crate) fn insert_host_path(&mut self, expr: ExprId, path: ResolvedHostPath) {
         self.host_paths.insert(expr, path);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn assert_same_source_facts(
-        &self,
-        definitions: &DefinitionTable,
-        other: &Self,
-        other_definitions: &DefinitionTable,
-        arena: HirArenaId,
-        other_arena: HirArenaId,
-    ) {
-        let context = DefinitionContext::new().unwrap();
-        let left = import_facts(self, definitions, &context);
-        let right = import_facts(other, other_definitions, &context);
-        let this = left.records();
-        let other = right.records();
-        // Fresh analysis must have different local identities. Compare slot facts
-        // only after checking every key/receiver belongs to its actual lowering.
-        fn normalized(table: &TypeTable, from: HirArenaId, to: HirArenaId) -> TypeTable {
-            let mut result = table.clone();
-            result.field_types = result
-                .field_types
-                .into_iter()
-                .map(|(id, fact)| {
-                    assert_eq!(id.arena(), from, "foreign field key");
-                    (FieldId::new(to, id.owner(), id.slot()), fact)
-                })
-                .collect();
-            macro_rules! keys {
-                ($($field:ident : $ty:ident),+ $(,)?) => {$(
-                    result.$field = result.$field.into_iter().map(|(id, fact)| {
-                        assert_eq!(id.arena(), from, "foreign key in {}", stringify!($field));
-                        (crate::hir::ids::$ty::new(to, id.owner(), id.index()), fact)
-                    }).collect();
-                )+};
-            }
-
-            keys!(propagations: ExprId, iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
-                place_fields: PlaceId, place_indexes: PlaceId, place_index_writes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
-                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_fields: PatternId, pattern_variants: PatternId,
-                callable_coercions: ExprId, interface_coercions: ExprId, associated_consts: ExprId);
-            for site in result.native_default_calls.values_mut() {
-                assert_eq!(site.arena(), from);
-                *site = ExprId::new(to, site.owner(), site.index());
-            }
-            for call in result.calls.values_mut() {
-                if let Some(receiver) = call.receiver {
-                    assert_eq!(receiver.arena(), from);
-                    call.receiver = Some(ExprId::new(to, receiver.owner(), receiver.index()));
-                }
-            }
-            for path in result.host_paths.values_mut() {
-                assert_eq!(path.root.arena(), from);
-                path.root = ExprId::new(to, path.root.owner(), path.root.index());
-                for (_, argument) in &mut path.dynamic_arguments {
-                    assert_eq!(argument.arena(), from);
-                    *argument = ExprId::new(to, argument.owner(), argument.index());
-                }
-            }
-            for path in result.host_place_paths.values_mut() {
-                assert_eq!(path.root.arena(), from);
-                path.root = PlaceId::new(to, path.root.owner(), path.root.index());
-                for (_, argument) in &mut path.dynamic_arguments {
-                    assert_eq!(argument.arena(), from);
-                    *argument = ExprId::new(to, argument.owner(), argument.index());
-                }
-            }
-            result
-        }
-
-        assert_eq!(
-            normalized(this, arena, other_arena),
-            normalized(other, other_arena, other_arena)
-        );
     }
 
     pub(super) fn remap_signature_types(
@@ -1152,3 +1071,6 @@ impl TypeTable {
         self.host_place_paths.keys().copied()
     }
 }
+
+#[cfg(test)]
+mod tests;

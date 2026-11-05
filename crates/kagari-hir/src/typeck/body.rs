@@ -15,7 +15,7 @@ use crate::{
         BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, applications, completion,
         scalar::ScalarValue,
         solver::Solver,
-        table::TypeTable,
+        state::TypeCheckState,
         ty::{TypeContext, display_type_id, resolve_type_in},
     },
     types,
@@ -75,7 +75,7 @@ struct LoopValue {
 /// Per-function/constant semantic traversal state borrowing prepared catalogs.
 ///
 /// The checker reads lowered nodes and resolved names, updates the body environment,
-/// and writes diagnostics plus `TypeTable` facts. `Solver` holds temporary inference
+/// and writes diagnostics plus semantic facts through `TypeCheckState`. `Solver` holds temporary inference
 /// variables; solving/recheck state must be sealed before publishing the table.
 /// Loop and closure stacks keep expected/result types separate from outer returns.
 pub(crate) struct BodyChecker<'a> {
@@ -90,7 +90,7 @@ pub(crate) struct BodyChecker<'a> {
     const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
     /// Mutable semantic output; node keys belong to `lowered`.
-    type_table: &'a mut TypeTable,
+    type_table: &'a mut TypeCheckState,
     function_name: &'a str,
     /// Result contract of the currently checked callable context.
     expected_return: TypeId,
@@ -120,7 +120,7 @@ impl<'a> BodyChecker<'a> {
         names: &'a ResolvedNames,
         indexes: TypeIndexes<'a>,
         diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
-        type_table: &'a mut TypeTable,
+        type_table: &'a mut TypeCheckState,
         function_name: &'a str,
         expected_return: TypeId,
     ) -> Self {

@@ -10,7 +10,7 @@ use crate::{
         BodyTypeEnv, TypeIndexes,
         body::BodyChecker,
         completion,
-        table::TypeTable,
+        state::TypeCheckState,
         ty::{display_type, display_type_id, resolve_type},
     },
     types::TypeId,
@@ -23,7 +23,7 @@ use std::collections::{HashMap, HashSet};
 pub(super) fn signatures(
     lowered: &LoweredModule,
     declarations: &Declarations,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) -> HashMap<StaticId, TypeId> {
@@ -59,7 +59,7 @@ pub(super) fn initializers(
     lowered: &LoweredModule,
     names: &ResolvedNames,
     indexes: TypeIndexes<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut DiagnosticBuffer,
 ) -> HashSet<StaticId> {
     let shared_valid = !diagnostics
