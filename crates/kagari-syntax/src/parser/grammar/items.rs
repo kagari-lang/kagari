@@ -36,7 +36,10 @@ impl Parser<'_> {
         let mark = self.begin();
         let open = inline.then(|| self.take::<tokens::LBrace>());
         let mut items = Vec::new();
-        while !self.at(TokenKind::Eof) && !(inline && self.at(TokenKind::RBrace)) {
+        while !self.at(TokenKind::Eof)
+            && !(inline && self.at(TokenKind::RBrace))
+            && self.continue_parsing()
+        {
             self.position(1, items.len());
             let before = self.cursor();
             if let Some(item) = self.parse_item() {
@@ -232,7 +235,7 @@ impl Parser<'_> {
 
     fn recover_static_tail(&mut self) {
         let mut braces = 0usize;
-        while !self.at(TokenKind::Eof) {
+        while !self.at(TokenKind::Eof) && self.continue_parsing() {
             if braces == 0 {
                 if self.at_any(&[
                     TokenKind::RBrace,

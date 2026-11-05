@@ -16,7 +16,7 @@ use kagari_syntax::{
         module::{ModuleLocation, ModuleSyntax},
         views::ItemView,
     },
-    parser::{Parse, parse_with_limits},
+    parser::{Parse, ParseOptions, parse},
 };
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
@@ -82,7 +82,14 @@ pub(super) fn prepare(
             .filter(|old| old.source().revision() == physical.revision());
         let parsed = match old {
             Some(old) => old.parsed.physical.clone(),
-            None => Arc::new(parse_with_limits(physical, db.parse_limits, cancel)?),
+            None => Arc::new(parse(
+                physical,
+                ParseOptions {
+                    limits: db.parse_limits,
+                    ..Default::default()
+                },
+                cancel,
+            )?),
         };
         let syntax = match physical.inline_range() {
             Some(range) => ModuleSyntax::at_content_range(&parsed, range)

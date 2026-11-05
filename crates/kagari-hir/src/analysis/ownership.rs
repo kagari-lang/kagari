@@ -8,7 +8,10 @@ use crate::{
     analyze_parsed, declare_analysis,
     lower::lower_module_controlled,
 };
-use kagari_syntax::{ast::module::ModuleSyntax, parser::parse_with_limits};
+use kagari_syntax::{
+    ast::module::ModuleSyntax,
+    parser::{ParseOptions, parse},
+};
 use std::sync::Arc;
 use {
     kagari_common::{
@@ -50,7 +53,7 @@ pub(crate) fn recover_invalid_identity(
 ) -> Result<AnalysisResult<AnalyzedModule>, AnalysisError> {
     let cancel = CancellationToken::default();
     let parsed =
-        parse_with_limits(source, Default::default(), &cancel).expect("uncancelled recovery parse");
+        parse(source, ParseOptions::default(), &cancel).expect("uncancelled recovery parse");
     let syntax = match source.inline_range() {
         Some(range) => ModuleSyntax::at_content_range(&parsed, range)
             .ok_or(AnalysisError::InvalidSourceRange(source.id()))?,

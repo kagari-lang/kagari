@@ -29,7 +29,7 @@ use kagari_syntax::{
         item::{AttributeArg, AttributeValue as AstAttributeValue},
         module::ModuleSyntax,
     },
-    parser::parse,
+    parser::{ParseOptions, parse},
 };
 use kagari_types::{
     callable::MethodPolicy,
@@ -252,7 +252,8 @@ pub(crate) fn lower_attributes(
 /// Panics if a manually supplied inline source extent does not identify a module
 /// in its text. AnalysisDatabase validates this association with a recoverable error.
 pub fn lower_module(source: &SourceFile) -> LoweredModule {
-    let parsed = parse(source);
+    let parsed = parse(source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
     let syntax = match source.inline_range() {
         Some(range) => ModuleSyntax::at_content_range(&parsed, range)
             .expect("inline source extent must identify its syntax body"),

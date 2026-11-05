@@ -22,23 +22,27 @@ use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::{module::ModuleSyntax, views::ExprView, visit::NodeRef},
     lexer::lex,
-    parser::{Parse, ParseLimits, parse, parse_declarations},
+    parser::{Parse, ParseMode, ParseOptions, parse},
 };
 use serde_json::{Value, json};
 
 use crate::workloads::Workload;
 
 fn parse_source(workload: &Workload, source: &SourceFile) -> Parse {
-    if workload.declarations {
-        parse_declarations(
-            source,
-            ParseLimits::default(),
-            &CancellationToken::default(),
-        )
-        .unwrap()
+    let mode = if workload.declarations {
+        ParseMode::Declarations
     } else {
-        parse(source)
-    }
+        ParseMode::Source
+    };
+    parse(
+        source,
+        ParseOptions {
+            mode,
+            ..Default::default()
+        },
+        &CancellationToken::default(),
+    )
+    .expect("fresh cancellation token")
 }
 
 fn selected_expressions(module: &ModuleSyntax) -> Vec<ExprView<'_>> {

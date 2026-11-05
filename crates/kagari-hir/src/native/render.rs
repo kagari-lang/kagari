@@ -51,7 +51,7 @@ pub struct NativeBoundSite {
 /// ```text
 /// registered ModuleDecl + providers -> declaration_source
 ///   -> DeclarationSource { uri, text, sites }
-///   -> native::api parse_declarations + correspondence validation
+///   -> native::api declaration-mode parsing + correspondence validation
 ///   -> ordinary LoweredModule + attached installed metadata
 /// ```
 ///

@@ -6,7 +6,7 @@ use crate::{
         ty::TypeSyntax,
         views::{ItemView, TypeView},
     },
-    parser::{Parse, parse as parse_source, parse_module},
+    parser::{Parse, ParseOptions, parse as parse_source},
 };
 use kagari_source::source::SourceFile;
 
@@ -15,11 +15,18 @@ pub fn source(text: &str) -> SourceFile {
 }
 
 pub fn parse_ok(text: &str) -> ModuleSyntax {
-    parse_module(&source(text)).expect("source should parse")
+    let parsed = parse(text);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    parsed.module()
 }
 
 pub fn parse(text: &str) -> Parse {
-    parse_source(&source(text))
+    parse_source(&source(text), ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token")
 }
 
 pub fn first_function(module: &ModuleSyntax) -> Ast<'_, FnDef> {

@@ -9,7 +9,8 @@
 //! ```
 //!
 //! The parser owns construction. Inline bodies are required once the inline form
-//! is selected; missing braces retain a missing body, not an invented empty one.
+//! is selected. A missing opening brace leaves a missing body; an opened body
+//! without its closing brace remains present with a missing close token.
 //! Attribute targets and declaration names are explicit fields.
 
 use crate::ast::{
@@ -27,11 +28,20 @@ use crate::ast::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ModuleId(pub u32);
 
-node!(ModuleBody {
-    open: Option<Token<tokens::LBrace>>,
-    items: Vec<Item>,
-    close: Option<Required<Token<tokens::RBrace>>>,
-});
+node!(
+    /// Items and delimiters of one root or inline module.
+    ///
+    /// A physical root has no brace fields. For `mod child { fn f() {} }`, the
+    /// inline body has `open = Some('{')`, one FnDef node in `items`, and
+    /// `close = Some(Present('}'))`. An unclosed body instead has
+    /// `close = Some(Missing { .. })`. Tokens are references into the physical file;
+    /// the surrounding ModuleDef owns the `mod` keyword and name.
+    ModuleBody {
+        open: Option<Token<tokens::LBrace>>,
+        items: Vec<Item>,
+        close: Option<Required<Token<tokens::RBrace>>>,
+    }
+);
 
 #[derive(Debug)]
 pub enum Item {

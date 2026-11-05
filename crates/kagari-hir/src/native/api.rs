@@ -31,7 +31,7 @@ use kagari_source::{
 };
 use kagari_syntax::{
     ast::visit::NodeRef,
-    parser::{Parse, ParseLimits, parse_declarations},
+    parser::{Parse, ParseLimits, ParseMode, ParseOptions, parse},
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -89,8 +89,15 @@ pub(crate) fn import_source(
         .file(id)
         .expect("native declaration source")
         .clone();
-    let parsed = parse_declarations(&source, limits, cancel)
-        .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
+    let parsed = parse(
+        &source,
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits,
+        },
+        cancel,
+    )
+    .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
     if !parsed.diagnostics().is_empty() {
         return Err(DeclarationError(format!(
             "invalid native declaration syntax: {:?}",
@@ -142,9 +149,12 @@ fn validate_view(
     cancel: &CancellationToken,
 ) -> Result<(), DeclarationError> {
     let expected = declaration_source(metadata, providers)?;
-    let expected = parse_declarations(
+    let expected = parse(
         &SourceFile::new(&expected.uri, &expected.text),
-        limits,
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits,
+        },
         cancel,
     )
     .map_err(|_| DeclarationError("native declaration correspondence cancelled".into()))?;

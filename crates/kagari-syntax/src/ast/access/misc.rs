@@ -33,12 +33,14 @@ impl<'a, K> Ast<'a, Token<K>> {
 }
 
 impl Ast<'_, Name> {
+    /// Copy this name's exact spelling. Use `source_text()` for a borrowed slice.
     pub fn text(self) -> Option<String> {
         Some(self.source_text().to_owned())
     }
 }
 
 impl<'a> Ast<'a, Path> {
+    /// Present path names in authored order, skipping any missing segment names.
     pub fn segments(self) -> impl Iterator<Item = Ast<'a, Name>> {
         let (first, rest) = match self.node {
             Path::Single(name) => (name, &[][..]),
@@ -50,6 +52,9 @@ impl<'a> Ast<'a, Path> {
         )
     }
 
+    /// Join present segment names with `::`, allocating normalized path text.
+    /// This omits source trivia and missing segments; `source_text()` preserves
+    /// exact spelling and `data()` retains malformed segment roles.
     pub fn text(self) -> Option<String> {
         Some(
             self.segments()

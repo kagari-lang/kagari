@@ -80,6 +80,8 @@ impl<'a> Ast<'a, PathExpr> {
 }
 
 impl Ast<'_, Literal> {
+    /// Copy the literal's source spelling, including delimiters and escapes.
+    /// This does not decode its value; use `source_text()` to borrow the spelling.
     pub fn text(self) -> Option<String> {
         Some(self.source_text().to_owned())
     }
@@ -153,6 +155,29 @@ impl<'a> Ast<'a, CallExpr> {
         Some(self.with(&self.node.application.as_ref()?.arguments))
     }
 
+    /// Present arguments in authored order, excluding missing slots and punctuation.
+    /// For `f(a,,b,)` this yields `a, b`; inspect `data().arguments.entries` to keep
+    /// the missing middle entry and trailing comma. See [`SeparatedList`](crate::ast::site::SeparatedList).
+    ///
+    /// ```
+    /// use kagari_source::source::SourceFile;
+    /// use kagari_syntax::{
+    ///     ast::{site::Required, views::{ExprView, ItemView}},
+    ///     parser::{ParseOptions, parse},
+    /// };
+    /// let source = SourceFile::new("recovery.kgr", "fn f() { f(a,,b,) }");
+    /// let parsed = parse(&source, ParseOptions::default(), &Default::default())?;
+    /// assert!(!parsed.diagnostics().is_empty());
+    /// let root = parsed.module();
+    /// let ItemView::FnDef(function) = root.items().next().unwrap() else { panic!() };
+    /// let ExprView::CallExpr(call) = function.body().unwrap().tail_expr().unwrap()
+    ///     else { panic!() };
+    /// assert_eq!(call.args().count(), 2);
+    /// let entries = &call.data().arguments.entries;
+    /// assert_eq!(entries.len(), 3);
+    /// assert!(matches!(entries[1].element, Required::Missing { .. }));
+    /// # Ok::<(), kagari_common::cancellation::Cancelled>(())
+    /// ```
     pub fn args(self) -> impl Iterator<Item = ExprView<'a>> {
         self.list(&self.node.arguments).map(|expr| expr.view())
     }

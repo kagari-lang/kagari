@@ -12,7 +12,7 @@ use crate::{
     tests::common,
 };
 use kagari_source::source::SourceFile;
-use kagari_syntax::parser;
+use kagari_syntax::parser::{self, ParseMode, ParseOptions};
 use kagari_types::visibility::Visibility;
 use std::sync::Arc;
 
@@ -23,7 +23,15 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
         "pub fn native() -> i32; trait Example { fn required(self) -> i32; fn script(self) {} }",
     ));
     let cancel = Default::default();
-    let parsed = parser::parse_declarations(&source, Default::default(), &cancel).unwrap();
+    let parsed = parser::parse(
+        &source,
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits: Default::default(),
+        },
+        &cancel,
+    )
+    .unwrap();
     assert!(parsed.diagnostics().is_empty());
     let lowered = crate::lower::lower_module_controlled(source, &parsed.module(), &cancel);
     let [native, required, script] = lowered.module.functions.as_slice() else {
@@ -313,7 +321,8 @@ fn inline_ast_lowering_owns_only_its_items_and_attributes() {
         "inline.kgr",
         "// π\r\n#[meta] mod a { #[meta] fn f() {} mod b { #[meta] fn g() {} } }",
     ));
-    let parsed = parser::parse(&source);
+    let parsed = parser::parse(&source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
     let root = crate::lower::lower_module_controlled(
         source.clone(),
         &parsed.module(),

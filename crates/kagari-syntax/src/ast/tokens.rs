@@ -11,6 +11,10 @@ use crate::{
 };
 
 /// A present lexical token of grammatical category `K`; construction is parser-owned.
+/// `K` is a grammar-role marker, not stored spelling. A copied token does not retain
+/// its parse or source; resolve it through its original [`Ast`](crate::ast::borrow::Ast)
+/// context. Missing required punctuation uses [`Required::Missing`](crate::ast::site::Required::Missing)
+/// rather than a synthetic token.
 #[derive(Debug)]
 pub struct Token<K> {
     index: NonZeroU32,
@@ -40,6 +44,9 @@ impl<K> Clone for Token<K> {
 }
 
 /// An operator's parsed alternative and actual contiguous lexical pieces.
+/// For example, `ShiftRight` retains both `>` tokens in `a >> b`. The interpreted
+/// operation and lexical spelling are separate; source text is resolved through
+/// the owning parse by [`OperatorRef`](crate::ast::visit::OperatorRef).
 #[derive(Debug)]
 pub struct OperatorToken<O> {
     pub operation: O,

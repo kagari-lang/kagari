@@ -82,7 +82,7 @@ impl Parser<'_> {
 
     pub(crate) fn parse_attributes(&mut self) -> Attributes {
         let mut attributes = Vec::new();
-        while self.at(TokenKind::Hash) {
+        while self.at(TokenKind::Hash) && self.continue_parsing() {
             let mark = self.begin();
             let hash = self.take();
             let open = self.expect(TokenKind::LBracket, DiagnosticKind::UnexpectedToken);

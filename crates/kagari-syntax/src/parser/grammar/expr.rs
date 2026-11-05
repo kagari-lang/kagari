@@ -187,7 +187,7 @@ impl Parser<'_> {
     fn parse_binary(&mut self, minimum: u8) -> Built<Expr> {
         let mut lhs = self.parse_cast();
         while let Some((precedence, operation, pieces)) = self.binary_operator() {
-            if precedence < minimum {
+            if precedence < minimum || !self.continue_parsing() {
                 break;
             }
             let suffix = self.cursor();
@@ -218,7 +218,7 @@ impl Parser<'_> {
 
     fn parse_cast(&mut self) -> Built<Expr> {
         let mut expression = self.parse_prefix();
-        while self.at(TokenKind::AsKw) {
+        while self.at(TokenKind::AsKw) && self.continue_parsing() {
             let suffix = self.cursor();
             if !self.admit(expression.depth + 1, suffix) {
                 break;
@@ -289,7 +289,7 @@ impl Parser<'_> {
             {
                 break;
             }
-            if !self.admit(lhs.depth + 1, suffix) {
+            if !self.continue_parsing() || !self.admit(lhs.depth + 1, suffix) {
                 break;
             }
             let mark = self.begin_at(self.first(&lhs, suffix), lhs.depth);
@@ -822,7 +822,7 @@ impl Parser<'_> {
         let mark = self.begin();
         let open = self.take();
         let mut parts = Vec::new();
-        while !self.at_any(&[TokenKind::FormatEnd, TokenKind::Eof]) {
+        while !self.at_any(&[TokenKind::FormatEnd, TokenKind::Eof]) && self.continue_parsing() {
             self.position(1, parts.len());
             if self.at(TokenKind::FormatText) {
                 parts.push(StringPart::Text(self.take()));
@@ -838,7 +838,8 @@ impl Parser<'_> {
                         TokenKind::FormatClose,
                         TokenKind::FormatEnd,
                         TokenKind::Eof,
-                    ]) {
+                    ]) && self.continue_parsing()
+                    {
                         self.bump_as_error();
                     }
                     Required::Missing { at: self.anchor() }
@@ -929,7 +930,7 @@ impl Parser<'_> {
             DiagnosticKind::ExpectedStructLiteralBodyStart,
         );
         let mut entries = Vec::new();
-        while self.at(TokenKind::Ident) {
+        while self.at(TokenKind::Ident) && self.continue_parsing() {
             self.position(1, entries.len());
             let field = self.parse_struct_entry();
             let separator = self.eat(TokenKind::Comma).map(Required::Present);
@@ -960,7 +961,7 @@ impl Parser<'_> {
                     self.rejected(Self::parse_expr);
                 }
             }
-            loop {
+            while self.continue_parsing() {
                 self.position(1, entries.len());
                 let comma = self.at(TokenKind::Comma);
                 if comma {

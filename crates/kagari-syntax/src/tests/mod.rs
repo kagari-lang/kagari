@@ -1,5 +1,5 @@
 mod attributes;
-mod cancellation;
+pub(crate) mod cancellation;
 mod common;
 mod declarations;
 // Source owns the diagnostic schema/projection shared only with the HIR harness.

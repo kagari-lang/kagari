@@ -15,6 +15,12 @@
 //!
 //! Missing roles consume no text. Real punctuation refers to the single lexical
 //! table; unexpected contents retain an explicit owner/field/entry position.
+//!
+//! Start with [`borrow::Ast`] for source-aware access, [`site::Required`] and
+//! [`site::SeparatedList`] for recovery states, [`module::ModuleSyntax`] for
+//! retention and logical module traversal, and [`visit::NodeRef`] for physical
+//! node traversal. A convenient `Option` getter or filtered list iterator can
+//! omit recovery details; `Ast::data()` exposes the original named fields.
 
 macro_rules! node {
     ($(#[$meta:meta])* $name:ident { $($field:ident: $ty:ty),* $(,)? }) => {

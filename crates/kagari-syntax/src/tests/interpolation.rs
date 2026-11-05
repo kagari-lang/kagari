@@ -2,7 +2,7 @@ use crate::ast::visit::NodeRef;
 use crate::{
     kind::SyntaxKind,
     lexer::lex,
-    parser::{ParseLimits, parse, parse_with_limits},
+    parser::{ParseLimits, ParseOptions, parse},
     token::TokenKind,
 };
 
@@ -18,7 +18,8 @@ fn interpolation_is_lossless_with_names_multiline_text_and_escapes() {
   {value} {other:?} {value}";
     }"##;
     let source = SourceFile::new("interpolation.kgr", text.replace('\n', "\r\n"));
-    let parsed = parse(&source);
+    let parsed = parse(&source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
@@ -81,14 +82,21 @@ fn interpolation_rejects_expressions_whitespace_keywords_and_old_prefixes() {
             "invalid.kgr",
             format!("fn main() {{ \"{{{hole}}}\"; }} fn next() {{}}"),
         );
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert!(parsed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidLiteral { reason } if reason.contains("bind expressions outside"))), "{hole:?}: {:?}", parsed.diagnostics());
         assert_eq!(parsed.module().text().to_owned(), source.text());
         assert_eq!(parsed.module().items().count(), 2, "{hole:?}");
     }
     for literal in [r#"f"old""#, r#"f"{name}""#, r#"fr"raw""#, r#"rb"raw""#] {
         let source = SourceFile::new("prefix.kgr", format!("fn main() {{ {literal}; }}"));
-        assert!(!parse(&source).diagnostics().is_empty(), "{literal}");
+        assert!(
+            !parse(&source, ParseOptions::default(), &Default::default())
+                .expect("fresh cancellation token")
+                .diagnostics()
+                .is_empty(),
+            "{literal}"
+        );
     }
 }
 
@@ -104,7 +112,8 @@ fn incomplete_interpolation_and_invalid_text_report_diagnostics() {
         r#""\{""#,
     ] {
         let source = SourceFile::new("invalid.kgr", format!("fn main() {{ {literal}; }}"));
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert!(!parsed.diagnostics().is_empty(), "{literal}");
         assert_eq!(parsed.module().text().to_owned(), source.text());
     }
@@ -124,7 +133,8 @@ fn string_literal_only_contexts_admit_raw_and_no_hole_cooked_text() {
                 "#[meta(name = {literal})] const TEXT: String = {literal}; fn main(s: String) {{ match s {{ {literal} => 1, _ => 0 }} }}"
             ),
         );
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert!(
             parsed.diagnostics().is_empty(),
             "{literal}: {:?}",
@@ -141,9 +151,14 @@ fn string_literal_only_contexts_admit_raw_and_no_hole_cooked_text() {
         r#"fn main(s: String) { match s { "{name}" => 1, _ => 0 } }"#,
     ] {
         assert!(
-            !parse(&SourceFile::new("hole.kgr", text))
-                .diagnostics()
-                .is_empty(),
+            !parse(
+                &SourceFile::new("hole.kgr", text),
+                ParseOptions::default(),
+                &Default::default()
+            )
+            .expect("fresh cancellation token")
+            .diagnostics()
+            .is_empty(),
             "{text}"
         );
     }
@@ -155,10 +170,13 @@ fn interpolation_recovery_is_bounded_and_cancellable() {
         "many.kgr",
         format!("fn main() {{ \"{}\" }}", "{x + y}".repeat(2000)),
     );
-    let parsed = parse_with_limits(
+    let parsed = parse(
         &source,
-        ParseLimits {
-            max_diagnostics: 16,
+        ParseOptions {
+            limits: ParseLimits {
+                max_diagnostics: 16,
+                ..Default::default()
+            },
             ..Default::default()
         },
         &CancellationToken::default(),
@@ -173,5 +191,15 @@ fn interpolation_recovery_is_bounded_and_cancellable() {
     assert_eq!(parsed.module().text().to_owned(), source.text());
     let cancel = CancellationToken::default();
     cancel.cancel();
-    assert!(parse_with_limits(&source, Default::default(), &cancel).is_err());
+    assert!(
+        parse(
+            &source,
+            ParseOptions {
+                limits: Default::default(),
+                ..Default::default()
+            },
+            &cancel
+        )
+        .is_err()
+    );
 }

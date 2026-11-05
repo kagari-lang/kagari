@@ -47,7 +47,8 @@ impl Parser<'_> {
         }
         let mark = self.begin_at(self.first(&first, self.cursor()), first.depth);
         let mut alternatives = Vec::new();
-        while let Some(separator) = self.eat(TokenKind::Pipe) {
+        while self.at(TokenKind::Pipe) && self.continue_parsing() {
+            let separator = self.take();
             let pattern = self.parse_single_pattern();
             alternatives.push(PatternAlternative {
                 separator,
@@ -268,7 +269,7 @@ impl Parser<'_> {
         let open = self.take();
         let mut fields = Vec::new();
         let mut rest = None;
-        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
+        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) && self.continue_parsing() {
             if self.at(TokenKind::DotDot) {
                 if rest.is_some() {
                     self.error_here(DiagnosticKind::UnexpectedToken);

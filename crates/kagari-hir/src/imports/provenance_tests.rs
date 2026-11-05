@@ -17,7 +17,7 @@ use kagari_common::identity::{
 use kagari_source::{
     diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
 };
-use kagari_syntax::parser::parse;
+use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::declaration::names::NameNamespace;
 use std::sync::Arc;
 
@@ -259,7 +259,8 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
         ("use a::{};", "a", None, "a::{}"),
     ] {
         let source = SourceFile::new("recovery", text);
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert_eq!(
             parsed
                 .diagnostics()

@@ -5,7 +5,7 @@ use kagari_common::{cancellation::CancellationToken, identity::MAX_IDENTITY_PATH
 use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
 use kagari_syntax::{
     ast::{borrow::Ast, item::ModuleDef, views::ItemView},
-    parser::parse_with_cancellation,
+    parser::{ParseOptions, parse},
 };
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
@@ -291,7 +291,7 @@ impl<T: SourceInput> Loader<'_, T> {
         self.total_bytes += source.text.len();
         let captured = SourceFile::new(&source.origin, source.text.as_ref());
         self.discovery.tree.files.insert(file.into(), source);
-        let parsed = parse_with_cancellation(&captured, self.cancel)?;
+        let parsed = parse(&captured, ParseOptions::default(), self.cancel)?;
         if !parsed.diagnostics().is_empty() {
             self.discovery
                 .diagnostics

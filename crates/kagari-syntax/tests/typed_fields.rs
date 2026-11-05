@@ -7,7 +7,7 @@ use kagari_syntax::{
         views::{ExprView, ItemView},
         visit::{ElementRef, NodeRef},
     },
-    parser::parse,
+    parser::{ParseOptions, parse},
 };
 
 #[test]
@@ -20,7 +20,12 @@ fn missing_condition_and_else_body_cannot_shift_field_roles() {
         ("fn f(){if {true} {} else", false, true),
         ("fn f(){if ready {} else", false, true),
     ] {
-        let parsed = parse(&SourceFile::new("roles", text));
+        let parsed = parse(
+            &SourceFile::new("roles", text),
+            ParseOptions::default(),
+            &Default::default(),
+        )
+        .expect("fresh cancellation token");
         let root = parsed.module();
         let ItemView::FnDef(function) = root.items().next().unwrap() else {
             panic!()
@@ -70,7 +75,12 @@ fn continued_lists_keep_recovery_positions_and_authored_token_order() {
         "fn f(){val (a,b @@@,c) = input;}",
         "trait T {fn f(self, x: A @@@, y: B);}",
     ] {
-        let parsed = parse(&SourceFile::new("continued-list", text));
+        let parsed = parse(
+            &SourceFile::new("continued-list", text),
+            ParseOptions::default(),
+            &Default::default(),
+        )
+        .expect("fresh cancellation token");
         assert!(!parsed.diagnostics().is_empty());
         let module = parsed.module();
         let mut recoveries = Vec::new();
@@ -103,7 +113,12 @@ fn continued_lists_keep_recovery_positions_and_authored_token_order() {
 #[test]
 fn missing_list_elements_trailing_separators_and_skipped_input_remain_distinct() {
     for text in ["fn f(){f(a,,b,)}", "fn f(){f(a @@@,b)}", "fn f(){f(a"] {
-        let parsed = parse(&SourceFile::new("arguments", text));
+        let parsed = parse(
+            &SourceFile::new("arguments", text),
+            ParseOptions::default(),
+            &Default::default(),
+        )
+        .expect("fresh cancellation token");
         assert!(!parsed.diagnostics().is_empty());
         let root = parsed.module();
         let ItemView::FnDef(function) = root.items().next().unwrap() else {
@@ -153,7 +168,8 @@ fn source_backing_trivia_boundaries_and_trivia_only_files_are_lossless() {
         "// 中文😀\r\n /* nested /* retained */ */ \n",
     ] {
         let source = SourceFile::new("trivia", text);
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert!(
             parsed.diagnostics().is_empty(),
             "{:?}",
@@ -192,7 +208,12 @@ fn source_backing_trivia_boundaries_and_trivia_only_files_are_lossless() {
 fn lexical_coordinates_preserve_utf8_across_storage_widths() {
     for prefix in ["", &"中😀".repeat(10_000)] {
         let text = format!("/*{prefix}*/\r\nfn following(){{1}} ");
-        let parsed = parse(&SourceFile::new("offsets", text.clone()));
+        let parsed = parse(
+            &SourceFile::new("offsets", text.clone()),
+            ParseOptions::default(),
+            &Default::default(),
+        )
+        .expect("fresh cancellation token");
         assert!(parsed.diagnostics().is_empty());
         let module = parsed.module();
         let ItemView::FnDef(function) = module.items().next().unwrap() else {
@@ -222,7 +243,8 @@ fn retained_inline_view_outlives_root_and_rejects_foreign_parse_locators() {
         "modules",
         "// 中文😀\r\nmod a { //! A\r\nfn f(){} mod b{fn g(){}} }",
     );
-    let parsed = parse(&source);
+    let parsed = parse(&source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
     let root = parsed.module();
     let ItemView::ModuleDef(declaration) = root.items().next().unwrap() else {
         panic!()
@@ -230,7 +252,14 @@ fn retained_inline_view_outlives_root_and_rejects_foreign_parse_locators() {
     let child = declaration.body().unwrap();
     let location = child.location();
     assert_eq!(child.module_documentation(), "A");
-    assert!(location.resolve(&parse(&source)).is_none());
+    assert!(
+        location
+            .resolve(
+                &parse(&source, ParseOptions::default(), &Default::default())
+                    .expect("fresh cancellation token")
+            )
+            .is_none()
+    );
     assert!(location.resolve(&parsed).is_some());
     drop(root);
     drop(parsed);
@@ -246,7 +275,8 @@ fn iterative_expression_chains_stop_before_unbounded_recursive_destruction() {
         format!("x{}", "+x".repeat(4096)),
     ] {
         let source = SourceFile::new("chain", format!("fn f(){{{expression}}}"));
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert!(parsed.diagnostics().iter().any(|diagnostic| matches!(
             diagnostic.kind,
             DiagnosticKind::CompileLimitExceeded {

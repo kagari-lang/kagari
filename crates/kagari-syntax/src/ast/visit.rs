@@ -1,4 +1,8 @@
 //! Derived source-order traversal. No parent/children database is stored beside the AST.
+//!
+//! [`NodeRef`] walks physical syntax, including nested inline bodies. For a logical
+//! module that excludes those bodies, use [`ModuleSyntax::visit_owned`](crate::ast::module::ModuleSyntax::visit_owned).
+//! Walks include their starting node and do not poll a cancellation token.
 
 mod fields;
 
@@ -48,12 +52,17 @@ impl<'a> LexicalToken<'a> {
     }
 }
 
+/// A direct grammar element: child node, real token/operator, or missing-role anchor.
+/// Missing roles consume no source bytes and are omitted from node-only traversal.
 #[derive(Debug, Clone, Copy)]
 pub enum ElementRef<'a> {
     Node(NodeRef<'a>),
     Token(LexicalToken<'a>),
     Operator(OperatorRef<'a>),
-    Missing { at: u32 },
+    /// Zero-width insertion position in physical-source UTF-8 bytes, not a token index.
+    Missing {
+        at: u32,
+    },
 }
 
 impl ElementRef<'_> {
@@ -71,6 +80,9 @@ impl ElementRef<'_> {
 }
 
 /// A parser-selected grammatical operator, retaining one or more real lexical pieces.
+/// For `a >> b`, `kind()` is `Shr` while the physical tokens are two `Gt` records.
+/// Generic closing angles remain separate tokens; lexical traversal does not infer
+/// expression operators. [`Self::text`] borrows the complete operator spelling.
 #[derive(Debug, Clone, Copy)]
 pub struct OperatorRef<'a> {
     owner: &'a Arc<ParsedFile>,
@@ -463,7 +475,9 @@ impl<'a> NodeRef<'a> {
         &self.owner().source.text()[span.start..span.end]
     }
 
-    /// Derives direct grammatical children and merges trivia from the single lexical table.
+    /// Collect direct grammar elements and intervening lexical trivia in authored order.
+    /// Includes missing anchors and directly owned unexpected tokens; child nodes
+    /// remain unexpanded. This allocates a vector, not a retained secondary tree.
     pub fn elements(self) -> Vec<ElementRef<'a>> {
         let mut grammar = Vec::new();
         self.fields(&mut |element| grammar.push(element));
@@ -494,6 +508,9 @@ impl<'a> NodeRef<'a> {
         result
     }
 
+    /// Direct child nodes in authored order, excluding tokens, operators and missing slots.
+    /// Currently collects [`Self::elements`] before filtering; use named typed
+    /// accessors when the desired grammar role is known.
     pub fn children(self) -> impl Iterator<Item = Self> {
         self.elements()
             .into_iter()
@@ -520,6 +537,9 @@ impl<'a> NodeRef<'a> {
     }
 
     /// Real lexical coverage, without flattening or rediscovering grammatical children.
+    /// Includes internal trivia and unexpected tokens; operators stay split into
+    /// their physical pieces. Missing roles add no tokens. Reads the lexical table
+    /// directly without collecting child nodes or re-lexing the source.
     pub fn tokens(self) -> impl ExactSizeIterator<Item = LexicalToken<'a>> {
         let site = self.site();
         let first = if matches!(self, Self::ModuleBody(body) if body.node.open.is_none()) {
@@ -533,6 +553,9 @@ impl<'a> NodeRef<'a> {
         })
     }
 
+    /// Source-order preorder over this node and all physical descendants.
+    /// Includes inline module bodies. The iterator uses a pending-node vector and
+    /// collects each visited node's children; stopping iteration avoids later work.
     pub fn descendants(self) -> impl Iterator<Item = Self> {
         let mut pending = vec![self];
         iter::from_fn(move || {
@@ -544,6 +567,9 @@ impl<'a> NodeRef<'a> {
     }
 
     /// Visits typed nodes without per-node child vectors. Returning false skips that subtree.
+    /// Calls the callback on this node first, then recursively visits children in
+    /// source order. False does not terminate other sibling subtrees. Tokens,
+    /// operators and missing anchors are not callbacks; use [`Self::elements`] for them.
     pub fn visit(self, callback: &mut impl FnMut(Self) -> bool) {
         if !callback(self) {
             return;

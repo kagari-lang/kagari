@@ -9,6 +9,8 @@ use kagari_common::{
 
 use crate::{TokenBuffer, ast::site::SyntaxSite, token::TokenKind};
 
+const CANCELLATION_CHECK_TOKENS: usize = 1024;
+
 #[derive(Debug)]
 pub(crate) struct Lexical {
     starts: Offsets,
@@ -47,7 +49,7 @@ impl Lexical {
         let mut boundaries = HashMap::new();
         let mut previous = None;
         for (index, token) in tokens.iter().enumerate() {
-            if index % 1024 == 0 {
+            if index.is_multiple_of(CANCELLATION_CHECK_TOKENS) {
                 cancel.check()?;
             }
             if token.kind.is_trivia() {
@@ -57,7 +59,7 @@ impl Lexical {
             let mut boundary = token.span.start;
             if previous.is_some() {
                 for (offset, trivia) in tokens[first..index].iter().enumerate() {
-                    if offset % 1024 == 0 {
+                    if (first + offset).is_multiple_of(CANCELLATION_CHECK_TOKENS) {
                         cancel.check()?;
                     }
                     let spelling = &text[trivia.span.start..trivia.span.end];
@@ -80,7 +82,7 @@ impl Lexical {
                 boundary = 0;
             }
             for position in first..=index {
-                if position % 1024 == 0 {
+                if position.is_multiple_of(CANCELLATION_CHECK_TOKENS) {
                     cancel.check()?;
                 }
                 let default = if tokens[position].kind.is_trivia() {
@@ -101,7 +103,7 @@ impl Lexical {
         let mut starts = Vec::with_capacity(tokens.len());
         let mut kinds = Vec::with_capacity(tokens.len());
         for (index, token) in tokens.into_iter().enumerate() {
-            if index % 1024 == 0 {
+            if index.is_multiple_of(CANCELLATION_CHECK_TOKENS) {
                 cancel.check()?;
             }
             starts.push(

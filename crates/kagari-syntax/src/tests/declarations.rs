@@ -2,7 +2,7 @@ use crate::ast::views::ItemView;
 
 use crate::{
     ast::borrow::AstNode,
-    parser::{ParseLimits, parse, parse_declarations},
+    parser::{ParseLimits, ParseMode, ParseOptions, parse},
 };
 
 use {kagari_common::cancellation::CancellationToken, kagari_source::source::SourceFile};
@@ -11,12 +11,16 @@ use {kagari_common::cancellation::CancellationToken, kagari_source::source::Sour
 fn declaration_mode_preserves_signatures_docs_and_source() {
     let text = "/// Read one element.\r\n/// Returns None outside the array.\r\n#[intrinsic(array_get)]\r\npub fn get<T>(value:[T], index:u64)->Option<T>;\r\n\r\n/// The next operation.\r\npub fn len<T>(value:[T])->u64;";
     let source = SourceFile::new("kagari://std/array.kgr", text);
-    let parsed = parse_declarations(
+    let parsed = parse(
         &source,
-        ParseLimits::default(),
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits: ParseLimits::default(),
+        },
         &CancellationToken::default(),
     )
     .unwrap();
+    assert_eq!(parsed.mode(), ParseMode::Declarations);
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
@@ -34,7 +38,12 @@ fn declaration_mode_preserves_signatures_docs_and_source() {
         "Read one element.\nReturns None outside the array."
     );
     assert_eq!(items[1].documentation(), "The next operation.");
-    assert!(!parse(&source).diagnostics().is_empty());
+    assert!(
+        !parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token")
+            .diagnostics()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -42,9 +51,12 @@ fn declaration_parsing_observes_cancellation() {
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(
-        parse_declarations(
+        parse(
             &SourceFile::new("decl.kgr", "pub fn get();"),
-            Default::default(),
+            ParseOptions {
+                mode: ParseMode::Declarations,
+                limits: Default::default()
+            },
             &cancel
         )
         .is_err()
@@ -55,8 +67,15 @@ fn declaration_parsing_observes_cancellation() {
 fn declaration_mode_distinguishes_aliases_from_opaque_types() {
     let text = "#[builtin_type(Array)] pub type List<T>; pub type Items<T> = List<T>; mod nested { type Handle; type Count = i32; }";
     let source = SourceFile::new("native.kgr", text);
-    let parsed =
-        parse_declarations(&source, Default::default(), &CancellationToken::default()).unwrap();
+    let parsed = parse(
+        &source,
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits: Default::default(),
+        },
+        &CancellationToken::default(),
+    )
+    .unwrap();
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
@@ -80,8 +99,15 @@ fn declaration_mode_distinguishes_aliases_from_opaque_types() {
 fn declaration_mode_retains_native_alias_attributes_for_validation() {
     let text = "#[builtin_type(Array)] pub type List<T> = Vec<T>;";
     let source = SourceFile::new("native.kgr", text);
-    let parsed =
-        parse_declarations(&source, Default::default(), &CancellationToken::default()).unwrap();
+    let parsed = parse(
+        &source,
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits: Default::default(),
+        },
+        &CancellationToken::default(),
+    )
+    .unwrap();
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
@@ -104,8 +130,15 @@ fn opaque_native_types_are_restricted_to_declaration_mode() {
         "native.kgr",
         "/// A native array.\n#[builtin_type(Array)] pub type List<T>;",
     );
-    let parsed =
-        parse_declarations(&source, Default::default(), &CancellationToken::default()).unwrap();
+    let parsed = parse(
+        &source,
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits: Default::default(),
+        },
+        &CancellationToken::default(),
+    )
+    .unwrap();
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
@@ -118,5 +151,10 @@ fn opaque_native_types_are_restricted_to_declaration_mode() {
             .items()
             .any(|item| matches!(item, ItemView::OpaqueTypeDef(_)))
     );
-    assert!(!parse(&source).diagnostics().is_empty());
+    assert!(
+        !parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token")
+            .diagnostics()
+            .is_empty()
+    );
 }

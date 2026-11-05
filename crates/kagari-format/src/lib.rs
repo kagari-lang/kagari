@@ -14,7 +14,7 @@ use kagari_syntax::{
     ast::visit::{ElementRef, NodeRef},
     kind::SyntaxKind,
     lexer::lex_with_cancellation,
-    parser::parse_with_cancellation,
+    parser::{ParseOptions, parse},
     token::TokenKind,
 };
 
@@ -71,7 +71,7 @@ pub fn format(
     if !(1..=16).contains(&options.indent_width) || !(20..=1000).contains(&options.max_width) {
         return Err(FormatError::InvalidOptions);
     }
-    let parsed = parse_with_cancellation(source, cancel)?;
+    let parsed = parse(source, ParseOptions::default(), cancel)?;
     if !parsed.diagnostics().is_empty() {
         return Err(FormatError::Diagnostics(
             parsed
@@ -109,7 +109,11 @@ pub fn format(
         newline,
         cancel,
     )?;
-    let reparsed = parse_with_cancellation(&SourceFile::new(source.name(), &output), cancel)?;
+    let reparsed = parse(
+        &SourceFile::new(source.name(), &output),
+        ParseOptions::default(),
+        cancel,
+    )?;
     if !reparsed.diagnostics().is_empty()
         || shape(root, cancel)? != shape(NodeRef::ModuleBody(reparsed.module().body()), cancel)?
         || tokens(source.text(), cancel)? != tokens(&output, cancel)?

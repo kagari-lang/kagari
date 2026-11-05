@@ -7,6 +7,9 @@
 
 use smallvec::SmallVec;
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 mod string;
 use {
     kagari_common::{
@@ -20,6 +23,8 @@ use crate::{
     TokenBuffer,
     token::{Token, TokenKind},
 };
+
+const CANCELLATION_CHECK_BYTES: usize = 4 * 1024;
 
 /// Tokenizes UTF-8 text, retaining trivia and appending an empty EOF token.
 ///
@@ -44,6 +49,9 @@ pub fn lex(input: &str) -> TokenBuffer {
 }
 
 /// Tokenizes as [`lex`], polling cancellation during scanning and before return.
+/// Long character scans share a coarse byte-progress checkpoint, including nested
+/// comment/string scanners. Entry and final checks are immediate; this is cooperative
+/// cancellation with no elapsed-time deadline. Partial scanning is not resumable.
 ///
 /// # Errors
 ///
@@ -54,9 +62,21 @@ pub fn lex_with_cancellation(
     cancel: &CancellationToken,
 ) -> Result<TokenBuffer, Cancelled> {
     cancel.check()?;
+    // All nested scanners advance this iterator. Poll once per source chunk,
+    // rather than independently at every character and scanner layer.
+    let mut next_check = CANCELLATION_CHECK_BYTES;
     let mut chars = input
         .char_indices()
-        .take_while(|_| cancel.check().is_ok())
+        .take_while(|(offset, _)| {
+            if *offset < next_check {
+                return true;
+            }
+            next_check = offset.saturating_add(CANCELLATION_CHECK_BYTES);
+            let keep_scanning = cancel.check().is_ok();
+            #[cfg(test)]
+            checkpoint(Checkpoint::Lex, *offset);
+            keep_scanning
+        })
         .peekable();
     let mut tokens = SmallVec::new();
 
@@ -332,7 +352,6 @@ pub fn lex_with_cancellation(
                 let mut escaped = false;
                 let mut closed = false;
                 while let Some((next_index, next)) = chars.peek().copied() {
-                    cancel.check()?;
                     if matches!(next, '\r' | '\n') {
                         break;
                     }

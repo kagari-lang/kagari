@@ -22,11 +22,17 @@ use kagari_common::identity::{
 };
 use kagari_source::source::SourceFile;
 
-use kagari_syntax::parser::parse_module;
+use kagari_syntax::parser::{ParseOptions, parse};
 
 pub fn lower_ok(text: &str) -> LoweredModule {
     let source = SourceFile::new("test.kg", text);
-    parse_module(&source).expect("source should parse");
+    let parsed = parse(&source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
     lower_module(&source)
 }
 

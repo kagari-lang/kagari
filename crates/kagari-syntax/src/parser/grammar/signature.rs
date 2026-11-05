@@ -49,6 +49,7 @@ impl Parser<'_> {
         self.account_depth(1);
         let mut rest = Vec::new();
         while self.at(TokenKind::ColonColon)
+            && self.continue_parsing()
             && matches!(
                 self.nth_nontrivia_kind(1),
                 Some(
@@ -205,7 +206,8 @@ impl Parser<'_> {
         let mark = self.begin();
         let first = self.parse_trait_ref();
         let mut rest = Vec::new();
-        while let Some(plus) = self.eat(TokenKind::Plus) {
+        while self.at(TokenKind::Plus) && self.continue_parsing() {
+            let plus = self.take();
             let trait_ref = self.parse_trait_ref();
             rest.push(TraitBound {
                 plus,
@@ -378,7 +380,8 @@ impl Parser<'_> {
             TokenKind::Eq,
             TokenKind::Semi,
             TokenKind::Eof,
-        ]) {
+        ]) && self.continue_parsing()
+        {
             let predicate = self.parse_where_predicate();
             let separator = self.eat(TokenKind::Comma).map(Required::Present);
             let more = separator.is_some();

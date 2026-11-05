@@ -470,19 +470,20 @@ expansion remain separate.
 
 ## Compilation cancellation polling
 
-The [polling plan](compilation-cancellation-plan.md) proposes CP01-CP04: establish
-actual read-cost/response baselines, pilot operation-owned batching in syntax
-scanning, integrate selected compiler lowering/update-budget paths, then validate
-and hand off. It is proposed only; implementation and commits are not authorized.
+Coarse syntax checkpoints and the unified `parse(source, options, cancel)` API
+are implemented and locally validated. The
+[syntax architecture](architecture/syntax.md#failure-and-resource-boundaries)
+owns checkpoint placement, cleanup and exact limits; its entrypoint and AST
+documentation covers options, diagnostics, recovery, retention and traversal.
+The completed plan is retired. Shared token/runtime behavior is unchanged.
 
-Keep `CancellationToken::check()` immediate and retain exact resource accounting,
-latched failures, error precedence and cache/result boundary checks. Batch only
-bounded cheap traversal work under an explicit owner; do not mechanically remove
-checks from every loop. HIR's exact iterator cancellation contracts remain intact.
-VM instruction checks, GC, native/host/await boundaries and runtime cancellation
-semantics are excluded. The plan owns the finite scope, proposed latency gates and
-progress ledger. No polling overhead, speedup or responsiveness result is claimed,
-and this does not reopen the general startup-latency project.
+The previous compiler-lowering/update-budget integration proposal remains deferred,
+not an automatic follow-up. Full workspace and complete feature/backend/platform
+validation remain CI-only and were not run locally.
+The [performance report](performance-baseline.md#coarse-syntax-cancellation-first-version)
+records matched normal-path measurements and current-version response diagnostics;
+ordinary parsing is broadly unchanged with noisy adverse rows, and no universal
+response-latency guarantee or end-to-end compiler speedup is claimed.
 
 ## Program-owned generic instance worklist
 

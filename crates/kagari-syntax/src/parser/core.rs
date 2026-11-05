@@ -2,6 +2,9 @@
 
 use std::sync::Arc;
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
@@ -24,6 +27,8 @@ use crate::{
     parser::{ParseLimits, ParseMode, ParsedFile},
     token::TokenKind,
 };
+
+const CANCELLATION_CHECK_TOKENS: usize = 1024;
 
 pub(crate) struct Built<T> {
     pub node: Required<T>,
@@ -258,7 +263,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn with_nesting<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) -> Option<T> {
-        if self.stopped.is_some() || self.cancel.check().is_err() {
+        if self.stopped.is_some() {
             return None;
         }
         if self.nesting >= self.limits.max_nesting {
@@ -273,7 +278,7 @@ impl<'a> Parser<'a> {
 
     /// Call before attaching a recursively owned parent, including iterative chains.
     pub(crate) fn admit(&mut self, depth: usize, suffix: usize) -> bool {
-        if self.stopped.is_some() || self.cancel.check().is_err() {
+        if self.stopped.is_some() {
             return false;
         }
         if depth > self.limits.max_tree_depth {
@@ -376,8 +381,27 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Observe cancellation at grammar sequence boundaries, preserving the first
+    /// stopped suffix. Queries and depth accounting only consult this local stop.
+    pub(crate) fn continue_parsing(&mut self) -> bool {
+        if self.stopped.is_some() {
+            return false;
+        }
+        let cancelled = self.cancel.check().is_err();
+        #[cfg(test)]
+        checkpoint(Checkpoint::Grammar, self.cursor);
+        if cancelled {
+            self.stopped = Some(self.cursor);
+            return false;
+        }
+        true
+    }
+
     pub(crate) fn bump_trivia(&mut self) {
-        while self.lexical.kind(self.cursor).is_trivia() && self.cancel.check().is_ok() {
+        while self.lexical.kind(self.cursor).is_trivia() {
+            if self.cursor.is_multiple_of(CANCELLATION_CHECK_TOKENS) && !self.continue_parsing() {
+                break;
+            }
             self.cursor += 1;
         }
     }
@@ -391,7 +415,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn current_kind(&self) -> TokenKind {
-        if self.stopped.is_some() || self.cancel.check().is_err() {
+        if self.stopped.is_some() {
             TokenKind::Eof
         } else {
             self.lexical.kind(self.cursor)
@@ -419,7 +443,14 @@ impl<'a> Parser<'a> {
             return None;
         }
         while *cursor < self.lexical.len() {
-            self.cancel.check().ok()?;
+            // The physical index survives repeated short lookahead calls. Do not
+            // restart a local cadence for every skipped trivia run.
+            if cursor.is_multiple_of(CANCELLATION_CHECK_TOKENS) {
+                let result = self.cancel.check();
+                #[cfg(test)]
+                checkpoint(Checkpoint::Lookahead, *cursor);
+                result.ok()?;
+            }
             let kind = self.lexical.kind(*cursor);
             *cursor += 1;
             if !kind.is_trivia() {
@@ -430,7 +461,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn joint_shift(&self) -> Option<SyntaxKind> {
-        if self.stopped.is_some() || self.cancel.check().is_err() {
+        if self.stopped.is_some() {
             return None;
         }
         let first = self.lexical.kind(self.cursor);
@@ -457,7 +488,7 @@ impl<'a> Parser<'a> {
     ) -> (SeparatedList<T, S>, usize) {
         let mut result = Vec::new();
         let mut depth = 0;
-        while !self.at(end.clone()) && !self.at(TokenKind::Eof) {
+        while !self.at(end.clone()) && !self.at(TokenKind::Eof) && self.continue_parsing() {
             let index = start_index + result.len();
             self.position(field, index);
             let before = self.cursor;
@@ -465,7 +496,7 @@ impl<'a> Parser<'a> {
             depth = depth.max(value.depth);
             self.position(field, index);
             self.frames.last_mut().expect("list owner").part = RecoveryPart::Separator;
-            while self.at(TokenKind::Unknown) {
+            while self.at(TokenKind::Unknown) && self.continue_parsing() {
                 self.error_here(DiagnosticKind::UnexpectedToken);
                 self.bump_as_error();
             }

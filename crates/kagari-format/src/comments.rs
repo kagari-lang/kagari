@@ -74,12 +74,17 @@ pub(crate) fn is_comment(kind: SyntaxKind) -> bool {
 mod tests {
     use super::*;
     use kagari_source::source::SourceFile;
-    use kagari_syntax::parser::parse;
+    use kagari_syntax::parser::{ParseOptions, parse};
 
     #[test]
     fn attachment_uses_source_neighbors_and_preserves_nested_text() {
         let text = "// leading\nfn run() { /* dangling /* inner */ */ } // trailing";
-        let parsed = parse(&SourceFile::new("comments.kgr", text));
+        let parsed = parse(
+            &SourceFile::new("comments.kgr", text),
+            ParseOptions::default(),
+            &Default::default(),
+        )
+        .expect("fresh cancellation token");
         let module = parsed.module();
         let root = NodeRef::ModuleBody(module.body());
         let comments = Comments::collect(root, text, &Default::default()).unwrap();

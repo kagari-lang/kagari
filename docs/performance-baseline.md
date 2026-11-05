@@ -337,6 +337,119 @@ all-target Clippy and diff checks pass. Structure uses the cached environment
 with the checker's locked parser dependencies because the default uv cache is
 restricted. Full-workspace and complete backend/feature validation remain CI-only.
 
+### Coarse syntax cancellation: first version
+
+This follow-up compares `18b1df0c` with the first coarse-cancellation implementation.
+The objective is simpler checkpoint ownership: ordinary token queries no longer
+poll, grammar sequence owners use one local stop helper, and long scans use about
+4 KiB of source progress or 1024 physical records. Shared literal decoding changes
+only its polling cadence. Token semantics, exact limits and AST storage are unchanged.
+The [syntax contract](architecture/syntax.md#failure-and-resource-boundaries)
+owns scope, checkpoint responsibilities and the design rationale.
+
+The machine/toolchain, workspace release profile, default features/parallelism,
+single measurement thread and warm-source methodology are the Windows environment
+above. Seven fresh alternating executable pairs use the existing eight workload
+recipes, three warmups and eleven samples; compilation/tests do not overlap timing.
+Allocation counting is separate. Reproduction: freeze the baseline release example,
+build the candidate with `cargo build --offline --locked --release -p kagari-hir
+--example ast_baseline`, then run both executables without arguments in alternating
+order seven times and with `--memory` separately. Validate workload identity and
+correctness using `scripts/benchmark_ast.py`; aggregate process medians and paired
+ratios without applying the historical Rowan replacement thresholds.
+
+The final candidate build took 34.84 s; the fourteen timed processes took 222.8 s.
+All eight workload identities and correctness records match. Times below are
+medians of process medians; ratios are medians of paired ratios, so they need not
+equal the quotient of displayed times. Spread is process range / median.
+
+| Workload | Baseline parse/drop µs | Coarse µs | Paired ratio | Spread baseline/candidate |
+| --- | ---: | ---: | ---: | ---: |
+| small | 4.985 | 4.966 | 0.9901 | 3.4% / 9.7% |
+| medium | 1105.021 | 1110.644 | 1.0215 | 8.5% / 16.2% |
+| large | 15806.050 | 15760.750 | 0.9682 | 13.9% / 19.8% |
+| trivia | 883.885 | 887.081 | 1.0012 | 5.3% / 3.3% |
+| syntax_corpus | 371.245 | 363.914 | 0.9766 | 12.6% / 9.9% |
+| recovery | 80.977 | 79.622 | 0.9800 | 2.9% / 7.5% |
+| limits | 13.121 | 12.060 | 0.9171 | 25.6% / 6.0% |
+| declarations | 246.224 | 243.014 | 0.9892 | 1.7% / 3.3% |
+
+Normal parsing is broadly similar; these noisy samples do not establish a general
+speed improvement or exclude small regressions. Medium's adverse parse ratio is
+retained. Its split-construction ratio is 1.0596 (15.0% / 44.0% spread) and
+parse-to-HIR ratio is 1.0314 (9.7% / 21.0%). Parse-to-HIR ratios for
+small/large/trivia/corpus are 1.0083 / 1.0056 / 0.9910 / 0.9893; large has
+17.8% / 17.5% spread. No HIR or end-to-end compiler improvement is claimed.
+Lexer ratios for small/medium/large/trivia/corpus/recovery/limits/declarations are
+0.9492 / 0.9759 / 0.9791 / 0.9541 / 1.0038 / 0.8960 / 0.5961 / 0.9280;
+medium/large lexer spreads exceed 40% in at least one image. Fewer atomic reads
+alone do not imply a proportional throughput gain. The first version is retained
+for simpler ownership, with the noise and adverse rows open to review.
+
+All nine memory workloads are exactly equal between images over four lifecycles,
+including allocation/reallocation counts, peak/retained bytes and complete release
+after the retained inline view is dropped. Large remains 81,953 requests,
+7,499,837 peak bytes and 4,781,128 retained bytes. No allocation optimization is
+claimed for the cancellation change. Frozen executable SHA-256 values:
+
+- Baseline: `b81837cd552782f61e2eccb2d8aad02785d7b59f0ff323145eb7263af2bdc537`.
+- Candidate: `201b38689d68d83beaf9e96a7ca4381634e35b862869e3c98b7203116c6f4a82`.
+
+The subsequent `ParseOptions` entrypoint consolidation updates benchmark callers
+without changing workload recipes. It has not been retimed; the hashes and timings
+above describe the frozen pre-consolidation images, not a new API performance claim.
+
+#### Current-version cancellation response diagnostic
+
+A temporary release-test probe extends the deterministic private test hook with
+timestamps, requests cancellation just after a successful production check, and
+records the next observing check and the outer return. It uses three warmups and
+30 measured repetitions per prepared source in one process. The ordinary benchmark
+contains no probe. Temporary timestamp instrumentation is removed; deterministic
+correctness hooks remain test-only. Probe compilation took 8.64 s; the complete
+probe test took 1.19 s, separately from normal-path timing.
+
+Recipes: an 8 MiB ASCII block comment, cancellation after byte 4096; an array with
+131,072 `1,` entries in `fn f() { val xs = [...]; }`, requested after grammar
+checkpoint 16 or 65,536 (physical record 43 or 131,083); and an attribute
+`#[meta(...)] fn f() {}` with 131,072 `1,` entries, requested after lookahead record
+1024. All requests follow real scanning/parsing work and all returns are cancelled.
+
+| Input / request point | Observation median / p95 / max µs | Return median / p95 / max µs |
+| --- | ---: | ---: |
+| Long comment | 5.5 / 6.3 / 6.3 | 5.5 / 6.3 / 6.4 |
+| Array, early | 0.2 / 0.5 / 1.0 | 114.95 / 157.3 / 203.2 |
+| Array, later | 1.1 / 1.7 / 3.6 | 763.15 / 955.9 / 1170.6 |
+| Attribute lookahead | 1.7 / 2.8 / 2.9 | 127.6 / 173.9 / 174.3 |
+
+The nearest-rank p95 includes every measured sample. Late-array return is dominated
+by scope completion and destruction after observation, rather than the interval
+between checks. These are selected same-thread request points, not a distribution
+of arbitrary cross-thread requests or an OS-scheduling bound. Test-hook/timestamp
+overhead is included. There is no matched old-version response measurement, so no
+response improvement/regression claim follows. Lexical newline search, numeric and
+character validation, conversions and larger destruction workloads are not bounded
+by this table. No hard deadline is promised; the fixed intervals remain unchanged.
+
+Local validation selects lexer/interpolation/declaration/cancellation/limit tests
+(37), source literal tests (10), and typed-field/recovery/retained-view tests (7).
+All 54 pass. The former worker-spawn race is replaced by deterministic requests
+inside text scans, grammar/recovery, speculative lookahead and final publication;
+decoder tests also cancel after emitting the first character. Full-workspace tests
+and complete backend/feature/platform matrices remain CI-only.
+Formatting, structural checks, workspace all-target Clippy with warnings denied,
+and diff checks pass. The structural checker uses its cached locked-dependency
+environment because the default uv cache is restricted.
+
+The subsequent entrypoint migration passed 29 focused tests: 13 syntax
+cancellation/limits/declaration tests, seven typed-field/retention tests, four HIR
+native-declaration/cache-invalidation tests, three formatter tests and two package
+input/recovery tests. CLI parsing of valid source, malformed source and 300 unknown
+tokens returned the expected exit codes 0/1/1, with diagnostic-budget exhaustion
+reported for the last input. The final syntax documentation has five passing
+doctests and passes rustdoc with broken intra-doc links denied. These checks
+validate the API/documentation follow-up; the frozen timing evidence is unchanged.
+
 ## Strongly typed AST replacement, macOS 2026-11-05
 
 The production parser and all source consumers use owned grammar fields. The

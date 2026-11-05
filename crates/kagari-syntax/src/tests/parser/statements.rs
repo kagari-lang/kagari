@@ -4,7 +4,7 @@ use crate::ast::views::ExprView;
 
 use crate::{
     ast::{borrow::AstNode, views::ItemView, views::StmtView},
-    parser::parse,
+    parser::{ParseOptions, parse},
     tests::common,
 };
 use kagari_source::diagnostic::Severity;
@@ -13,7 +13,12 @@ use kagari_source::diagnostic::Severity;
 fn compound_assignments_preserve_lossless_computed_targets() {
     for op in ["=", "+=", "-=", "*=", "/="] {
         let source = format!("fn main() {{ (root())[index()].field {op} // rhs\n value(); }}");
-        let parsed = parse(&common::source(&source));
+        let parsed = parse(
+            &common::source(&source),
+            ParseOptions::default(),
+            &Default::default(),
+        )
+        .expect("fresh cancellation token");
         assert!(
             parsed.diagnostics().is_empty(),
             "{:?}",

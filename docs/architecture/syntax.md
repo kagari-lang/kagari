@@ -20,10 +20,18 @@ with their existing owners. Production dependencies are `kagari-common`,
 | Entrypoint | Result policy |
 | --- | --- |
 | `lex` / `lex_with_cancellation` | Lexical sequence, including trivia, unknown input and EOF |
-| `parse` | Ordinary source with default limits and a fresh cancellation token |
-| `parse_with_cancellation` / `parse_with_limits` | Ordinary source with caller cancellation and optional limits |
-| `parse_declarations` | The same grammar machinery with explicit declaration mode |
-| `parse_module` | Retained module only when syntax diagnostics are empty |
+| `parse(source, options, cancel)` | Recoverable syntax snapshot, or `Err(Cancelled)` when cancellation is observed |
+
+`ParseOptions { mode, limits }` groups grammar configuration. Defaults select
+`ParseMode::Source` and the existing `ParseLimits`; declaration consumers explicitly
+select `ParseMode::Declarations`. Cancellation is a borrowed argument for one
+operation, not reusable configuration. The Engine's `set_parse_limits` still uses
+`ParseLimits` and invalidates affected analysis caches when those limits change.
+
+Syntax errors and resource exhaustion remain in `Parse::diagnostics()`. Consumers
+such as the CLI, formatter and package loader decide whether diagnostics prevent
+their operation; there is no separate strict parsing entrypoint. Test helpers may
+assert that a fixture has no diagnostics before taking its retained module view.
 
 `ParseMode::{Source, Declarations}` survives retention. Declaration mode admits
 native signatures and opaque types, without establishing executable acceptance.
@@ -80,6 +88,13 @@ update is a final entry: `Point { ..base, x: 1 }` retains `x: 1` as unexpected
 content, without admitting it as an ordinary field.
 When grammar parses a first entry separately, continuation parsing records
 recovery positions relative to the complete owning list, including that entry.
+
+Typed convenience list accessors filter out missing elements. For `f(a,,b,)`,
+`args()` yields `a, b`, while `data().arguments.entries` retains all three slots
+and all three commas. A recovery entry index uses the unfiltered slots. An optional
+getter can also hide a missing required child or a different grammar alternative;
+inspect the stored named field when that distinction matters. The
+[recovery types](../../crates/kagari-syntax/src/ast/site.rs) own the detailed states.
 
 Type lowering exhaustively matches `TypeView`, including grouped, tuple, array,
 function, applied and qualified types. Interpolation exposes ordered text/hole
@@ -138,10 +153,27 @@ same retained source. Constructors and mutation remain parser-owned.
 
 `NodeRef` is a derived readonly visitor over actual node families. Field walking
 comes from the same Rust declarations, in authored order. Generic consumers may
-request children, descendants, tokens or enter/leave traversal; temporary visitor
+request children, descendants, tokens or a preorder callback; temporary visitor
 vectors are not another retained tree. There are no stored parent links. Operator
 visits preserve the interpreted operator together with its contiguous lexical
 pieces, so expression shifts remain distinct from generic angle delimiters.
+
+| Access | Coverage and work |
+| --- | --- |
+| Typed named fields | Direct roles; list helpers may filter missing entries |
+| `NodeRef::elements()` | Allocates direct nodes/tokens/operators/missing anchors, with trivia and owned unexpected input |
+| `NodeRef::children()` | Collects elements and filters to direct nodes |
+| `NodeRef::tokens()` | Reads physical lexical coverage directly; no synthetic missing tokens or combined shift tokens |
+| `NodeRef::descendants()` | Preorder including self and inline bodies; pending vector plus per-node child collection |
+| `NodeRef::visit()` | Recursive preorder including self and inline bodies; no per-node child vectors; false prunes only that subtree |
+| `ModuleSyntax::visit_owned()` | Same callback model, excluding nested inline bodies but retaining their headers |
+| `ModuleSyntax::descendants()` | Eagerly collects the logical-module walk before returning an iterator |
+
+Traversal does not poll cancellation. Source spelling accessors returning `&str`
+borrow the original bytes; helpers returning `String` allocate. In particular,
+`Path::text()` joins present names with `::` and omits trivia/missing segments,
+whereas `source_text()` retains exact spelling. Literal text access does not decode
+escapes or remove delimiters; literal decoding belongs to kagari-source.
 
 ## Retained logical modules and analysis reuse
 
@@ -168,6 +200,13 @@ Analysis owns unchanged-physical-parse reuse. Syntax performs a complete lex and
 parse after a changed source; it supplies no incremental reparse or cross-call
 cache. Retained snapshots continue to use their original source and syntax.
 
+Inline views retain physical coordinates: `source()` is the complete file, `text()`
+uses the selected body's full extent, and `content_range()` excludes inline braces.
+`at_content_range()` searches for an exact body extent, not any overlapping node.
+Physical diagnostics also include inline modules. `Parse::shared_diagnostics()`
+retains the diagnostic buffer alone; consumers presenting spans after dropping the
+parse must separately retain the source snapshot.
+
 Dropping the final owner releases ordinary Rust resources. Syntax owns no script
 roots or host registrations and invokes no host callbacks.
 
@@ -188,11 +227,54 @@ child depth, including names/signatures and iterative expression wrappers. Sibli
 width does not consume nesting. A limit stops further growth; it does not promise
 that already completed outer recovery wrappers fit the exact threshold.
 
-Lexing, lexical-table conversion, recursive parsing and recovery observe
-cancellation. Limits do not bound total source bytes, lexical storage, memory or
+Cancellation is cooperative and coarse. Public entry/phase handoffs and the final
+successful handoff check immediately. Grammar sequence loops call one parser
+checkpoint; observing cancellation sets the existing stop position. Ordinary token
+predicates consult only lexical data and that local stop state. Active scopes close
+through their ordinary missing-child/EOF paths, and the outer entrypoint returns
+`Err(Cancelled)` instead of publishing the private construction.
+
+Long character scans check about every 4 KiB of source progress. Nested string,
+comment and escape scanners share the lexer's checked iterator; independent
+literal-decoding passes own their own cadence. Long lexical/lookahead/trivia passes
+check about every 1024 physical records. These are implementation choices, not
+public tuning knobs or hard latency bounds. Buffer conversion, validation, recovery
+scope closure and destruction can still delay return after a request. Cancellation
+does not batch or weaken exact nesting, tree-depth or diagnostic-limit accounting.
+
+Limits do not bound total source bytes, lexical storage, memory or
 elapsed time. Caller admission still owns those policies. The fixed depth default
 also bounds ordinary recursive destruction; arbitrarily raising it weakens stack
 protection.
+
+### Design rationale
+
+Grammar loops own cancellation observations while token queries read only the local
+stop state. Active scopes can close normally before the private parse is discarded;
+this avoids cancellation-only Result propagation through every grammar function or
+panic/unwind cancellation. Parser options describe reusable grammar configuration,
+the borrowed token controls one operation, and diagnostics remain a result policy
+for consumers. No resumable parser, shared polling framework or public cadence
+configuration is needed for the physical-snapshot ownership model.
+
+Primary comparisons inspected 2026-11-05 support these responsibility boundaries:
+
+- [Roslyn LanguageParser, main](https://raw.githubusercontent.com/dotnet/roslyn/main/src/Compilers/CSharp/Portable/Parser/LanguageParser.cs)
+  checks cancellation at type/member entrypoints; Kagari does not copy its managed
+  exception mechanism. [Roslyn 4.13 ParseText](https://learn.microsoft.com/en-us/dotnet/api/microsoft.codeanalysis.csharp.csharpsyntaxtree.parsetext?view=roslyn-dotnet-4.13.0)
+  separates parse options from cancellation.
+- [rustc Parser, 1.101.0-nightly, 3e92e1a2d](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_parse/parser/struct.Parser.html)
+  demonstrates explicit recursive PResult propagation as an alternative, not a
+  cancellation contract. [rust-analyzer syntax, master](https://github.com/rust-lang/rust-analyzer/blob/master/crates/syntax/src/lib.rs)
+  separates recovered trees/errors from strict result conversion; Kagari retains
+  its own typed AST storage rather than copying Rowan ownership.
+- [Tree-sitter 0.27.0 parser](https://raw.githubusercontent.com/tree-sitter/tree-sitter/v0.27.0/lib/src/parser.c)
+  centralizes progress observations, but its operation counter and resumable
+  callback machinery do not fit Kagari's discard-on-cancel snapshot operation.
+
+These comparisons justify API ownership, not performance claims. The
+[measurements](../performance-baseline.md#coarse-syntax-cancellation-first-version)
+record the actual throughput noise and selected response/cleanup timings.
 
 ## Formatting
 

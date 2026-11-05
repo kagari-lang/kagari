@@ -32,7 +32,7 @@ impl Parser<'_> {
         let open = Required::Present(self.take());
         let mut statements = Vec::new();
         let mut tail = None;
-        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
+        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) && self.continue_parsing() {
             self.position(1, statements.len());
             let before = self.cursor();
             let statement = match self.current_kind() {
@@ -177,7 +177,8 @@ impl Parser<'_> {
                 TokenKind::Semi,
                 TokenKind::RBrace,
                 TokenKind::Eof,
-            ]) {
+            ]) && self.continue_parsing()
+            {
                 self.bump_as_error();
             }
         }

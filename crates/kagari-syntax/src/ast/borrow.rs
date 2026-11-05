@@ -181,6 +181,12 @@ enum_sites!(AttributeValue {
 
 /// An immutable node borrow paired with the parse that resolves its tokens/sites.
 /// Cloning copies two borrows, without cloning nodes, source text or an `Arc`.
+///
+/// Convenience accessors project named fields; they do not prove valid syntax.
+/// An `Option` getter may hide an absent clause, a missing required child or a
+/// different grammar alternative. Inspect [`Self::data`] to distinguish them.
+/// List accessors filter missing slots; their iterator indices are not recovery
+/// entry indices. [`SeparatedList`] describes the unfiltered representation.
 #[derive(Debug)]
 pub struct Ast<'a, T: ?Sized> {
     pub(crate) owner: &'a Arc<ParsedFile>,
@@ -217,6 +223,7 @@ impl<'a, T: ?Sized> Ast<'a, T> {
             .filter_map(move |entry| entry.element.as_ref().map(|node| self.with(node)))
     }
 
+    /// Borrow the original physical source; inline-module spans are not rebased.
     pub fn source(self) -> &'a SourceFile {
         &self.owner.source
     }
@@ -232,19 +239,27 @@ impl<'a, T: AttributeOwner> Ast<'a, T> {
 }
 
 impl<'a, T: NodeData + ?Sized> Ast<'a, T> {
+    /// Half-open UTF-8 byte range of written syntax, excluding assigned outer trivia.
+    /// Internal whitespace/comments remain covered; empty syntax uses a byte anchor.
     pub fn body_span(self) -> Span {
         self.owner.body_span(self.node.site())
     }
 
+    /// Physical byte range including trivia assigned by the parser's boundary rules.
+    /// This is a formatting/ownership extent, not a semantic diagnostic location.
     pub fn full_span(self) -> Span {
         self.owner.full_span(self.node.site())
     }
 
+    /// Borrow the exact spelling at [`Self::body_span`], with no decoding or allocation.
     pub fn source_text(self) -> &'a str {
         let span = self.body_span();
         &self.owner.source.text()[span.start..span.end]
     }
 
+    /// Skipped input owned directly by this node, not by its descendants.
+    /// Positions refer to its named fields and unfiltered list entries. These
+    /// records describe recovery coverage; they are not a list of diagnostics.
     pub fn unexpected(self) -> impl Iterator<Item = UnexpectedContent<'a>> {
         let records = self.node.site().records(&self.owner.recoveries);
         records.iter().map(move |record| UnexpectedContent {
@@ -291,17 +306,26 @@ impl<'a> UnexpectedContent<'a> {
 
 /// Shared source-site access for borrowed typed alternatives and concrete nodes.
 pub trait AstNode {
+    /// Written syntax extent in physical-source UTF-8 bytes, excluding outer trivia.
     fn body_span(&self) -> Span;
 
+    /// Formatting extent including assigned outer trivia, in the same coordinates.
     fn full_span(&self) -> Span;
 
+    /// Original physical snapshot that owns these coordinates.
     fn source(&self) -> &SourceFile;
 
+    /// Exact borrowed spelling at [`Self::body_span`]; does not decode literals.
     fn source_text(&self) -> &str {
         let span = self.body_span();
         &self.source().text()[span.start..span.end]
     }
 
+    /// Collect preceding `///` lines into owned text joined with LF separators.
+    /// Removes leading indentation, the marker and one optional following space.
+    /// Scans backward from the body start, skipping at most one initial whitespace-only
+    /// line; a later blank/non-doc line ends the block. `//!` module docs are
+    /// exposed separately by [`ModuleSyntax::module_documentation`](crate::ast::module::ModuleSyntax::module_documentation).
     fn documentation(&self) -> String {
         let start = self.body_span().start;
         let prefix = &self.source().text()[..start];

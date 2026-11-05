@@ -5,7 +5,7 @@ use crate::ast::views::ItemView;
 use crate::{
     ast::borrow::AstNode,
     kind::SyntaxKind,
-    parser::{parse, parse_declarations},
+    parser::{ParseMode, ParseOptions, parse},
 };
 
 use kagari_source::source::SourceFile;
@@ -32,7 +32,8 @@ pub mod model {
 }
 "#;
     let source = SourceFile::new("attributes.kgr", text);
-    let parsed = parse(&source);
+    let parsed = parse(&source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
@@ -94,7 +95,8 @@ fn invalid_attribute_forms_are_rejected_and_following_functions_survive() {
             "invalid-attribute.kgr",
             format!("{prefix}\nfn healthy() -> i32 {{ 42 }}"),
         );
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert!(!parsed.diagnostics().is_empty(), "{prefix}");
         assert_eq!(parsed.module().text().to_owned(), source.text());
         assert!(parsed.module().items().any(|item| matches!(item, ItemView::FnDef(function) if function.name_text().as_deref() == Some("healthy"))), "{prefix}");
@@ -104,7 +106,15 @@ fn invalid_attribute_forms_are_rejected_and_following_functions_survive() {
             "invalid-sdk.kgr",
             format!("{prefix}\npub fn len<T>(value: [T]) -> u64;"),
         );
-        let parsed = parse_declarations(&source, Default::default(), &Default::default()).unwrap();
+        let parsed = parse(
+            &source,
+            ParseOptions {
+                mode: ParseMode::Declarations,
+                limits: Default::default(),
+            },
+            &Default::default(),
+        )
+        .unwrap();
         assert!(!parsed.diagnostics().is_empty(), "{prefix}");
     }
 }

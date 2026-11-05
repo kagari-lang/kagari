@@ -11,7 +11,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
-use kagari_syntax::parser::parse_declarations;
+use kagari_syntax::parser::{ParseMode, ParseOptions, parse};
 use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
@@ -45,7 +45,15 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
                 .set(&generated.uri, generated.text, SourceLayer::Base)
                 .unwrap();
             let source = sources.snapshot().file(file).unwrap().clone();
-            let parsed = parse_declarations(&source, Default::default(), &cancel).unwrap();
+            let parsed = parse(
+                &source,
+                ParseOptions {
+                    mode: ParseMode::Declarations,
+                    limits: Default::default(),
+                },
+                &cancel,
+            )
+            .unwrap();
             assert!(parsed.diagnostics().is_empty());
             let mut lowered = lower::lower_module_controlled(source, &parsed.module(), &cancel);
             lowered.language_foundation = original.language_foundation;

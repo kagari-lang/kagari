@@ -2,6 +2,8 @@ use std::iter;
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 
+const CANCELLATION_CHECK_BYTES: usize = 4 * 1024;
+
 /// Parse an unsigned integer literal before applying any unary sign or target-type bound.
 pub fn parse_integer_literal(text: &str) -> Result<u64, &'static str> {
     let (radix, digits) = integer_digits(text)?;
@@ -191,9 +193,13 @@ fn decode_string_literal_inner(
     match delimiter {
         StringDelimiter::Cooked => decode_string_content(content, true, byte, cancel, push),
         StringDelimiter::Raw(_) => {
+            let mut next_check = CANCELLATION_CHECK_BYTES;
             for (index, ch) in content.char_indices() {
-                if cancel.check().is_err() {
-                    return Err("String decoding cancelled");
+                if index >= next_check {
+                    next_check = index.saturating_add(CANCELLATION_CHECK_BYTES);
+                    if cancel.check().is_err() {
+                        return Err("String decoding cancelled");
+                    }
                 }
                 if ch == '"' && delimiter.closing_len(&content[index..]).is_some() {
                     return Err("unexpected text after raw String delimiter");
@@ -233,9 +239,19 @@ fn decode_string_content(
     cancel: &CancellationToken,
     push: &mut impl FnMut(char),
 ) -> Result<(), &'static str> {
+    // Escapes and continuations consume this same iterator, so long nested
+    // fragments share the byte cadence. Public decoders check entry and return.
+    let mut next_check = CANCELLATION_CHECK_BYTES;
     let mut chars = content
-        .chars()
-        .take_while(|_| cancel.check().is_ok())
+        .char_indices()
+        .take_while(|(offset, _)| {
+            if *offset < next_check {
+                return true;
+            }
+            next_check = offset.saturating_add(CANCELLATION_CHECK_BYTES);
+            cancel.check().is_ok()
+        })
+        .map(|(_, ch)| ch)
         .peekable();
     while let Some(ch) = chars.next() {
         if byte && !ch.is_ascii() {
@@ -559,6 +575,24 @@ mod tests {
         cancel.cancel();
         assert!(decode_string_literal_with_cancellation("\"text\"", &cancel).is_err());
         assert!(decode_string_fragment_with_cancellation("text", &cancel).is_err());
+
+        // Request cancellation from the first decoded character, after scanning
+        // has begun. Long text, escapes and continuations must all stop early.
+        for content in [
+            "值a".repeat(10_000),
+            format!("a\\u{{1{}}}b", "_".repeat(40_000)),
+            format!("a\\\n{}b", " ".repeat(40_000)),
+        ] {
+            let cancel = CancellationToken::default();
+            let mut decoded = String::new();
+            let _ = decode_string_content(&content, true, false, &cancel, &mut |ch| {
+                decoded.push(ch);
+                cancel.cancel();
+            });
+            assert!(cancel.check().is_err());
+            assert!(decoded.len() < content.len());
+            assert!(!decoded.ends_with('b'));
+        }
     }
 
     #[test]

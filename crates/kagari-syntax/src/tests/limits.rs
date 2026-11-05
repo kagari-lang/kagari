@@ -1,6 +1,6 @@
 use crate::ast::visit::NodeRef;
 
-use crate::parser::{ParseLimits, parse, parse_with_limits};
+use crate::parser::{ParseLimits, ParseOptions, parse};
 
 use {
     kagari_common::cancellation::CancellationToken,
@@ -16,10 +16,13 @@ fn parser_diagnostic_budget_stops_recovery_and_preserves_lossless_suffix() {
         );
         let source = SourceFile::new("limited.kgr", text);
         for max_diagnostics in [0, 1, 7] {
-            let parsed = parse_with_limits(
+            let parsed = parse(
                 &source,
-                ParseLimits {
-                    max_diagnostics,
+                ParseOptions {
+                    limits: ParseLimits {
+                        max_diagnostics,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 &Default::default(),
@@ -52,10 +55,13 @@ fn parser_diagnostic_budget_stops_recovery_and_preserves_lossless_suffix() {
 #[test]
 fn parser_budget_allows_exact_limit_and_valid_source_at_zero() {
     for (text, limit) in [("fn good() -> i32 { 42 }", 0), ("@", 1)] {
-        let parsed = parse_with_limits(
+        let parsed = parse(
             &SourceFile::new("exact.kgr", text),
-            ParseLimits {
-                max_diagnostics: limit,
+            ParseOptions {
+                limits: ParseLimits {
+                    max_diagnostics: limit,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             &Default::default(),
@@ -72,10 +78,13 @@ fn parser_budget_allows_exact_limit_and_valid_source_at_zero() {
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(
-        parse_with_limits(
+        parse(
             &SourceFile::new("cancel.kgr", "@"),
-            ParseLimits {
-                max_diagnostics: 0,
+            ParseOptions {
+                limits: ParseLimits {
+                    max_diagnostics: 0,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             &cancel
@@ -144,11 +153,14 @@ fn recursive_grammar_families_stop_at_nesting_budget() {
     for (index, text) in cases.into_iter().enumerate() {
         let source = SourceFile::new("nesting.kgr", text);
         for max_nesting in [8, 64] {
-            let parsed = parse_with_limits(
+            let parsed = parse(
                 &source,
-                ParseLimits {
-                    max_nesting,
-                    max_diagnostics: 0,
+                ParseOptions {
+                    limits: ParseLimits {
+                        max_nesting,
+                        max_diagnostics: 0,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 &Default::default(),
@@ -179,16 +191,26 @@ fn nesting_budget_is_released_between_sibling_expressions() {
         ..Default::default()
     };
     assert!(
-        parse_with_limits(&source, limits, &Default::default())
-            .unwrap()
-            .diagnostics()
-            .is_empty()
+        parse(
+            &source,
+            ParseOptions {
+                limits,
+                ..Default::default()
+            },
+            &Default::default()
+        )
+        .unwrap()
+        .diagnostics()
+        .is_empty()
     );
-    let parsed = parse_with_limits(
+    let parsed = parse(
         &source,
-        ParseLimits {
-            max_nesting: 2,
-            ..limits
+        ParseOptions {
+            limits: ParseLimits {
+                max_nesting: 2,
+                ..limits
+            },
+            ..Default::default()
         },
         &Default::default(),
     )
@@ -212,10 +234,13 @@ fn iterative_expression_chains_obey_tree_depth_budget() {
                 suffix.repeat(2_000)
             ),
         );
-        let parsed = parse_with_limits(
+        let parsed = parse(
             &source,
-            ParseLimits {
-                max_tree_depth: 24,
+            ParseOptions {
+                limits: ParseLimits {
+                    max_tree_depth: 24,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             &Default::default(),
@@ -244,27 +269,34 @@ fn tree_depth_accounts_for_wrappers_and_not_sibling_width() {
         "fn main() { val x = 1; x = 2; }",
     ] {
         let source = SourceFile::new("depth.kgr", text);
-        let baseline = parse(&source);
+        let baseline = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert!(baseline.diagnostics().is_empty());
         let tree = baseline.module();
         fn depth(node: NodeRef<'_>) -> usize {
             1 + node.children().map(depth).max().unwrap_or(0)
         }
         let depth = depth(NodeRef::ModuleBody(tree.body()));
-        let exact = parse_with_limits(
+        let exact = parse(
             &source,
-            ParseLimits {
-                max_tree_depth: depth,
+            ParseOptions {
+                limits: ParseLimits {
+                    max_tree_depth: depth,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             &Default::default(),
         )
         .unwrap();
         assert!(exact.diagnostics().is_empty(), "{text}");
-        let short = parse_with_limits(
+        let short = parse(
             &source,
-            ParseLimits {
-                max_tree_depth: depth - 1,
+            ParseOptions {
+                limits: ParseLimits {
+                    max_tree_depth: depth - 1,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             &Default::default(),
@@ -285,10 +317,13 @@ fn tree_depth_accounts_for_wrappers_and_not_sibling_width() {
         "wide.kgr",
         format!("fn main() {{ [{}] }}", "1,".repeat(2_000)),
     );
-    let parsed = parse_with_limits(
+    let parsed = parse(
         &source,
-        ParseLimits {
-            max_tree_depth: 8,
+        ParseOptions {
+            limits: ParseLimits {
+                max_tree_depth: 8,
+                ..Default::default()
+            },
             ..Default::default()
         },
         &Default::default(),

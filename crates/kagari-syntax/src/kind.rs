@@ -329,7 +329,7 @@ pub enum SyntaxKind {
     Attribute,
     /// Parenthesized arguments of an attribute. See [`AttributeArgs`](crate::ast::item::AttributeArgs).
     AttributeArgs,
-    /// Comma-separated attribute arguments or array elements. See [`AttributeArgList`](crate::ast::item::AttributeArgList).
+    /// A bracketed list value inside an attribute. See [`AttributeList`](crate::ast::item::AttributeList).
     AttributeArgList,
     /// One positional or named attribute argument. See [`AttributeArg`](crate::ast::item::AttributeArg).
     AttributeArg,
