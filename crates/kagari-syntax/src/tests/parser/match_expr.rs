@@ -203,16 +203,12 @@ fn invalid_range_starts_preserve_tokens_and_following_arms() {
             assert!(!parsed.diagnostics().is_empty(), "{text}");
             let module = parsed.module();
             let root = NodeRef::ModuleBody(module.body());
-            let actual = root
-                .tokens()
-                .filter(|token| !token.lexical_kind().is_trivia())
-                .map(|token| token.span())
-                .collect::<Vec<_>>();
+            let actual = common::grammar_text(root);
             let expected = parsed
                 .tokens()
                 .filter(|token| !token.lexical_kind().is_trivia())
-                .map(|token| token.span())
-                .collect::<Vec<_>>();
+                .map(|token| token.text())
+                .collect::<String>();
             assert_eq!(actual, expected, "{text}");
             let range = root
                 .descendants()

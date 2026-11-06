@@ -97,6 +97,29 @@ campaign completed 89,605 inputs without a finding, using the same toolchain,
 runner limits and retained corpus as above plus the new seed. This is bounded
 evidence, not exhaustive recovery acceptance.
 
+The [push run at the same revision](https://github.com/kagari-lang/kagari/actions/runs/42197662407/job/127824856280)
+found overlapping recovery coverage, although the separate pull-request fuzz run
+passed. Both event runs matter; a successful random campaign does not invalidate
+a failing input from another run. Abandoning an expression moved the unparsed
+suffix boundary back without restoring the cursor. An enclosing rejected static
+then included the discarded reads in its error site, duplicating them during
+grammar traversal. Restoring the cursor in the shared abandonment operation keeps
+both error sites and rejected-entry ranges disjoint from the root suffix.
+The readable seed `fn f(){static val x:i32=0+||1;}` reproduces this with the oracle's
+small nesting budget. Budget contracts exercise binary, cast, call and index
+wrappers in retained expressions, rejected statics and rejected struct entries,
+in both parse modes. The range-start regression now walks grammar elements rather
+than reading lexical coverage, sharing its test helper with the budget contract.
+The new budget test and seed both fail with the cursor repair removed.
+Selected local tests pass: limits (8), static parsing (6), match patterns (6),
+corpus replay (2), cancellation (2) and formatter rejection (4). They cover
+the shared stop boundary, error ownership and a dependent rejection policy;
+full workspace/platform acceptance remains in CI. All four original CI inputs
+pass Windows ASan replay. A 300-second ASan campaign completed 77,201 inputs with
+no finding, using the same toolchain, runner limits and retained corpus as above
+plus the new seed. Structure, fmt, workspace all-target Clippy and diff checks
+pass. Both push and pull-request CI runs must be checked on the repair.
+
 The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
 Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
 sharing, retained inline views, source provenance, explicit recovered roles and

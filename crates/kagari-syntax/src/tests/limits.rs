@@ -2,6 +2,7 @@ use crate::ast::site::Required;
 use crate::ast::visit::NodeRef;
 
 use crate::parser::{ParseLimits, ParseMode, ParseOptions, parse};
+use crate::tests::common;
 
 use {
     kagari_common::cancellation::CancellationToken,
@@ -68,6 +69,44 @@ fn exhausted_header_recovery_does_not_consume_following_tokens() {
             } else {
                 "type"
             }));
+        }
+    }
+}
+
+#[test]
+fn abandoned_expressions_keep_recovery_disjoint_from_the_unparsed_suffix() {
+    for expression in ["0 + || 1", "0 as Box<Box<i32>>", "f(|| 1)", "a[|| 1]"] {
+        for body in [
+            expression.to_owned(),
+            format!("static val x: i32 = {expression};"),
+            format!("Point {{ ..base, x: {expression} }}"),
+        ] {
+            let source = SourceFile::new("abandoned.kgr", format!("fn f() {{ {body} }}"));
+            for mode in [ParseMode::Source, ParseMode::Declarations] {
+                for limits in (3..=12).flat_map(|limit| {
+                    [
+                        ParseLimits {
+                            max_tree_depth: limit,
+                            ..Default::default()
+                        },
+                        ParseLimits {
+                            max_nesting: limit,
+                            ..Default::default()
+                        },
+                    ]
+                }) {
+                    let parsed =
+                        parse(&source, ParseOptions { mode, limits }, &Default::default()).unwrap();
+                    let module = parsed.module();
+                    let actual = common::grammar_text(NodeRef::ModuleBody(module.body()));
+                    let expected = parsed
+                        .tokens()
+                        .filter(|token| !token.lexical_kind().is_trivia())
+                        .map(|token| token.text())
+                        .collect::<String>();
+                    assert_eq!(actual, expected, "{body}: {mode:?}, {limits:?}");
+                }
+            }
         }
     }
 }

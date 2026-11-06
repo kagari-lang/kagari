@@ -269,6 +269,12 @@ child depth, including names/signatures and iterative expression wrappers. Sibli
 width does not consume nesting. A limit stops further growth; it does not promise
 that already completed outer recovery wrappers fit the exact threshold.
 
+If an expression wrapper is abandoned after reading children, its operator or
+postfix suffix is retained only in the root's unparsed suffix. The parser restores
+the cursor to that suffix boundary when dropping the wrapper. Enclosing source
+sites and rejected-entry coverage must stop there too; otherwise an outer error
+node can emit the discarded reads a second time.
+
 Cancellation is cooperative and coarse. Public entry/phase handoffs and the final
 successful handoff check immediately. Grammar sequence loops call one parser
 checkpoint; observing cancellation sets the existing stop position. Ordinary token
