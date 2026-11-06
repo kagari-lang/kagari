@@ -30,4 +30,12 @@ fn replay_growth_and_coordinate_boundaries() {
     ] {
         check_input(text.as_bytes());
     }
+    // Place multibyte text and token boundaries beside the exact narrow/wide
+    // source-length transition, rather than only testing a much larger file.
+    for length in [65_535, 65_536, 65_537] {
+        let suffix = "中😀*/fn f(){x+x} //尾\r\n";
+        let text = format!("/*{}{suffix}", " ".repeat(length - 2 - suffix.len()));
+        assert_eq!(text.len(), length);
+        check_input(text.as_bytes());
+    }
 }

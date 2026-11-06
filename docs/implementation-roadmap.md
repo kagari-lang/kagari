@@ -24,6 +24,41 @@ These capabilities are foundations to reuse, not migrations to replay.
 
 ## Strongly typed syntax CI acceptance
 
+Fuzz oracle strengthening adds exact lexical kind/range sequences
+including trivia/EOF, independently reduced budgets, physical/logical traversal
+agreement and pruning, and exact narrow/wide coordinate transition replay. See the
+[oracle contract](../fuzz/README.md#contracts). The
+existing `invalid-range-start.kgr` seed exposed duplicated whitespace with only
+the nesting budget reduced to three: an empty recovered match-arm list claimed
+trivia also owned by the unparsed suffix. Empty children now contribute no lexical
+coverage in `elements()`. The strengthened seed replay fails without that repair;
+no duplicate seed was added for that boundary. A subsequent ASan finding reduced
+to `static :i t{..,y ` exposed rejected entries retaining trailing trivia outside
+their owning node's coverage. `Parser::rejected` now trims that trailing gap;
+the readable `rejected-entry-trivia.kgr` seed preserves the missing-close/comment
+boundary. Both the captured original and reduced input pass after the repair,
+and the captured original also passes ASan replay. An earlier Windows abort had
+the same duplicate-trivia symptom but produced no crash artifact, so that exact
+input could not be replayed. Temporary input logging and reduction tools were
+removed from the source tree.
+
+Selected local tests pass (50): corpus replay (2), typed fields (7), parser limits
+(8), struct expressions (8), match patterns (6), formatter layout fixtures (18)
+and malformed-source rejection (1). They cover the changed traversal/rejected-entry
+owners and direct consumers. Structure, fmt, workspace all-target Clippy and diff
+checks pass. The final README 60-second ASan command completed 7,474 inputs in 61
+seconds without a finding (reported 122 inputs/s, 682 MiB RSS). This is campaign
+throughput, not a parser speed comparison: invalid UTF-8 is skipped, each accepted
+input now runs ten parses, and compilation/checks overlapped part of execution.
+Environment: Windows 11 x64 10.0.26300, i9-12900K (24 logical processors), rustc
+1.101.0-nightly (1a2c4797e, 2026-10-21), cargo-fuzz 0.13.2, libfuzzer-sys 0.4.13,
+MSVC 14.44.35207 ASan DLL, default release profile/build parallelism and workspace
+target. One fuzz worker used a warm build, 1,903 retained generated corpus files
+and 11 committed seeds, with libFuzzer seed 1845544678 and README size/time/memory
+limits. Compilation is excluded from the reported 61 seconds. Complete workspace,
+Linux sanitizer and platform/backend acceptance remain CI-only; bounded campaigns
+do not establish exhaustive recovery correctness.
+
 Syntax fuzz follow-up adds one shared parser/AST oracle, stable seed replay and a
 bounded coverage-guided CI job. Scope is source/declaration parsing, recoverable
 traversal, source ranges, lexical preservation, budgets and retained lifetimes;

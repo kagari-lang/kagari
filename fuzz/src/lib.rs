@@ -1,6 +1,7 @@
 //! Syntax fuzz entrypoint shared by coverage-guided fuzzing and corpus replay.
 
 mod syntax;
+mod traversal;
 
 #[cfg(test)]
 mod tests;

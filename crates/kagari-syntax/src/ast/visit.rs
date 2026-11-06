@@ -70,7 +70,10 @@ impl ElementRef<'_> {
         match self {
             Self::Node(node) => {
                 let site = node.site().resolve(&node.owner().recoveries);
-                Some((site.first, site.end))
+                // Empty recovered children only anchor an insertion position.
+                // They cannot claim the trivia before that position: it may
+                // already belong to the enclosing unparsed suffix after a stop.
+                (site.first < site.end).then_some((site.first, site.end))
             }
             Self::Token(token) => Some((token.index, token.index + 1)),
             Self::Operator(operator) => Some((operator.first, operator.end)),
