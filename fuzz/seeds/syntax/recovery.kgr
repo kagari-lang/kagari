@@ -1,0 +1,8 @@
+use a::;
+trait T { @@@ fn f(self, x: A @@@, y: B); }
+impl T { fn f() {} @@@ }
+fn broken() {
+    call(a,,b,);
+    val (a,b @@@,c) = input;
+    [a,b @@@,c];
+    if ready {} else

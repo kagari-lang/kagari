@@ -5,6 +5,7 @@ use crate::{
         module::ModuleSyntax,
         ty::TypeSyntax,
         views::{ItemView, TypeView},
+        visit::{ElementRef, NodeRef},
     },
     parser::{Parse, ParseOptions, parse as parse_source},
 };
@@ -12,6 +13,22 @@ use kagari_source::source::SourceFile;
 
 pub fn source(text: &str) -> SourceFile {
     SourceFile::new("test.kg", text)
+}
+
+/// Reconstructs non-trivia spelling through grammar roles, not lexical coverage.
+pub fn grammar_text(node: NodeRef<'_>) -> String {
+    let mut text = String::new();
+    for element in node.elements() {
+        match element {
+            ElementRef::Node(child) => text.push_str(&grammar_text(child)),
+            ElementRef::Token(token) if !token.lexical_kind().is_trivia() => {
+                text.push_str(token.text());
+            }
+            ElementRef::Operator(operator) => text.push_str(operator.text()),
+            _ => {}
+        }
+    }
+    text
 }
 
 pub fn parse_ok(text: &str) -> ModuleSyntax {

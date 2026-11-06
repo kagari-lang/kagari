@@ -1,0 +1,6 @@
+fn f(x: i32) -> i32 {
+    val value = (x + 1) * 2 >> 1;
+    val pair = Point { x, y: value };
+    val message = "value={pair.x}, debug={pair:?}";
+    if { true } { call::<Vec<i32>>(value) } else { x }
+}

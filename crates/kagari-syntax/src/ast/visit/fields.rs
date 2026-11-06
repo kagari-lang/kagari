@@ -8,7 +8,7 @@ use crate::{
         expr, item, misc,
         site::SyntaxSite,
         stmt, ty,
-        visit::{ElementRef, FieldContext, Fields, NodeRef, Walk},
+        visit::{ElementRef, FieldContext, Fields, LexicalToken, NodeRef, Walk},
     },
     parser::ParsedFile,
 };
@@ -106,7 +106,13 @@ alternative_walk!(item::ModuleForm { External, Inline });
 
 impl Fields for SyntaxSite {
     fn fields<'a>(&'a self, owner: &'a Arc<ParsedFile>, output: &mut dyn FnMut(ElementRef<'a>)) {
-        FieldContext::new(owner, *self).remaining(0, output);
+        // An error alternative retains coverage without typed children. Include
+        // both parsed and skipped tokens, once, even when its site has recovery
+        // records from a declaration rejected in this grammatical position.
+        let site = self.resolve(&owner.recoveries);
+        for index in site.first..site.end {
+            output(ElementRef::Token(LexicalToken { owner, index }));
+        }
     }
 }
 

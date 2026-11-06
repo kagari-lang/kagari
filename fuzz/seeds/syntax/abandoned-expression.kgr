@@ -1,0 +1,1 @@
+fn f(){static val x:i32=0+||1;}

@@ -200,6 +200,9 @@ impl<'a> Parser<'a> {
         assert_eq!(mark.frame + 1, self.frames.len());
         self.frames.pop();
         self.stopped = Some(self.stopped.map_or(suffix, |first| first.min(suffix)));
+        // Discarded reads belong exclusively to the root's unparsed suffix.
+        // Enclosing sites and rejected entries must end at the retained cursor.
+        self.cursor = suffix;
     }
 
     pub(crate) fn position(&mut self, field: u16, entry: usize) {

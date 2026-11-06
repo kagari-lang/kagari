@@ -334,7 +334,7 @@ node!(
     /// this node owns the brace tokens and two `trees` entries. See [`SeparatedList`]
     /// for missing entries, retained commas and filtered accessor positions.
     UseTreeList {
-        open: Token<tokens::LBrace>,
+        open: Required<Token<tokens::LBrace>>,
         trees: SeparatedList<UseTree>,
         close: Required<Token<tokens::RBrace>>,
     }
@@ -517,7 +517,7 @@ node!(
     /// `open`/`close` are brace tokens surrounding ordered [`Member`] nodes.
     ImplBlock {
         attributes: Attributes,
-        keyword: Token<tokens::ImplKw>,
+        keyword: Required<Token<tokens::ImplKw>>,
         generics: Option<Box<GenericParamList>>,
         trait_clause: Option<ImplTrait>,
         target: Required<TypeSyntax>,
@@ -582,7 +582,7 @@ node!(
     TypeAlias {
         attributes: Attributes,
         visibility: Visibility,
-        keyword: Token<tokens::TypeKw>,
+        keyword: Required<Token<tokens::TypeKw>>,
         name: Required<Name>,
         generics: Option<Box<GenericParamList>>,
         bounds: Option<Supertraits>,
@@ -624,7 +624,7 @@ node!(
     OpaqueTypeDef {
         attributes: Attributes,
         visibility: Visibility,
-        keyword: Token<tokens::TypeKw>,
+        keyword: Required<Token<tokens::TypeKw>>,
         name: Required<Name>,
         generics: Option<Box<GenericParamList>>,
         bounds: Option<Supertraits>,
@@ -647,7 +647,7 @@ node!(
     AssociatedType {
         attributes: Attributes,
         visibility: Visibility,
-        keyword: Token<tokens::TypeKw>,
+        keyword: Required<Token<tokens::TypeKw>>,
         name: Required<Name>,
         generics: Option<Box<GenericParamList>>,
         bounds: Option<Supertraits>,

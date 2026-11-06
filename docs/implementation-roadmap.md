@@ -24,6 +24,102 @@ These capabilities are foundations to reuse, not migrations to replay.
 
 ## Strongly typed syntax CI acceptance
 
+Syntax fuzz follow-up adds one shared parser/AST oracle, stable seed replay and a
+bounded coverage-guided CI job. Scope is source/declaration parsing, recoverable
+traversal, source ranges, lexical preservation, budgets and retained lifetimes;
+HIR/type checking and formatter fuzzing remain outside this change. Local seed
+replay (2 tests), typed-field contracts (7) and parser-limit contracts (6) pass;
+these exercise the oracle and its directly consumed recovery/lifetime contracts.
+A Windows x64 MSVC AddressSanitizer campaign with cargo-fuzz 0.13.2 and rustc
+1.101.0-nightly (3e92e1a2d, 2026-11-01) completed 19,686 inputs without a finding
+under the README's 60-second command. The initial DLL lookup failure was resolved
+by adding the installed MSVC x64 sanitizer runtime to the process PATH; it was
+not counted as a fuzz run. Structure, fmt, workspace all-target Clippy and diff
+checks pass. Complete workspace/platform testing and the Linux sanitizer CI job
+remain CI acceptance; a bounded campaign does not establish exhaustive coverage.
+
+The [PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42185649506/job/127785217773)
+found that error-node traversal emitted only sparse skipped-token records after
+discarding a parsed static declaration in a forbidden local/member position.
+The original CI input and the reduced `trait T { static val x: i32 = 0; }` both
+reproduced missing tokens. Error alternatives now emit their complete resolved
+lexical coverage, preserving diagnostics and rejected-node classification. The
+existing static recovery contracts check exact token ranges for local/closure,
+trait and impl contexts, and the reduced input is a fuzz seed. Local validation
+passes static parsing (6), typed fields (7), corpus replay (2) and formatter
+rejection (4), plus original-input ASan replay. A new 60-second Windows ASan
+campaign completed 22,103 inputs without a finding; structure, fmt, workspace
+all-target Clippy and diff checks pass. The toolchain and runner limits match
+the campaign above, with the retained generated corpus and the new seed.
+Linux CI must rerun on the repair; the earlier successful local campaign did not
+cover this input.
+
+The [second PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42189958639/job/127799238832)
+exposed a different ordering defect: static-tail recovery used the default
+`attributes` insertion slot, moving trailing garbage before the declaration.
+The reduced `static val x: i32 = 0 extra;` reproduces it. Recovery now belongs
+to `StaticDef.terminator`. Reviewing direct grammar recovery sites also reproduced
+misordered duplicate rest markers and fields after rest in struct patterns;
+those rejected suffixes now belong to `StructPattern.close`, using the existing
+rejected-entry mechanism instead of admitting post-rest fields into the earlier
+typed list. Both boundaries have fixed corpus coverage; existing static recovery
+tests also assert the named recovery owner. Extended local campaigns then found
+duplicate reads after prefix diagnostics exhausted the budget, reduced to
+`pub(/<=type Item;  }` and a prefixed import group without `::`. Module/associated
+type and impl keywords, and import-group opening braces, now use required slots
+and checked consumption rather than unconditionally reading into the unparsed
+suffix. Existing consumers compile against the corrected AST fields; accepted
+source retains the same tokens. Fuzz invariants remain unchanged.
+Local validation passes 41 selected tests: corpus replay (2), static parsing (6),
+typed fields (7), malformed rest (1), declaration items (8), module/import parsing
+(5), limits (7), formatter rejection (4) and one dependent HIR rest-pattern
+contract. Both CI inputs pass ASan replay. After fixing the local findings, the
+180-second Windows ASan campaign completed 62,511 inputs without a finding, using
+the same toolchain/runner limits and retained corpus as above. Structure, fmt,
+workspace all-target Clippy and diff checks pass. Linux CI must rerun on this
+repair; bounded local fuzzing does not prove exhaustive recovery coverage.
+
+The [third PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42193725392/job/127811679088)
+found lost tokens when a parsed pattern could not become a range endpoint.
+The reduced `fn f() { match p { Point { v }..3 => 0 } }` lost `Point { v }`:
+conversion retained a missing start but discarded the consumed prefix. The range
+now owns that prefix as unexpected coverage at its `start` slot, before the
+operator, while preserving rejection and subsequent match arms. The same contract
+test covers wildcard, empty tuple, grouped, tuple, alternative, tuple-struct and
+struct starts, including nested recovery, with both range operators. A minimized
+seed also exercises the shared oracle's modes and limits. Selected local tests
+pass: match patterns (6), parser limits (7), corpus replay (2) and dependent HIR
+scalar range facts (1). Structure, fmt, workspace all-target Clippy and diff checks
+pass, and all three original CI inputs pass Windows ASan replay. These checks target
+the changed conversion/recovery boundary and its consumer; full workspace and
+Linux sanitizer acceptance require a new CI run. A 300-second Windows ASan
+campaign completed 89,605 inputs without a finding, using the same toolchain,
+runner limits and retained corpus as above plus the new seed. This is bounded
+evidence, not exhaustive recovery acceptance.
+
+The [push run at the same revision](https://github.com/kagari-lang/kagari/actions/runs/42197662407/job/127824856280)
+found overlapping recovery coverage, although the separate pull-request fuzz run
+passed. Both event runs matter; a successful random campaign does not invalidate
+a failing input from another run. Abandoning an expression moved the unparsed
+suffix boundary back without restoring the cursor. An enclosing rejected static
+then included the discarded reads in its error site, duplicating them during
+grammar traversal. Restoring the cursor in the shared abandonment operation keeps
+both error sites and rejected-entry ranges disjoint from the root suffix.
+The readable seed `fn f(){static val x:i32=0+||1;}` reproduces this with the oracle's
+small nesting budget. Budget contracts exercise binary, cast, call and index
+wrappers in retained expressions, rejected statics and rejected struct entries,
+in both parse modes. The range-start regression now walks grammar elements rather
+than reading lexical coverage, sharing its test helper with the budget contract.
+The new budget test and seed both fail with the cursor repair removed.
+Selected local tests pass: limits (8), static parsing (6), match patterns (6),
+corpus replay (2), cancellation (2) and formatter rejection (4). They cover
+the shared stop boundary, error ownership and a dependent rejection policy;
+full workspace/platform acceptance remains in CI. All four original CI inputs
+pass Windows ASan replay. A 300-second ASan campaign completed 77,201 inputs with
+no finding, using the same toolchain, runner limits and retained corpus as above
+plus the new seed. Structure, fmt, workspace all-target Clippy and diff checks
+pass. Both push and pull-request CI runs must be checked on the repair.
+
 The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
 Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
 sharing, retained inline views, source provenance, explicit recovered roles and

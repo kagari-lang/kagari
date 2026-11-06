@@ -8,6 +8,36 @@ permissions:
   contents: read
 
 jobs:
+  syntax-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+
+      - name: Fuzz syntax contracts
+        run: |
+          mkdir -p target/fuzz-corpus/syntax
+          cargo +nightly fuzz run syntax --features fuzzing target/fuzz-corpus/syntax fuzz/seeds/syntax -- -max_total_time=60 -max_len=131072 -timeout=10 -rss_limit_mb=2048
+
+      - name: Upload failing syntax inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: syntax-fuzz-failures
+          path: fuzz/artifacts/syntax/
+          if-no-files-found: ignore
+
   structure:
     runs-on: ubuntu-latest
 
