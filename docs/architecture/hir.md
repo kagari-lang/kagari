@@ -32,12 +32,21 @@ keeps workloads, measurement boundaries and limitations separate from API guaran
 | `declarations`, `resolver`, `imports` | Declaration identities, lexical bindings and cross-module namespaces. |
 | `aggregates`, `semantic` | Shared nominal/signature contracts and immutable published body facts. |
 | `typeck` | Temporary inference and constraint state produces those facts and positive completion evidence. |
-| `analysis`, `program` | Snapshot/query work, reuse, diagnostics, cancellation publication and complete checked dependency closures. |
+| `analysis`, `program` | Staged analysis, snapshots, reuse, diagnostics, cancellation publication and complete checked dependency closures. |
+| `queries` | Read-only call, method, namespace, documentation, attribute and usage projections from retained analysis results. |
 | `compile_input` | Admits matching declaration environments, body roots/facts and provenance for the compiler. |
 | `update_source`, `source_inspection` | Authored identities, static-initializer comparison evidence and exact source packaging. |
 | Compiler `source::elaborate` | Expands an admitted source body into temporary semantic operations. |
 | Compiler `source::lower::instances` | Applies generic arguments and selects implementation/ABI recipes. |
 | Compiler `source::lower` emission | Evaluates operands and commits effects in order, building MIR from those operations and recipes. |
+
+The `queries/` directory supplies the context for `calls`, `methods`, `namespaces`,
+`documentation`, `attributes` and `usage`; filenames do not repeat a `_queries`
+suffix. Analysis-producing stages remain `analysis::declarations`,
+`analysis::signatures` and `analysis::body`. `analysis::type_targets` prepares
+navigation provenance during publication. Query methods remain on snapshot/result
+objects. Documentation uses the existing scoped declaration lookup; namespace
+queries borrow only a read-only view of the prepared type-path hits.
 
 Private tests live under their owning module's `tests/` or `tests.rs`, using
 ordinary Rust modules. Public semantic cases remain in the crate's `tests/`
@@ -360,7 +369,7 @@ qualification.
 [ModuleFacts](../../crates/kagari-hir/src/semantic/body.rs) publishes the shared
 signatures, constant results and node-keyed facts through read-only accessors.
 Writers are internal to HIR.
-[FunctionAnalysis](../../crates/kagari-hir/src/analysis/body_queries.rs)
+[FunctionAnalysis](../../crates/kagari-hir/src/analysis/body.rs)
 pairs the current query's signature snapshot with shared immutable selected-body
 facts: the function, matching lowering/definition table, environment, bindings,
 diagnostics and result. `eligibility()` uses positive body evidence and the current
@@ -732,9 +741,9 @@ snapshot.type_at / definition_at / completion queries -> read prepared facts
 snapshot.check_program(root) -> validate reachable checked source closure
 ```
 
-Read [declaration queries](../../crates/kagari-hir/src/analysis/declaration_queries.rs),
-[signature queries](../../crates/kagari-hir/src/analysis/signature_queries.rs) and
-[selected body queries](../../crates/kagari-hir/src/analysis/body_queries.rs) in that
+Read [declaration queries](../../crates/kagari-hir/src/analysis/declarations.rs),
+[signature queries](../../crates/kagari-hir/src/analysis/signatures.rs) and
+[selected body queries](../../crates/kagari-hir/src/analysis/body.rs) in that
 order. Declarations include parse/lowering and import resolution; signatures check
 type annotations and aggregate contracts; bodies add local bindings, expression
 types and selected operations. Syntax errors can still leave useful facts and

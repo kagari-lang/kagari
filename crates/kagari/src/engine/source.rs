@@ -24,8 +24,8 @@ use kagari_common::{
 use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_hir::{
     analysis::{
-        AnalysisSnapshot, body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
-        error::AnalysisError, signature_queries::SignatureSnapshot,
+        AnalysisSnapshot, body::FunctionAnalysis, declarations::DeclarationSnapshot,
+        error::AnalysisError, signatures::SignatureSnapshot,
     },
     compile_input::program::{AdmissionError, CheckedCompilation},
     program::CheckedProgram,

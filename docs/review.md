@@ -223,9 +223,13 @@ cache orchestration and snapshot publication. The attribute finding above is a
 concrete stage-policy consequence; these locations are not extra semantic bugs
 merely because the files are large.
 
-Move responsibilities in finite closures: stage checking/policy to its producer,
-request/reuse/publication to analysis, and tool projections to a focused query
-owner. Keep the crate facade for documented entrypoints. Follow the actual owners
+The focused `queries` owner now contains calls, methods, namespaces, documentation,
+attributes and usage, with their existing module-local tests. Analysis stage modules
+have dropped the `_queries` suffix. Remaining position/type/binding helpers in
+`analysis.rs` and the root stage orchestration still need responsibility-led review.
+Move the remaining responsibilities in finite closures: stage checking/policy to
+its producer, request/reuse/publication to analysis and tool projections to queries.
+Keep the crate facade for documented entrypoints. Follow the actual owners
 without mechanically creating every directory in the historical sketch.
 
 Private tests largely use ordinary owner-local modules. Two concrete exceptions
@@ -298,7 +302,7 @@ The original review baseline was `76ef0798767920649152dbbe235a0ea70bf8e21c`.
 
 `AnalysisDatabase::body_cache` retains one `Arc<FunctionAnalysis>` per declaration.
 Each result owns a complete `SignatureSnapshot`, whose file map retains physical
-parses and lowerings. [Body cache publication](../crates/kagari-hir/src/analysis/body_queries.rs)
+parses and lowerings. [Body cache publication](../crates/kagari-hir/src/analysis/body.rs)
 removes entries for deleted declarations but does not retire older revisions of
 still-existing functions until those functions are queried again.
 
@@ -486,8 +490,8 @@ into the current analysis view. This supports text copied into generated source,
 not arbitrary rewritten source maps or edit history.
 
 The read side is wired into
-[declaration source lookup](../crates/kagari-hir/src/analysis/declaration_queries.rs),
-[documentation queries](../crates/kagari-hir/src/analysis/documentation_queries.rs)
+[declaration source lookup](../crates/kagari-hir/src/analysis/declarations.rs),
+[documentation queries](../crates/kagari-hir/src/queries/documentation.rs)
 and [source collection](../crates/kagari-hir/src/source_inspection.rs).
 However, the inspected production paths do not populate the mapping. Ordinary
 sources start with an empty vector; inline modules clone it while independently
@@ -1345,7 +1349,7 @@ Each entry records its own evidence level and validation limits.
 Evidence owners:
 
 
-- R8: [body reuse](../crates/kagari-hir/src/analysis/body_queries.rs),
+- R8: [body reuse](../crates/kagari-hir/src/analysis/body.rs),
   [imported functions](../crates/kagari-hir/src/imports/functions.rs),
   [source identities](../crates/kagari-hir/src/imports.rs) and
   [aggregate equality](../crates/kagari-hir/src/aggregates.rs).

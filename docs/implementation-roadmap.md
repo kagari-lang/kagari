@@ -1293,15 +1293,15 @@ characterization probes confirmed P2 findings: protocol adaptation starts fresh
 search budgets/tokens inside a bounded lookup, and declaration attribute errors
 are validated only during full body-analysis aggregation. The review also records
 P3 shared-utility ownership and unused public-surface issues, plus remaining
-facade/query/test placement debt. These findings are open; repairs are not activated.
+facade/query/test placement debt. The focused query-module organization is complete;
+its lasting ownership contract lives in the [HIR architecture](architecture/hir.md#module-responsibilities).
+The remaining findings are open; their repairs are not activated.
 
 The review retains the implemented checked handoff, immutable facts and temporary
 body expansion, and records the primary-source comparison, bounded repair owners
-and validation limits. No Rust implementation changes remain after removing the
-probes. Existing structure/fmt/Clippy evidence remains valid; review documentation
-passed content/link/diff checks. No additional full-workspace or backend matrix
-was run. General solver changes, physical arenas, cache capacity and R8 remain
-outside this review.
+and validation limits. Full-workspace and backend acceptance remain CI-only.
+General solver changes, physical arenas, cache capacity and R8 remain outside
+this review.
 
 The five authorized syntax/HIR contract repairs from the 2026-11-06 review
 were originally implemented at `e027d2a0` on `fix/syntax-hir-review-contracts`

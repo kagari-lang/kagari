@@ -6,7 +6,7 @@ use crate::{
     aggregates::AggregateCatalog,
     analysis::{
         AnalysisDatabase,
-        declaration_queries::{DeclarationSnapshot, FileDeclarations},
+        declarations::{DeclarationSnapshot, FileDeclarations},
         error::AnalysisError,
         ownership, type_at_in, type_reference_at,
     },

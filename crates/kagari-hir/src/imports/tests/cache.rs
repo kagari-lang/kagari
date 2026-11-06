@@ -1,6 +1,6 @@
 use crate::{
-    analysis::signature_queries::FileSignatures, declarations::DeclarationId,
-    imports::tests::insert, tests::test_analysis,
+    analysis::signatures::FileSignatures, declarations::DeclarationId, imports::tests::insert,
+    tests::test_analysis,
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_source::{

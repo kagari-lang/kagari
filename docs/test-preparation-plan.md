@@ -207,8 +207,8 @@ harnesses and test setup policies remain unchanged.
 2. Keep tests at the smallest correct semantic owner. Rust private items are
    accessible from their defining module and descendants, not arbitrary siblings
    ([Rust privacy rules](https://doc.rust-lang.org/reference/visibility-and-privacy.html)).
-   For example, a private `analysis::body_queries` check can stay in
-   `analysis/body_queries/tests.rs`, declared by `body_queries.rs`; it must not
+   For example, a private `analysis::body` check can stay in
+   `analysis/body/tests.rs`, declared by `body.rs`; it must not
    require widening visibility to move under `analysis::tests`.
 3. Preserve existing clear `src/tests/` and subsystem `tests/` trees. A small,
    single-entry `tests.rs` is acceptable; converting every such file to a directory
@@ -229,8 +229,8 @@ Illustrative HIR destination, not an implemented tree:
 src/
   analysis.rs
   analysis/
-    body_queries.rs
-    declaration_queries.rs
+    body.rs
+    declarations.rs
     tests.rs
     tests/
       arena.rs
@@ -238,7 +238,7 @@ src/
       generic_types.rs
       generic_types/
         ...
-    body_queries/
+    body/
       tests.rs
       tests/
         ...

@@ -4,16 +4,16 @@
 #[cfg(test)]
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
-use super::signature_queries::BodyEnvironment;
+use super::signatures::BodyEnvironment;
 use crate::{
     AnalysisResult,
     analysis::{
         AnalysisDatabase,
-        declaration_queries::DeclarationSnapshot,
+        declarations::DeclarationSnapshot,
         eligibility::BodyEligibility,
         error::AnalysisError,
         ownership,
-        signature_queries::{FileSignatures, SignatureSnapshot},
+        signatures::{FileSignatures, SignatureSnapshot},
     },
     declarations::{DeclarationId, Declarations},
     hir::{

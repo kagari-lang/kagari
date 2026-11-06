@@ -3,7 +3,7 @@ use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     aggregates::AggregateCatalog,
     analysis::{
-        error::AnalysisError, signature_queries::BodyEnvironment, source_preparation::ParsedModule,
+        error::AnalysisError, signatures::BodyEnvironment, source_preparation::ParsedModule,
     },
     analyze_parsed, declare_analysis,
     lower::lower_module_controlled,

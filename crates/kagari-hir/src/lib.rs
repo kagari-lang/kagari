@@ -31,7 +31,7 @@
 use crate::analysis::error::AnalysisError;
 use crate::analysis::source_preparation::ParsedModule;
 use crate::{
-    analysis::{ownership::recover_invalid_identity, signature_queries::BodyEnvironment},
+    analysis::{ownership::recover_invalid_identity, signatures::BodyEnvironment},
     hir::ids::BodySelection,
     imports::{
         ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
@@ -87,6 +87,7 @@ pub mod lower;
 pub mod native;
 
 pub mod program;
+pub mod queries;
 pub mod resolver;
 pub mod semantic;
 pub mod source_inspection;

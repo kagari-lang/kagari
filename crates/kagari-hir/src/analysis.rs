@@ -2,7 +2,6 @@
 
 mod input_fingerprint;
 pub mod inputs;
-mod namespace_queries;
 pub(crate) mod source_preparation;
 
 #[cfg(test)]
@@ -11,9 +10,8 @@ use crate::tests::cancellation::{Checkpoint, checkpoint};
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
-        body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
-        error::AnalysisError, inputs::AnalysisInputs, signature_queries::SignatureSnapshot,
-        source_preparation::ParsedModule,
+        body::FunctionAnalysis, declarations::DeclarationSnapshot, error::AnalysisError,
+        inputs::AnalysisInputs, signatures::SignatureSnapshot, source_preparation::ParsedModule,
     },
     analyze_parsed,
     declarations::{Declaration, DeclarationId, Declarations},
@@ -63,21 +61,16 @@ use std::{
 
 const DEFAULT_MAX_SEMANTIC_DIAGNOSTICS: usize = 1_000;
 
-pub mod call_queries;
-pub mod documentation_queries;
 pub mod error;
-pub mod method_queries;
 
-pub mod attributes;
-pub mod body_queries;
+pub mod body;
 mod cache;
 pub mod eligibility;
-pub mod usage;
 
-pub mod declaration_queries;
+pub mod declarations;
 pub(crate) mod ownership;
-pub mod signature_queries;
-mod target_queries;
+pub mod signatures;
+mod type_targets;
 
 /// One file's parsed source and completed semantic analysis, retained by a snapshot.
 ///
@@ -110,6 +103,11 @@ pub struct BindingInfo {
 }
 
 impl FileAnalysis {
+    /// Borrows prepared type-path provenance for source navigation in this snapshot.
+    pub(crate) fn type_path_hits(&self) -> &[(Span, LookupHit)] {
+        &self.type_hits
+    }
+
     /// Return the checked field identity selected at a member name.
     ///
     /// Covers source and external fields in reads and assignment paths. Receiver
@@ -926,7 +924,7 @@ impl AnalysisDatabase {
                         .publish_definitions(definitions.clone());
 
                     let result = DefinitionMetadata::checked(definitions, records, cancel)?;
-                    let type_hits = target_queries::type_hits(result.records().facts(), cancel)?;
+                    let type_hits = type_targets::type_hits(result.records().facts(), cancel)?;
                     Arc::new(FileAnalysis {
                         shared_valid,
                         type_hits,

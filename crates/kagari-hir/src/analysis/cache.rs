@@ -1,7 +1,7 @@
 //! Validate complete file and body inputs before retaining or remapping facts.
 use crate::{
     AnalyzedModule, PreparedAnalysis,
-    analysis::{FileAnalysis, signature_queries::BodyEnvironment},
+    analysis::{FileAnalysis, signatures::BodyEnvironment},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 

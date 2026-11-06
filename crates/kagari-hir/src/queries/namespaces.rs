@@ -19,9 +19,9 @@ impl AnalysisSnapshot {
         let Some(analysis) = self.analysis_at(file, offset) else {
             return vec![];
         };
-        let facts = analysis.result.records().facts();
+        let facts = analysis.result().facts();
         let sites = analysis
-            .type_hits
+            .type_path_hits()
             .iter()
             .map(|(span, hit)| (*span, hit))
             .chain(facts.names.path_hits.iter().map(|(span, hit)| (*span, hit)))

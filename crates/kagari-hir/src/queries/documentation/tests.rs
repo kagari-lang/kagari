@@ -231,8 +231,7 @@ fn same_named_declarations_and_inline_modules_keep_their_own_documentation() {
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     let mut docs = snapshot
-        .files
-        .values()
+        .files()
         .flat_map(|file| file.declarations().iter())
         .filter(|declaration| declaration.name == "same")
         .map(|declaration| snapshot.documentation(&declaration.id).unwrap())

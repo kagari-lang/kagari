@@ -1,10 +1,9 @@
 //! Source presentation is resolved through declarations owned by the snapshot.
 
-use crate::analysis::ownership;
 use crate::{
     analysis::{
         AnalysisSnapshot,
-        declaration_queries::{DeclarationSnapshot, FileDeclarations},
+        declarations::{DeclarationSnapshot, FileDeclarations},
     },
     declarations::{Declaration, DeclarationId},
     imports::{NamespaceId, ResolvedTarget},
@@ -45,8 +44,7 @@ impl DeclarationSnapshot {
     /// Finds module documentation in retained declarations; returns `None` for an unknown module.
     pub fn module_documentation(&self, module: &ModuleIdentity) -> Option<ModuleDocumentation> {
         let file = self
-            .files
-            .values()
+            .files()
             .find(|file| file.source().module_identity() == module)?;
         let source = file.source();
         Some(ModuleDocumentation {
@@ -59,7 +57,9 @@ impl DeclarationSnapshot {
     /// Read documentation without resolving or checking any function body.
     /// Identities absent from this snapshot never fall back to a global catalog.
     pub fn documentation(&self, id: &DeclarationId) -> Option<DeclarationDocumentation> {
-        self.files.values().find_map(|file| file.documentation(id))
+        let declaration = self.declaration(id)?;
+        self.files()
+            .find_map(|file| file.documentation(declaration))
     }
 }
 
@@ -95,12 +95,11 @@ impl AnalysisSnapshot {
 }
 
 impl FileDeclarations {
-    fn documentation(&self, id: &DeclarationId) -> Option<DeclarationDocumentation> {
-        let id = ownership::locate(id, self.declarations().definitions())?;
-        let declaration = self.declarations().get(&id)?;
+    fn documentation(&self, declaration: &Declaration) -> Option<DeclarationDocumentation> {
+        let declaration = self.declarations().get(&declaration.id)?;
         let source = self.source();
         let local_range = source.local_range(declaration.location)?;
-        let syntax = self.parsed.syntax();
+        let syntax = self.syntax();
         let node = syntax.descendants().find(|node| {
             node.declaration_name()
                 .is_some_and(|name| name.body_span() == local_range)
