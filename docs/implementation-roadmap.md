@@ -1285,6 +1285,24 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 ## Open review and documentation work
 
+The [HIR architecture and module review](review.md#hir-architecture-and-module-organization)
+at `75a8b7ee` on `refactor/hir-architecture` is complete. It inventoried all source
+modules and traced representative dependencies, stage/public interfaces, file
+responsibilities and test owners against the final HA0-HA5 design. Two public-API
+characterization probes confirmed P2 findings: protocol adaptation starts fresh
+search budgets/tokens inside a bounded lookup, and declaration attribute errors
+are validated only during full body-analysis aggregation. The review also records
+P3 shared-utility ownership and unused public-surface issues, plus remaining
+facade/query/test placement debt. These findings are open; repairs are not activated.
+
+The review retains the implemented checked handoff, immutable facts and temporary
+body expansion, and records the primary-source comparison, bounded repair owners
+and validation limits. No Rust implementation changes remain after removing the
+probes. Existing structure/fmt/Clippy evidence remains valid; review documentation
+passed content/link/diff checks. No additional full-workspace or backend matrix
+was run. General solver changes, physical arenas, cache capacity and R8 remain
+outside this review.
+
 The five authorized syntax/HIR contract repairs from the 2026-11-06 review
 were originally implemented at `e027d2a0` on `fix/syntax-hir-review-contracts`
 and are integrated into `refactor/hir-architecture` at the user's direction.
