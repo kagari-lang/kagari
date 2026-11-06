@@ -108,6 +108,13 @@ getter can also hide a missing required child or a different grammar alternative
 inspect the stored named field when that distinction matters. The
 [recovery types](../../crates/kagari-syntax/src/ast/site.rs) own the detailed states.
 
+An `Error(SyntaxSite)` alternative has no retained typed children. Its traversal
+emits every lexical token in its resolved coverage exactly once, including tokens
+that parsed successfully before the construct was rejected in its enclosing
+context. Sparse unexpected-token records alone cannot reconstruct such a node;
+for example, a static declaration rejected inside a trait still retains its full
+spelling through grammar traversal.
+
 Type lowering exhaustively matches `TypeView`, including grouped, tuple, array,
 function, applied and qualified types. Interpolation exposes ordered text/hole
 parts. Attributes belong directly to declarations/members; HIR and lint do not

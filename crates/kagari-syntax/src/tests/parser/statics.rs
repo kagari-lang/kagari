@@ -1,4 +1,4 @@
-use crate::ast::visit::NodeRef;
+use crate::ast::visit::{ElementRef, NodeRef};
 
 use crate::ast::views::ItemView;
 
@@ -185,6 +185,7 @@ fn static_malformed_headers_preserve_following_functions_and_methods() {
             assert!(!parse.diagnostics().is_empty(), "{text}");
             let module = parse.module();
             assert_eq!(module.text().to_owned(), text);
+            assert_error_tokens(NodeRef::ModuleBody(module.body()));
             assert_eq!(
                 NodeRef::ModuleBody(module.body())
                     .descendants()
@@ -258,6 +259,7 @@ fn static_local_and_associated_forms_are_errors_without_losing_following_members
             assert_eq!(parse.diagnostics()[0].kind, DiagnosticKind::UnexpectedToken);
             let module = parse.module();
             assert_eq!(module.text().to_owned(), text);
+            assert_error_tokens(NodeRef::ModuleBody(module.body()));
             let definitions: Vec<_> = NodeRef::ModuleBody(module.body())
                 .descendants()
                 .filter_map(|node| match node {
@@ -276,6 +278,25 @@ fn static_local_and_associated_forms_are_errors_without_losing_following_members
                     .any(|node| node.kind() == follower),
                 "{text}"
             );
+        }
+    }
+}
+
+fn assert_error_tokens(root: NodeRef<'_>) {
+    for node in root.descendants() {
+        if let NodeRef::Error(_) = node {
+            let expected = node.tokens().map(|token| token.span()).collect::<Vec<_>>();
+            let actual = node
+                .elements()
+                .into_iter()
+                .map(|element| {
+                    let ElementRef::Token(token) = element else {
+                        panic!("rejected declarations retain tokens, not typed children");
+                    };
+                    token.span()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected, "rejected declaration lost tokens");
         }
     }
 }

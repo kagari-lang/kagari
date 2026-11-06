@@ -38,6 +38,22 @@ not counted as a fuzz run. Structure, fmt, workspace all-target Clippy and diff
 checks pass. Complete workspace/platform testing and the Linux sanitizer CI job
 remain CI acceptance; a bounded campaign does not establish exhaustive coverage.
 
+The [PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42185649506/job/127785217773)
+found that error-node traversal emitted only sparse skipped-token records after
+discarding a parsed static declaration in a forbidden local/member position.
+The original CI input and the reduced `trait T { static val x: i32 = 0; }` both
+reproduced missing tokens. Error alternatives now emit their complete resolved
+lexical coverage, preserving diagnostics and rejected-node classification. The
+existing static recovery contracts check exact token ranges for local/closure,
+trait and impl contexts, and the reduced input is a fuzz seed. Local validation
+passes static parsing (6), typed fields (7), corpus replay (2) and formatter
+rejection (4), plus original-input ASan replay. A new 60-second Windows ASan
+campaign completed 22,103 inputs without a finding; structure, fmt, workspace
+all-target Clippy and diff checks pass. The toolchain and runner limits match
+the campaign above, with the retained generated corpus and the new seed.
+Linux CI must rerun on the repair; the earlier successful local campaign did not
+cover this input.
+
 The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
 Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
 sharing, retained inline views, source provenance, explicit recovered roles and
