@@ -1285,6 +1285,50 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 ## Open review and documentation work
 
+The five authorized syntax/HIR contract repairs from the 2026-11-06 review
+were originally implemented at `e027d2a0` on `fix/syntax-hir-review-contracts`
+and are integrated into `refactor/hir-architecture` at the user's direction.
+The target baseline is `4531b9f7`; its HA0-HA5 HIR migration is the review subject.
+The parser rejects top-level named call type arguments while preserving associated
+equalities inside types,
+restores ordinary struct expressions inside delimited conditions, decides
+statement termination from the completed expression and stops speculative type
+lookahead at invalid type-argument boundaries. Optional HIR binding usage now
+projects async-block captures from the resolver's existing facts. Lasting contracts
+live in the [syntax](architecture/syntax.md#grammar-fields-and-recovered-roles) and
+[HIR](architecture/hir.md#optional-source-tool-facts) architecture.
+
+The lookahead boundary follows the separation of expression/type context and
+angle-argument grammar in the
+[Rust 1.90 parser](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_parse/src/parser/path.rs)
+(`PathStyle`, `parse_angle_args`). Kagari retains its own `Type<T> { ... }` and
+`Type<T>::member` forms rather than importing Rust's expression turbofish policy;
+the same immutable parse owns probing, fields and diagnostics. No persistent cache,
+AST model migration or duplicate semantic type parser is introduced.
+
+Target-branch validation passed 37 selected tests: 16 syntax grammar/resource/
+cancellation, 7 typed-field/traversal, 8 HIR callable/admission/reuse/cancellation/
+trait-search, 3 lint capture and 3 formatter cases. The selected contracts cover
+the five repairs and representative refactored handoff boundaries. Structure,
+formatting, workspace all-target Clippy and diff checks passed. Original main-based
+comparison timings remain [historical workload evidence](performance-baseline.md#independent-comparison-lookahead-2026-11-06),
+not measurements of this HIR branch. The target does not contain main's fuzz crate
+or dependency updates; this integration carries only the five review repairs.
+
+The [refactored HIR review](review.md#refactored-hir-contract-review) follows the
+final HA0-HA5 design and current reading guide. It confirmed two open P2 findings:
+selected-body cache reuse retains stale shared-input eligibility, and terminating
+irrefutable guards still instantiate unreachable later arms (an existing path,
+not a new migration regression). Both have failing contract probes; a guarded-arm
+control and ten additional checked-input/MIR scenarios passed. The review owns
+reproduction, scope and limits; repairing these new findings is not activated.
+
+Full-workspace tests and the complete feature/backend/platform matrix remain
+CI-owned and unrun locally. The remaining
+[syntax/HIR follow-ups](review.md#syntax-and-hir-follow-ups), including historical
+selected-body cache retention and ambiguous comma-separated lookahead costs, and
+SA11 remain outside these repairs.
+
 The authorized R15 -> R11 -> R12 repairs are implemented. The
 [debugger observation contract](spec/debugger.md#safe-debug-points) keeps scalar
 constants on their control-flow paths; the [GC contract](spec/runtime.md#gc-heap)

@@ -206,6 +206,51 @@ cache identity/source and reject interrupted publication. This establishes progr
 and cleanup contracts, not a hard wall-clock cancellation latency. Physical body
 storage, general inference algorithms and R8's finer invalidation remain unchanged.
 
+## Independent comparison lookahead, 2026-11-06
+
+These measurements predate integration into `refactor/hir-architecture`; they
+do not measure the reconstructed HIR pipeline on that branch.
+
+The syntax/HIR contract repair bounds speculative angle-group scanning at tokens
+that cannot belong to type arguments, including statement terminators. The parser
+still owns the immutable lexical input; ordinary type parsing owns AST fields and
+diagnostics. No retained cache or second semantic type parser was added.
+
+Before: `76ef0798767920649152dbbe235a0ea70bf8e21c`. After: the local
+`fix/syntax-hir-review-contracts` repair at `e027d2a0` of
+[`skip_angle_group`](../crates/kagari-syntax/src/parser/grammar/signature.rs).
+Generate each source with
+`format!("fn f(){{ {} }}", format!("val z = x {op} y; ").repeat(count))`,
+where `op` is `<` or `>`. Construct `SourceFile` outside timing. Take three serial
+samples of `parse(&source, ParseOptions::default(), &Default::default())`, including
+lexing and AST construction, stopping before diagnostics checks and `Parse` drop.
+All inputs parsed without diagnostics. Medians in milliseconds:
+
+| Statements | Source bytes | Before `<` | After `<` | Before `>` | After `>` |
+| --- | --- | --- | --- | --- | --- |
+| 500 | 7,510 | 3.689 | 0.418 | 0.431 | 0.393 |
+| 1,000 | 15,010 | 13.876 | 0.794 | 0.745 | 0.802 |
+| 2,000 | 30,010 | 53.020 | 1.555 | 1.471 | 1.513 |
+| 4,000 | 60,010 | 207.392 | 3.159 | 3.048 | 2.955 |
+
+Both runs used Windows x64, Intel Core i9-12900K, Rust
+`1.99.1 (58cf8f9c3 2026-10-13)`, default features, workspace test profile inheriting
+dev `opt-level=1`, default build parallelism and default `target`, with cached
+dependencies and no concurrent Cargo work. The temporary integration probe ran as
+`cargo test --locked -p kagari-syntax --test review_lookahead_timing -- --nocapture`;
+its compilation took 0.49 seconds before and 0.63 seconds after, excluded from the
+parse samples. The probe was removed after recording its method and results here.
+These are short serial measurements of this workload, not whole-compiler speed
+claims or confidence intervals.
+
+The retained
+[work-bound test](../crates/kagari-syntax/src/parser/grammar/signature/tests.rs)
+uses 1, 16, 256 and 4,000 independent `x < y;` expressions. One probe per comparison
+visits exactly three lexical records after `<` (including trivia) and stops at
+that statement's semicolon. This establishes local work for the repaired case;
+[comma-separated ambiguous prefixes](review.md#ambiguous-comma-separated-comparison-lookahead)
+remain outside a global linear-time claim.
+
 ## Line-index newline search, Windows 2026-11-05
 
 At `c47e3df6`, a bounded experiment replaces only the newline search in

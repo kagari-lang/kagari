@@ -1,5 +1,9 @@
 use crate::{
-    ast::{views::ExprView, views::StmtView},
+    ast::{
+        borrow::AstNode,
+        views::{ExprView, StmtView},
+        visit::NodeRef,
+    },
     tests::common,
 };
 
@@ -91,5 +95,55 @@ fn parses_while_loop_break_and_continue_statements() {
             }
             other => panic!("unexpected second statement: {other:?}"),
         }
+    }
+}
+
+#[test]
+fn conditions_allow_struct_expressions_inside_delimiters() {
+    for condition in [
+        "check(Point { x: 1 }) && flag",
+        "(Point { x: 1 }).x == 1",
+        "[Point { x: 1 }][0].x == 1",
+        "values[Point { x: 1 }.x] == 1",
+        "{ val p = Point { x: 1 }; p.x == 1 }",
+        "match point { _ => Point { x: 1 }.x == 1 }",
+        "check(|| Point { x: 1 })",
+        "check(async { Point { x: 1 } })",
+    ] {
+        let text = format!("fn main() {{ if {condition} {{ body(); }} }}");
+        let module = common::parse_ok(&text);
+        let body = common::first_function(&module).body().unwrap();
+        let Some(ExprView::IfExpr(conditional)) = body.tail_expr() else {
+            panic!("expected conditional: {condition}");
+        };
+        assert_eq!(conditional.condition().unwrap().source_text(), condition);
+        assert_eq!(
+            conditional.then_branch().unwrap().source_text(),
+            "{ body(); }"
+        );
+        let mut constructors = 0;
+        NodeRef::from(conditional).visit(&mut |node| {
+            constructors += usize::from(matches!(node, NodeRef::StructExpr(_)));
+            true
+        });
+        assert_eq!(constructors, 1, "{condition}");
+    }
+}
+
+#[test]
+fn control_flow_delimiters_remain_outside_nested_struct_expressions() {
+    for statement in [
+        "while check(Point { x: 1 }) { break; }",
+        "for value in values(Point { x: 1 }) {}",
+        "val result = match (Point { x: 1 }) { _ => 0 };",
+        "if val Some(value) = make(Point { x: 1 }) {}",
+    ] {
+        let text = format!("fn main() {{ {statement} val after = 1; }}");
+        let module = common::parse_ok(&text);
+        let body = common::first_function(&module).body().unwrap();
+        let statements = body.statements().collect::<Vec<_>>();
+        assert_eq!(statements.len(), 2, "{statement}");
+        assert_eq!(statements[0].source_text(), statement);
+        assert!(matches!(statements[1], StmtView::BindingStmt(_)));
     }
 }

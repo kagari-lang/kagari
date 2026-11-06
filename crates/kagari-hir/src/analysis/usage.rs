@@ -96,10 +96,10 @@ impl FileAnalysis {
                         binding.kind = BindingKind::Parameter;
                     }
                 }
-                for captured in facts.names.closure_captures(id) {
-                    if let Some(binding) = usage.get_mut(captured) {
-                        binding.captured = true;
-                    }
+            }
+            for captured in facts.names.closure_captures(id) {
+                if let Some(binding) = usage.get_mut(captured) {
+                    binding.captured = true;
                 }
             }
         }

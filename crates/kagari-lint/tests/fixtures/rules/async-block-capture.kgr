@@ -1,8 +1,9 @@
 fn cold(value: i32) -> Future<i32> {
     var captured = value;
+    var read_only = value;
     val pending = async {
         captured += 1;
-        captured
+        captured + read_only
     };
     val unused = async {
         99

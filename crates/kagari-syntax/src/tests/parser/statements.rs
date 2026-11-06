@@ -1,13 +1,13 @@
-use crate::ast::visit::NodeRef;
-
-use crate::ast::views::ExprView;
-
 use crate::{
-    ast::{borrow::AstNode, views::ItemView, views::StmtView},
+    ast::{
+        borrow::AstNode,
+        views::{ExprView, ItemView, StmtView},
+        visit::NodeRef,
+    },
     parser::{ParseOptions, parse},
     tests::common,
 };
-use kagari_source::diagnostic::Severity;
+use kagari_source::diagnostic::{DiagnosticKind, Severity};
 
 #[test]
 fn compound_assignments_preserve_lossless_computed_targets() {
@@ -93,6 +93,43 @@ fn parses_let_return_and_tail_expr_in_block() {
     match body.tail_expr().expect("expected tail expression") {
         ExprView::PathExpr(path) => assert_eq!(path.name_text().as_deref(), Some("value")),
         other => panic!("unexpected tail expr: {other:?}"),
+    }
+}
+
+#[test]
+fn statement_terminators_follow_the_completed_expression_kind() {
+    for (expression, needs_terminator) in [
+        ("{1}", false),
+        ("if flag {1} else {2}", false),
+        ("{1} + 2", true),
+        ("if flag {1} else {2} + 3", true),
+        ("{value}.field", true),
+        ("if flag {first} else {second}()", true),
+    ] {
+        let text = format!("fn main() {{ {expression} val after = 3; }}");
+        let parsed = parse(
+            &common::source(&text),
+            ParseOptions::default(),
+            &Default::default(),
+        )
+        .unwrap();
+        let diagnostics = parsed.diagnostics();
+        assert_eq!(
+            diagnostics.len(),
+            usize::from(needs_terminator),
+            "{expression}: {diagnostics:?}"
+        );
+        if needs_terminator {
+            assert!(matches!(
+                diagnostics[0].kind,
+                DiagnosticKind::ExpectedStatementTerminator
+            ));
+        }
+        let module = parsed.module();
+        let body = common::first_function(&module).body().unwrap();
+        assert_eq!(body.statements().count(), 2, "{expression}");
+        common::parse_ok(&format!("fn main() {{ {expression}; val after = 3; }}"));
+        common::parse_ok(&format!("fn main() {{ {expression} }}"));
     }
 }
 

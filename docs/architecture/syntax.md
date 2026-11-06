@@ -86,6 +86,21 @@ the first block as its condition. If a plain block condition has no following
 body block, recovery assigns that lone block to the body and marks the condition
 missing. The same rule applies to `while`.
 
+Condition parsing keeps the outer brace available for the control-flow body.
+Explicit parentheses, argument/index/array delimiters, blocks and match-arm
+braces restore ordinary struct-expression parsing within their contents, then
+restore the enclosing condition policy. For example,
+`if check(Point { x: 1 }) { work(); }` retains the constructor as a call argument
+and the final block as the body. A missing opening delimiter does not establish
+that boundary during recovery; an undelimited closure body inherits its enclosing
+expression policy.
+
+Statement termination follows the completed expression alternative. A standalone
+block or `IfExpr` can omit its semicolon, while a binary/postfix expression built
+around it requires one before the next statement: `{ 1 } + 2; val next = 3;`.
+The first token does not decide this policy. Actual block-tail expressions still
+omit the semicolon regardless of their expression alternative.
+
 `SeparatedList` stores ordered required elements and optional required separators.
 For `f(a,,b,)`, the middle element is missing and the last entry retains a comma.
 Filtered child iterators omit missing entries. Consumers whose semantics depend
@@ -113,6 +128,20 @@ function, applied and qualified types. Interpolation exposes ordered text/hole
 parts. Attributes belong directly to declarations/members; HIR and lint do not
 search parents to determine their target. Type aliases retain whether a `where`
 clause was written before or after `=`, so traversal preserves either order.
+
+Call generic arguments are positional. The call parser diagnoses a top-level
+associated binding such as `f::<i32, Item = T>(value)` before HIR can project the
+argument list into positional types, retaining the authored shape through ordinary
+recovery. A binding inside a type argument, such as
+`f::<Iterator<Item = i32>>(value)`, remains valid syntax; semantic admission stays
+with HIR.
+
+Angle-bracket lookahead recognizes only a possible type-argument shape. It stops
+at tokens outside the type-argument vocabulary or mismatched delimiters; the
+ordinary type parser still owns grammar fields and diagnostics. In independent
+comparisons such as `val first = x < y; val second = x < y;`, each probe stops at
+its statement boundary instead of scanning subsequent statements. This bounded
+case does not establish linear work for every possible source shape.
 
 Local functions reuse `FnDef` through `Stmt::FnDef`. Async blocks have a distinct
 keyword wrapper and required block body; they do not fabricate closure parameters.

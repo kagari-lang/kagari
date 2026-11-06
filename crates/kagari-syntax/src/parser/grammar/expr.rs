@@ -62,9 +62,18 @@ impl Parser<'_> {
     }
 
     pub(crate) fn parse_condition_expr(&mut self) -> Built<Expr> {
+        self.with_struct_literals(false, Self::parse_expr)
+    }
+
+    /// Delimited expressions restore ordinary construction without changing the outer condition.
+    pub(crate) fn with_struct_literals<T>(
+        &mut self,
+        allowed: bool,
+        parse: impl FnOnce(&mut Self) -> T,
+    ) -> T {
         let previous = self.allow_struct_literals;
-        self.allow_struct_literals = false;
-        let result = self.parse_expr();
+        self.allow_struct_literals = allowed;
+        let result = parse(self);
         self.allow_struct_literals = previous;
         result
     }
@@ -299,7 +308,7 @@ impl Parser<'_> {
                     let application =
                         self.eat::<tokens::ColonColon>(TokenKind::ColonColon)
                             .map(|separator| {
-                                let (arguments, depth) = self.parse_generic_arg_list();
+                                let (arguments, depth) = self.parse_call_generic_arg_list();
                                 application_depth = depth;
                                 Box::new(CallApplication {
                                     separator: Some(separator),
@@ -307,8 +316,18 @@ impl Parser<'_> {
                                 })
                             });
                     let open = self.expect(TokenKind::LParen, DiagnosticKind::ExpectedClosingParen);
+                    let allow_struct_literals =
+                        open.as_ref().is_some() || self.allow_struct_literals;
                     let (arguments, argument_depth) =
-                        self.list(TokenKind::RParen, Self::expr_starts, Self::parse_expr, 3, 0);
+                        self.with_struct_literals(allow_struct_literals, |parser| {
+                            parser.list(
+                                TokenKind::RParen,
+                                Self::expr_starts,
+                                Self::parse_expr,
+                                3,
+                                0,
+                            )
+                        });
                     let close =
                         self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
                     if !self.admit(
@@ -361,7 +380,7 @@ impl Parser<'_> {
                 }
                 TokenKind::LBracket => {
                     let open = self.take();
-                    let index = self.parse_expr();
+                    let index = self.with_struct_literals(true, Self::parse_expr);
                     let close =
                         self.expect(TokenKind::RBracket, DiagnosticKind::ExpectedClosingBracket);
                     if !self.admit(lhs.depth.max(index.depth) + 1, suffix) {
@@ -413,8 +432,8 @@ impl Parser<'_> {
                     },
                 }
             }
-            TokenKind::LParen => self.parse_parenthesized(),
-            TokenKind::LBracket => self.parse_array(),
+            TokenKind::LParen => self.with_struct_literals(true, Self::parse_parenthesized),
+            TokenKind::LBracket => self.with_struct_literals(true, Self::parse_array),
             TokenKind::IfKw => self.parse_if(),
             TokenKind::MatchKw => self.parse_match(),
             TokenKind::LoopKw => {
@@ -707,13 +726,16 @@ impl Parser<'_> {
             TokenKind::LBrace,
             DiagnosticKind::ExpectedStructLiteralBodyStart,
         );
-        let (arms, _) = self.list(
-            TokenKind::RBrace,
-            Self::pattern_starts,
-            Self::parse_match_arm,
-            1,
-            0,
-        );
+        let allow_struct_literals = open.as_ref().is_some() || self.allow_struct_literals;
+        let (arms, _) = self.with_struct_literals(allow_struct_literals, |parser| {
+            parser.list(
+                TokenKind::RBrace,
+                Self::pattern_starts,
+                Self::parse_match_arm,
+                1,
+                0,
+            )
+        });
         let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
         let site = self.end(arms_mark);
         let arms = MatchArmList {

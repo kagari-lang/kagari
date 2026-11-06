@@ -30,6 +30,57 @@ use kagari_types::{
 use std::sync::Arc;
 
 #[test]
+fn call_type_arguments_reject_top_level_associated_bindings() {
+    for text in [
+        "fn identity<T>(value: T) -> T { value } fn main() -> i32 { identity::<i32, Item = DoesNotExist>(42) }",
+        "fn main() -> i32 { fn identity<T>(value: T) -> T { value } identity::<Item = i32, i32>(42) }",
+        "struct Relay {} impl Relay { fn identity<T>(self, value: T) -> T { value } } fn main() -> i32 { Relay {}.identity::<i32, Item = i32>(42) }",
+    ] {
+        let source = SourceFile::new("named-call-arguments.kgr", text);
+        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+            .expect("installed declaration analysis");
+        let diagnostic = analysis
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| {
+                matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::UnsupportedSyntax {
+                        feature: "associated type bindings in call arguments"
+                    }
+                )
+            })
+            .unwrap_or_else(|| panic!("{text}: {:?}", analysis.diagnostics()));
+        let span = diagnostic.span.expect("written binding site");
+        assert_eq!(&text[span.start..span.end], "Item");
+        assert!(analysis.into_codegen().is_err(), "{text}");
+    }
+}
+
+#[test]
+fn call_type_arguments_keep_nested_associated_bindings() {
+    let source = SourceFile::new(
+        "nested-call-arguments.kgr",
+        r#"
+fn identity<T>(value: T) -> T { value }
+fn preserve(iter: Iterator<Item = i32>) -> Iterator<Item = i32> {
+    identity::<Iterator<Item = i32>>(iter)
+}
+fn sum<I: Iterator<Item = i32>>(iter: I) -> i32 { iter.sum() }
+fn main() -> i32 { sum([20, 22].iter()) }
+"#,
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        .expect("installed declaration analysis");
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    assert!(analysis.into_codegen().is_ok());
+}
+
+#[test]
 fn async_callable_typing_contract() {
     let context = DefinitionContext::new().unwrap();
     let text = r#"

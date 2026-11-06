@@ -878,7 +878,9 @@ evidence for a static initializer. Invalid initializers cannot supply optional
 semantic facts merely because their source nodes were lowered successfully.
 
 `FileAnalysis::binding_usage` walks eligible resolved bindings, expressions, places
-and closure captures once. Shadowed bindings keep distinct declaration identities;
+and resolver-owned captures once, including both closures and async blocks.
+Closure parameters retain their separate parameter classification. Shadowed
+bindings keep distinct declaration identities;
 member/index writes read the receiver without rebinding its slot, while direct and
 compound assignments count slot writes. Rule consumers decide whether those facts
 warrant a diagnostic. HIR does not own rule names, severity or suppressions.

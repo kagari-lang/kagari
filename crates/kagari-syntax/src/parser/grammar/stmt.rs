@@ -19,8 +19,11 @@ use crate::{
 
 impl Parser<'_> {
     pub(crate) fn parse_block(&mut self) -> Built<BlockExpr> {
-        self.with_nesting(Self::parse_block_inner)
-            .unwrap_or_else(|| Built::missing(self.anchor()))
+        self.with_struct_literals(true, |parser| {
+            parser
+                .with_nesting(Self::parse_block_inner)
+                .unwrap_or_else(|| Built::missing(parser.anchor()))
+        })
     }
 
     fn parse_block_inner(&mut self) -> Built<BlockExpr> {
@@ -66,7 +69,6 @@ impl Parser<'_> {
                 TokenKind::BreakKw => Some(self.parse_break()),
                 TokenKind::ContinueKw => Some(self.parse_continue()),
                 _ if self.expr_starts() => {
-                    let bare_block = self.at_any(&[TokenKind::IfKw, TokenKind::LBrace]);
                     let expression = self.parse_expr();
                     if self.assignment_operator().is_some() {
                         Some(self.parse_assignment(expression))
@@ -80,7 +82,10 @@ impl Parser<'_> {
                         let mark = self.begin_at(self.first(&expression, before), expression.depth);
                         let terminator = if self.at(TokenKind::Semi) {
                             Some(Required::Present(self.take()))
-                        } else if bare_block {
+                        } else if matches!(
+                            expression.node,
+                            Required::Present(Expr::IfExpr(_) | Expr::BlockExpr(_))
+                        ) {
                             None
                         } else {
                             Some(self.expect(

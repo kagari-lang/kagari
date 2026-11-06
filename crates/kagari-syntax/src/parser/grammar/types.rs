@@ -234,15 +234,31 @@ impl Parser<'_> {
     }
 
     pub(crate) fn parse_generic_arg_list(&mut self) -> (GenericArgList, usize) {
+        self.parse_generic_arguments(Self::parse_generic_argument)
+    }
+
+    /// Calls accept positional types; equality bindings belong inside those types.
+    pub(crate) fn parse_call_generic_arg_list(&mut self) -> (GenericArgList, usize) {
+        self.parse_generic_arguments(Self::parse_call_generic_argument)
+    }
+
+    fn parse_call_generic_argument(&mut self) -> Built<GenericArgument> {
+        if self.at(TokenKind::Ident) && self.nth_nontrivia_kind(1) == Some(TokenKind::Eq) {
+            self.error_here(DiagnosticKind::UnsupportedSyntax {
+                feature: "associated type bindings in call arguments",
+            });
+        }
+        self.parse_generic_argument()
+    }
+
+    fn parse_generic_arguments(
+        &mut self,
+        argument: fn(&mut Self) -> Built<GenericArgument>,
+    ) -> (GenericArgList, usize) {
         let mark = self.begin();
         let open = self.expect(TokenKind::Lt, DiagnosticKind::ExpectedType);
-        let (arguments, _) = self.list(
-            TokenKind::Gt,
-            Self::generic_argument_starts,
-            Self::parse_generic_argument,
-            1,
-            0,
-        );
+        let (arguments, _) =
+            self.list(TokenKind::Gt, Self::generic_argument_starts, argument, 1, 0);
         let close = self.expect(TokenKind::Gt, DiagnosticKind::ExpectedType);
         let site = self.end(mark);
         (
