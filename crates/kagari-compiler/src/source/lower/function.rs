@@ -1,4 +1,4 @@
-use crate::source::elaborate::elaborate;
+use crate::source::elaborate::{build::Builder, elaborate};
 use crate::source::lower::{
     MirLoweringError,
     instances::{Instance, InstancePlanner},
@@ -365,15 +365,20 @@ pub(crate) fn lower_function<'a>(
     let input = module
         .body_for(instance.body.owner())
         .ok_or(MirLoweringError::MissingBinding("admitted function body"))?;
-    let body = elaborate(input, &planner.options.cancel)?;
+    let is_factory = function.is_async && !instance.resume;
+    let body = if is_factory {
+        None
+    } else {
+        Some(elaborate(input, &planner.options.cancel)?)
+    };
     let mut lowerer = FunctionLowerer::new(
         module,
         &LoweringSignature::from(&typed),
-        Some(body),
+        body,
         instance,
         planner,
     )?;
-    if function.is_async && !lowerer.instance.resume {
+    if is_factory {
         lowerer.lower_future_factory()?;
         return lowerer.finish();
     }
@@ -404,10 +409,10 @@ pub(crate) fn lower_closure<'a>(
         .body_for(instance.body.owner())
         .and_then(|body| body.closure(closure))
         .ok_or(MirLoweringError::MissingBinding("admitted nested callable"))?;
-    let expanded = elaborate(input, &planner.options.cancel)?;
-    let callable = expanded
-        .callable
-        .clone()
+    let builder = Builder::new(input, &planner.options.cancel)?;
+    let callable = builder
+        .callable()
+        .cloned()
         .ok_or(MirLoweringError::MissingBinding("nested callable contract"))?;
     let result = if callable.is_block {
         callable.ty.clone()
@@ -434,13 +439,19 @@ pub(crate) fn lower_closure<'a>(
             result
         },
     };
-    let captures = expanded.captures.clone();
-    let BodyRoot::Expression(body) = expanded.root else {
+    let captures = builder.captured_bindings().to_vec();
+    let BodyRoot::Expression(body) = input.root() else {
         return Err(MirLoweringError::MissingBinding(
             "nested callable expression root",
         ));
     };
-    let mut lowerer = FunctionLowerer::new(module, &typed, Some(expanded), instance, planner)?;
+    let is_factory = callable.is_async && !instance.resume;
+    let expanded = if is_factory {
+        None
+    } else {
+        Some(builder.finish()?)
+    };
+    let mut lowerer = FunctionLowerer::new(module, &typed, expanded, instance, planner)?;
     lowerer.function.name = typed.name;
     lowerer.mark_resume();
     lowerer.function.debug.source_span = callable.span;
@@ -521,7 +532,7 @@ pub(crate) fn lower_closure<'a>(
         });
         lowerer.locals.insert(param.id, local);
     }
-    if callable.is_async && !lowerer.instance.resume {
+    if is_factory {
         lowerer.lower_future_factory()?;
         return lowerer.finish();
     }

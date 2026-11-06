@@ -425,7 +425,9 @@ substitutes binders and selects method, native/default and interface-constructio
 recipes using the same bounded HIR catalog queries. The
 [MIR builder](../../crates/kagari-compiler/src/source/lower/state.rs) consumes these
 operations and recipes; it has no `AnalyzedModule`, `TypeTable` or source resolver.
-Generated adapters explicitly have no authored operation tree. Each tree is dropped
+Generated adapters and async factories have no authored operation tree. Factories
+prepare only signatures, parameters and captures; their resume bodies expand the
+authored operations when compiled. Each tree is dropped
 with its function builder, while admitted source/environment borrows remain valid
 for the complete compilation.
 

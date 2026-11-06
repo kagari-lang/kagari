@@ -22,7 +22,9 @@ use kagari_hir::{
     types::TypeId,
 };
 
-pub(super) struct Builder<'a, 'c> {
+/// Prepares callable metadata without traversing the root's executable body.
+/// Only `finish` expands operations; async factories need just the metadata.
+pub(in crate::source) struct Builder<'a, 'c> {
     input: CheckedBodyInput<'a>,
     environment: CheckedEnvironment<'a>,
     completion: BodyCompletion<'a>,
@@ -31,8 +33,11 @@ pub(super) struct Builder<'a, 'c> {
 }
 
 impl<'a, 'c> Builder<'a, 'c> {
-    pub(super) fn new(input: CheckedBodyInput<'a>, cancel: &'c CancellationToken) -> Self {
-        Self {
+    pub(in crate::source) fn new(
+        input: CheckedBodyInput<'a>,
+        cancel: &'c CancellationToken,
+    ) -> Result<Self, ElaborationError> {
+        let mut builder = Self {
             input,
             environment: input.environment(),
             completion: input.completion(),
@@ -51,10 +56,20 @@ impl<'a, 'c> Builder<'a, 'c> {
                 places: Default::default(),
                 patterns: Default::default(),
             },
-        }
+        };
+        builder.prepare_callable()?;
+        Ok(builder)
     }
 
-    pub(super) fn finish(mut self) -> Result<CheckedBody, ElaborationError> {
+    pub(in crate::source) fn callable(&self) -> Option<&CallableBody> {
+        self.body.callable.as_ref()
+    }
+
+    pub(in crate::source) fn captured_bindings(&self) -> &[CheckedCapture] {
+        &self.body.captures
+    }
+
+    fn prepare_callable(&mut self) -> Result<(), ElaborationError> {
         self.check()?;
         if let Some(closure) = self.input.key().closure {
             self.body.captures = self.captures(closure)?;
@@ -99,6 +114,11 @@ impl<'a, 'c> Builder<'a, 'c> {
                 parameters,
             });
         }
+        self.check()
+    }
+
+    pub(in crate::source) fn finish(mut self) -> Result<CheckedBody, ElaborationError> {
+        self.check()?;
         match self.input.root() {
             BodyRoot::Block(id) => self.block(id)?,
             BodyRoot::Expression(id) => {

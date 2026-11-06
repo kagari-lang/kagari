@@ -4,7 +4,7 @@
 //! comes from an admitted source body and its fixed declaration environment.
 //! Missing required facts fail here; there is no fallback to the syntax lowerer.
 
-mod build;
+pub(super) mod build;
 pub mod model;
 
 use crate::source::elaborate::{build::Builder, model::CheckedBody};
@@ -28,7 +28,7 @@ pub fn elaborate(
     input: CheckedBodyInput<'_>,
     cancel: &CancellationToken,
 ) -> Result<CheckedBody, ElaborationError> {
-    Builder::new(input, cancel).finish()
+    Builder::new(input, cancel)?.finish()
 }
 
 #[cfg(test)]
