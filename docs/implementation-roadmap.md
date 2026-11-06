@@ -274,6 +274,25 @@ cache. No cache implementation, daemon or AOT expansion is activated by this not
 
 ## Cranelift AOT deployment
 
+Dependency maintenance for PRs #41, #43, #45, #46, #48 and #49 is consolidated
+in [PR #45](https://github.com/kagari-lang/kagari/pull/45). Separate upgrades mixed
+Cranelift 0.136 and 0.137, producing incompatible IR/ISA/module types in both Linux
+lint and Windows AOT builds; rerunning unchanged jobs cannot fix those errors.
+All six workspace dependencies now select 0.137 and the lockfile resolves one
+0.137.1 family. The existing Cargo dependency owner remains unchanged; Dependabot
+groups `cranelift-*` using its documented
+[group patterns](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#patterns-and-exclude-patterns-groups).
+Local validation passes six actual scalar JIT/code-owner lifetime/checked-trap
+cases and two Windows image deployment/cleanup cases. Workspace all-target Clippy,
+structure, formatting and diff checks pass; backend source changes were unnecessary.
+Full workspace/platform/backend acceptance stays in CI on the consolidated PR.
+CI is currently blocked externally: on 2026-11-06, dispatching `pages.yml` for
+the PR branch returned HTTP 422, `Actions has been disabled for this user`.
+Push/reopen events produced no CI runs despite enabled repository settings.
+Restore account-level Actions access, trigger checks on the latest PR revision,
+and merge only after they pass; local results do not replace that acceptance.
+This maintenance does not activate deferred native expansion phases.
+
 [Scalar AOT deployment](spec/aot.md) is implemented for x86_64 Windows MSVC.
 JIT and object emission share lowering and invocation context. Build hosts emit
 an immutable bytecode/DLL/manifest bundle; compiler-free hosts load and install it
