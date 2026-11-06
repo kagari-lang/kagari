@@ -1,251 +1,314 @@
-//! Mutable construction state shared by recursive-descent grammar handlers.
-//!
-//! The token cursor and Rowan builder advance together; `expect` reports a missing
-//! token without inventing one. Handlers own recovery/progress. A checkpoint lets
-//! a handler wrap already-emitted children (for example the left operand) in a
-//! larger node after discovering an operator. Completed-node depths are tracked
-//! separately because Rowan checkpoints alone do not carry that accounting.
-//! Exhaustion/cancellation appears as EOF to grammar loops; the facade performs
-//! the final cancellation check before publishing a result.
+//! Cursor, diagnostics, sparse recovery ownership and admission before recursive growth.
 
-use rowan::{Checkpoint as GreenCheckpoint, GreenNode, GreenNodeBuilder, Language};
-use smallvec::SmallVec;
-use {
-    kagari_common::cancellation::CancellationToken,
-    kagari_source::{
-        diagnostic::{Diagnostic, DiagnosticKind},
-        literal::decode_string_literal_with_cancellation,
-    },
+use std::sync::Arc;
+
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
+use kagari_common::cancellation::CancellationToken;
+use kagari_source::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    literal::decode_string_literal_with_cancellation,
+    source::SourceFile,
 };
 
 use crate::{
-    DiagnosticBuffer, TokenBuffer,
+    DiagnosticBuffer,
+    ast::{
+        borrow::NodeData,
+        item::{ModuleBody, ModuleId},
+        site::{
+            ListEntry, Recovery, RecoveryPart, Required, SeparatedList, SyntaxSite, Unexpected,
+        },
+        tokens::{OperatorToken, Token},
+    },
     kind::SyntaxKind,
-    parser::ParseLimits,
-    syntax_node::KagariLanguage,
-    token::{Token, TokenKind},
+    lexical::Lexical,
+    parser::{ParseLimits, ParseMode, ParsedFile},
+    token::TokenKind,
 };
 
-/// A paired Rowan/output-depth position before a possible enclosing node begins.
-#[derive(Clone, Copy)]
-pub(crate) struct Checkpoint {
-    /// Builder position used to wrap children emitted since this checkpoint.
-    green: GreenCheckpoint,
-    /// Corresponding index in `Parser::child_depths`, not a source/token offset.
-    child: usize,
+const CANCELLATION_CHECK_TOKENS: usize = 1024;
+
+pub(crate) struct Built<T> {
+    pub node: Required<T>,
+    pub depth: usize,
 }
 
-/// Per-parse mutable state; borrows source text and owns tokens, output and diagnostics.
-///
-/// All byte slicing uses ranges emitted by the lexer for `text`. Grammar handlers
-/// balance `start_node`/`finish_node`, including recovered and exhausted paths.
-/// The finished green tree owns its token text independently of this borrow.
+impl<T> Built<T> {
+    pub fn missing(at: u32) -> Self {
+        Self {
+            node: Required::Missing { at },
+            depth: 0,
+        }
+    }
+
+    pub fn present(node: T, depth: usize) -> Self {
+        Self {
+            node: Required::Present(node),
+            depth,
+        }
+    }
+}
+
+pub(crate) struct Mark {
+    first: u32,
+    frame: usize,
+}
+
+struct RecoveryFrame {
+    field: u16,
+    entry: u32,
+    part: RecoveryPart,
+    unexpected: Vec<Unexpected>,
+    deepest_child: usize,
+}
+
 pub(crate) struct Parser<'a> {
-    /// Original UTF-8 text from which token spellings are sliced.
-    text: &'a str,
-    /// Complete lexical stream, including trivia and the terminal EOF token.
-    tokens: TokenBuffer,
-    /// Index of the next unconsumed token, including trivia; not a byte offset.
+    source: &'a SourceFile,
+    pub(crate) lexical: Lexical,
     cursor: usize,
-    /// Owns copied token text and open-node construction state.
-    builder: GreenNodeBuilder<'static>,
-    /// Syntax errors plus at most the terminating resource-limit report.
     diagnostics: DiagnosticBuffer,
-    /// Whether a following `{` can begin a struct expression in this context.
-    allow_struct_literals: bool,
-    /// Caller-selected diagnostic, recursive-entry and completed-depth thresholds.
+    pub(crate) modules: Vec<Option<ModuleBody>>,
+    recoveries: Vec<Recovery>,
+    frames: Vec<RecoveryFrame>,
     limits: ParseLimits,
-    /// Sticky stop flag after a parser limit; remaining input is retained as error text.
-    exhausted: bool,
-    /// Number of active guarded recursive grammar entries, not tree depth.
     nesting: usize,
-    /// Stack of `child_depths` indices for open nodes, including checkpoint wrappers.
-    node_starts: Vec<usize>,
-    /// Depths of completed nodes; finishing a parent collapses its child suffix to one depth.
-    child_depths: Vec<usize>,
-    /// Shared cancellation request; a cancelled parse is discarded by the facade.
-    cancel: CancellationToken,
-    /// Enables offline declaration forms; does not establish executable validity.
-    pub(crate) declarations: bool,
+    stopped: Option<usize>,
+    pub(crate) completed_depth: usize,
+    pub(crate) cancel: CancellationToken,
+    pub(crate) mode: ParseMode,
+    pub(crate) allow_struct_literals: bool,
 }
 
 impl<'a> Parser<'a> {
-    /// Starts empty output over tokens whose byte spans belong to `text`.
     pub(crate) fn new(
-        text: &'a str,
-        tokens: TokenBuffer,
+        source: &'a SourceFile,
+        lexical: Lexical,
         limits: ParseLimits,
         cancel: CancellationToken,
+        mode: ParseMode,
     ) -> Self {
         Self {
-            text,
-            tokens,
+            source,
+            lexical,
             cursor: 0,
-            builder: GreenNodeBuilder::new(),
-            diagnostics: SmallVec::new(),
-            allow_struct_literals: true,
+            diagnostics: DiagnosticBuffer::new(),
+            modules: Vec::new(),
+            recoveries: Vec::new(),
+            frames: Vec::new(),
             limits,
-            exhausted: false,
             nesting: 0,
-            node_starts: Vec::new(),
-            child_depths: Vec::new(),
+            stopped: None,
+            completed_depth: 0,
             cancel,
-            declarations: false,
+            mode,
+            allow_struct_literals: true,
         }
     }
 
-    /// Guards a recursive grammar entry, recording exhaustion before further recursion.
-    pub(crate) fn with_nesting(&mut self, parse: impl FnOnce(&mut Self)) {
-        if self.exhausted || self.cancel.check().is_err() {
-            return;
-        }
-        if self.nesting >= self.limits.max_nesting {
-            let span = self.peek().map(|token| token.span).unwrap_or_default();
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
-                    resource: "parser nesting",
-                    limit: self.limits.max_nesting,
-                })
-                .with_span(span),
-            );
-            self.exhausted = true;
-            return;
-        }
-        self.nesting += 1;
-        parse(self);
-        self.nesting -= 1;
-    }
-
-    /// Consumes balanced builder state into the green root and accumulated diagnostics.
-    pub(crate) fn finish(self) -> (GreenNode, DiagnosticBuffer) {
-        (self.builder.finish(), self.diagnostics)
-    }
-
-    /// Opens a node at the current output position and starts child-depth accounting.
-    pub(crate) fn start_node(&mut self, kind: SyntaxKind) {
-        self.node_starts.push(self.child_depths.len());
-        self.builder.start_node(KagariLanguage::kind_to_raw(kind));
-    }
-
-    /// Closes the current node and replaces its child depths by `1 + max(children)`.
-    /// Tokens do not contribute depth; the threshold is checked after construction.
-    pub(crate) fn finish_node(&mut self) {
-        let start = self.node_starts.pop().expect("open syntax node");
-        let depth = self.child_depths[start..]
-            .iter()
-            .copied()
-            .max()
-            .unwrap_or(0)
-            + 1;
-        self.child_depths.truncate(start);
-        self.child_depths.push(depth);
-        self.builder.finish_node();
-        if !self.exhausted && depth > self.limits.max_tree_depth {
-            let span = self.peek().map(|token| token.span).unwrap_or_default();
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
-                    resource: "syntax tree depth",
-                    limit: self.limits.max_tree_depth,
-                })
-                .with_span(span),
-            );
-            self.exhausted = true;
+    pub(crate) fn finish(self, root: ModuleId) -> ParsedFile {
+        assert!(self.frames.is_empty(), "closed grammar recovery scopes");
+        ParsedFile {
+            source: self.source.clone(),
+            mode: self.mode,
+            lexical: self.lexical,
+            modules: self
+                .modules
+                .into_iter()
+                .map(|body| body.expect("completed module body"))
+                .collect(),
+            recoveries: self.recoveries,
+            diagnostics: Arc::new(self.diagnostics),
+            root,
         }
     }
 
-    /// Records the current output/depth positions without advancing the token cursor.
-    pub(crate) fn checkpoint(&mut self) -> Checkpoint {
-        Checkpoint {
-            green: self.builder.checkpoint(),
-            child: self.child_depths.len(),
-        }
-    }
-
-    /// Opens a parent around children emitted since a checkpoint in the same builder scope.
-    pub(crate) fn start_node_at(&mut self, checkpoint: Checkpoint, kind: SyntaxKind) {
-        self.node_starts.push(checkpoint.child);
-        self.builder
-            .start_node_at(checkpoint.green, KagariLanguage::kind_to_raw(kind));
-    }
-
-    /// Emits leading trivia, then consumes the expected token or records a diagnostic.
-    /// Returns false on mismatch without consuming the mismatching non-trivia token.
-    pub(crate) fn expect(&mut self, kind: TokenKind, diagnostic: DiagnosticKind) -> bool {
+    pub(crate) fn begin(&mut self) -> Mark {
         self.bump_trivia();
-        if self.at(kind) {
-            self.bump();
-            true
+        self.begin_at(self.cursor as u32, 0)
+    }
+
+    pub(crate) fn begin_at(&mut self, first: u32, child_depth: usize) -> Mark {
+        let mark = Mark {
+            first,
+            frame: self.frames.len(),
+        };
+        self.frames.push(RecoveryFrame {
+            field: 0,
+            entry: 0,
+            part: RecoveryPart::Element,
+            unexpected: Vec::new(),
+            deepest_child: child_depth,
+        });
+        mark
+    }
+
+    pub(crate) fn end(&mut self, mark: Mark) -> SyntaxSite {
+        assert_eq!(mark.frame + 1, self.frames.len());
+        let frame = self.frames.pop().expect("open grammar recovery scope");
+        let depth = frame.deepest_child + 1;
+        self.account_depth(depth);
+        let mut end = self.cursor;
+        while end > mark.first as usize && self.lexical.kind(end - 1).is_trivia() {
+            end -= 1;
+        }
+        let site = SyntaxSite {
+            first: mark.first,
+            end: end as u32,
+        };
+        if frame.unexpected.is_empty() {
+            site
         } else {
-            self.error_here(diagnostic);
-            false
+            self.recoveries.push(Recovery {
+                site,
+                unexpected: frame.unexpected,
+            });
+            SyntaxSite {
+                first: self
+                    .recoveries
+                    .len()
+                    .try_into()
+                    .expect("parse-local recovery index"),
+                end: 0,
+            }
         }
     }
 
-    /// Emits consecutive whitespace/comments into the currently open node.
-    pub(crate) fn bump_trivia(&mut self) {
-        while self
-            .peek()
-            .map(|token| token.kind.is_trivia())
-            .unwrap_or(false)
-        {
-            self.bump();
-        }
-    }
-
-    /// Join adjacent angle tokens only in expression position. Type parsing
-    /// continues to consume separate generic delimiters without rewriting text.
-    pub(crate) fn joint_shift(&self) -> Option<SyntaxKind> {
-        if self.exhausted || self.cancel.check().is_err() {
-            return None;
-        }
-        let a = self.tokens.get(self.cursor)?;
-        let b = self.tokens.get(self.cursor + 1)?;
-        if a.span.end != b.span.start {
-            return None;
-        }
-        Some(match (&a.kind, &b.kind) {
-            (TokenKind::Lt, TokenKind::Lt) => SyntaxKind::Shl,
-            (TokenKind::Gt, TokenKind::Gt) => SyntaxKind::Shr,
-            (TokenKind::Lt, TokenKind::Le) => SyntaxKind::ShlEq,
-            (TokenKind::Gt, TokenKind::Ge) => SyntaxKind::ShrEq,
-            _ => return None,
+    pub(crate) fn first<T: NodeData>(&self, built: &Built<T>, fallback: usize) -> u32 {
+        built.node.as_ref().map_or(fallback as u32, |node| {
+            node.site().resolve(&self.recoveries).first
         })
     }
 
-    /// Emits one shift token from two adjacent lexer tokens; requires `joint_shift()` success.
-    pub(crate) fn bump_joint_shift(&mut self) {
-        let kind = self.joint_shift().expect("joint shift");
-        let start = self.tokens[self.cursor].span.start;
-        let end = self.tokens[self.cursor + 1].span.end;
-        self.builder
-            .token(KagariLanguage::kind_to_raw(kind), &self.text[start..end]);
-        self.cursor += 2;
-    }
-
-    /// Wraps the next token in an error node to retain text while advancing recovery.
-    pub(crate) fn bump_as_error(&mut self) {
-        self.start_node(SyntaxKind::Error);
-        self.bump();
-        self.finish_node();
-    }
-
-    /// Copies the current token's source spelling into the builder and advances once.
-    /// Does nothing when `peek()` is unavailable, including exhaustion/cancellation.
-    pub(crate) fn bump(&mut self) {
-        if let Some(token) = self.peek().cloned() {
-            let kind = token.kind.to_syntax_kind();
-            let text = &self.text[token.span.start..token.span.end];
-            self.builder.token(KagariLanguage::kind_to_raw(kind), text);
-            self.cursor += 1;
+    pub(crate) fn account_depth(&mut self, depth: usize) {
+        self.completed_depth = depth;
+        if let Some(parent) = self.frames.last_mut() {
+            parent.deepest_child = parent.deepest_child.max(depth);
+        }
+        if depth > self.limits.max_tree_depth {
+            self.limit("syntax tree depth", self.limits.max_tree_depth, self.cursor);
         }
     }
 
-    /// Reports a diagnostic at the current token range, or the default span if unavailable.
+    pub(crate) fn current_text(&self) -> &str {
+        let span = self.lexical.span(self.cursor);
+        &self.source.text()[span.start..span.end]
+    }
+
+    pub(crate) fn abandon(&mut self, mark: Mark, suffix: usize) {
+        assert_eq!(mark.frame + 1, self.frames.len());
+        self.frames.pop();
+        self.stopped = Some(self.stopped.map_or(suffix, |first| first.min(suffix)));
+        // Discarded reads belong exclusively to the root's unparsed suffix.
+        // Enclosing sites and rejected entries must end at the retained cursor.
+        self.cursor = suffix;
+    }
+
+    pub(crate) fn position(&mut self, field: u16, entry: usize) {
+        let frame = self.frames.last_mut().expect("owning grammar scope");
+        frame.field = field;
+        frame.entry = entry.try_into().expect("parse-local list index");
+        frame.part = RecoveryPart::Element;
+    }
+
+    pub(crate) fn unexpected_range(&mut self, first: usize, end: usize) {
+        if first >= end {
+            return;
+        }
+        let frame = self.frames.last_mut().expect("unexpected input owner");
+        if let Some(previous) = frame.unexpected.last_mut()
+            && previous.field == frame.field
+            && previous.entry == frame.entry
+            && previous.part == frame.part
+            && previous.end as usize == first
+        {
+            previous.end = end as u32;
+        } else {
+            frame.unexpected.push(Unexpected {
+                field: frame.field,
+                entry: frame.entry,
+                part: frame.part,
+                first: first as u32,
+                end: end as u32,
+            });
+        }
+    }
+
+    pub(crate) fn bump_as_error(&mut self) {
+        if self.at(TokenKind::Eof) {
+            return;
+        }
+        let first = self.cursor;
+        self.cursor += 1;
+        self.unexpected_range(first, self.cursor);
+        self.bump_trivia();
+    }
+
+    /// Parses one rejected grammatical entry for delimiter recovery, then retains
+    /// only its physical coverage at the enclosing owner's insertion position.
+    pub(crate) fn rejected<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) {
+        let first = self.cursor;
+        let recoveries = self.recoveries.len();
+        drop(parse(self));
+        self.recoveries.truncate(recoveries);
+        self.unexpected_range(first, self.cursor);
+    }
+
+    pub(crate) fn finish_remaining_tokens(&mut self) {
+        if let Some(first) = self.stopped {
+            self.position(u16::MAX, 0);
+            self.unexpected_range(first, self.lexical.len());
+            self.cursor = self.lexical.len();
+        } else if self.at(TokenKind::Eof) {
+            self.cursor = self.lexical.len();
+        }
+    }
+
+    pub(crate) fn with_nesting<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) -> Option<T> {
+        if self.stopped.is_some() {
+            return None;
+        }
+        if self.nesting >= self.limits.max_nesting {
+            self.limit("parser nesting", self.limits.max_nesting, self.cursor);
+            return None;
+        }
+        self.nesting += 1;
+        let result = parse(self);
+        self.nesting -= 1;
+        Some(result)
+    }
+
+    /// Call before attaching a recursively owned parent, including iterative chains.
+    pub(crate) fn admit(&mut self, depth: usize, suffix: usize) -> bool {
+        if self.stopped.is_some() {
+            return false;
+        }
+        if depth > self.limits.max_tree_depth {
+            self.limit("syntax tree depth", self.limits.max_tree_depth, suffix);
+            return false;
+        }
+        true
+    }
+
+    fn limit(&mut self, resource: &'static str, limit: usize, suffix: usize) {
+        if self.stopped.is_none() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::CompileLimitExceeded { resource, limit })
+                    .with_span(self.lexical.span(self.cursor)),
+            );
+            self.stopped = Some(suffix);
+        }
+    }
+
     pub(crate) fn error_here(&mut self, mut kind: DiagnosticKind) {
-        let span = self.peek().map(|token| token.span).unwrap_or_default();
+        if self.stopped.is_some() {
+            return;
+        }
+        let span = self.lexical.span(self.cursor);
         if self.at(TokenKind::Unknown) && !matches!(kind, DiagnosticKind::InvalidLiteral { .. }) {
-            let text = &self.text[span.start..span.end];
-            let reason = if text == "f" && self.text[span.end..].starts_with('"') {
+            let text = &self.source.text()[span.start..span.end];
+            let reason = if text == "f" && self.source.text()[span.end..].starts_with('"') {
                 Some(
                     "the f String prefix is not supported; use ordinary quotes and name-only interpolation",
                 )
@@ -262,127 +325,205 @@ impl<'a> Parser<'a> {
                 };
             }
         }
-        self.push_diagnostic(Diagnostic::error(kind).with_span(span));
-    }
-
-    /// Records an ordinary diagnostic or appends one limit report and makes exhaustion sticky.
-    pub(crate) fn push_diagnostic(&mut self, diagnostic: Diagnostic) {
-        if self.exhausted {
-            return;
-        }
         if self.diagnostics.len() < self.limits.max_diagnostics {
-            self.diagnostics.push(diagnostic);
+            self.diagnostics
+                .push(Diagnostic::error(kind).with_span(span));
         } else {
-            let mut limit = Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
-                resource: "parser diagnostics",
-                limit: self.limits.max_diagnostics,
-            });
-            limit.span = diagnostic.span;
-            self.diagnostics.push(limit);
-            self.exhausted = true;
+            self.limit(
+                "parser diagnostics",
+                self.limits.max_diagnostics,
+                self.cursor,
+            );
         }
     }
 
-    /// Retain the unparsed suffix without running more grammar recovery.
-    pub(crate) fn finish_remaining_tokens(&mut self) {
-        if self.exhausted {
-            self.start_node(SyntaxKind::Error);
-            while self.cursor < self.tokens.len() && self.cancel.check().is_ok() {
-                let token = &self.tokens[self.cursor];
-                self.builder.token(
-                    KagariLanguage::kind_to_raw(token.kind.to_syntax_kind()),
-                    &self.text[token.span.start..token.span.end],
-                );
-                self.cursor += 1;
-            }
-            self.finish_node();
-        } else if self.at(TokenKind::Eof) {
-            self.bump();
-        }
-    }
-
-    /// Tests the current kind without skipping trivia; stopping grammar presents as EOF.
-    pub(crate) fn at(&self, kind: TokenKind) -> bool {
-        self.current_kind() == Some(kind)
-    }
-
-    /// Tests membership of the current kind without advancing or skipping trivia.
-    pub(crate) fn at_any(&self, kinds: &[TokenKind]) -> bool {
-        self.current_kind()
-            .map(|kind| kinds.contains(&kind))
-            .unwrap_or(false)
-    }
-
-    /// Returns EOF during exhaustion/cancellation so grammar loops terminate normally.
-    pub(crate) fn current_kind(&self) -> Option<TokenKind> {
-        // Grammar loops terminate on EOF, including module/trait bodies that
-        // have no `None` recovery arm. Cancellation must follow that path.
-        if self.exhausted || self.cancel.check().is_err() {
-            return Some(TokenKind::Eof);
-        }
-        self.peek().map(|token| token.kind.clone())
-    }
-
-    /// Whether the current expression context admits a struct-literal suffix.
-    pub(crate) fn allow_struct_literals(&self) -> bool {
-        self.allow_struct_literals
-    }
-
-    /// Temporarily changes brace interpretation and restores it after normal callback return.
-    pub(crate) fn with_struct_literals_allowed<T>(
+    pub(crate) fn expect<K>(
         &mut self,
-        allowed: bool,
-        f: impl FnOnce(&mut Self) -> T,
-    ) -> T {
-        let previous = self.allow_struct_literals;
-        self.allow_struct_literals = allowed;
-        let result = f(self);
-        self.allow_struct_literals = previous;
-        result
-    }
-
-    /// Looks ahead by zero-based non-trivia position without changing the parser cursor.
-    /// Returns `None` beyond input or when parsing is stopped.
-    pub(crate) fn nth_nontrivia_kind(&self, n: usize) -> Option<TokenKind> {
-        self.cancel.check().ok()?;
-        if self.exhausted {
-            return None;
+        kind: TokenKind,
+        diagnostic: DiagnosticKind,
+    ) -> Required<Token<K>> {
+        self.bump_trivia();
+        if self.at(kind) && !self.at(TokenKind::Eof) {
+            Required::Present(self.take())
+        } else {
+            let at = self.anchor();
+            self.error_here(diagnostic);
+            Required::Missing { at }
         }
-        self.tokens
-            .iter()
-            .skip(self.cursor)
-            .filter(|token| !token.kind.is_trivia())
-            .nth(n)
-            .map(|token| token.kind.clone())
     }
 
-    /// Returns a token index suitable for an independent lookahead cursor.
+    pub(crate) fn take<K>(&mut self) -> Token<K> {
+        self.bump_trivia();
+        // Cancellation may arrive after the grammar admitted this token. Finish
+        // that physical read; the entrypoint rejects the entire cancelled parse.
+        assert_ne!(
+            self.lexical.kind(self.cursor),
+            TokenKind::Eof,
+            "present grammatical token"
+        );
+        let token = Token::new(self.cursor as u32);
+        self.cursor += 1;
+        self.bump_trivia();
+        token
+    }
+
+    pub(crate) fn eat<K>(&mut self, kind: TokenKind) -> Option<Token<K>> {
+        self.bump_trivia();
+        self.at(kind).then(|| self.take())
+    }
+
+    pub(crate) fn operator<O>(&mut self, operation: O, pieces: usize) -> OperatorToken<O> {
+        let first = self.cursor;
+        self.cursor += pieces;
+        let end = self.cursor;
+        self.bump_trivia();
+        OperatorToken {
+            operation,
+            first: first as u32,
+            end: end as u32,
+        }
+    }
+
+    /// Observe cancellation at grammar sequence boundaries, preserving the first
+    /// stopped suffix. Queries and depth accounting only consult this local stop.
+    pub(crate) fn continue_parsing(&mut self) -> bool {
+        if self.stopped.is_some() {
+            return false;
+        }
+        let cancelled = self.cancel.check().is_err();
+        #[cfg(test)]
+        checkpoint(Checkpoint::Grammar, self.cursor);
+        if cancelled {
+            self.stopped = Some(self.cursor);
+            return false;
+        }
+        true
+    }
+
+    pub(crate) fn bump_trivia(&mut self) {
+        while self.lexical.kind(self.cursor).is_trivia() {
+            if self.cursor.is_multiple_of(CANCELLATION_CHECK_TOKENS) && !self.continue_parsing() {
+                break;
+            }
+            self.cursor += 1;
+        }
+    }
+
+    pub(crate) fn at(&self, kind: TokenKind) -> bool {
+        self.current_kind() == kind
+    }
+
+    pub(crate) fn at_any(&self, kinds: &[TokenKind]) -> bool {
+        kinds.contains(&self.current_kind())
+    }
+
+    pub(crate) fn current_kind(&self) -> TokenKind {
+        if self.stopped.is_some() {
+            TokenKind::Eof
+        } else {
+            self.lexical.kind(self.cursor)
+        }
+    }
+
+    pub(crate) fn anchor(&self) -> u32 {
+        self.lexical.offset(self.cursor)
+    }
+
     pub(crate) fn cursor(&self) -> usize {
         self.cursor
     }
 
-    /// Advances a caller-owned token index through the next non-trivia token.
-    /// Despite the name, consumes one lookahead match per call; the parser cursor is unchanged.
+    pub(crate) fn nth_nontrivia_kind(&self, index: usize) -> Option<TokenKind> {
+        let mut cursor = self.cursor;
+        for _ in 0..index {
+            self.nth_nontrivia_kind_from(&mut cursor)?;
+        }
+        self.nth_nontrivia_kind_from(&mut cursor)
+    }
+
     pub(crate) fn nth_nontrivia_kind_from(&self, cursor: &mut usize) -> Option<TokenKind> {
-        if self.exhausted {
+        if self.stopped.is_some() {
             return None;
         }
-        while let Some(token) = self.tokens.get(*cursor) {
-            self.cancel.check().ok()?;
+        while *cursor < self.lexical.len() {
+            // The physical index survives repeated short lookahead calls. Do not
+            // restart a local cadence for every skipped trivia run.
+            if cursor.is_multiple_of(CANCELLATION_CHECK_TOKENS) {
+                let result = self.cancel.check();
+                #[cfg(test)]
+                checkpoint(Checkpoint::Lookahead, *cursor);
+                result.ok()?;
+            }
+            let kind = self.lexical.kind(*cursor);
             *cursor += 1;
-            if !token.kind.is_trivia() {
-                return Some(token.kind.clone());
+            if !kind.is_trivia() {
+                return Some(kind);
             }
         }
         None
     }
 
-    /// Borrows the current raw token, or `None` after input/exhaustion/cancellation.
-    pub(crate) fn peek(&self) -> Option<&Token> {
-        self.cancel.check().ok()?;
-        if self.exhausted {
+    pub(crate) fn joint_shift(&self) -> Option<SyntaxKind> {
+        if self.stopped.is_some() {
             return None;
         }
-        self.tokens.get(self.cursor)
+        let first = self.lexical.kind(self.cursor);
+        let second = self.lexical.kind(self.cursor + 1);
+        match (first, second) {
+            (TokenKind::Lt, TokenKind::Lt) => Some(SyntaxKind::Shl),
+            (TokenKind::Gt, TokenKind::Gt) => Some(SyntaxKind::Shr),
+            (TokenKind::Lt, TokenKind::Le) => Some(SyntaxKind::ShlEq),
+            (TokenKind::Gt, TokenKind::Ge) => Some(SyntaxKind::ShrEq),
+            _ => None,
+        }
+    }
+
+    /// One list implementation preserves missing entries and punctuation. The
+    /// caller supplies grammar admission and owns the sparse recovery field slots.
+    /// `start_index` counts entries already parsed into the owning list.
+    pub(crate) fn list<T, S>(
+        &mut self,
+        end: TokenKind,
+        starts: fn(&Self) -> bool,
+        parse: fn(&mut Self) -> Built<T>,
+        field: u16,
+        start_index: usize,
+    ) -> (SeparatedList<T, S>, usize) {
+        let mut result = Vec::new();
+        let mut depth = 0;
+        while !self.at(end.clone()) && !self.at(TokenKind::Eof) && self.continue_parsing() {
+            let index = start_index + result.len();
+            self.position(field, index);
+            let before = self.cursor;
+            let value = parse(self);
+            depth = depth.max(value.depth);
+            self.position(field, index);
+            self.frames.last_mut().expect("list owner").part = RecoveryPart::Separator;
+            while self.at(TokenKind::Unknown) && self.continue_parsing() {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+                self.bump_as_error();
+            }
+            let separator = if let Some(comma) = self.eat(TokenKind::Comma) {
+                Some(Required::Present(comma))
+            } else if !self.at(end.clone()) && starts(self) {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+                Some(Required::Missing { at: self.anchor() })
+            } else {
+                None
+            };
+            let continue_list = separator.is_some();
+            result.push(ListEntry {
+                element: value.node,
+                separator,
+            });
+            if !continue_list {
+                break;
+            }
+            if self.cursor == before && !self.at(TokenKind::Eof) {
+                self.bump_as_error();
+            }
+        }
+
+        (result.into(), depth)
     }
 }

@@ -1,4 +1,4 @@
-//! CST grammar rules produce documents; width and printing belong to layout.
+//! Typed grammar visitors produce layout documents; width belongs to the printer.
 
 use crate::{
     comments::{Attachment, Comments, is_comment},
@@ -6,75 +6,162 @@ use crate::{
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_syntax::{
+    ast::{
+        views::TypeView,
+        visit::{ElementRef, LexicalToken, NodeRef},
+    },
     kind::SyntaxKind,
-    syntax_node::{SyntaxNode, SyntaxToken},
 };
 
-struct Piece {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Context {
+    Ordinary,
+    Source,
+    Block,
+    MemberList,
+    UseGroup,
+    StructFields,
+    Pattern,
+    Generic,
+    Qualified,
+    Callable,
+    Index,
+    Attribute,
+    AttributeArgs,
+    Prefix,
+    Closure,
+    ClosureParams,
+    Binary,
+}
+
+impl Context {
+    fn of(node: NodeRef<'_>) -> Self {
+        match node {
+            NodeRef::ModuleBody(body) if body.data().open.is_none() => Self::Source,
+            NodeRef::ModuleBody(_)
+            | NodeRef::BlockExpr(_)
+            | NodeRef::TraitDef(_)
+            | NodeRef::ImplBlock(_) => Self::Block,
+            NodeRef::FieldList(_) | NodeRef::VariantList(_) | NodeRef::MatchArmList(_) => {
+                Self::MemberList
+            }
+            NodeRef::UseTreeList(_) => Self::UseGroup,
+            NodeRef::FieldInitList(_) => Self::StructFields,
+            NodeRef::Pattern(_) => Self::Pattern,
+            NodeRef::GenericArgList(_) | NodeRef::GenericParamList(_) => Self::Generic,
+            NodeRef::QualifiedType(_) => Self::Qualified,
+            NodeRef::Type(ty) => match ty.view() {
+                TypeView::Qualified(_) => Self::Qualified,
+                TypeView::Function(_) => Self::Callable,
+                _ => Self::Ordinary,
+            },
+            NodeRef::FnDef(_)
+            | NodeRef::MethodDef(_)
+            | NodeRef::CallExpr(_)
+            | NodeRef::Variant(_) => Self::Callable,
+            NodeRef::IndexExpr(_) => Self::Index,
+            NodeRef::Attribute(_) => Self::Attribute,
+            NodeRef::AttributeArgs(_) => Self::AttributeArgs,
+            NodeRef::PrefixExpr(_) => Self::Prefix,
+            NodeRef::ClosureExpr(_) => Self::Closure,
+            NodeRef::ClosureParamList(_) => Self::ClosureParams,
+            NodeRef::BinaryExpr(_) => Self::Binary,
+            _ => Self::Ordinary,
+        }
+    }
+
+    fn angles(self) -> bool {
+        matches!(self, Self::Generic | Self::Qualified)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PieceKind {
+    Token(SyntaxKind),
+    Node(Context),
+    Attribute,
+}
+
+struct Piece<'a> {
     doc: Doc,
-    first: SyntaxToken,
-    last: SyntaxToken,
-    kind: SyntaxKind,
+    first: LexicalToken<'a>,
+    last: LexicalToken<'a>,
+    kind: PieceKind,
 }
 
 pub(crate) fn document(
-    root: &SyntaxNode,
+    root: NodeRef<'_>,
     comments: &Comments,
     cancel: &CancellationToken,
 ) -> Result<Doc, Cancelled> {
     Ok(node(root, comments, cancel)?.map_or(Doc::Concat(Vec::new()), |piece| piece.doc))
 }
 
-fn node(
-    root: &SyntaxNode,
+fn node<'a>(
+    root: NodeRef<'a>,
     comments: &Comments,
     cancel: &CancellationToken,
-) -> Result<Option<Piece>, Cancelled> {
+) -> Result<Option<Piece<'a>>, Cancelled> {
     cancel.check()?;
-    // Literal contents are source, not layout: even a newline at a text/hole
-    // boundary must not acquire indentation or disappear in a flat group.
-    if root.kind() == SyntaxKind::InterpolatedString {
+    let context = Context::of(root);
+    // Complete literal spelling bypasses discretionary layout, including hole boundaries.
+    if let NodeRef::InterpolatedString(string) = root {
         return Ok(Some(Piece {
-            doc: Doc::text(root.text().to_string()),
+            doc: Doc::text(string.source_text()),
             first: root.first_token().expect("string opening delimiter"),
             last: root.last_token().expect("string closing delimiter"),
-            kind: root.kind(),
+            kind: PieceKind::Node(context),
         }));
     }
     let mut pieces = Vec::new();
-    for element in root.children_with_tokens() {
+    for element in root.elements() {
         cancel.check()?;
-        if let Some(child) = element.as_node() {
-            if let Some(piece) = node(child, comments, cancel)? {
-                pieces.push(piece);
+        match element {
+            ElementRef::Node(child) => {
+                if let Some(piece) = node(child, comments, cancel)? {
+                    pieces.push(piece);
+                }
             }
-        } else if let Some(token) = element.as_token() {
-            if matches!(token.kind(), SyntaxKind::Whitespace | SyntaxKind::Eof) {
-                continue;
+            ElementRef::Token(token) => {
+                if matches!(token.kind(), SyntaxKind::Whitespace | SyntaxKind::Eof) {
+                    continue;
+                }
+                pieces.push(Piece {
+                    doc: Doc::text(token.text()),
+                    first: token,
+                    last: token,
+                    kind: PieceKind::Token(token.kind()),
+                });
             }
-            pieces.push(Piece {
-                doc: Doc::text(token.text()),
-                first: token.clone(),
-                last: token.clone(),
-                kind: token.kind(),
-            });
+            ElementRef::Operator(operator) => pieces.push(Piece {
+                doc: Doc::text(operator.text()),
+                first: operator.first_token(),
+                last: operator.last_token(),
+                kind: PieceKind::Token(operator.kind()),
+            }),
+            ElementRef::Missing { .. } => unreachable!("formatter rejects malformed source"),
         }
     }
     if pieces.is_empty() {
         return Ok(None);
     }
-    let first = pieces.first().unwrap().first.clone();
-    let last = pieces.last().unwrap().last.clone();
-    let doc = sequence(&pieces, root.kind(), comments);
+    let first = pieces.first().expect("nonempty pieces").first;
+    let last = pieces.last().expect("nonempty pieces").last;
+    let doc = sequence(&pieces, context, comments);
+    let kind = if matches!(root, NodeRef::Attribute(_)) {
+        PieceKind::Attribute
+    } else {
+        PieceKind::Node(context)
+    };
     Ok(Some(Piece {
         first,
         last,
-        kind: root.kind(),
+        kind,
         doc,
     }))
 }
 
-fn sequence(pieces: &[Piece], owner: SyntaxKind, comments: &Comments) -> Doc {
+fn sequence(pieces: &[Piece<'_>], owner: Context, comments: &Comments) -> Doc {
     let mut docs = Vec::new();
     let mut index = 0;
     while index < pieces.len() {
@@ -90,24 +177,21 @@ fn sequence(pieces: &[Piece], owner: SyntaxKind, comments: &Comments) -> Doc {
         if let Some(close) = closing(current.kind, owner)
             && let Some(end) = pieces[index + 1..]
                 .iter()
-                .position(|piece| piece.kind == close)
+                .position(|piece| piece.kind == PieceKind::Token(close))
                 .map(|offset| offset + index + 1)
         {
             let inner = &pieces[index + 1..end];
-            let block = current.kind == SyntaxKind::LBrace
+            let brace = current.kind == PieceKind::Token(SyntaxKind::LBrace);
+            let block = brace
                 && !matches!(
                     owner,
-                    SyntaxKind::UseTree | SyntaxKind::StructExpr | SyntaxKind::Pattern
+                    Context::UseGroup | Context::StructFields | Context::Pattern
                 );
             let edge = || {
                 if block {
                     Doc::hard()
                 } else {
-                    Doc::soft(if current.kind == SyntaxKind::LBrace {
-                        " "
-                    } else {
-                        ""
-                    })
+                    Doc::soft(if brace { " " } else { "" })
                 }
             };
             let inner_doc = sequence(inner, owner, comments);
@@ -136,26 +220,20 @@ fn sequence(pieces: &[Piece], owner: SyntaxKind, comments: &Comments) -> Doc {
     Doc::Concat(docs).group()
 }
 
-fn closing(kind: SyntaxKind, owner: SyntaxKind) -> Option<SyntaxKind> {
+fn closing(kind: PieceKind, owner: Context) -> Option<SyntaxKind> {
     match kind {
-        SyntaxKind::LParen => Some(SyntaxKind::RParen),
-        SyntaxKind::LBracket => Some(SyntaxKind::RBracket),
-        SyntaxKind::LBrace => Some(SyntaxKind::RBrace),
-        SyntaxKind::Lt
-            if matches!(
-                owner,
-                SyntaxKind::GenericArgList
-                    | SyntaxKind::GenericParamList
-                    | SyntaxKind::QualifiedType
-            ) =>
-        {
-            Some(SyntaxKind::Gt)
+        PieceKind::Token(SyntaxKind::LParen) => Some(SyntaxKind::RParen),
+        PieceKind::Token(SyntaxKind::LBracket) => Some(SyntaxKind::RBracket),
+        PieceKind::Token(SyntaxKind::LBrace) => Some(SyntaxKind::RBrace),
+        PieceKind::Token(SyntaxKind::Lt) if owner.angles() => Some(SyntaxKind::Gt),
+        PieceKind::Token(SyntaxKind::Pipe) if owner == Context::ClosureParams => {
+            Some(SyntaxKind::Pipe)
         }
         _ => None,
     }
 }
 
-fn separator(left: &Piece, right: &Piece, owner: SyntaxKind, comments: &Comments) -> Doc {
+fn separator(left: &Piece<'_>, right: &Piece<'_>, owner: Context, comments: &Comments) -> Doc {
     let a = left.last.kind();
     let b = right.first.kind();
     if a == SyntaxKind::LineComment {
@@ -176,31 +254,20 @@ fn separator(left: &Piece, right: &Piece, owner: SyntaxKind, comments: &Comments
             Doc::hard()
         };
     }
-
-    if right.kind == SyntaxKind::AttributeArgs {
+    if right.kind == PieceKind::Node(Context::AttributeArgs) {
         return Doc::text("");
     }
-    if left.kind == SyntaxKind::Attribute {
+    if left.kind == PieceKind::Attribute {
         return Doc::hard();
     }
-    if owner == SyntaxKind::SourceFile {
+    if owner == Context::Source {
         return Doc::Concat(vec![Doc::hard(), Doc::hard()]);
     }
-    if matches!(
-        owner,
-        SyntaxKind::BlockExpr
-            | SyntaxKind::ModuleBlock
-            | SyntaxKind::TraitDef
-            | SyntaxKind::ImplBlock
-    ) && (a == SyntaxKind::Semi || a == SyntaxKind::RBrace)
-    {
+    if owner == Context::Block && matches!(a, SyntaxKind::Semi | SyntaxKind::RBrace) {
         return Doc::hard();
     }
     if a == SyntaxKind::Comma {
-        return if matches!(
-            owner,
-            SyntaxKind::FieldList | SyntaxKind::VariantList | SyntaxKind::MatchArmList
-        ) {
+        return if owner == Context::MemberList {
             Doc::hard()
         } else {
             Doc::soft(" ")
@@ -225,40 +292,28 @@ fn separator(left: &Piece, right: &Piece, owner: SyntaxKind, comments: &Comments
     if matches!(a, SyntaxKind::LParen | SyntaxKind::LBracket) {
         return Doc::text("");
     }
-    if matches!(
-        owner,
-        SyntaxKind::GenericArgList | SyntaxKind::GenericParamList | SyntaxKind::QualifiedType
-    ) && (a == SyntaxKind::Lt || b == SyntaxKind::Gt)
-    {
+    if owner.angles() && (a == SyntaxKind::Lt || b == SyntaxKind::Gt) {
         return Doc::text("");
     }
-    if right.kind == SyntaxKind::GenericArgList || right.kind == SyntaxKind::GenericParamList {
+    if right.kind == PieceKind::Node(Context::Generic) {
         return Doc::text("");
     }
     if b == SyntaxKind::LParen
         && matches!(
             owner,
-            SyntaxKind::FnDef
-                | SyntaxKind::MethodDef
-                | SyntaxKind::FunctionType
-                | SyntaxKind::CallExpr
-                | SyntaxKind::Variant
-                | SyntaxKind::Pattern
-                | SyntaxKind::AttributeArgs
+            Context::Callable | Context::Pattern | Context::AttributeArgs
         )
     {
         return Doc::text("");
     }
-    if b == SyntaxKind::LBracket && matches!(owner, SyntaxKind::IndexExpr | SyntaxKind::Attribute) {
+    if b == SyntaxKind::LBracket && matches!(owner, Context::Index | Context::Attribute) {
         return Doc::text("");
     }
-    if owner == SyntaxKind::PrefixExpr {
+    if owner == Context::Prefix {
         return Doc::text("");
     }
-    if owner == SyntaxKind::ClosureExpr && (a == SyntaxKind::Pipe || b == SyntaxKind::Pipe) {
-        return if right.kind == SyntaxKind::Pipe
-            || (left.kind == SyntaxKind::Pipe && right.kind == SyntaxKind::ClosureParamList)
-        {
+    if owner == Context::Closure && (a == SyntaxKind::Pipe || b == SyntaxKind::Pipe) {
+        return if right.kind == PieceKind::Token(SyntaxKind::Pipe) {
             Doc::text("")
         } else {
             Doc::text(" ")
@@ -269,7 +324,7 @@ fn separator(left: &Piece, right: &Piece, owner: SyntaxKind, comments: &Comments
     {
         return Doc::text("");
     }
-    if owner == SyntaxKind::BinaryExpr && operator(a) {
+    if owner == Context::Binary && operator(a) {
         return Doc::soft(" ").indent();
     }
     Doc::text(" ")

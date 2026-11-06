@@ -7,7 +7,7 @@ use kagari_source::literal::{self, StringDelimiter};
 
 use crate::{
     TokenBuffer,
-    lexer::{identifier_kind, token},
+    lexer::{CANCELLATION_CHECK_BYTES, identifier_kind, token},
     token::TokenKind,
 };
 
@@ -27,7 +27,6 @@ pub(super) fn scan(
             chars.next();
         }
         while chars.peek().is_some_and(|(_, ch)| *ch == '#') {
-            cancel.check()?;
             chars.next();
         }
         let end = chars.peek().map_or(input.len(), |(index, _)| *index);
@@ -52,7 +51,6 @@ pub(super) fn scan(
     let mut closed = false;
     let mut end = input.len();
     while let Some((index, ch)) = chars.next() {
-        cancel.check()?;
         match ch {
             '"' => {
                 push_text(input, text_start, index, tokens, cancel)?;
@@ -61,7 +59,7 @@ pub(super) fn scan(
                 closed = true;
                 break;
             }
-            '\\' => skip_escape(chars, cancel)?,
+            '\\' => skip_escape(chars),
             '{' | '}' if chars.peek().is_some_and(|(_, next)| *next == ch) => {
                 chars.next();
             }
@@ -104,9 +102,8 @@ fn scan_plain(
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
     while let Some((index, ch)) = chars.next() {
-        cancel.check()?;
         if ch == '\\' && delimiter == StringDelimiter::Cooked {
-            skip_escape(chars, cancel)?;
+            skip_escape(chars);
             continue;
         }
         if ch != '"' {
@@ -139,16 +136,12 @@ fn scan_plain(
 
 // Escape braces cannot become holes. Invalid escapes are still diagnosed by the
 // shared decoder; a quote always ends recovery for a malformed Unicode escape.
-fn skip_escape(
-    chars: &mut Peekable<impl Iterator<Item = (usize, char)>>,
-    cancel: &CancellationToken,
-) -> Result<(), Cancelled> {
+fn skip_escape(chars: &mut Peekable<impl Iterator<Item = (usize, char)>>) {
     if chars.next().is_some_and(|(_, ch)| ch == 'u')
         && chars.peek().is_some_and(|(_, ch)| *ch == '{')
     {
         chars.next();
         while let Some((_, ch)) = chars.peek().copied() {
-            cancel.check()?;
             if ch == '"' {
                 break;
             }
@@ -158,7 +151,6 @@ fn skip_escape(
             }
         }
     }
-    Ok(())
 }
 
 fn push_text(
@@ -189,19 +181,20 @@ fn scan_hole(
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
     while let Some((_, ch)) = chars.peek().copied() {
-        cancel.check()?;
         if matches!(ch, '}' | '"') {
             break;
         }
         chars.next();
     }
     let end = chars.peek().map_or(input.len(), |(index, _)| *index);
+    cancel.check()?;
     let content = &input[start..end];
     let name = content.strip_suffix(":?").unwrap_or(content);
     let valid = name.starts_with(|ch: char| ch == '_' || ch.is_ascii_alphabetic())
-        && name
-            .bytes()
-            .all(|ch| cancel.check().is_ok() && (ch == b'_' || ch.is_ascii_alphanumeric()))
+        && name.bytes().enumerate().all(|(offset, ch)| {
+            (!offset.is_multiple_of(CANCELLATION_CHECK_BYTES) || cancel.check().is_ok())
+                && (ch == b'_' || ch.is_ascii_alphanumeric())
+        })
         && identifier_kind(name) == TokenKind::Ident;
     cancel.check()?;
     if valid {

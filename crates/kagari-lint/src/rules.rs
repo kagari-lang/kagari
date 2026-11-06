@@ -1,16 +1,13 @@
 //! Rule predicates use syntax spelling and HIR-owned identity/validity facts.
 
 use crate::{Finding, registry::LintId};
-use kagari_common::{
-    cancellation::{CancellationToken, Cancelled},
-    span::Span,
-};
+use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_hir::{
     analysis::{FileAnalysis, usage::BindingKind},
     hir::item::Item,
 };
 use kagari_source::identity::FileSpan;
-use kagari_syntax::kind::SyntaxKind;
+use kagari_syntax::ast::{borrow::Ast, misc::ParamList, visit::NodeRef};
 
 pub(crate) fn collect(
     file: &FileAnalysis,
@@ -34,70 +31,52 @@ pub(crate) fn collect(
         .collect();
     for node in file.syntax().descendants() {
         cancel.check()?;
-        // Inline child modules have separate analyses and policy scopes.
-        if node
-            .ancestors()
-            .skip(1)
-            .any(|parent| parent.kind() == SyntaxKind::ModuleBlock)
-        {
-            continue;
-        }
-        let Some(name) = node
-            .children()
-            .find(|child| child.kind() == SyntaxKind::Name)
-        else {
-            continue;
-        };
-        let Some(name) = name
-            .children_with_tokens()
-            .filter_map(|element| element.into_token())
-            .find(|token| token.kind() == SyntaxKind::Ident)
-        else {
-            continue;
-        };
-        let range = name.text_range();
-        let span = Span::new(
-            u32::from(range.start()) as usize,
-            u32::from(range.end()) as usize,
-        );
-        let id = match node.kind() {
-            SyntaxKind::StructDef
-            | SyntaxKind::EnumDef
-            | SyntaxKind::TraitDef
-            | SyntaxKind::TypeAliasDef
-            | SyntaxKind::GenericParam
-            | SyntaxKind::Variant
-            | SyntaxKind::AssociatedType => LintId::NonUpperCamelCase,
-            SyntaxKind::ConstDef | SyntaxKind::StaticDef => LintId::NonUpperCaseGlobals,
-            SyntaxKind::FnDef
-            | SyntaxKind::MethodDef
-            | SyntaxKind::ModuleDef
-            | SyntaxKind::Field
-                if file.declarations_eligible() && !exempt.contains(&span) =>
-            {
-                LintId::NonSnakeCase
+        // Module traversal excludes child bodies; bodyless callable parameters
+        // have their known owner here instead of recovering it through parents.
+        if file.declarations_eligible() {
+            match node {
+                NodeRef::FnDef(function) if function.body().is_none() => {
+                    declaration_parameters(file, function.param_list(), out)
+                }
+                NodeRef::MethodDef(method) if method.body().is_none() => {
+                    declaration_parameters(file, method.param_list(), out)
+                }
+                _ => {}
             }
-            SyntaxKind::Param
-                if file.declarations_eligible()
-                    && node
-                        .ancestors()
-                        .find(|parent| {
-                            matches!(parent.kind(), SyntaxKind::FnDef | SyntaxKind::MethodDef)
-                        })
-                        .is_some_and(|owner| {
-                            !owner
-                                .children()
-                                .any(|child| child.kind() == SyntaxKind::BlockExpr)
-                        }) =>
+        }
+        let name = match node {
+            NodeRef::GenericParam(parameter) => parameter.name(),
+            _ => node.declaration_name(),
+        };
+        let Some(name) = name else {
+            continue;
+        };
+        let span = name.body_span();
+        let id = match node {
+            NodeRef::StructDef(_)
+            | NodeRef::EnumDef(_)
+            | NodeRef::TraitDef(_)
+            | NodeRef::TypeAlias(_)
+            | NodeRef::GenericParam(_)
+            | NodeRef::Variant(_)
+            | NodeRef::AssociatedType(_)
+            | NodeRef::OpaqueTypeDef(_) => LintId::NonUpperCamelCase,
+            NodeRef::ConstDef(_) | NodeRef::StaticDef(_) => LintId::NonUpperCaseGlobals,
+            NodeRef::FnDef(_)
+            | NodeRef::MethodDef(_)
+            | NodeRef::ModuleDef(_)
+            | NodeRef::Field(_)
+                if file.declarations_eligible() && !exempt.contains(&span) =>
             {
                 LintId::NonSnakeCase
             }
             _ => continue,
         };
         if let Some(location) = file.source().span(span) {
-            naming(file, id, name.text(), location, out);
+            naming(file, id, name.source_text(), location, out);
         }
     }
+
     for binding in file.binding_usage(cancel)? {
         cancel.check()?;
         let name = &binding.declaration.name;
@@ -126,6 +105,26 @@ pub(crate) fn collect(
         }
     }
     Ok(())
+}
+
+fn declaration_parameters(
+    file: &FileAnalysis,
+    parameters: Ast<'_, ParamList>,
+    out: &mut Vec<Finding>,
+) {
+    for parameter in parameters.params() {
+        if let Some(name) = parameter.name()
+            && let Some(location) = file.source().span(name.body_span())
+        {
+            naming(
+                file,
+                LintId::NonSnakeCase,
+                name.source_text(),
+                location,
+                out,
+            );
+        }
+    }
 }
 
 fn naming(file: &FileAnalysis, id: LintId, name: &str, location: FileSpan, out: &mut Vec<Finding>) {

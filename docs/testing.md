@@ -225,7 +225,7 @@ Use the existing owners as templates, not a new universal runner:
 Ordinary source fixtures use normal Kagari formatting: four-space indentation,
 LF layout and one final newline, without copied Rust-string outer indentation or
 incidental leading/trailing blank lines. Use the existing formatter, which verifies
-non-whitespace tokens and CST shape and preserves literal/comment spelling; do not
+non-whitespace tokens and typed grammar shape and preserves literal/comment spelling; do not
 use global whitespace replacement that could change raw strings or continuations.
 Exact extraction-byte checks establish migration equivalence, not a permanent
 requirement to retain accidental Rust literal layout.

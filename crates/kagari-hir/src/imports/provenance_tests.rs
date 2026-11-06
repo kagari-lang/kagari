@@ -10,14 +10,17 @@ use crate::{
     lower::lower_module,
     resolver::{resolved::DeclarationNames, table::NameResolution},
 };
-use kagari_common::identity::{
-    ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
-    table::DefinitionTableError,
+use kagari_common::{
+    identity::{
+        ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+        table::DefinitionTableError,
+    },
+    span::Span,
 };
 use kagari_source::{
     diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
 };
-use kagari_syntax::parser::parse;
+use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::declaration::names::NameNamespace;
 use std::sync::Arc;
 
@@ -242,7 +245,7 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
 #[test]
 fn recovered_import_leaves_preserve_names_and_physical_sites() {
     for (text, path, syntax_error, leaf) in [
-        ("use ;", "", Some(DiagnosticKind::ExpectedUseTree), " "),
+        ("use ;", "", Some(DiagnosticKind::ExpectedUseTree), ""),
         (
             "use a as ;",
             "a",
@@ -259,7 +262,8 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
         ("use a::{};", "a", None, "a::{}"),
     ] {
         let source = SourceFile::new("recovery", text);
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert_eq!(
             parsed
                 .diagnostics()
@@ -286,6 +290,9 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
         assert!(matches!(import.kind, ImportLeaf::Named { alias: None }));
         assert_eq!(import.root_span, import.span);
         assert_eq!(&text[import.span.start..import.span.end], leaf);
+        if text == "use ;" {
+            assert_eq!(import.span, Span::new(4, 4));
+        }
         let sites = lowered.source_map.import_path(0);
         assert_eq!(sites.len(), usize::from(!path.is_empty()));
         if let [(_, span)] = sites {

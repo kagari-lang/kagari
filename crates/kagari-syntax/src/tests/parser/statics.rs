@@ -1,8 +1,9 @@
+use crate::ast::visit::{ElementRef, NodeRef};
+
+use crate::ast::views::ItemView;
+
 use crate::{
-    ast::{
-        item::{Item, StaticDef, Visibility},
-        traits::AstNode,
-    },
+    ast::{borrow::AstNode, item::VisibilityKind},
     kind::SyntaxKind,
     tests::common,
 };
@@ -11,10 +12,10 @@ use kagari_source::diagnostic::DiagnosticKind;
 #[test]
 fn static_declarations_retain_direct_children_and_prefixes() {
     for (prefix, visibility) in [
-        ("", Visibility::Private),
-        ("pub ", Visibility::Public),
-        ("pub(super) ", Visibility::PublicSuper),
-        ("pub(crate) ", Visibility::PublicCrate),
+        ("", VisibilityKind::Private),
+        ("pub ", VisibilityKind::Public),
+        ("pub(super) ", VisibilityKind::PublicSuper),
+        ("pub(crate) ", VisibilityKind::PublicCrate),
     ] {
         for binding in ["val", "var"] {
             for attributes in ["", "#[tag(value = 7)] #[other] "] {
@@ -22,17 +23,20 @@ fn static_declarations_retain_direct_children_and_prefixes() {
                     "// UTF-8: 😀\r\n{attributes}{prefix}static {binding} cache: Vec<i32> = make(1 + 2);"
                 );
                 let module = common::parse_ok(&text);
-                assert_eq!(module.syntax().to_string(), text);
+                assert_eq!(module.text().to_owned(), text);
                 let item = module.items().next().unwrap();
-                let Item::StaticDef(def) = &item else {
+                let ItemView::StaticDef(def) = &item else {
                     panic!("expected static, got {item:?}");
                 };
                 assert_eq!(def.name().unwrap().text().as_deref(), Some("cache"));
                 assert_eq!(def.visibility(), visibility);
-                assert_eq!(def.is_mutable(), binding == "var");
-                assert_eq!(def.ty().unwrap().syntax().to_string().trim(), "Vec<i32>");
+                assert_eq!(def.is_var(), binding == "var");
                 assert_eq!(
-                    def.initializer().unwrap().syntax().to_string().trim(),
+                    def.ty().unwrap().source_text().to_owned().trim(),
+                    "Vec<i32>"
+                );
+                assert_eq!(
+                    def.initializer().unwrap().source_text().to_owned().trim(),
                     "make(1 + 2)"
                 );
                 assert_eq!(
@@ -40,9 +44,6 @@ fn static_declarations_retain_direct_children_and_prefixes() {
                     if attributes.is_empty() { 0 } else { 2 }
                 );
                 assert_eq!(item.attributes().count(), def.attributes().count());
-                assert!(StaticDef::can_cast(SyntaxKind::StaticDef));
-                assert!(!StaticDef::can_cast(SyntaxKind::ConstDef));
-                assert_eq!(StaticDef::cast(def.syntax().clone()).as_ref(), Some(def));
             }
         }
     }
@@ -54,27 +55,32 @@ fn static_declarations_belong_to_inline_modules() {
     let module = common::parse_ok(text);
     let items: Vec<_> = module.items().collect();
     assert_eq!(items.len(), 2);
-    assert!(matches!(items[0], Item::ModuleDef(_)));
-    assert!(matches!(items[1], Item::StaticDef(_)));
-    let definitions: Vec<_> = module
-        .syntax()
+    assert!(matches!(items[0], ItemView::ModuleDef(_)));
+    assert!(matches!(items[1], ItemView::StaticDef(_)));
+    let definitions: Vec<_> = NodeRef::ModuleBody(module.body())
         .descendants()
-        .filter_map(StaticDef::cast)
+        .filter_map(|node| match node {
+            NodeRef::StaticDef(node) => Some(node),
+            _ => None,
+        })
         .collect();
     assert_eq!(definitions.len(), 3);
     assert_eq!(
-        definitions[0].syntax().parent().unwrap().kind(),
-        SyntaxKind::ModuleBlock
+        definitions
+            .iter()
+            .map(|def| def.name().unwrap().text().unwrap())
+            .collect::<Vec<_>>(),
+        ["count", "cache", "callback"]
     );
-    assert_eq!(
-        definitions[1].syntax().parent().unwrap().kind(),
-        SyntaxKind::ModuleBlock
-    );
-    assert_eq!(
-        definitions[2].syntax().parent().unwrap().kind(),
-        SyntaxKind::SourceFile
-    );
-    assert_eq!(module.syntax().to_string(), text);
+    let ItemView::ModuleDef(state) = items[0] else {
+        panic!("state module")
+    };
+    let state_body = state.body().unwrap();
+    assert!(matches!(
+        state_body.items().next(),
+        Some(ItemView::StaticDef(_))
+    ));
+    assert_eq!(module.text().to_owned(), text);
 }
 
 #[test]
@@ -113,6 +119,10 @@ fn static_malformed_declarations_recover_before_following_items() {
         ),
         ("static val", DiagnosticKind::ExpectedBindingName),
         (
+            "static val count: i32 = 0 extra;",
+            DiagnosticKind::ExpectedStatementTerminator,
+        ),
+        (
             "static val count: i32 =",
             DiagnosticKind::ExpectedExpression,
         ),
@@ -127,14 +137,19 @@ fn static_malformed_declarations_recover_before_following_items() {
             "{broken}: {:?}",
             parse.diagnostics()
         );
-        let module = parse.syntax();
-        assert_eq!(module.syntax().to_string(), text);
-        let definitions: Vec<_> = module
-            .syntax()
+        let module = parse.module();
+        assert_eq!(module.text().to_owned(), text);
+        let definitions: Vec<_> = NodeRef::ModuleBody(module.body())
             .descendants()
-            .filter_map(StaticDef::cast)
+            .filter_map(|node| match node {
+                NodeRef::StaticDef(node) => Some(node),
+                _ => None,
+            })
             .collect();
         assert_eq!(definitions.len(), 2, "{broken}");
+        for skipped in definitions[0].unexpected() {
+            assert_eq!(skipped.position().field, "terminator", "{broken}");
+        }
         assert_eq!(
             definitions[1].name().unwrap().text().as_deref(),
             Some("next"),
@@ -144,14 +159,13 @@ fn static_malformed_declarations_recover_before_following_items() {
             definitions[1]
                 .initializer()
                 .unwrap()
-                .syntax()
-                .to_string()
+                .source_text()
+                .to_owned()
                 .trim(),
             "1"
         );
         assert_eq!(
-            module
-                .syntax()
+            NodeRef::ModuleBody(module.body())
                 .descendants()
                 .filter(|node| node.kind() == SyntaxKind::FnDef)
                 .count(),
@@ -176,11 +190,11 @@ fn static_malformed_headers_preserve_following_functions_and_methods() {
             let text = format!("{prefix} {broken} {suffix}");
             let parse = common::parse(&text);
             assert!(!parse.diagnostics().is_empty(), "{text}");
-            let module = parse.syntax();
-            assert_eq!(module.syntax().to_string(), text);
+            let module = parse.module();
+            assert_eq!(module.text().to_owned(), text);
+            assert_error_tokens(NodeRef::ModuleBody(module.body()));
             assert_eq!(
-                module
-                    .syntax()
+                NodeRef::ModuleBody(module.body())
                     .descendants()
                     .filter(|node| node.kind() == kind)
                     .count(),
@@ -201,10 +215,11 @@ fn static_recovery_accessors_do_not_invent_missing_parts() {
     ] {
         let parse = common::parse(text);
         assert!(!parse.diagnostics().is_empty());
-        let Item::StaticDef(def) = parse.syntax().items().next().unwrap() else {
+        let module = parse.module();
+        let ItemView::StaticDef(def) = module.items().next().unwrap() else {
             panic!("expected recovered static");
         };
-        assert_eq!(def.syntax().to_string(), text);
+        assert_eq!(def.source_text().to_owned(), text);
         if text == "static val" {
             assert!(def.name().and_then(|name| name.text()).is_none());
             assert!(def.ty().is_none());
@@ -249,12 +264,15 @@ fn static_local_and_associated_forms_are_errors_without_losing_following_members
                 parse.diagnostics()
             );
             assert_eq!(parse.diagnostics()[0].kind, DiagnosticKind::UnexpectedToken);
-            let module = parse.syntax();
-            assert_eq!(module.syntax().to_string(), text);
-            let definitions: Vec<_> = module
-                .syntax()
+            let module = parse.module();
+            assert_eq!(module.text().to_owned(), text);
+            assert_error_tokens(NodeRef::ModuleBody(module.body()));
+            let definitions: Vec<_> = NodeRef::ModuleBody(module.body())
                 .descendants()
-                .filter_map(StaticDef::cast)
+                .filter_map(|node| match node {
+                    NodeRef::StaticDef(node) => Some(node),
+                    _ => None,
+                })
                 .collect();
             assert_eq!(definitions.len(), 1, "{text}");
             assert_eq!(
@@ -262,12 +280,30 @@ fn static_local_and_associated_forms_are_errors_without_losing_following_members
                 Some("valid")
             );
             assert!(
-                module
-                    .syntax()
+                NodeRef::ModuleBody(module.body())
                     .descendants()
                     .any(|node| node.kind() == follower),
                 "{text}"
             );
+        }
+    }
+}
+
+fn assert_error_tokens(root: NodeRef<'_>) {
+    for node in root.descendants() {
+        if let NodeRef::Error(_) = node {
+            let expected = node.tokens().map(|token| token.span()).collect::<Vec<_>>();
+            let actual = node
+                .elements()
+                .into_iter()
+                .map(|element| {
+                    let ElementRef::Token(token) = element else {
+                        panic!("rejected declarations retain tokens, not typed children");
+                    };
+                    token.span()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected, "rejected declaration lost tokens");
         }
     }
 }

@@ -25,11 +25,11 @@ use kagari_common::{
 use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::{
-        item::{Attribute, AttributeArg, AttributeValue as AstAttributeValue},
+        borrow::Ast,
+        item::{AttributeArg, AttributeValue as AstAttributeValue},
         module::ModuleSyntax,
-        traits::AstNode,
     },
-    parser::parse,
+    parser::{ParseOptions, parse},
 };
 use kagari_types::{
     callable::MethodPolicy,
@@ -175,7 +175,7 @@ pub enum AttributeValue {
     Missing,
 }
 
-fn attribute_argument(arg: AttributeArg) -> AttributeArgument {
+fn attribute_argument(arg: Ast<'_, AttributeArg>) -> AttributeArgument {
     let value = match arg.value() {
         Some(value) => attribute_value(value),
         None => AttributeValue::Missing,
@@ -186,7 +186,7 @@ fn attribute_argument(arg: AttributeArg) -> AttributeArgument {
     }
 }
 
-fn attribute_value(value: AstAttributeValue) -> AttributeValue {
+fn attribute_value(value: Ast<'_, AstAttributeValue>) -> AttributeValue {
     if let Some(literal) = value.literal() {
         AttributeValue::Literal(literal.text().unwrap_or_default())
     } else if let Some(path) = value.path() {
@@ -200,24 +200,25 @@ pub(crate) fn lower_attributes(
     module: &ModuleSyntax,
     cancel: &CancellationToken,
 ) -> Vec<AttributeFact> {
-    module
-        .descendants()
-        .take_while(|_| cancel.check().is_ok())
-        .filter_map(Attribute::cast)
-        .filter_map(|attribute| {
-            let parent = attribute.syntax().parent()?;
-            let target = parent.text_range();
-            Some(AttributeFact {
+    let mut facts = Vec::new();
+    module.visit_owned(&mut |owner| {
+        if cancel.check().is_err() {
+            return false;
+        }
+        for attribute in owner.attributes() {
+            facts.push(AttributeFact {
                 name: attribute.name_text().unwrap_or_default(),
                 value: attribute.value().map(attribute_value),
                 arguments: attribute
                     .args()
                     .map(|args| args.arguments().map(attribute_argument).collect()),
-                span: context::syntax_span(&attribute),
-                target_span: Span::new(usize::from(target.start()), usize::from(target.end())),
-            })
-        })
-        .collect()
+                span: context::token_span(&attribute),
+                target_span: owner.body_span(),
+            });
+        }
+        true
+    });
+    facts
 }
 
 /// Parses and lowers a source file using a fresh arena and default cancellation.
@@ -243,19 +244,20 @@ pub(crate) fn lower_attributes(
 /// assert!(matches!(lowered.module.expr(*lhs).kind, ExprKind::Name { .. }));
 /// assert!(matches!(lowered.module.expr(*rhs).kind, ExprKind::Literal(_)));
 /// let span = lowered.source_map.expr_span(sum);
-/// // Full node ranges can include trailing trivia inherited from the syntax tree.
-/// assert_eq!(&source.text()[span.start..span.end], "x + 1 ");
+/// // Semantic ranges include written tokens, excluding outer whitespace and comments.
+/// assert_eq!(&source.text()[span.start..span.end], "x + 1");
 /// ```
 /// # Panics
 ///
 /// Panics if a manually supplied inline source extent does not identify a module
 /// in its text. AnalysisDatabase validates this association with a recoverable error.
 pub fn lower_module(source: &SourceFile) -> LoweredModule {
-    let parsed = parse(source);
+    let parsed = parse(source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
     let syntax = match source.inline_range() {
-        Some(range) => ModuleSyntax::at_content_range(&parsed.syntax(), range)
+        Some(range) => ModuleSyntax::at_content_range(&parsed, range)
             .expect("inline source extent must identify its syntax body"),
-        None => parsed.syntax().into(),
+        None => parsed.module(),
     };
     lower_module_controlled(Arc::new(source.clone()), &syntax, &Default::default())
 }

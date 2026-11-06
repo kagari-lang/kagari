@@ -1,4 +1,4 @@
-//! Lexical categories and byte ranges before construction of the CST.
+//! Lexical categories and byte ranges before typed AST construction.
 //!
 //! Tokens contain no owned spelling; slice the original input using their span.
 //! Unlike [`SyntaxKind`], this vocabulary contains no tree nodes or combined shift
@@ -219,7 +219,7 @@ impl TokenKind {
         )
     }
 
-    /// Maps this lexical category to its CST token tag without inspecting text.
+    /// Maps this lexical category to its traversal token tag without inspecting text.
     pub fn to_syntax_kind(&self) -> SyntaxKind {
         match self {
             Self::Whitespace => SyntaxKind::Whitespace,

@@ -1,10 +1,11 @@
+use crate::ast::visit::NodeRef;
+
+use crate::ast::views::ItemView;
+
 use crate::{
-    ast::{
-        item::{Attribute, Item},
-        traits::AstNode,
-    },
+    ast::borrow::AstNode,
     kind::SyntaxKind,
-    parser::{parse, parse_declarations},
+    parser::{ParseMode, ParseOptions, parse},
 };
 
 use kagari_source::source::SourceFile;
@@ -31,18 +32,21 @@ pub mod model {
 }
 "#;
     let source = SourceFile::new("attributes.kgr", text);
-    let parsed = parse(&source);
+    let parsed = parse(&source, ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token");
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
         parsed.diagnostics()
     );
-    assert_eq!(parsed.syntax().syntax().text().to_string(), text);
-    let attributes = parsed
-        .syntax()
-        .syntax()
+    assert_eq!(parsed.module().text().to_owned(), text);
+    let module = parsed.module();
+    let attributes = NodeRef::ModuleBody(module.body())
         .descendants()
-        .filter_map(Attribute::cast)
+        .filter_map(|node| match node {
+            NodeRef::Attribute(node) => Some(node),
+            _ => None,
+        })
         .collect::<Vec<_>>();
     assert_eq!(attributes.len(), 14);
     assert_eq!(
@@ -60,16 +64,16 @@ pub mod model {
     assert_eq!(nested[0].value().unwrap().elements().count(), 2);
     for attribute in attributes {
         assert_eq!(
-            attribute.syntax().first_token().unwrap().kind(),
+            NodeRef::from(attribute).first_token().unwrap().kind(),
             SyntaxKind::Hash
         );
         assert_eq!(
-            attribute.syntax().last_token().unwrap().kind(),
+            NodeRef::from(attribute).last_token().unwrap().kind(),
             SyntaxKind::RBracket
         );
     }
     assert_eq!(
-        parsed.syntax().items().next().unwrap().documentation(text),
+        parsed.module().items().next().unwrap().documentation(),
         "Tagged module."
     );
 }
@@ -91,17 +95,26 @@ fn invalid_attribute_forms_are_rejected_and_following_functions_survive() {
             "invalid-attribute.kgr",
             format!("{prefix}\nfn healthy() -> i32 {{ 42 }}"),
         );
-        let parsed = parse(&source);
+        let parsed = parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token");
         assert!(!parsed.diagnostics().is_empty(), "{prefix}");
-        assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
-        assert!(parsed.syntax().items().any(|item| matches!(item, Item::FnDef(function) if function.name_text().as_deref() == Some("healthy"))), "{prefix}");
+        assert_eq!(parsed.module().text().to_owned(), source.text());
+        assert!(parsed.module().items().any(|item| matches!(item, ItemView::FnDef(function) if function.name_text().as_deref() == Some("healthy"))), "{prefix}");
     }
     for prefix in ["@intrinsic(ArrayLen)", "#![intrinsic(ArrayLen)]"] {
         let source = SourceFile::new(
             "invalid-sdk.kgr",
             format!("{prefix}\npub fn len<T>(value: [T]) -> u64;"),
         );
-        let parsed = parse_declarations(&source, Default::default(), &Default::default()).unwrap();
+        let parsed = parse(
+            &source,
+            ParseOptions {
+                mode: ParseMode::Declarations,
+                limits: Default::default(),
+            },
+            &Default::default(),
+        )
+        .unwrap();
         assert!(!parsed.diagnostics().is_empty(), "{prefix}");
     }
 }

@@ -8,6 +8,36 @@ permissions:
   contents: read
 
 jobs:
+  syntax-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+
+      - name: Fuzz syntax contracts
+        run: |
+          mkdir -p target/fuzz-corpus/syntax
+          cargo +nightly fuzz run syntax --features fuzzing target/fuzz-corpus/syntax fuzz/seeds/syntax -- -max_total_time=60 -max_len=131072 -timeout=10 -rss_limit_mb=2048
+
+      - name: Upload failing syntax inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: syntax-fuzz-failures
+          path: fuzz/artifacts/syntax/
+          if-no-files-found: ignore
+
   structure:
     runs-on: ubuntu-latest
 
@@ -16,7 +46,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.9"
           python-version: "3.12"
@@ -40,7 +70,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install uv for feature consumers
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.9"
           python-version: "3.12"
@@ -57,6 +87,14 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --no-fail-fast
 
+      - name: Upload failing GC operation traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gc-graph-failures
+          path: target/gc-graph-failures/*.trace
+          if-no-files-found: ignore
+
       - name: Run complete formatter grammar inventory
         run: 'cargo test --locked -p kagari-format --lib tests::complete_grammar_fixture_inventory:: -- --ignored'
 
@@ -69,6 +107,34 @@ jobs:
       - name: Test CLI native feature
         run: cargo test -p kagari-cli --features jit
 
+  gc-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MIRIFLAGS: -Zmiri-strict-provenance
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pinned Miri toolchain
+        run: rustup toolchain install nightly-2026-10-22 --profile minimal --component miri --component rust-src
+
+      - name: Prepare Miri sysroot
+        run: cargo +nightly-2026-10-22 miri setup --target x86_64-unknown-linux-gnu
+
+      - name: Check graph operations against independent reachability
+        run: cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknown-linux-gnu --test graph_model
+
+      - name: Check layouts and failure cleanup
+        run: cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknown-linux-gnu --test failures --test layouts --no-fail-fast
+
+      - name: Check typed access panic and quarantine contracts
+        run: cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknown-linux-gnu --lib access::fields::tests
+
+      - name: Check shared access, erased layouts, thread transfer and execution roots
+        run: cargo +nightly-2026-10-22 miri test --locked -p kagari-gc --target x86_64-unknown-linux-gnu --test ownership --test dynamic --test root_source --no-fail-fast -- shared_scope_reads following_an_edge_borrowed owning_handles layout_tokens scalar_domains frame_reuse_new_frontiers
+
   editor-tooling:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -78,10 +144,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -89,7 +155,7 @@ jobs:
 
       - name: Install Python for node-gyp
         id: python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -138,7 +204,7 @@ jobs:
           npm run package:vscode
 
       - name: Upload VSIX
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kagari-vscode
           path: target/editors/*.vsix
@@ -155,7 +221,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.9"
           python-version: "3.12"

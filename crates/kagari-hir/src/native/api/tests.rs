@@ -159,7 +159,7 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
     )
     .unwrap();
     assert_eq!(
-        parsed.syntax().module_documentation().lines().next(),
+        parsed.module().module_documentation().lines().next(),
         Some("# Module")
     );
     let iterator = lowered

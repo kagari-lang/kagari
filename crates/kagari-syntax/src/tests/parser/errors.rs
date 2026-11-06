@@ -1,7 +1,7 @@
 use kagari_source::diagnostic::{DiagnosticKind, Severity};
 use rstest::rstest;
 
-use crate::{ast::item::Item, tests::common};
+use crate::{ast::views::ItemView, tests::common};
 
 #[rstest]
 #[case::missing_closing_paren(
@@ -30,9 +30,9 @@ fn keeps_partial_syntax_tree_when_parse_has_errors() {
         "../../../tests/fixtures/parser/keeps_partial_syntax_tree_when_parse_has_errors.kgr"
     ));
 
-    let module = parse.syntax();
+    let module = parse.module();
 
-    let Some(Item::FnDef(function)) = module.items().next() else {
+    let Some(ItemView::FnDef(function)) = module.items().next() else {
         panic!("{context}: expected a function item");
     };
 
@@ -41,7 +41,7 @@ fn keeps_partial_syntax_tree_when_parse_has_errors() {
     assert_eq!(
         function
             .return_type()
-            .and_then(|ty| ty.name_text())
+            .and_then(common::type_name)
             .as_deref(),
         Some("int"),
         "{context}"

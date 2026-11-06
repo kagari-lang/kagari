@@ -22,6 +22,209 @@ snapshots and generation-pinned execution remain separate contracts. See
 [definition identity ownership](architecture.md#definition-identity-ownership).
 These capabilities are foundations to reuse, not migrations to replay.
 
+## Strongly typed syntax CI acceptance
+
+Syntax fuzz follow-up adds one shared parser/AST oracle, stable seed replay and a
+bounded coverage-guided CI job. Scope is source/declaration parsing, recoverable
+traversal, source ranges, lexical preservation, budgets and retained lifetimes;
+HIR/type checking and formatter fuzzing remain outside this change. Local seed
+replay (2 tests), typed-field contracts (7) and parser-limit contracts (6) pass;
+these exercise the oracle and its directly consumed recovery/lifetime contracts.
+A Windows x64 MSVC AddressSanitizer campaign with cargo-fuzz 0.13.2 and rustc
+1.101.0-nightly (3e92e1a2d, 2026-11-01) completed 19,686 inputs without a finding
+under the README's 60-second command. The initial DLL lookup failure was resolved
+by adding the installed MSVC x64 sanitizer runtime to the process PATH; it was
+not counted as a fuzz run. Structure, fmt, workspace all-target Clippy and diff
+checks pass. Complete workspace/platform testing and the Linux sanitizer CI job
+remain CI acceptance; a bounded campaign does not establish exhaustive coverage.
+
+The [PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42185649506/job/127785217773)
+found that error-node traversal emitted only sparse skipped-token records after
+discarding a parsed static declaration in a forbidden local/member position.
+The original CI input and the reduced `trait T { static val x: i32 = 0; }` both
+reproduced missing tokens. Error alternatives now emit their complete resolved
+lexical coverage, preserving diagnostics and rejected-node classification. The
+existing static recovery contracts check exact token ranges for local/closure,
+trait and impl contexts, and the reduced input is a fuzz seed. Local validation
+passes static parsing (6), typed fields (7), corpus replay (2) and formatter
+rejection (4), plus original-input ASan replay. A new 60-second Windows ASan
+campaign completed 22,103 inputs without a finding; structure, fmt, workspace
+all-target Clippy and diff checks pass. The toolchain and runner limits match
+the campaign above, with the retained generated corpus and the new seed.
+Linux CI must rerun on the repair; the earlier successful local campaign did not
+cover this input.
+
+The [second PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42189958639/job/127799238832)
+exposed a different ordering defect: static-tail recovery used the default
+`attributes` insertion slot, moving trailing garbage before the declaration.
+The reduced `static val x: i32 = 0 extra;` reproduces it. Recovery now belongs
+to `StaticDef.terminator`. Reviewing direct grammar recovery sites also reproduced
+misordered duplicate rest markers and fields after rest in struct patterns;
+those rejected suffixes now belong to `StructPattern.close`, using the existing
+rejected-entry mechanism instead of admitting post-rest fields into the earlier
+typed list. Both boundaries have fixed corpus coverage; existing static recovery
+tests also assert the named recovery owner. Extended local campaigns then found
+duplicate reads after prefix diagnostics exhausted the budget, reduced to
+`pub(/<=type Item;  }` and a prefixed import group without `::`. Module/associated
+type and impl keywords, and import-group opening braces, now use required slots
+and checked consumption rather than unconditionally reading into the unparsed
+suffix. Existing consumers compile against the corrected AST fields; accepted
+source retains the same tokens. Fuzz invariants remain unchanged.
+Local validation passes 41 selected tests: corpus replay (2), static parsing (6),
+typed fields (7), malformed rest (1), declaration items (8), module/import parsing
+(5), limits (7), formatter rejection (4) and one dependent HIR rest-pattern
+contract. Both CI inputs pass ASan replay. After fixing the local findings, the
+180-second Windows ASan campaign completed 62,511 inputs without a finding, using
+the same toolchain/runner limits and retained corpus as above. Structure, fmt,
+workspace all-target Clippy and diff checks pass. Linux CI must rerun on this
+repair; bounded local fuzzing does not prove exhaustive recovery coverage.
+
+The [third PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42193725392/job/127811679088)
+found lost tokens when a parsed pattern could not become a range endpoint.
+The reduced `fn f() { match p { Point { v }..3 => 0 } }` lost `Point { v }`:
+conversion retained a missing start but discarded the consumed prefix. The range
+now owns that prefix as unexpected coverage at its `start` slot, before the
+operator, while preserving rejection and subsequent match arms. The same contract
+test covers wildcard, empty tuple, grouped, tuple, alternative, tuple-struct and
+struct starts, including nested recovery, with both range operators. A minimized
+seed also exercises the shared oracle's modes and limits. Selected local tests
+pass: match patterns (6), parser limits (7), corpus replay (2) and dependent HIR
+scalar range facts (1). Structure, fmt, workspace all-target Clippy and diff checks
+pass, and all three original CI inputs pass Windows ASan replay. These checks target
+the changed conversion/recovery boundary and its consumer; full workspace and
+Linux sanitizer acceptance require a new CI run. A 300-second Windows ASan
+campaign completed 89,605 inputs without a finding, using the same toolchain,
+runner limits and retained corpus as above plus the new seed. This is bounded
+evidence, not exhaustive recovery acceptance.
+
+The [push run at the same revision](https://github.com/kagari-lang/kagari/actions/runs/42197662407/job/127824856280)
+found overlapping recovery coverage, although the separate pull-request fuzz run
+passed. Both event runs matter; a successful random campaign does not invalidate
+a failing input from another run. Abandoning an expression moved the unparsed
+suffix boundary back without restoring the cursor. An enclosing rejected static
+then included the discarded reads in its error site, duplicating them during
+grammar traversal. Restoring the cursor in the shared abandonment operation keeps
+both error sites and rejected-entry ranges disjoint from the root suffix.
+The readable seed `fn f(){static val x:i32=0+||1;}` reproduces this with the oracle's
+small nesting budget. Budget contracts exercise binary, cast, call and index
+wrappers in retained expressions, rejected statics and rejected struct entries,
+in both parse modes. The range-start regression now walks grammar elements rather
+than reading lexical coverage, sharing its test helper with the budget contract.
+The new budget test and seed both fail with the cursor repair removed.
+Selected local tests pass: limits (8), static parsing (6), match patterns (6),
+corpus replay (2), cancellation (2) and formatter rejection (4). They cover
+the shared stop boundary, error ownership and a dependent rejection policy;
+full workspace/platform acceptance remains in CI. All four original CI inputs
+pass Windows ASan replay. A 300-second ASan campaign completed 77,201 inputs with
+no finding, using the same toolchain, runner limits and retained corpus as above
+plus the new seed. Structure, fmt, workspace all-target Clippy and diff checks
+pass. Both push and pull-request CI runs must be checked on the repair.
+
+The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
+Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
+sharing, retained inline views, source provenance, explicit recovered roles and
+checked executable admission remain implemented contracts.
+
+[Local performance and memory acceptance](performance-baseline.md#strongly-typed-ast-replacement-macos-2026-11-05)
+passes all required rows: each of the four primary parse lifecycles improves by
+at least 20%, lowering/field reads meet their budgets, both-image required noise
+is below 10%, and all nine allocation lifecycles meet peak/retained limits and
+release to zero. The report records the field-only calibration correction applied
+identically to the unchanged Rowan control and candidate, with the original
+baseline retained. Focused contracts, structure, fmt, workspace all-target Clippy
+and diff checks pass.
+
+Complete CI remains pending under the [existing workflow](../.github/workflows/ci.yml):
+workspace tests, complete ignored formatter and editor/syntax inventories,
+standalone SDK feature/source-free consumers, JIT/AOT and Windows/platform
+contracts. Browser/feature coverage also remains in its existing CI scope. Local
+acceptance does not claim these matrices ran or passed. The completed TA1–TA4 plan
+and its phase ledger are retained in Git history. Incremental parsing, LSP
+expansion and broader HIR/runtime redesign were outside this replacement.
+
+Review follow-up preserves block-expression conditions and complete-list recovery
+coordinates, as specified in [syntax ownership](architecture/syntax.md#grammar-fields-and-recovered-roles).
+The previously failing while-condition contract now passes. Focused local coverage
+selects typed fields (including continuation recovery for expressions, types,
+patterns and receiver parameters), control flow, parser limits and formatter
+layout fixtures: 33 tests pass. These checks cover the changed syntax boundaries
+and their direct formatter consumer; exhaustive HIR, editor and backend coverage
+remains in the CI scope above. Structure, formatting, workspace all-target Clippy
+and diff checks pass. No performance remeasurement is claimed.
+
+SDK follow-up reproduces and repairs all ten reported failures: nine source
+location/inspection/update failures came from assigning outer trivia to HIR
+semantic ranges, and the recursive-syntax query panicked on a recovered grouped
+pattern with no child. HIR now uses written-token extents for source maps and
+attribute targets, and lowers the missing pattern through its existing recovery
+path. Replacement containment checks, runtime provenance and test assertions are
+unchanged. The ten named SDK regressions and ten selected HIR lowering/ownership
+tests pass; this covers source-free/native/async traces, retained source queries,
+update admission and recoverable analysis without running the workspace suite.
+The complete CI matrix above remains pending. Structure checking uses the
+existing cached environment with the locked tree-sitter 0.25.2 and
+tree-sitter-rust 0.24.2 dependencies because default uv cache access is restricted.
+
+The [AST CI follow-up](https://github.com/kagari-lang/kagari/actions/runs/42021986432/job/127226740599)
+reproduces all fourteen failing tests. Enum payload lowering now retains missing
+type slots and their anchors, recovered `use a::;` does not become a glob without
+a written star, and lint policy targets use the same semantic ranges as HIR
+attributes. Five diagnostic fixtures, the empty import recovery range and the
+lowering doctest now assert written-token extents. Fresh-analysis navigation
+comparisons resolve generated native file IDs within their owning snapshots and
+compare module identity, revision, range and spelling; local file identity remains
+checked. Existing recovery, codegen rejection and snapshot retention assertions
+remain intact. Thirty-two focused tests pass across HIR recovery/signatures/imports,
+diagnostics, lint policy, syntax imports and the lowering doctest. Structure, fmt,
+workspace all-target Clippy and diff checks pass. The failed run passed structure,
+GC safety, editor tooling and Windows/AOT jobs; the complete formatter inventory,
+async example, standalone feature consumers and CLI JIT steps in the Rust job were
+skipped after the test failure. A new CI run remains required before merge; no HIR
+architecture migration is included in this repair.
+
+PR #51 review follow-up corrects trait/impl recovery ownership to the `members`
+field and rejects import aliases/globs without a path and prefixed groups without
+`::`. Recovery still retains written syntax and subsequent declarations; root
+groups remain valid. The two affected tests reproduced the review findings before
+the fix. Eighteen focused tests cover recovery traversal, import grammar, parser
+limits, HIR import provenance and representative formatter contracts. Structure,
+formatting, workspace all-target Clippy and diff checks pass. Complete workspace
+and platform acceptance remain in CI; HIR redesign is not activated.
+
+### Typed AST performance follow-up
+
+The [Windows diagnostic study](performance-baseline.md#current-typed-ast-diagnostics-windows-2026-11-05)
+compares current typed syntax with itself. A one-entry inline list builder saved
+only about 3% of parse allocation requests on generated functions, with unchanged
+retained/peak bytes and no reliable timing win; the prototype was removed.
+The subsequent allocation study finds substantial lexer temporaries; borrowing
+identifier spellings removes 39.4% of large-input parse requests and improves its
+measured parse/drop lifecycle about 20%, with unchanged retained/peak memory.
+The small limits row is about 2.6% slower; the report retains this limitation and
+the noisy lowering/field-read rows. Historical Rowan replacement thresholds are
+not a target for these local comparisons.
+
+[Storage diagnostics](performance-baseline.md#arena-and-typed-storage-investigation)
+reject an all-allocation bump model: it retains 33.55 MB instead of 4.78 MB for
+large input. Synthetic typed binary stores favor grouped allocation and compact
+IDs, but do not establish a complete parser or HIR speedup. Production AST storage
+is unchanged. The experimental dependencies, allocation recorder, storage models
+and command have been removed; no storage migration is queued. Prioritize
+eliminating temporary allocations in the existing source pipeline. Any future
+storage proposal needs renewed real-path profiling and must preserve per-file
+sharing, immutable cross-thread access, cleanup and foreign-owner validation.
+The report retains the bounded results and Rust arena/IndexVec ownership
+comparison; allocation replay must not be reported as CPU-stack attribution.
+
+The concrete follow-up is consumer traversal: logical-module `descendants()`
+eagerly materializes all nodes before lint or documentation consumers start.
+Existing `visit_owned()` avoids those allocations and preserves independent
+child-module scopes. Measure real lint/query workloads before migrating callers;
+preserve authored order, cancellation, attributes and retained-source ownership.
+The separate physical iterator's much larger cost mostly concerns tests/tools
+and must not be presented as compiler speedup. The report records the Rust visitor
+comparison, reproducible probe, allocation evidence and timing limitations.
+
 ## Package acceptance and follow-ups
 
 [Source packages and workspaces](spec/packages.md) define the implemented local and
@@ -70,6 +273,20 @@ direct source path and efficient eager verification do not require a persistent
 cache. No cache implementation, daemon or AOT expansion is activated by this note.
 
 ## Cranelift AOT deployment
+
+Dependency maintenance for PRs #41, #43, #45, #46, #48 and #49 is consolidated
+in [PR #45](https://github.com/kagari-lang/kagari/pull/45). Separate upgrades mixed
+Cranelift 0.136 and 0.137, producing incompatible IR/ISA/module types in both Linux
+lint and Windows AOT builds; rerunning unchanged jobs cannot fix those errors.
+All six workspace dependencies now select 0.137 and the lockfile resolves one
+0.137.1 family. The existing Cargo dependency owner remains unchanged; Dependabot
+groups `cranelift-*` using its documented
+[group patterns](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#patterns-and-exclude-patterns-groups).
+Local validation passes six actual scalar JIT/code-owner lifetime/checked-trap
+cases and two Windows image deployment/cleanup cases. Workspace all-target Clippy,
+structure, formatting and diff checks pass; backend source changes were unnecessary.
+Full workspace/platform/backend acceptance stays in CI on the consolidated PR.
+This maintenance does not activate deferred native expansion phases.
 
 [Scalar AOT deployment](spec/aot.md) is implemented for x86_64 Windows MSVC.
 JIT and object emission share lowering and invocation context. Build hosts emit
@@ -389,19 +606,20 @@ expansion remain separate.
 
 ## Compilation cancellation polling
 
-The [polling plan](compilation-cancellation-plan.md) proposes CP01-CP04: establish
-actual read-cost/response baselines, pilot operation-owned batching in syntax
-scanning, integrate selected compiler lowering/update-budget paths, then validate
-and hand off. It is proposed only; implementation and commits are not authorized.
+Coarse syntax checkpoints and the unified `parse(source, options, cancel)` API
+are implemented and locally validated. The
+[syntax architecture](architecture/syntax.md#failure-and-resource-boundaries)
+owns checkpoint placement, cleanup and exact limits; its entrypoint and AST
+documentation covers options, diagnostics, recovery, retention and traversal.
+The completed plan is retired. Shared token/runtime behavior is unchanged.
 
-Keep `CancellationToken::check()` immediate and retain exact resource accounting,
-latched failures, error precedence and cache/result boundary checks. Batch only
-bounded cheap traversal work under an explicit owner; do not mechanically remove
-checks from every loop. HIR's exact iterator cancellation contracts remain intact.
-VM instruction checks, GC, native/host/await boundaries and runtime cancellation
-semantics are excluded. The plan owns the finite scope, proposed latency gates and
-progress ledger. No polling overhead, speedup or responsiveness result is claimed,
-and this does not reopen the general startup-latency project.
+The previous compiler-lowering/update-budget integration proposal remains deferred,
+not an automatic follow-up. Full workspace and complete feature/backend/platform
+validation remain CI-only and were not run locally.
+The [performance report](performance-baseline.md#coarse-syntax-cancellation-first-version)
+records matched normal-path measurements and current-version response diagnostics;
+ordinary parsing is broadly unchanged with noisy adverse rows, and no universal
+response-latency guarantee or end-to-end compiler speedup is claimed.
 
 ## Program-owned generic instance worklist
 
@@ -1615,3 +1833,17 @@ and feature/backend matrices belong to CI. Documentation-only changes need
 content/link/diff checks. Performance reports retain revision, workload, machine,
 toolchain, profile/features, parallelism and cache state, separating compilation,
 preparation and execution.
+
+## GC library redesign
+
+The [GC redesign plan](gc-redesign-plan.md) owns remaining GCR00-GCR05 work;
+the [implementation design](gc-implementation-design.md) owns data structures and
+safety contracts. The [kagari-gc crate](../crates/kagari-gc/README.md) implements
+standalone typed/dynamic objects, roots, direct execution-root adapters,
+incremental collection, reclaimable metadata and opt-in safepoint pacing.
+
+Runtime integration, arbitrary erased layouts/native extraction, integrated
+pressure/cancellation policy and complete comparative acceptance remain deferred.
+Main retains its existing Runtime collector. Historical PG/NC source and
+measurement references are pinned in the plan; they are integration obligations,
+not evidence that main's Runtime has been replaced or its gates have passed.

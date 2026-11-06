@@ -1,219 +1,231 @@
-//! Logical module views over one retained physical syntax tree.
+//! Independently retained module views over a single physical typed parse.
+
+use std::{
+    ptr,
+    sync::{Arc, Weak},
+};
+
+use kagari_common::span::Span;
+use kagari_source::source::SourceFile;
 
 use crate::{
     ast::{
-        item::{Item, ModuleBlock, SourceFile},
-        support,
-        traits::AstNode,
+        borrow::Ast,
+        item::{ModuleBody, ModuleDef, ModuleForm, ModuleId},
+        site::Required,
+        views::ItemView,
+        visit::NodeRef,
     },
-    kind::SyntaxKind,
-    syntax_node::{KagariLanguage, SyntaxNode},
+    parser::{Parse, ParsedFile},
 };
-use kagari_common::span::Span;
-use rowan::{NodeOrToken, TextRange, TextSize, WalkEvent, ast::SyntaxNodePtr};
-use std::iter;
 
-/// A physical root or an attached inline body, with original byte offsets.
+/// The sole owning syntax view. Child views retain all physical nodes/text/diagnostics.
 ///
-/// For `mod a { fn f() {} mod b {} }`, the inline view of `a` yields `f`
-/// and the declaration of `b`. Its owned traversal excludes the body of `b`.
-/// A view retains its tree, but carries no file identity, revision or semantic IDs.
+/// An inline module still refers to the original physical file: its source spans
+/// are not rebased to zero. Cloning this handle shares the whole parse, rather than
+/// copying or detaching the selected body. Borrowed nodes from [`Self::body`] and
+/// [`Self::items`] require an owning handle to remain alive.
+///
+/// ```
+/// use kagari_source::source::SourceFile;
+/// use kagari_syntax::{ast::views::ItemView, parser::{ParseOptions, parse}};
+///
+/// let source = SourceFile::new("modules.kgr", "mod child { fn f() {} }");
+/// let parsed = parse(&source, ParseOptions::default(), &Default::default())?;
+/// let root = parsed.module();
+/// let child = root.items().find_map(|item| match item {
+///     ItemView::ModuleDef(module) => module.body(),
+///     _ => None,
+/// }).expect("inline module");
+/// let location = child.location();
+/// assert!(location.resolve(&parsed.clone()).is_some());
+/// let reparsed = parse(&source, ParseOptions::default(), &Default::default())?;
+/// assert!(location.resolve(&reparsed).is_none());
+/// drop(parsed);
+/// drop(root);
+/// assert!(child.text().contains("fn f()"));
+/// # Ok::<(), kagari_common::cancellation::Cancelled>(())
+/// ```
 #[derive(Debug, Clone)]
-pub enum ModuleSyntax {
-    Source(SourceFile),
-    Inline(ModuleBlock),
+pub struct ModuleSyntax {
+    pub(crate) file: Arc<ParsedFile>,
+    pub(crate) id: ModuleId,
 }
 
 impl ModuleSyntax {
-    /// Borrows the attached root/block node, without rebasing its coordinates.
-    pub fn syntax(&self) -> &SyntaxNode {
-        match self {
-            Self::Source(root) => root.syntax(),
-            Self::Inline(block) => block.syntax(),
+    /// Borrow the selected body; inline bodies have braces, the physical root does not.
+    pub fn body(&self) -> Ast<'_, ModuleBody> {
+        Ast {
+            owner: &self.file,
+            node: &self.file.modules[self.id.0 as usize],
         }
     }
 
-    /// Finds a logical view by its physical content extent in this exact tree.
-    /// Returns `None` for out-of-bounds or non-module ranges. This is useful when
-    /// a retained inline source is submitted independently of its parent analysis.
-    pub fn at_content_range(root: &SourceFile, range: Span) -> Option<Self> {
-        let view = Self::Source(root.clone());
-        if view.content_range() == Some(range) {
-            return Some(view);
+    /// Immediate items in authored order, including retained `ItemView::Error` nodes.
+    /// Does not descend into nested modules or guarantee that item fields are complete.
+    pub fn items(&self) -> impl Iterator<Item = ItemView<'_>> {
+        let body = self.body();
+        body.node
+            .items
+            .iter()
+            .map(move |item| body.with(item).view())
+    }
+
+    /// The complete original physical source, even for a retained inline body.
+    pub fn source(&self) -> &SourceFile {
+        &self.file.source
+    }
+
+    /// Original spelling of [`Self::full_span`], without literal decoding or formatting.
+    pub fn text(&self) -> &str {
+        let range = self.full_span();
+        &self.file.source.text()[range.start..range.end]
+    }
+
+    /// Physical UTF-8 byte range of this body and its assigned outer trivia.
+    /// The root covers the whole file; an inline body includes its braces, not
+    /// the enclosing `mod` keyword/name/attributes.
+    pub fn full_span(&self) -> Span {
+        if self.id == self.file.root {
+            Span::new(0, self.source().text().len())
+        } else {
+            self.body().full_span()
         }
-        let start = TextSize::from(u32::try_from(range.start).ok()?);
-        let end = TextSize::from(u32::try_from(range.end).ok()?);
-        if start > end {
-            return None;
-        }
-        let range_node = TextRange::new(start, end);
-        if !root.syntax().text_range().contains_range(range_node) {
-            return None;
-        }
-        let node = match root.syntax().covering_element(range_node) {
-            NodeOrToken::Node(node) => node,
-            NodeOrToken::Token(token) => token.parent()?,
+    }
+
+    /// Physical UTF-8 range inside the inline braces, or the whole file for the root.
+    /// When recovery lacks a closing brace, the end is the retained body's end.
+    /// This is a lookup extent for [`Self::at_content_range`], not a rebased source.
+    pub fn content_range(&self) -> Option<Span> {
+        let body = self.body();
+        let Some(open) = &body.node.open else {
+            return Some(Span::new(0, self.source().text().len()));
         };
-        node.ancestors()
-            .filter_map(ModuleBlock::cast)
-            .map(Self::Inline)
-            .find(|view| view.content_range() == Some(range))
+        let start = self.file.lexical.span(open.index() as usize).end;
+        let end = body
+            .node
+            .close
+            .as_ref()
+            .and_then(Required::as_ref)
+            .map_or_else(
+                || body.body_span().end,
+                |close| self.file.lexical.span(close.index() as usize).start,
+            );
+        Some(Span::new(start, end))
     }
 
-    /// Iterates immediate declarations, including child module headers.
-    pub fn items(&self) -> impl Iterator<Item = Item> {
-        support::children(self.syntax())
+    /// Find the first module whose content range exactly equals `range` in this parse.
+    /// Searches the physical module table, including the root. A contained or
+    /// overlapping range is insufficient; `None` means no exact body extent matches.
+    pub fn at_content_range(parsed: &Parse, range: Span) -> Option<Self> {
+        parsed
+            .file
+            .modules
+            .iter()
+            .enumerate()
+            .map(|(index, _)| Self {
+                file: parsed.file.clone(),
+                id: ModuleId(index as u32),
+            })
+            .find(|module| module.content_range() == Some(range))
     }
 
-    /// Visits this module's nodes while excluding nested inline bodies.
-    ///
-    /// Includes the current root and ordinary function/trait/impl contents.
-    /// Attributes on a nested module header belong to this traversal.
-    pub fn descendants(&self) -> impl Iterator<Item = SyntaxNode> {
-        let root = self.syntax().clone();
-        let mut walk = root.preorder();
-        iter::from_fn(move || {
-            while let Some(event) = walk.next() {
-                if let WalkEvent::Enter(node) = event {
-                    if node != root && node.kind() == SyntaxKind::ModuleBlock {
-                        walk.skip_subtree();
-                    } else {
-                        return Some(node);
-                    }
-                }
+    /// Capture a weak, parse-local locator without extending the parse's lifetime.
+    pub fn location(&self) -> ModuleLocation {
+        ModuleLocation {
+            file: Arc::downgrade(&self.file),
+            id: self.id,
+        }
+    }
+
+    /// Join leading `//!` lines in this body's initial trivia with LF separators.
+    /// Scanning stops at the first non-trivia token; only the comment marker and
+    /// one optional following space are removed. Returns owned text, possibly empty.
+    pub fn module_documentation(&self) -> String {
+        let body = self.body();
+        let mut index = body
+            .node
+            .open
+            .as_ref()
+            .map_or(0, |open| open.index() as usize + 1);
+        let mut lines = Vec::new();
+        while self.file.lexical.kind(index).is_trivia() {
+            let span = self.file.lexical.span(index);
+            let text = &self.source().text()[span.start..span.end];
+            if let Some(line) = text.strip_prefix("//!") {
+                lines.push(line.strip_prefix(' ').unwrap_or(line));
             }
-            None
+            index += 1;
+        }
+        lines.join("\n")
+    }
+
+    /// Visits this module's typed fields, excluding independently owned inline bodies.
+    /// Includes this body itself, nested module headers and their attributes.
+    /// Returning false prunes that node's subtree, not the remaining siblings.
+    /// This recursive walk does not collect per-node child vectors or poll cancellation.
+    pub fn visit_owned<'a>(&'a self, callback: &mut impl FnMut(NodeRef<'a>) -> bool) {
+        let root = self.body();
+        NodeRef::ModuleBody(root).visit(&mut |node| {
+            if let NodeRef::ModuleBody(body) = node
+                && !ptr::eq(body.node, root.node)
+            {
+                return false;
+            }
+            callback(node)
+        });
+    }
+
+    /// This body and its logically owned descendants, in source-order preorder.
+    /// Uses [`Self::visit_owned`] to eagerly collect a vector before returning the
+    /// iterator. Use that visitor to prune or avoid the complete result allocation.
+    pub fn descendants(&self) -> impl Iterator<Item = NodeRef<'_>> {
+        let mut nodes = Vec::new();
+        self.visit_owned(&mut |node| {
+            nodes.push(node);
+            true
+        });
+        nodes.into_iter()
+    }
+}
+
+impl Ast<'_, ModuleDef> {
+    /// Retain a present inline body, including a recovered body with a missing close.
+    /// External `mod name;` declarations and missing inline bodies return `None`;
+    /// resolving external module files belongs to the package/source layer.
+    pub fn body(self) -> Option<ModuleSyntax> {
+        let ModuleForm::Inline(inline) = &self.node.form else {
+            return None;
+        };
+        let Required::Present(id) = inline.body else {
+            return None;
+        };
+        Some(ModuleSyntax {
+            file: self.owner.clone(),
+            id,
         })
     }
-
-    /// Returns the physical content extent, excluding present inline braces.
-    ///
-    /// Missing closing braces retain content through the recovered node's end.
-    /// Missing opening braces yield `None`, rather than a fabricated child body.
-    pub fn content_range(&self) -> Option<Span> {
-        let range = self.syntax().text_range();
-        match self {
-            Self::Source(_) => Some(Span::new(range.start().into(), range.end().into())),
-            Self::Inline(block) => {
-                let open = support::token(block.syntax(), SyntaxKind::LBrace)?;
-                let end = support::token(block.syntax(), SyntaxKind::RBrace)
-                    .map_or(range.end(), |close| close.text_range().start());
-                Some(Span::new(open.text_range().end().into(), end.into()))
-            }
-        }
-    }
-
-    /// Reads leading inner documentation inside this logical module.
-    pub fn module_documentation(&self) -> String {
-        match self {
-            Self::Source(root) => root.module_documentation(),
-            Self::Inline(block) => block
-                .syntax()
-                .children_with_tokens()
-                .skip_while(|token| token.kind() == SyntaxKind::LBrace)
-                .take_while(|element| element.kind().is_trivia())
-                .filter_map(|element| element.into_token())
-                .filter_map(|token| {
-                    token
-                        .text()
-                        .strip_prefix("//!")
-                        .map(|line| line.strip_prefix(' ').unwrap_or(line).to_owned())
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
-        }
-    }
-
-    /// Captures a locator that must be paired with this view's physical parse.
-    pub fn location(&self) -> ModuleLocation {
-        ModuleLocation(SyntaxNodePtr::new(self.syntax()))
-    }
 }
 
-impl From<SourceFile> for ModuleSyntax {
-    fn from(root: SourceFile) -> Self {
-        Self::Source(root)
-    }
+/// A private body ID tied to its exact parse allocation. A foreign parse cannot resolve it.
+/// The weak reference retains neither AST nodes nor source text. This is not a
+/// persistent or cross-revision identifier, even when two parses share a SourceFile.
+#[derive(Debug, Clone)]
+pub struct ModuleLocation {
+    file: Weak<ParsedFile>,
+    id: ModuleId,
 }
-
-impl From<ModuleBlock> for ModuleSyntax {
-    fn from(block: ModuleBlock) -> Self {
-        Self::Inline(block)
-    }
-}
-
-/// A root/block locator, meaningful only in its retained physical parse.
-///
-/// This contains no red cursor and can be stored in thread-safe snapshots.
-/// It is not a persistent module identity or proof that two parses match.
-#[derive(Debug, Clone, Copy)]
-pub struct ModuleLocation(SyntaxNodePtr<KagariLanguage>);
 
 impl ModuleLocation {
-    /// Resolves against the owning root, returning `None` for a missing node.
-    /// Callers must retain the original parse; range equality alone is not ownership.
-    pub fn resolve(&self, root: &SourceFile) -> Option<ModuleSyntax> {
-        let node = self.0.try_to_node(root.syntax())?;
-        match node.kind() {
-            SyntaxKind::SourceFile => SourceFile::cast(node).map(ModuleSyntax::Source),
-            SyntaxKind::ModuleBlock => ModuleBlock::cast(node).map(ModuleSyntax::Inline),
-            _ => None,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::parse;
-    use kagari_source::source::SourceFile as Source;
-
-    #[test]
-    fn attached_module_views_keep_offsets_recovery_and_ownership() {
-        fn thread_safe<T: Send + Sync>() {}
-        thread_safe::<ModuleLocation>();
-        let text = "// 中文😀\r\nmod a { //! A\r\nfn f() {} mod b { fn g() {} } }";
-        let parsed = parse(&Source::new("modules.kgr", text));
-        let root = parsed.syntax();
-        let Item::ModuleDef(module) = root.items().next().unwrap() else {
-            panic!()
-        };
-        let view = ModuleSyntax::Inline(module.block().unwrap());
-        assert_eq!(view.module_documentation(), "A");
-        assert_eq!(view.items().count(), 2);
-        assert_eq!(
-            view.descendants()
-                .filter(|n| n.kind() == SyntaxKind::FnDef)
-                .count(),
-            1
-        );
-        let restored = view.location().resolve(&root).unwrap();
-        assert_eq!(restored.syntax(), view.syntax());
-        assert_eq!(
-            ModuleSyntax::at_content_range(&root, view.content_range().unwrap())
-                .unwrap()
-                .syntax(),
-            view.syntax()
-        );
-        assert!(ModuleSyntax::at_content_range(&root, Span::new(1, text.len() + 1)).is_none());
-        assert!(restored.syntax().parent().is_some());
-        assert_eq!(
-            view.content_range().unwrap().start,
-            text.find('{').unwrap() + 1
-        );
-        for text in ["mod a { fn last() {}", "mod a {", "mod a fn last() {}"] {
-            let parsed = parse(&Source::new("broken.kgr", text));
-            assert!(!parsed.diagnostics().is_empty());
-            let Item::ModuleDef(module) = parsed.syntax().items().next().unwrap() else {
-                panic!()
-            };
-            let view = ModuleSyntax::Inline(module.block().unwrap());
-            if let Some(range) = view.content_range() {
-                assert_eq!(range.end, text.len());
-                assert_eq!(view.items().count(), usize::from(text.contains("fn last")));
-            } else {
-                assert!(!text.contains("mod a {"));
-            }
-        }
+    /// Resolve against the original parse or one of its clones.
+    /// A newly parsed copy of identical source returns `None`; success returns
+    /// an owning module handle and therefore retains the physical parse.
+    pub fn resolve(&self, parsed: &Parse) -> Option<ModuleSyntax> {
+        (Weak::ptr_eq(&self.file, &Arc::downgrade(&parsed.file))
+            && (self.id.0 as usize) < parsed.file.modules.len())
+        .then(|| ModuleSyntax {
+            file: parsed.file.clone(),
+            id: self.id,
+        })
     }
 }

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "fuzz",
     "benchmarks/lua-comparison",
     "crates/kagari-codegen",
     "crates/kagari-abi",
@@ -20,6 +21,7 @@ members = [
     "crates/kagari-compiler",
     "crates/kagari-codegen-cranelift",
     "crates/kagari-runtime",
+    "crates/kagari-gc",
     "crates/kagari-derive",
     "crates/kagari-syntax",
     "crates/kagari-vm",
@@ -50,15 +52,16 @@ kagari-bytecode = { path = "crates/kagari-bytecode" }
 kagari-compiler = { path = "crates/kagari-compiler", default-features = false }
 kagari-codegen-cranelift = { path = "crates/kagari-codegen-cranelift" }
 kagari-runtime = { path = "crates/kagari-runtime" }
+kagari-gc = { path = "crates/kagari-gc" }
 kagari-derive = { path = "crates/kagari-derive" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }
 cranelift-codegen = "0.137.0"
-cranelift-frontend = "0.136.2"
-cranelift-jit = "0.136.2"
-cranelift-module = "0.136.2"
-cranelift-native = "0.136.2"
-cranelift-object = "0.136.2"
+cranelift-frontend = "0.137.0"
+cranelift-jit = "0.137.0"
+cranelift-module = "0.137.0"
+cranelift-native = "0.137.0"
+cranelift-object = "0.137.0"
 smallvec = "1.16.3"
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"

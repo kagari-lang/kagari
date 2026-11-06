@@ -9,13 +9,10 @@ use crate::{
     declarations::{Declaration, DeclarationId},
     imports::{NamespaceId, ResolvedTarget},
 };
-use kagari_syntax::ast::{
-    item::{Item, MethodDef},
-    misc::{Field, Name, Variant},
-    traits::AstNode,
-};
+use kagari_syntax::ast::borrow::AstNode;
+
 use {
-    kagari_common::{identity::ModuleIdentity, span::Span},
+    kagari_common::identity::ModuleIdentity,
     kagari_source::identity::{FileId, FileSpan},
 };
 
@@ -103,32 +100,13 @@ impl FileDeclarations {
         let declaration = self.declarations().get(&id)?;
         let source = self.source();
         let local_range = source.local_range(declaration.location)?;
-        let (documentation, written_signature) = {
-            let node = self.parsed.syntax().descendants().find(|node| {
-                node.children().filter_map(Name::cast).any(|name| {
-                    let range = name
-                        .syntax()
-                        .descendants_with_tokens()
-                        .filter_map(|element| element.into_token())
-                        .find(|token| !token.kind().is_trivia())
-                        .map(|token| token.text_range());
-                    range.is_some_and(|range| {
-                        Span::new(usize::from(range.start()), usize::from(range.end()))
-                            == local_range
-                    })
-                })
-            })?;
-            let documentation = if let Some(item) = Item::cast(node.clone()) {
-                item.documentation(source.text())
-            } else if let Some(method) = MethodDef::cast(node.clone()) {
-                method.documentation(source.text())
-            } else if let Some(variant) = Variant::cast(node.clone()) {
-                variant.documentation(source.text())
-            } else {
-                Field::cast(node.clone())?.documentation(source.text())
-            };
-            (documentation, node.text().to_string())
-        };
+        let syntax = self.parsed.syntax();
+        let node = syntax.descendants().find(|node| {
+            node.declaration_name()
+                .is_some_and(|name| name.body_span() == local_range)
+        })?;
+        let documentation = node.documentation();
+        let written_signature = node.text().to_owned();
         Some(DeclarationDocumentation {
             declaration: declaration.clone(),
             documentation,

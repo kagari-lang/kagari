@@ -1,41 +1,75 @@
-//! Recoverable source parsing, strict syntax acceptance and parser resource limits.
-//!
-//! [`parse`] and its controlled variants return a tree even for malformed source;
-//! inspect [`Parse::diagnostics`] before compiling it. [`parse_module`] instead
-//! rejects any syntax diagnostics. [`parse_declarations`] enables offline interface
-//! forms such as bodyless functions; it does not authorize execution.
-//! Parsing builds Rowan nodes directly, without an intermediate event stream.
+//! Recoverable typed parsing with retained source identity and explicit parse mode.
 
 mod core;
 mod grammar;
 
-use rowan::GreenNode;
 use std::sync::Arc;
-use {
-    kagari_common::cancellation::{CancellationToken, Cancelled},
-    kagari_source::source::SourceFile,
+
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    span::Span,
 };
+use kagari_source::source::SourceFile;
 
 use crate::{
-    BoxedDiagnosticBuffer, DiagnosticBuffer,
-    ast::{item::SourceFile as AstSourceFile, traits::AstNode},
+    DiagnosticBuffer,
+    ast::visit::LexicalToken,
+    ast::{
+        item::{ModuleBody, ModuleId},
+        module::ModuleSyntax,
+        site::{Recovery, SyntaxSite},
+    },
     lexer::lex_with_cancellation,
+    lexical::Lexical,
     parser::core::Parser,
-    syntax_node::syntax_node_from_green,
 };
 
-/// Per-file parser resource limits. The limit diagnostic is additional to the
-/// ordinary diagnostic budget; zero still permits parsing valid source.
-/// Defaults are 256 diagnostics, 64 recursive grammar entries and tree depth 128.
-/// These are parser limits, not limits on source bytes or lexer token allocation.
+/// Diagnostic and grammar-growth limits for one physical source file.
+///
+/// Inline modules share the file's limits; these are not per-function budgets.
+/// Exhaustion stops further grammar growth, adds a `CompileLimitExceeded`
+/// diagnostic and retains the unparsed source suffix. It does not turn [`parse`]
+/// into an error result: only cancellation returns [`Cancelled`].
+///
+/// These limits do not bound source bytes, token count, total memory or elapsed
+/// time. Raising the depth limits weakens protection against stack exhaustion
+/// during parsing and recursive destruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseLimits {
-    /// Maximum ordinary diagnostics before recording exhaustion and stopping grammar work.
+    /// Maximum ordinary syntax diagnostics retained before stopping recovery.
+    /// Defaults to 256.
+    ///
+    /// The limit diagnostic is additional: a budget of N allows up to N ordinary
+    /// diagnostics plus one limit diagnostic. Zero still accepts valid syntax;
+    /// the first attempted syntax diagnostic instead stops parsing with the
+    /// limit diagnostic. This does not limit subsequent HIR/type-check diagnostics.
     pub max_diagnostics: usize,
-    /// Maximum simultaneously active recursive grammar entries.
+
+    /// Maximum simultaneously active guarded recursive grammar entries.
+    /// Defaults to 64.
+    ///
+    /// Nested groups such as `(((value)))`, nested types and nested modules consume
+    /// this budget. Each entry releases its slot on return, so sibling statements
+    /// do not accumulate nesting. The count follows parser grammar entries, not
+    /// literal parentheses, indentation or every Rust stack frame. Zero prevents
+    /// entering the first guarded recursive grammar call.
     pub max_nesting: usize,
-    /// Maximum completed CST node depth (tokens do not count).
-    /// Checked when closing nodes; recovered output can exceed this threshold.
+
+    /// Maximum syntax-node depth admitted while constructing the AST.
+    /// Defaults to 128.
+    ///
+    /// A leaf has depth one; a parent adds one to its deepest child. Grammar
+    /// wrappers, names and signatures count; tokens and trivia do not. Sibling
+    /// count does not add depth. For example, `a + b + c` builds nested binary
+    /// nodes even when a parser loop constructs them without equally deep
+    /// recursion, so this limit also covers chains that `max_nesting` cannot bound.
+    ///
+    /// Zero rejects even an empty file's module node. This is a growth limit,
+    /// not a strict depth cap on the recovered result: already active enclosing
+    /// grammar scopes still close and can add outer wrappers after stopping.
     pub max_tree_depth: usize,
 }
 
@@ -49,147 +83,167 @@ impl Default for ParseLimits {
     }
 }
 
-/// An owned lossless green tree plus syntax diagnostics for one parse attempt.
+/// Declaration-mode provenance is retained and cannot imply executable acceptance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseMode {
+    /// Ordinary script source, with normal function-body and type-alias requirements.
+    Source,
+    /// Admits bodyless native function signatures and opaque type declarations.
+    /// This does not validate those declarations against an installed host contract.
+    Declarations,
+}
+
+/// Grammar mode and resource limits for one physical source file.
 ///
-/// The tree owns token text independently of the input source. AST handles from
-/// [`Self::syntax`] retain it even after this result is dropped. File identity,
-/// revision and parse mode are not stored here; callers keep that association.
-/// A result with diagnostics is useful for tooling, not evidence of valid code.
+/// Defaults select ordinary source grammar and [`ParseLimits::default`].
+/// Cancellation belongs to the individual [`parse`] operation, not these options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// Grammar policy, retained in [`Parse::mode`]. Defaults to [`ParseMode::Source`].
+    pub mode: ParseMode,
+    /// Per-physical-file limits shared by all inline modules in this operation.
+    pub limits: ParseLimits,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self {
+            mode: ParseMode::Source,
+            limits: ParseLimits::default(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ParsedFile {
+    pub source: SourceFile,
+    pub mode: ParseMode,
+    pub lexical: Lexical,
+    pub modules: Vec<ModuleBody>,
+    pub recoveries: Vec<Recovery>,
+    pub diagnostics: Arc<DiagnosticBuffer>,
+    pub root: ModuleId,
+}
+
+impl ParsedFile {
+    pub(crate) fn body_span(&self, site: SyntaxSite) -> Span {
+        self.lexical.body_span(site.resolve(&self.recoveries))
+    }
+
+    pub(crate) fn full_span(&self, site: SyntaxSite) -> Span {
+        self.lexical.full_span(site.resolve(&self.recoveries))
+    }
+}
+
+/// One immutable physical parse. Clones share nodes, lexical records and source backing.
+///
+/// A completed parse can contain syntax errors or a resource-limit diagnostic.
+/// Inspect [`Self::diagnostics`] before requiring valid syntax. Cloning preserves
+/// parse-local identity; calling [`parse`] again creates a different identity even
+/// for unchanged text. Keep a Parse or [`ModuleSyntax`] to retain borrowed AST views.
 #[derive(Debug, Clone)]
 pub struct Parse {
-    /// Immutable root storage, shared with cloned parse results and AST handles.
-    green: GreenNode,
-    /// Ordinary syntax errors and any parser-limit diagnostic, in emission order.
-    diagnostics: Arc<DiagnosticBuffer>,
+    pub(crate) file: Arc<ParsedFile>,
 }
 
 impl Parse {
-    /// Creates a typed source-root handle over the retained tree without reparsing.
-    pub fn syntax(&self) -> AstSourceFile {
-        AstSourceFile::cast(syntax_node_from_green(self.green.clone()))
-            .expect("parser must always produce a source file node")
+    /// Retain the physical file's root module, including any recovered syntax.
+    /// The returned handle can outlive this Parse and shares its backing allocation.
+    pub fn module(&self) -> ModuleSyntax {
+        ModuleSyntax {
+            file: self.file.clone(),
+            id: self.file.root,
+        }
     }
 
-    /// Retains immutable physical diagnostics independently of syntax storage.
-    /// Consumers can project presentation ownership while keeping the full error
-    /// evidence at executable validation boundaries.
+    /// The captured source snapshot used to produce every token and diagnostic span.
+    pub fn source(&self) -> &SourceFile {
+        &self.file.source
+    }
+
+    /// The grammar mode used for this snapshot, not a statement of semantic validity.
+    pub fn mode(&self) -> ParseMode {
+        self.file.mode
+    }
+
+    /// Share the immutable physical-file diagnostics without copying individual records.
+    /// This handle does not retain the AST or source text; retain the source separately
+    /// when presenting the diagnostic spans after dropping the parse.
     pub fn shared_diagnostics(&self) -> Arc<DiagnosticBuffer> {
-        self.diagnostics.clone()
+        self.file.diagnostics.clone()
     }
 
-    /// Borrows diagnostics in emission order; an empty list means no syntax errors were recorded.
-    ///
-    /// An empty list does not establish name resolution or type correctness.
+    /// Syntax and resource-limit diagnostics for the entire physical file.
+    /// Includes inline modules; name resolution and type-check diagnostics belong to HIR.
     pub fn diagnostics(&self) -> &DiagnosticBuffer {
-        &self.diagnostics
+        &self.file.diagnostics
+    }
+
+    /// The complete physical lexer sequence, including trivia, unknown input and EOF.
+    /// Missing grammar roles never fabricate tokens. Original spellings concatenate
+    /// to the complete source even when grammar recovery stopped before its end.
+    /// This iterator reads the lexical table directly without collecting AST children.
+    pub fn tokens(&self) -> impl ExactSizeIterator<Item = LexicalToken<'_>> {
+        (0..self.file.lexical.len()).map(|index| LexicalToken {
+            owner: &self.file,
+            index: index as u32,
+        })
     }
 }
 
-/// Parses ordinary source with default limits, preserving recoverable syntax errors.
+/// Parse one physical source into a retained, recoverable syntax snapshot.
 ///
-/// See the [crate example](crate) for a complete source and AST walk. Even a missing
-/// operand leaves usable structure, as this example demonstrates:
+/// Syntax errors and resource exhaustion remain in [`Parse::diagnostics`]; callers
+/// decide whether those diagnostics prevent their operation. The snapshot retains
+/// the source, selected mode, missing grammar roles and unparsed recovery suffix.
+/// Declaration mode admits native declarations but does not establish executable
+/// or installed-contract validity.
+///
+/// # Errors
+///
+/// Returns [`Cancelled`] when cancellation is observed. No partial parse is returned.
+///
+/// # Panics
+///
+/// The compact lexical representation requires source byte length and lexical
+/// record count to fit in `u32`. Exceeding those representation bounds panics;
+/// [`ParseLimits`] is not a source-size admission policy.
 ///
 /// # Examples
 ///
 /// ```
+/// use kagari_common::cancellation::CancellationToken;
 /// use kagari_source::source::SourceFile;
-/// use kagari_syntax::{ast::{expr::Expr, item::Item}, parser::parse};
-/// let parsed = parse(&SourceFile::new("partial.kgr", "fn total() { total + }"));
-/// assert!(!parsed.diagnostics().is_empty());
-/// let Some(Item::FnDef(function)) = parsed.syntax().items().next() else {
-///     panic!("the function is retained");
-/// };
-/// let Some(Expr::BinaryExpr(binary)) = function.body().and_then(|body| body.tail_expr()) else {
-///     panic!("the incomplete binary expression is retained");
-/// };
-/// assert!(binary.lhs().is_some());
-/// assert!(binary.rhs().is_none());
+/// use kagari_syntax::parser::{ParseOptions, parse};
+///
+/// let source = SourceFile::new("example.kgr", "fn answer() -> i32 { 42 }");
+/// let cancel = CancellationToken::default();
+/// let parsed = parse(&source, ParseOptions::default(), &cancel)?;
+/// assert!(parsed.diagnostics().is_empty());
+/// assert_eq!(parsed.module().text(), source.text());
+/// # Ok::<(), kagari_common::cancellation::Cancelled>(())
 /// ```
-pub fn parse(source: &SourceFile) -> Parse {
-    parse_with_cancellation(source, &CancellationToken::default())
-        .expect("fresh cancellation token")
-}
-
-/// Parses ordinary source using default limits and the caller's cancellation token.
-///
-/// # Errors
-///
-/// Returns [`Cancelled`] if cancellation is observed; syntax errors instead appear
-/// in the successful [`Parse`]'s diagnostics. No partial result is published on cancellation.
-pub fn parse_with_cancellation(
+pub fn parse(
     source: &SourceFile,
+    options: ParseOptions,
     cancel: &CancellationToken,
-) -> Result<Parse, Cancelled> {
-    parse_with_limits(source, ParseLimits::default(), cancel)
-}
-
-/// Parses ordinary source using explicit parser limits and cooperative cancellation.
-///
-/// Exhaustion stops grammar work and retains remaining text in an error node with
-/// a limit diagnostic. Limits do not prevent the lexer from materializing all tokens.
-///
-/// # Errors
-///
-/// Returns [`Cancelled`] on observed cancellation. Syntax errors and limit
-/// exhaustion are reported inside [`Parse`], rather than as this function's error.
-pub fn parse_with_limits(
-    source: &SourceFile,
-    limits: ParseLimits,
-    cancel: &CancellationToken,
-) -> Result<Parse, Cancelled> {
-    parse_with_mode(source, limits, cancel, false)
-}
-
-/// Parse an offline interface. This does not authorize executable code generation.
-///
-/// Uses the same lossless tree and recovery as [`parse_with_limits`], while accepting
-/// declaration-only forms such as `pub fn size() -> i32;` and top-level `type` items.
-/// The caller must retain which mode produced the tree; [`Parse`] does not store it.
-///
-/// # Errors
-///
-/// Returns [`Cancelled`] on observed cancellation. Syntax and resource-limit errors
-/// remain diagnostics in the returned tree.
-pub fn parse_declarations(
-    source: &SourceFile,
-    limits: ParseLimits,
-    cancel: &CancellationToken,
-) -> Result<Parse, Cancelled> {
-    parse_with_mode(source, limits, cancel, true)
-}
-
-/// Owns the lex/build/final-poll handoff; only a non-cancelled attempt publishes a tree.
-fn parse_with_mode(
-    source: &SourceFile,
-    limits: ParseLimits,
-    cancel: &CancellationToken,
-    declarations: bool,
 ) -> Result<Parse, Cancelled> {
     let tokens = lex_with_cancellation(source.text(), cancel)?;
-    let mut parser = Parser::new(source.text(), tokens, limits, cancel.clone());
-    parser.declarations = declarations;
-    parser.parse_root();
-    let (green, diagnostics) = parser.finish();
+    let lexical = Lexical::new(source.text(), tokens, cancel)?;
+    cancel.check()?;
+    let mut parser = Parser::new(
+        source,
+        lexical,
+        options.limits,
+        cancel.clone(),
+        options.mode,
+    );
+    let root = parser.parse_root();
+    let file = parser.finish(root);
+    #[cfg(test)]
+    checkpoint(Checkpoint::Publish, file.lexical.len());
     cancel.check()?;
     Ok(Parse {
-        green,
-        diagnostics: Arc::new(diagnostics),
+        file: Arc::new(file),
     })
-}
-
-/// Parses with default limits and returns an AST only when syntax diagnostics are empty.
-///
-/// This does not load modules or check names/types. Use [`parse`] when tooling
-/// needs to retain the tree alongside diagnostics; this wrapper discards that tree.
-///
-/// # Errors
-///
-/// Returns all recorded diagnostics for malformed or limit-exhausted source.
-pub fn parse_module(source: &SourceFile) -> Result<AstSourceFile, BoxedDiagnosticBuffer> {
-    let parse = parse(source);
-    if !parse.diagnostics.is_empty() {
-        return Err(Box::new((*parse.diagnostics).clone()));
-    }
-    Ok(parse.syntax())
 }

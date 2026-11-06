@@ -1,5 +1,26 @@
 # Kagari and Lua comparison
 
+For a focused PUC Lua table-field access measurement, build and run the
+[lua_field_access example](examples/lua_field_access/main.rs):
+
+```text
+cargo build --release --locked -p kagari-lua-benchmark --example lua_field_access
+target/release/examples/lua_field_access 0
+```
+
+Use `.exe` on Windows and process indices 0 through 6 sequentially. Each process
+prints raw CSV from three warmup and eleven measured cycles, with 50000 iterations
+per case. The [Lua fixture](examples/lua_field_access/workload.lua) compares named
+table fields, integer array indices and local-variable controls for reads, writes
+and increments. Each batch makes one host-to-Lua call; its inner loop runs entirely
+in Lua. Initialization/compilation and explicit collection are untimed. Collection
+is stopped during measurement; no metatables, callbacks or loop allocations are
+introduced. All return values and final fields are checked outside the timer.
+These times include bytecode dispatch, arithmetic and loop control, so they are
+not pure lookup costs or matched comparisons with native Rust GC field APIs.
+The active [GC plan](../../docs/gc-redesign-plan.md#lua-context)
+records the measurement and environment. No existing Runtime/Lua gate is replaced.
+
 Run from the repository root:
 
 ```text

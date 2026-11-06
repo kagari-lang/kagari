@@ -4,7 +4,10 @@ use kagari_source::literal::{
     decode_byte_char_literal, decode_byte_string_literal_with_cancellation,
     decode_string_literal_with_cancellation,
 };
-use kagari_syntax::{ast::expr::Literal as AstLiteral, kind::SyntaxKind};
+use kagari_syntax::{
+    ast::{borrow::Ast, expr::Literal as AstLiteral},
+    kind::SyntaxKind,
+};
 use kagari_types::scalar::BuiltinType;
 use smallvec::SmallVec;
 
@@ -18,7 +21,7 @@ use crate::{
 
 impl Lowerer {
     /// Byte strings become ordinary array construction, never pooled scalar literals.
-    pub(super) fn lower_literal_expr(&mut self, literal: &AstLiteral) -> ExprKind {
+    pub(super) fn lower_literal_expr(&mut self, literal: &Ast<'_, AstLiteral>) -> ExprKind {
         if literal.kind() != Some(SyntaxKind::ByteString) {
             return ExprKind::Literal(self.lower_literal(literal));
         }
@@ -50,7 +53,7 @@ impl Lowerer {
 
     /// Decodes validated String/byte tokens once; other categories retain their source spelling.
     /// Malformed/missing categories fall back to number syntax for recovery.
-    pub(crate) fn lower_literal(&self, literal: &AstLiteral) -> Literal {
+    pub(crate) fn lower_literal(&self, literal: &Ast<'_, AstLiteral>) -> Literal {
         let text = literal.text().unwrap_or_default();
         let kind = match literal.kind() {
             Some(SyntaxKind::Float) => LiteralKind::Float,

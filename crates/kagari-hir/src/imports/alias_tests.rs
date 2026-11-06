@@ -25,7 +25,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_syntax::parser::parse_declarations;
+use kagari_syntax::parser::{ParseMode, ParseOptions, parse};
 use kagari_types::scalar::BuiltinType;
 use std::sync::Arc;
 
@@ -308,13 +308,21 @@ fn type_alias_declaration_mode_rejects_native_only_attributes() {
             format!("{attribute} pub type Value = i32;"),
         ));
         let cancel = CancellationToken::default();
-        let parsed = parse_declarations(&source, Default::default(), &cancel).unwrap();
+        let parsed = parse(
+            &source,
+            ParseOptions {
+                mode: ParseMode::Declarations,
+                limits: Default::default(),
+            },
+            &cancel,
+        )
+        .unwrap();
         assert!(
             parsed.diagnostics().is_empty(),
             "{:?}",
             parsed.diagnostics()
         );
-        let mut lowered = lower_module_controlled(source, &parsed.syntax().into(), &cancel);
+        let mut lowered = lower_module_controlled(source, &parsed.module(), &cancel);
         // Even an attribute allowlisted by registration cannot give an alias
         // native storage identity. Exercise signature validation independently
         // of the stricter native source/registration correspondence gate.

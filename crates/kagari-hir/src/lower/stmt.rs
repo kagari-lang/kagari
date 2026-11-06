@@ -2,7 +2,6 @@
 
 use crate::{
     hir::{
-        expr::ops::BinaryOp,
         ids::{BlockId, PlaceId, StmtId},
         item::function::FunctionKind,
         pattern::{PatternData, PatternKind},
@@ -10,21 +9,20 @@ use crate::{
         stmt::{BlockData, StmtData, StmtKind},
         writeability::Writeability,
     },
-    lower::context::{Lowerer, syntax_span, token_span},
+    lower::context::{Lowerer, lower_binary_op, syntax_span, token_span},
 };
-use kagari_syntax::{
-    ast::{
-        expr::{BlockExpr, Expr},
-        stmt::Stmt,
-    },
-    kind::SyntaxKind,
+use kagari_syntax::ast::{
+    borrow::Ast,
+    expr::BlockExpr,
+    stmt::AssignmentOp,
+    views::{ExprView, StmtView},
 };
 
 use smallvec::{SmallVec, smallvec};
 
 impl Lowerer {
     /// Lowers statements in order and the optional tail separately, then allocates their block.
-    pub(crate) fn lower_block(&mut self, block: &BlockExpr) -> BlockId {
+    pub(crate) fn lower_block(&mut self, block: &Ast<'_, BlockExpr>) -> BlockId {
         let id = self.alloc_block(
             syntax_span(block),
             BlockData {
@@ -50,15 +48,15 @@ impl Lowerer {
     }
 
     /// Builds binding/control-flow records, using placeholders where required recovered syntax is absent.
-    pub(crate) fn lower_stmt(&mut self, stmt: &Stmt) -> StmtId {
+    pub(crate) fn lower_stmt(&mut self, stmt: &StmtView<'_>) -> StmtId {
         let kind = match stmt {
-            Stmt::FnDef(function) => StmtKind::Function(self.lower_function(
+            StmtView::FnDef(function) => StmtKind::Function(self.lower_function(
                 function,
                 FunctionKind::Local {
                     block: self.current_block.expect("statement block"),
                 },
             )),
-            Stmt::BindingStmt(stmt) => StmtKind::Binding {
+            StmtView::BindingStmt(stmt) => StmtKind::Binding {
                 pattern: stmt
                     .pattern()
                     .map(|pattern| self.lower_pattern(&pattern))
@@ -74,19 +72,19 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            Stmt::AssignStmt(stmt) => StmtKind::Assign {
+            StmtView::AssignStmt(stmt) => StmtKind::Assign {
                 op: match stmt.operator() {
-                    Some(SyntaxKind::PlusEq) => Some(BinaryOp::Add),
-                    Some(SyntaxKind::MinusEq) => Some(BinaryOp::Sub),
-                    Some(SyntaxKind::StarEq) => Some(BinaryOp::Mul),
-                    Some(SyntaxKind::PercentEq) => Some(BinaryOp::Rem),
-                    Some(SyntaxKind::SlashEq) => Some(BinaryOp::Div),
-                    Some(SyntaxKind::AmpEq) => Some(BinaryOp::BitAnd),
-                    Some(SyntaxKind::PipeEq) => Some(BinaryOp::BitOr),
-                    Some(SyntaxKind::CaretEq) => Some(BinaryOp::BitXor),
-                    Some(SyntaxKind::ShlEq) => Some(BinaryOp::Shl),
-                    Some(SyntaxKind::ShrEq) => Some(BinaryOp::Shr),
-                    _ => None,
+                    Some(AssignmentOp::Assign) => None,
+                    Some(AssignmentOp::Compound(operator)) => Some(lower_binary_op(operator)),
+                    None => {
+                        let missing = self.missing_expr();
+                        return self.alloc_stmt(
+                            syntax_span(stmt),
+                            StmtData {
+                                kind: StmtKind::Expr(missing),
+                            },
+                        );
+                    }
                 },
                 target: stmt
                     .target()
@@ -97,10 +95,10 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            Stmt::ReturnStmt(stmt) => StmtKind::Return {
+            StmtView::ReturnStmt(stmt) => StmtKind::Return {
                 expr: stmt.expr().map(|expr| self.lower_expr(&expr)),
             },
-            Stmt::WhileStmt(stmt) => StmtKind::While {
+            StmtView::WhileStmt(stmt) => StmtKind::While {
                 condition: self.lower_condition(stmt.binding_condition(), stmt.condition()),
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
@@ -113,7 +111,7 @@ impl Lowerer {
                     ),
                 },
             },
-            Stmt::LoopStmt(stmt) => StmtKind::Loop {
+            StmtView::LoopStmt(stmt) => StmtKind::Loop {
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
                     None => self.alloc_block(
@@ -125,7 +123,7 @@ impl Lowerer {
                     ),
                 },
             },
-            Stmt::ForStmt(stmt) => StmtKind::For {
+            StmtView::ForStmt(stmt) => StmtKind::For {
                 pattern: stmt
                     .pattern()
                     .map(|pattern| self.lower_pattern(&pattern))
@@ -152,12 +150,13 @@ impl Lowerer {
                     ),
                 },
             },
-            Stmt::BreakStmt(stmt) => match stmt.expr() {
+            StmtView::BreakStmt(stmt) => match stmt.expr() {
                 Some(expr) => StmtKind::BreakValue(self.lower_expr(&expr)),
                 None => StmtKind::Break,
             },
-            Stmt::ContinueStmt(_) => StmtKind::Continue,
-            Stmt::ExprStmt(stmt) => StmtKind::Expr(
+            StmtView::ContinueStmt(_) => StmtKind::Continue,
+            StmtView::Error(_) => StmtKind::Expr(self.missing_expr()),
+            StmtView::ExprStmt(stmt) => StmtKind::Expr(
                 stmt.expr()
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
@@ -168,15 +167,15 @@ impl Lowerer {
     }
 
     /// Retains field/index chains as places; general roots become expression-backed places for later validation.
-    fn lower_place(&mut self, expr: &Expr) -> PlaceId {
+    fn lower_place(&mut self, expr: &ExprView<'_>) -> PlaceId {
         match expr {
-            Expr::PathExpr(path) => self.alloc_place(
+            ExprView::PathExpr(path) => self.alloc_place(
                 syntax_span(path),
                 PlaceData {
                     kind: PlaceKind::Name(path.name_text().unwrap_or_default()),
                 },
             ),
-            Expr::FieldExpr(field) => {
+            ExprView::FieldExpr(field) => {
                 let base = field
                     .receiver()
                     .map(|expr| self.lower_place(&expr))
@@ -195,7 +194,7 @@ impl Lowerer {
                 }
                 id
             }
-            Expr::IndexExpr(index_expr) => {
+            ExprView::IndexExpr(index_expr) => {
                 let base = index_expr
                     .receiver()
                     .map(|expr| self.lower_place(&expr))
@@ -211,7 +210,7 @@ impl Lowerer {
                     },
                 )
             }
-            Expr::ParenExpr(paren) => paren
+            ExprView::ParenExpr(paren) => paren
                 .expr()
                 .map(|expr| self.lower_place(&expr))
                 .unwrap_or_else(|| self.synthetic_name_place("<missing>")),

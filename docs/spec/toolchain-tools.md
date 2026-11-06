@@ -165,8 +165,8 @@ Holes accept only identifiers with optional `:?`, not expressions or comments.
 Output has a final newline. Reformatting with the same options is idempotent.
 
 Before returning output, the library reparses it and verifies the token sequence
-and normalized CST structure. Both checks matter: equal lexer tokens alone do not
-preserve adjacency-sensitive shifts, generic closers or closures. Malformed input
+and normalized typed grammar structure, including interpreted operators. Both
+checks matter: equal lexer tokens alone do not preserve adjacency-sensitive shifts, generic closers or closures. Malformed input
 or a preservation failure leaves the file unchanged with diagnostics. Semantic
 errors alone do not block formatting, so `fn answer()->i32{true}` is formattable.
 

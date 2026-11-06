@@ -30,8 +30,8 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_syntax::{
-    ast::traits::AstNode,
-    parser::{Parse, ParseLimits, parse_declarations},
+    ast::visit::NodeRef,
+    parser::{Parse, ParseLimits, ParseMode, ParseOptions, parse},
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -89,8 +89,15 @@ pub(crate) fn import_source(
         .file(id)
         .expect("native declaration source")
         .clone();
-    let parsed = parse_declarations(&source, limits, cancel)
-        .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
+    let parsed = parse(
+        &source,
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits,
+        },
+        cancel,
+    )
+    .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
     if !parsed.diagnostics().is_empty() {
         return Err(DeclarationError(format!(
             "invalid native declaration syntax: {:?}",
@@ -98,7 +105,7 @@ pub(crate) fn import_source(
         )));
     }
     validate_view(metadata, providers, &parsed, limits, cancel)?;
-    let mut lowered = lower_module_controlled(source, &parsed.syntax().into(), cancel);
+    let mut lowered = lower_module_controlled(source, &parsed.module(), cancel);
     lowered.registered_native_api = true;
     lowered.native_definitions = Some(definitions.clone());
     lowered.language_foundation = language::is_language_module(&definition.identity);
@@ -142,22 +149,24 @@ fn validate_view(
     cancel: &CancellationToken,
 ) -> Result<(), DeclarationError> {
     let expected = declaration_source(metadata, providers)?;
-    let expected = parse_declarations(
+    let expected = parse(
         &SourceFile::new(&expected.uri, &expected.text),
-        limits,
+        ParseOptions {
+            mode: ParseMode::Declarations,
+            limits,
+        },
         cancel,
     )
     .map_err(|_| DeclarationError("native declaration correspondence cancelled".into()))?;
     let tokens = |parsed: &Parse| {
         parsed
-            .syntax()
+            .module()
             .items()
             .map(|item| {
-                item.syntax()
-                    .descendants_with_tokens()
-                    .filter_map(|element| element.into_token())
+                NodeRef::from(item)
+                    .tokens()
                     .filter(|token| !token.kind().is_trivia())
-                    .map(|token| (token.kind(), token.text().to_string()))
+                    .map(|token| (token.kind(), token.text().to_owned()))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>()

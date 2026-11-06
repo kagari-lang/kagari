@@ -1,6 +1,13 @@
 use crate::{
-    ast::item::{ConstDef, EnumDef, FnDef, Item, SourceFile as AstSourceFile, StructDef},
-    parser::{Parse, parse as parse_source, parse_module},
+    ast::{
+        borrow::Ast,
+        item::{ConstDef, EnumDef, FnDef, StructDef},
+        module::ModuleSyntax,
+        ty::TypeSyntax,
+        views::{ItemView, TypeView},
+        visit::{ElementRef, NodeRef},
+    },
+    parser::{Parse, ParseOptions, parse as parse_source},
 };
 use kagari_source::source::SourceFile;
 
@@ -8,40 +15,70 @@ pub fn source(text: &str) -> SourceFile {
     SourceFile::new("test.kg", text)
 }
 
-pub fn parse_ok(text: &str) -> AstSourceFile {
-    let source = source(text);
-    parse_module(&source).expect("source should parse")
+/// Reconstructs non-trivia spelling through grammar roles, not lexical coverage.
+pub fn grammar_text(node: NodeRef<'_>) -> String {
+    let mut text = String::new();
+    for element in node.elements() {
+        match element {
+            ElementRef::Node(child) => text.push_str(&grammar_text(child)),
+            ElementRef::Token(token) if !token.lexical_kind().is_trivia() => {
+                text.push_str(token.text());
+            }
+            ElementRef::Operator(operator) => text.push_str(operator.text()),
+            _ => {}
+        }
+    }
+    text
+}
+
+pub fn parse_ok(text: &str) -> ModuleSyntax {
+    let parsed = parse(text);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    parsed.module()
 }
 
 pub fn parse(text: &str) -> Parse {
-    let source = source(text);
-    parse_source(&source)
+    parse_source(&source(text), ParseOptions::default(), &Default::default())
+        .expect("fresh cancellation token")
 }
 
-pub fn first_function(module: &AstSourceFile) -> FnDef {
+pub fn first_function(module: &ModuleSyntax) -> Ast<'_, FnDef> {
     match module.items().next().expect("expected one item") {
-        Item::FnDef(function) => function,
+        ItemView::FnDef(function) => function,
         other => panic!("expected function item, got {other:?}"),
     }
 }
 
-pub fn first_struct(module: &AstSourceFile) -> StructDef {
+pub fn first_struct(module: &ModuleSyntax) -> Ast<'_, StructDef> {
     match module.items().next().expect("expected one item") {
-        Item::StructDef(struct_def) => struct_def,
+        ItemView::StructDef(structure) => structure,
         other => panic!("expected struct item, got {other:?}"),
     }
 }
 
-pub fn first_const(module: &AstSourceFile) -> ConstDef {
+pub fn first_const(module: &ModuleSyntax) -> Ast<'_, ConstDef> {
     match module.items().next().expect("expected one item") {
-        Item::ConstDef(const_def) => const_def,
+        ItemView::ConstDef(constant) => constant,
         other => panic!("expected const item, got {other:?}"),
     }
 }
 
-pub fn first_enum(module: &AstSourceFile) -> EnumDef {
+pub fn first_enum(module: &ModuleSyntax) -> Ast<'_, EnumDef> {
     match module.items().next().expect("expected one item") {
-        Item::EnumDef(enum_def) => enum_def,
+        ItemView::EnumDef(enumeration) => enumeration,
         other => panic!("expected enum item, got {other:?}"),
+    }
+}
+
+pub fn type_name(ty: Ast<'_, TypeSyntax>) -> Option<String> {
+    match ty.view() {
+        TypeView::Named(path) => path.text(),
+        TypeView::Applied(applied) => applied.path()?.text(),
+        TypeView::Never(_) => Some("!".into()),
+        _ => None,
     }
 }

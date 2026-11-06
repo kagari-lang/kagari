@@ -1,7 +1,10 @@
 use crate::{
     ast::{
-        expr::{Expr, MatchExpr, Pattern, PatternBound},
-        traits::AstNode,
+        borrow::AstNode,
+        expr::Pattern,
+        site::Required,
+        views::{ExprView, PatternBoundView},
+        visit::NodeRef,
     },
     kind::SyntaxKind,
     tests::common,
@@ -14,17 +17,13 @@ fn parses_match_expression_with_simple_patterns() {
     let body = function.body().expect("expected function body");
 
     match body.tail_expr().expect("expected tail expression") {
-        Expr::MatchExpr(match_expr) => {
+        ExprView::MatchExpr(match_expr) => {
             match match_expr.scrutinee().expect("expected scrutinee") {
-                Expr::PathExpr(path) => assert_eq!(path.name_text().as_deref(), Some("color")),
+                ExprView::PathExpr(path) => assert_eq!(path.name_text().as_deref(), Some("color")),
                 other => panic!("unexpected scrutinee: {other:?}"),
             }
 
-            let arms = match_expr
-                .arms()
-                .expect("expected arms")
-                .arms()
-                .collect::<Vec<_>>();
+            let arms = match_expr.arms().arms().collect::<Vec<_>>();
 
             assert_eq!(arms.len(), 3);
 
@@ -37,7 +36,7 @@ fn parses_match_expression_with_simple_patterns() {
                 Some("Red")
             );
             match arms[0].expr().expect("expected first expr") {
-                Expr::Literal(literal) => assert_eq!(literal.text().as_deref(), Some("1")),
+                ExprView::Literal(literal) => assert_eq!(literal.text().as_deref(), Some("1")),
                 other => panic!("unexpected first arm expr: {other:?}"),
             }
 
@@ -71,11 +70,13 @@ fn struct_pattern_rest_preserves_fields_and_physical_token() {
     ] {
         let text = format!("fn main() {{ match point {{ {pattern_text} => 1 }} }}");
         let module = common::parse_ok(&text);
-        assert_eq!(module.syntax().to_string(), text);
-        let pattern = module
-            .syntax()
+        assert_eq!(module.text().to_owned(), text);
+        let pattern = NodeRef::ModuleBody(module.body())
             .descendants()
-            .find_map(Pattern::cast)
+            .find_map(|node| match node {
+                NodeRef::Pattern(node) => Some(node),
+                _ => None,
+            })
             .expect("expected struct pattern");
         assert!(pattern.is_struct());
         assert_eq!(pattern.has_rest(), has_rest, "{pattern_text}");
@@ -95,17 +96,15 @@ fn struct_pattern_rest_preserves_fields_and_physical_token() {
         if let Some(second) = fields.get(1) {
             assert!(second.pattern().unwrap().is_wildcard());
         }
-        let rests = pattern
-            .syntax()
-            .children_with_tokens()
-            .filter_map(|element| element.into_token())
+        let rests = NodeRef::from(pattern)
+            .tokens()
             .filter(|token| token.kind() == SyntaxKind::DotDot)
             .collect::<Vec<_>>();
         assert_eq!(rests.len(), usize::from(has_rest));
         if let Some(rest) = rests.first() {
             let start = text.find("..").unwrap();
-            assert_eq!(usize::from(rest.text_range().start()), start);
-            assert_eq!(usize::from(rest.text_range().end()), start + 2);
+            assert_eq!(rest.span().start, start);
+            assert_eq!(rest.span().end, start + 2);
             assert_eq!(rest.text(), "..");
         }
     }
@@ -121,15 +120,16 @@ fn struct_pattern_rest_is_local_and_distinct_from_ranges() {
         Point { .. } | Point { x, .. } => 5, \
         } }";
     let module = common::parse_ok(text);
-    assert_eq!(module.syntax().to_string(), text);
-    let match_expr = module
-        .syntax()
+    assert_eq!(module.text().to_owned(), text);
+    let match_expr = NodeRef::ModuleBody(module.body())
         .descendants()
-        .find_map(MatchExpr::cast)
+        .find_map(|node| match node {
+            NodeRef::MatchExpr(node) => Some(node),
+            _ => None,
+        })
         .unwrap();
     let patterns = match_expr
         .arms()
-        .unwrap()
         .arms()
         .map(|arm| arm.pattern().unwrap())
         .collect::<Vec<_>>();
@@ -151,10 +151,10 @@ fn struct_pattern_rest_is_local_and_distinct_from_ranges() {
     assert_eq!(inclusive.range_inclusive(), Some(true));
     let bounds = inclusive.range_bounds().collect::<Vec<_>>();
     assert!(
-        matches!(&bounds[0], PatternBound::Literal(value) if value.text().as_deref() == Some("1"))
+        matches!(&bounds[0], PatternBoundView::Literal(value) if value.text().as_deref() == Some("1"))
     );
     assert!(
-        matches!(&bounds[1], PatternBound::Path(path) if path.name_text().as_deref() == Some("MAX"))
+        matches!(&bounds[1], PatternBoundView::Path(path) if path.name_text().as_deref() == Some("MAX"))
     );
 
     let tuple = &patterns[1];
@@ -169,8 +169,8 @@ fn struct_pattern_rest_is_local_and_distinct_from_ranges() {
     let bounds = exclusive
         .range_bounds()
         .map(|bound| match bound {
-            PatternBound::Path(path) => path.name_text().unwrap(),
-            PatternBound::Literal(_) => panic!("expected named range bound"),
+            PatternBoundView::Path(path) => path.name_text().unwrap(),
+            PatternBoundView::Literal(_) => panic!("expected named range bound"),
         })
         .collect::<Vec<_>>();
     assert_eq!(bounds, ["MIN", "MAX"]);
@@ -186,6 +186,67 @@ fn struct_pattern_rest_is_local_and_distinct_from_ranges() {
 }
 
 #[test]
+fn invalid_range_starts_preserve_tokens_and_following_arms() {
+    for prefix in [
+        "_",
+        "()",
+        "(1)",
+        "(1, 2)",
+        "(A | B)",
+        "Some(v)",
+        "Point { v }",
+        "Point { .., v }",
+    ] {
+        for operator in ["..", "..="] {
+            let text = format!("fn f() {{ match p {{ {prefix}{operator}3 => 0, _ => 1 }} }}");
+            let parsed = common::parse(&text);
+            assert!(!parsed.diagnostics().is_empty(), "{text}");
+            let module = parsed.module();
+            let root = NodeRef::ModuleBody(module.body());
+            let actual = common::grammar_text(root);
+            let expected = parsed
+                .tokens()
+                .filter(|token| !token.lexical_kind().is_trivia())
+                .map(|token| token.text())
+                .collect::<String>();
+            assert_eq!(actual, expected, "{text}");
+            let range = root
+                .descendants()
+                .find_map(|node| match node {
+                    NodeRef::Pattern(pattern) if matches!(pattern.data(), Pattern::Range(_)) => {
+                        Some(pattern)
+                    }
+                    _ => None,
+                })
+                .expect("expected recovered range");
+            let Pattern::Range(data) = range.data() else {
+                unreachable!()
+            };
+            assert!(matches!(data.start, Required::Missing { .. }));
+            assert!(matches!(data.end, Required::Present(_)));
+            let rejected = range.with(data.as_ref()).unexpected().collect::<Vec<_>>();
+            assert_eq!(rejected.len(), 1);
+            assert_eq!(rejected[0].position().field, "start");
+            assert_eq!(rejected[0].text(), prefix);
+            let match_expr = root
+                .descendants()
+                .find_map(|node| match node {
+                    NodeRef::MatchExpr(expr) => Some(expr),
+                    _ => None,
+                })
+                .unwrap();
+            let arms = match_expr.arms().arms().collect::<Vec<_>>();
+            assert_eq!(arms.len(), 2, "{text}");
+            assert!(matches!(arms[0].expr(), Some(ExprView::Literal(value))
+                if value.text().as_deref() == Some("0")));
+            assert!(arms[1].pattern().unwrap().is_wildcard());
+            assert!(matches!(arms[1].expr(), Some(ExprView::Literal(value))
+                if value.text().as_deref() == Some("1")));
+        }
+    }
+}
+
+#[test]
 fn struct_pattern_rest_is_shared_by_existing_pattern_contexts() {
     let text = "fn main() { \
         for Point { x, .. } in points {} \
@@ -194,15 +255,17 @@ fn struct_pattern_rest_is_shared_by_existing_pattern_contexts() {
         match point { Point { .. } => 1 } \
         }";
     let module = common::parse_ok(text);
-    assert_eq!(module.syntax().to_string(), text);
-    let patterns = module
-        .syntax()
+    assert_eq!(module.text().to_owned(), text);
+    let patterns = NodeRef::ModuleBody(module.body())
         .descendants()
-        .filter_map(Pattern::cast)
-        .filter(Pattern::is_struct)
+        .filter_map(|node| match node {
+            NodeRef::Pattern(node) => Some(node),
+            _ => None,
+        })
+        .filter(|pattern| pattern.is_struct())
         .collect::<Vec<_>>();
     assert_eq!(patterns.len(), 4);
-    assert!(patterns.iter().all(Pattern::has_rest));
+    assert!(patterns.iter().all(|pattern| pattern.has_rest()));
     assert!(
         patterns
             .iter()
@@ -228,38 +291,34 @@ fn malformed_struct_pattern_rest_preserves_following_constructs() {
         );
         let parsed = common::parse(&text);
         assert!(!parsed.diagnostics().is_empty(), "{pattern_text}");
-        let module = parsed.syntax();
-        assert_eq!(module.syntax().to_string(), text);
+        let module = parsed.module();
+        assert_eq!(module.text().to_owned(), text);
         let function = common::first_function(&module);
         let body = function.body().unwrap();
         assert_eq!(body.statements().count(), 2, "{pattern_text}");
-        assert!(matches!(body.tail_expr(), Some(Expr::PathExpr(path))
+        assert!(matches!(body.tail_expr(), Some(ExprView::PathExpr(path))
             if path.name_text().as_deref() == Some("after")));
         let later = module.items().nth(1).expect("expected following function");
-        assert!(later.syntax().to_string().contains("fn later()"));
-        let match_expr = body
-            .syntax()
+        assert!(later.source_text().to_owned().contains("fn later()"));
+        let match_expr = NodeRef::from(body)
             .descendants()
-            .find_map(MatchExpr::cast)
+            .find_map(|node| match node {
+                NodeRef::MatchExpr(node) => Some(node),
+                _ => None,
+            })
             .unwrap();
-        let arms = match_expr.arms().unwrap().arms().collect::<Vec<_>>();
+        let arms = match_expr.arms().arms().collect::<Vec<_>>();
         assert_eq!(arms.len(), 2, "{pattern_text}");
         let pattern = arms[0].pattern().unwrap();
         assert!(pattern.has_rest());
         assert_eq!(pattern.range_inclusive(), None);
-        assert_eq!(
-            pattern
-                .syntax()
-                .children_with_tokens()
-                .filter_map(|element| element.into_token())
-                .filter(|token| token.kind() == SyntaxKind::DotDot)
-                .count(),
-            1
+        assert!(
+            matches!(pattern.data(), crate::ast::expr::Pattern::Struct(pattern) if pattern.rest.is_some())
         );
-        assert!(matches!(arms[0].expr(), Some(Expr::Literal(value))
+        assert!(matches!(arms[0].expr(), Some(ExprView::Literal(value))
             if value.text().as_deref() == Some("1")));
         assert!(arms[1].pattern().unwrap().is_wildcard());
-        assert!(matches!(arms[1].expr(), Some(Expr::Literal(value))
+        assert!(matches!(arms[1].expr(), Some(ExprView::Literal(value))
             if value.text().as_deref() == Some("2")));
     }
 
@@ -271,11 +330,11 @@ fn malformed_struct_pattern_rest_preserves_following_constructs() {
         let text = format!("fn main() {{ {construct} after }}");
         let parsed = common::parse(&text);
         assert!(!parsed.diagnostics().is_empty(), "{construct}");
-        let module = parsed.syntax();
-        assert_eq!(module.syntax().to_string(), text);
+        let module = parsed.module();
+        assert_eq!(module.text().to_owned(), text);
         let body = common::first_function(&module).body().unwrap();
         assert_eq!(body.statements().count(), 1, "{construct}");
-        assert!(matches!(body.tail_expr(), Some(Expr::PathExpr(path))
+        assert!(matches!(body.tail_expr(), Some(ExprView::PathExpr(path))
             if path.name_text().as_deref() == Some("after")));
     }
 }

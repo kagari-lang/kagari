@@ -177,22 +177,23 @@ mod tests {
     fn inline_environment_uses_only_its_logical_extent() {
         use crate::lower::lower_module_controlled;
         use kagari_syntax::{
-            ast::{item::Item, module::ModuleSyntax},
-            parser::parse,
+            ast::views::ItemView,
+            parser::{ParseOptions, parse},
         };
         use std::sync::Arc;
         fn lower(text: &str) -> LoweredModule {
             let source = SourceFile::new("inline.kgr", text);
-            let parsed = parse(&source);
-            let Item::ModuleDef(child) = parsed
-                .syntax()
+            let parsed = parse(&source, ParseOptions::default(), &Default::default())
+                .expect("fresh cancellation token");
+            let module = parsed.module();
+            let ItemView::ModuleDef(child) = module
                 .items()
-                .find(|item| matches!(item, Item::ModuleDef(_)))
+                .find(|item| matches!(item, ItemView::ModuleDef(_)))
                 .unwrap()
             else {
                 panic!()
             };
-            let view = ModuleSyntax::from(child.block().unwrap());
+            let view = child.body().unwrap();
             let source = SourceFile::inline_module(
                 &source,
                 "a",
