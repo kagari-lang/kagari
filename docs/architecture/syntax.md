@@ -211,6 +211,14 @@ pieces, so expression shifts remain distinct from generic angle delimiters.
 | `ModuleSyntax::visit_owned()` | Same callback model, excluding nested inline bodies but retaining their headers |
 | `ModuleSyntax::descendants()` | Eagerly collects the logical-module walk before returning an iterator |
 
+An empty recovered child has an insertion anchor but no lexical coverage. It does
+not advance `elements()`' trivia cursor or claim trivia preceding that anchor.
+After a parser stop, such trivia can belong to the enclosing unparsed suffix;
+emitting it for the empty child as well would duplicate source tokens.
+Similarly, a rejected entry's unexpected coverage stops at its last written
+token. Parsing may already have skipped trailing trivia, but that gap still
+belongs to the enclosing traversal, including when the closing delimiter is absent.
+
 Traversal does not poll cancellation. Source spelling accessors returning `&str`
 borrow the original bytes; helpers returning `String` allocate. In particular,
 `Path::text()` joins present names with `::` and omits trivia/missing segments,

@@ -8,7 +8,11 @@ without requiring a sanitizer or linking libFuzzer.
 ## Contracts
 
 Each input is plain UTF-8 source, replayed in Source and Declarations modes with
-default limits and small input-derived limits (including zero). Invalid UTF-8
+five limit configurations: defaults, independently reduced diagnostics, nesting
+and tree depth, and all three reduced together. Small limits (including zero)
+derive from source length and endpoint bytes, preserving verbatim source replay.
+Each accepted input therefore runs ten parses. Independent limits exercise stop
+paths that another small budget could otherwise mask. Invalid UTF-8
 and inputs above 128 KiB are skipped because source acquisition accepts text and
 parser limits do not bound input size. No production checks are disabled.
 
@@ -17,6 +21,18 @@ boundaries for token/node/diagnostic/missing-role sites, diagnostic budgets,
 source-order grammar token preservation, and retained inline-module access after
 dropping the parse/root handles. It traverses recovered trees and lets all trees
 drop normally, covering construction, traversal and destruction failures.
+Grammar traversal must match the complete lexical `(kind, start, end)` sequence,
+including trivia and the single EOF record. Identical spellings at different
+positions cannot substitute for one another. Combined operators are expanded into
+their contiguous physical lexical pieces; missing slots and empty recovered
+children consume no tokens.
+
+An explicit stack over `elements()` supplies the expected preorder for
+`descendants()` and `visit()`. Source-derived pruning checks that rejecting a
+subtree still visits its siblings. Logical-module visits exclude nested bodies
+while retaining their declarations and attributes, including after parent handles
+are dropped. These paths share AST field definitions: agreement checks traversal
+contracts, not independent grammar correctness.
 The recovered tree need not obey a strict final depth cap: active outer scopes
 can still close after the growth limit stops parsing.
 
@@ -35,7 +51,8 @@ cargo test --locked -p kagari-syntax-fuzz --lib
 ```
 
 This discovers every file in `fuzz/seeds/syntax`, also checks empty input, and
-generates depth/chain and 16-bit/32-bit lexical-coordinate boundary cases.
+generates depth/chain and 16-bit/32-bit lexical-coordinate boundary cases, including
+exact 65,535/65,536/65,537-byte sources with Unicode and trailing tokens/comments.
 Seeds cover legal expressions, declarations, inline modules, Unicode, recovery
 and unfinished strings. They are starting points, not an exhaustive grammar list.
 
