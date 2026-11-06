@@ -44,7 +44,7 @@ impl Parser<'_> {
     pub(crate) fn parse_impl(&mut self) -> ImplBlock {
         let mark = self.begin();
         let attributes = self.parse_attributes();
-        let keyword = self.take();
+        let keyword = self.expect(TokenKind::ImplKw, DiagnosticKind::ExpectedImplKeyword);
         let generics = self.parse_generic_params();
         let trait_clause = self.impl_target_followed_by_for().then(|| {
             let trait_ref = self.parse_trait_ref().node;
@@ -153,7 +153,7 @@ impl Parser<'_> {
             self.error_here(DiagnosticKind::UnexpectedToken);
         }
         let visibility = self.parse_visibility();
-        let keyword = self.take();
+        let keyword = self.expect(TokenKind::TypeKw, DiagnosticKind::UnexpectedToken);
         let name = self.parse_name(DiagnosticKind::ExpectedFunctionName);
         let generics = self.parse_generic_params();
         let bounds = self.eat(TokenKind::Colon).map(|colon| Supertraits {

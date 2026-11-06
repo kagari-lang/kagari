@@ -98,6 +98,15 @@ Skipped tokens have a parser-assigned owner, named field, list entry and
 `Ast::unexpected`; ownership is not guessed from overlapping spans. A struct
 update is a final entry: `Point { ..base, x: 1 }` retains `x: 1` as unexpected
 content, without admitting it as an ordinary field.
+Malformed static tails belong to the `terminator` slot, after the initializer.
+In struct patterns, repeated rest markers and fields following `..` belong to
+the `close` slot, after the retained rest marker. Rejected pattern fields retain
+their source coverage rather than entering the earlier typed field list. These
+positions keep recovery traversal in authored order.
+Declaration keywords following attributes/visibility and import-group opening
+braces use `Required<Token<_>>`: prefix diagnostics can exhaust the parser budget
+before those tokens are consumed. In that case the slot is missing and the token
+stays exclusively in the unparsed suffix, rather than appearing in both places.
 When grammar parses a first entry separately, continuation parsing records
 recovery positions relative to the complete owning list, including that entry.
 

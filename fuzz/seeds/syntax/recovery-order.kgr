@@ -1,0 +1,2 @@
+static val x: i32 = 0 extra;
+fn f() { match p { Point { .., .. } => 0, Point { x, .., y: (a, b), .., z } => 1 } }

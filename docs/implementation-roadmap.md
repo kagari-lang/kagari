@@ -54,6 +54,31 @@ the campaign above, with the retained generated corpus and the new seed.
 Linux CI must rerun on the repair; the earlier successful local campaign did not
 cover this input.
 
+The [second PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42189958639/job/127799238832)
+exposed a different ordering defect: static-tail recovery used the default
+`attributes` insertion slot, moving trailing garbage before the declaration.
+The reduced `static val x: i32 = 0 extra;` reproduces it. Recovery now belongs
+to `StaticDef.terminator`. Reviewing direct grammar recovery sites also reproduced
+misordered duplicate rest markers and fields after rest in struct patterns;
+those rejected suffixes now belong to `StructPattern.close`, using the existing
+rejected-entry mechanism instead of admitting post-rest fields into the earlier
+typed list. Both boundaries have fixed corpus coverage; existing static recovery
+tests also assert the named recovery owner. Extended local campaigns then found
+duplicate reads after prefix diagnostics exhausted the budget, reduced to
+`pub(/<=type Item;  }` and a prefixed import group without `::`. Module/associated
+type and impl keywords, and import-group opening braces, now use required slots
+and checked consumption rather than unconditionally reading into the unparsed
+suffix. Existing consumers compile against the corrected AST fields; accepted
+source retains the same tokens. Fuzz invariants remain unchanged.
+Local validation passes 41 selected tests: corpus replay (2), static parsing (6),
+typed fields (7), malformed rest (1), declaration items (8), module/import parsing
+(5), limits (7), formatter rejection (4) and one dependent HIR rest-pattern
+contract. Both CI inputs pass ASan replay. After fixing the local findings, the
+180-second Windows ASan campaign completed 62,511 inputs without a finding, using
+the same toolchain/runner limits and retained corpus as above. Structure, fmt,
+workspace all-target Clippy and diff checks pass. Linux CI must rerun on this
+repair; bounded local fuzzing does not prove exhaustive recovery coverage.
+
 The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
 Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
 sharing, retained inline views, source provenance, explicit recovered roles and

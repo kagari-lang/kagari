@@ -119,6 +119,10 @@ fn static_malformed_declarations_recover_before_following_items() {
         ),
         ("static val", DiagnosticKind::ExpectedBindingName),
         (
+            "static val count: i32 = 0 extra;",
+            DiagnosticKind::ExpectedStatementTerminator,
+        ),
+        (
             "static val count: i32 =",
             DiagnosticKind::ExpectedExpression,
         ),
@@ -143,6 +147,9 @@ fn static_malformed_declarations_recover_before_following_items() {
             })
             .collect();
         assert_eq!(definitions.len(), 2, "{broken}");
+        for skipped in definitions[0].unexpected() {
+            assert_eq!(skipped.position().field, "terminator", "{broken}");
+        }
         assert_eq!(
             definitions[1].name().unwrap().text().as_deref(),
             Some("next"),
