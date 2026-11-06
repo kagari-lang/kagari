@@ -1084,9 +1084,12 @@ against patterns, and no arm contributes to the match result type. Arm source
 still receives independent diagnostics. When the scrutinee has a completing
 path, pattern compatibility and arm result joins remain checked.
 Match arms are considered in source order. A wildcard or binding pattern matches
-every remaining value, so subsequent arms cannot contribute result types or
-completion paths and do not generate concrete generic instances. Their source
-still receives independent name and expression diagnostics.
+every remaining value. Without a guard, or with a guard that cannot complete
+normally, it excludes subsequent arms from result types, completion paths and
+concrete generic instantiation. A normally completing guard may return false and
+continue to the next arm; a refutable pattern may fail without running its guard.
+If a guard cannot complete, its arm value contributes no result type or completion
+path. All arm source still receives independent name and expression diagnostics.
 Branches that return or otherwise cannot complete do not contribute a value type
 to an if/match join. Unreachable source still receives semantic diagnostics.
 An unconditional loop completes only through a reachable break in that loop;

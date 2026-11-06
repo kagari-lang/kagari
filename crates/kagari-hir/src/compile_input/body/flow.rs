@@ -2,7 +2,10 @@
 
 use crate::{
     compile_input::body::CheckedBodyInput,
-    hir::ids::{ExprId, PlaceId, StmtId},
+    hir::{
+        expr::ExprKind,
+        ids::{ExprId, PlaceId, StmtId},
+    },
     typeck::completion::CompletionCache,
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
@@ -33,6 +36,33 @@ impl<'a> CheckedBodyInput<'a> {
 }
 
 impl BodyCompletion<'_> {
+    /// Returns whether matching can continue past an arm, assuming that arm is reached.
+    ///
+    /// For `match x { _ if { return 1; } => 0, _ => 2 }`, arm zero has no
+    /// continuation. A refutable pattern may fail, and a normally completing
+    /// guard may be false. The query does not evaluate boolean constants.
+    /// Foreign IDs, non-match expressions and missing arm positions return `None`;
+    /// cancellation returns an error, including for cached results.
+    pub fn match_arm_can_continue(
+        &mut self,
+        expr: ExprId,
+        index: usize,
+        cancel: &CancellationToken,
+    ) -> Result<Option<bool>, Cancelled> {
+        cancel.check()?;
+        let Some(ExprKind::Match { arms, .. }) = self
+            .input
+            .expression(expr)
+            .map(|expression| &expression.kind)
+        else {
+            return Ok(None);
+        };
+        let Some(arm) = arms.get(index) else {
+            return Ok(None);
+        };
+        self.cache.match_arm_can_continue(arm, cancel).map(Some)
+    }
+
     /// Returns whether an expression has a normal exit, or `None` for a foreign ID.
     pub fn expression(
         &mut self,

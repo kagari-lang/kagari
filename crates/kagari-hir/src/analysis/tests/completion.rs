@@ -12,6 +12,36 @@ fn function_fallthrough_is_checked_only_when_reachable() {
             true,
         ),
         ("match true { _ => 42, _ => missing }", false),
+        (
+            "match true { _ if { return 42; } => false, _ => () };",
+            true,
+        ),
+        (
+            "match true { false if { return 42; } => false, _ => 7 }",
+            true,
+        ),
+        (
+            "match true { false if { return 42; } => 1, _ => 2 };",
+            false,
+        ),
+        (
+            "match true { _ if false => { return 42; }, _ => { return 7; } };",
+            true,
+        ),
+        ("match true { _ if false => false, _ => 7 }", false),
+        (
+            "match true { _ if { return 42; } => missing, _ => 7 }",
+            false,
+        ),
+        (
+            "val result = loop { match true { _ if { break 42; } => false, _ => () }; }; result",
+            true,
+        ),
+        (
+            "loop { match true { _ if { loop { break; } false } => { return 42; }, _ => { return 7; } }; }",
+            true,
+        ),
+        ("match true { _ if loop {} => false, _ => () };", true),
         ("return 42; false", true),
         ("if true { return 42; } else { return 7; };", true),
         ("if true { return 42; } else { 7 }", true),

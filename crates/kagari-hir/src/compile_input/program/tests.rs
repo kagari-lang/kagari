@@ -7,7 +7,7 @@ use kagari_types::scalar::BuiltinType;
 
 #[test]
 fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
-    let text = "const N: i32 = 2; static val S: i32 = N; trait Read { fn read(self) -> i32; } struct Box<T> { val value: T } type Alias<T> = Box<T>; impl<T> Box<T> where T: Read {} fn first() -> i32 { 3 } fn second() -> i32 { S }";
+    let text = "const N: i32 = 2; static val S: i32 = N; trait Read { fn read(self) -> i32; } struct Box<T> { val value: T } type Alias<T> = Box<T>; impl<T> Box<T> where T: Read {} fn first() -> i32 { 3 } fn second() -> i32 { match true { _ if { return S; } => 0, _ => 1 } }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("input.kgr", text.into(), SourceLayer::Base)
@@ -118,6 +118,42 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     );
     let span = first.expression_span(value).unwrap();
     assert_eq!(&module.source().text()[span.start..span.end], "3");
+    assert_eq!(
+        first
+            .completion()
+            .match_arm_can_continue(value, 0, &Default::default()),
+        Ok(None),
+        "a literal is not a match expression"
+    );
+    let second = bodies
+        .iter()
+        .find(|body| {
+            body.enclosing_signature()
+                .is_some_and(|signature| signature.name == "second")
+        })
+        .copied()
+        .unwrap();
+    let BodyRoot::Block(second_root) = second.root() else {
+        panic!("function block")
+    };
+    let matching = second.block(second_root).unwrap().tail_expr.unwrap();
+    let mut completion = second.completion();
+    assert_eq!(
+        completion.match_arm_can_continue(matching, 0, &Default::default()),
+        Ok(Some(false))
+    );
+    assert_eq!(
+        completion.match_arm_can_continue(matching, 2, &Default::default()),
+        Ok(None),
+        "the match has only two source arms"
+    );
+    assert_eq!(
+        first
+            .completion()
+            .match_arm_can_continue(matching, 0, &Default::default()),
+        Ok(None),
+        "another body's match is not owned by this query"
+    );
     for other in &bodies {
         if other.key() != first.key() {
             assert!(other.expression(value).is_none());
@@ -184,6 +220,12 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     assert!(newer_module.body(first.key()).is_none());
     for body in newer_module.bodies() {
         assert!(body.expression(value).is_none());
+        assert_eq!(
+            body.completion()
+                .match_arm_can_continue(matching, 0, &Default::default()),
+            Ok(None),
+            "the match belongs to the older arena"
+        );
     }
     assert_eq!(value.owner(), HirOwner::Body(first.key().owner));
     assert_eq!(
@@ -264,6 +306,16 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     ));
     let cancelled = CancellationToken::default();
     cancelled.cancel();
+    assert!(
+        completion
+            .match_arm_can_continue(matching, 0, &cancelled)
+            .is_err()
+    );
+    assert!(
+        completion
+            .match_arm_can_continue(matching, 2, &cancelled)
+            .is_err()
+    );
     assert!(matches!(
         CheckedCompilation::from_program(&program, &cancelled),
         Err(AdmissionError::Cancelled)

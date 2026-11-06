@@ -33,7 +33,7 @@ use crate::{
 use std::sync::Arc;
 use {
     kagari_common::{
-        cancellation::CancellationToken,
+        cancellation::{CancellationToken, Cancelled},
         identity::{
             mapping::DefinitionMappingError,
             table::{DefinitionId, DefinitionTable},
@@ -51,6 +51,8 @@ mod tests;
 /// `names`, `declarations` and `typed` contain the selected analysis facts; they do not
 /// imply every function in the file was checked. Scoped definition IDs resolve through
 /// [`Self::definitions`], while position type queries return portable identities.
+/// Unchanged body facts can be shared with a newer signature snapshot; the query's
+/// shared diagnostics and eligibility always use that requested signature context.
 ///
 /// For `fn good() -> i32 { 1 } fn bad() -> i32 { true }`, querying `good` retains
 /// its expression facts and both declarations' signatures, but does not check
@@ -59,18 +61,25 @@ mod tests;
 /// an error from [`AnalysisDatabase::body`] and publishes no partial result.
 #[derive(Debug)]
 pub struct FunctionAnalysis {
-    /// Returns the selected declaration's identity in this result's definition table.
-    owner: DefinitionId,
-    /// Borrows the identity table owning scoped IDs in this result.
-    definitions: DefinitionTable,
-    /// Returns the function index to look up in [`Self::lowered`].
-    function: FunctionId,
     signatures: SignatureSnapshot,
+    facts: Arc<FunctionFacts>,
+}
+
+/// Immutable body facts kept together with their matching source and identity owners.
+/// Refreshing unrelated signature inputs shares this record without copying its tables.
+#[derive(Debug)]
+struct FunctionFacts {
+    /// Selected declaration identity in the retained definition table.
+    owner: DefinitionId,
+    /// Immutable prefix owning the body's scoped definition references.
+    definitions: DefinitionTable,
+    /// Local function slot in the lowering retained by `file`.
+    function: FunctionId,
     file: Arc<FileSignatures>,
     environment: BodyEnvironment,
-    /// Borrows resolved lexical names for the selected body analysis.
+    /// Resolved lexical names for the selected body analysis.
     names: ResolvedNames,
-    /// Borrows declaration sites including bindings collected for the selected body.
+    /// Declaration sites including bindings collected for the selected body.
     declarations: Declarations,
     typed: AnalysisResult<ModuleFacts>,
 }
@@ -85,7 +94,12 @@ impl FunctionAnalysis {
     /// constants, other bodies and linking still require their own checks.
     pub fn eligibility(&self) -> BodyEligibility {
         if self.signatures.shared_inputs_valid()
-            && self.typed.facts.valid_bodies.contains(&self.function)
+            && self
+                .facts
+                .typed
+                .facts
+                .valid_bodies
+                .contains(&self.facts.function)
         {
             BodyEligibility::Complete
         } else {
@@ -94,8 +108,8 @@ impl FunctionAnalysis {
     }
 
     fn contains(&self, offset: usize) -> bool {
-        self.names.scopes().iter().any(|scope| {
-            scope.owner == BodyOwner::Function(self.function)
+        self.facts.names.scopes().iter().any(|scope| {
+            scope.owner == BodyOwner::Function(self.facts.function)
                 && scope.span.start <= offset
                 && offset <= scope.span.end
         })
@@ -121,58 +135,83 @@ impl FunctionAnalysis {
 
     /// Returns the selected declaration's identity in this result's definition table.
     pub fn owner(&self) -> &DefinitionId {
-        &self.owner
+        &self.facts.owner
     }
 
     /// Borrows the source revision owning the selected function.
     pub fn source(&self) -> &SourceFile {
-        self.file.source()
+        self.facts.file.source()
     }
 
-    /// Borrows signature dependencies retained while this body was checked.
+    /// Borrows the requested signature context against which these body facts remain valid.
     pub fn signature_snapshot(&self) -> &SignatureSnapshot {
         &self.signatures
     }
 
     /// Local IDs are interpreted only against this result's lowering and facts.
     pub fn lowered(&self) -> &LoweredModule {
-        &self.file.prepared.lowered
+        &self.facts.file.prepared.lowered
     }
 
     /// Returns the function index to look up in [`Self::lowered`].
     pub fn function(&self) -> FunctionId {
-        self.function
+        self.facts.function
     }
 
     /// Borrows resolved lexical names for the selected body analysis.
     pub fn names(&self) -> &ResolvedNames {
-        &self.names
+        &self.facts.names
     }
 
     /// Borrows declaration sites including bindings collected for the selected body.
     pub fn declarations(&self) -> &Declarations {
-        &self.declarations
+        &self.facts.declarations
     }
 
     /// Borrows checked types and lowering decisions for the selected analysis.
     pub fn type_table(&self) -> &TypeTable {
-        &self.typed.facts.type_table
+        &self.facts.typed.facts.type_table
     }
 
     /// Body diagnostics and constant/static initializer prerequisites. Header diagnostics are
     /// available separately through the retained signature snapshot.
     pub fn diagnostics(&self) -> &[Diagnostic] {
-        self.typed.diagnostics()
+        self.facts.typed.diagnostics()
     }
 
     /// Returns the number of bodies checked while constructing this result.
     pub fn checked_bodies(&self) -> usize {
-        self.typed.facts.checked_bodies
+        self.facts.typed.facts.checked_bodies
     }
 
     /// Returns the number of bodies reused while constructing this result.
     pub fn reused_bodies(&self) -> usize {
-        self.typed.facts.reused_bodies
+        self.facts.typed.facts.reused_bodies
+    }
+
+    /// Whole-result sharing also requires the complete signature snapshot to match.
+    /// A new context may change shared diagnostics without changing this body's inputs.
+    fn same_signature_snapshot(
+        &self,
+        signatures: &SignatureSnapshot,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        if self.signatures.revision() != signatures.revision()
+            || self.signatures.files.len() != signatures.files.len()
+        {
+            return Ok(false);
+        }
+        for (id, file) in signatures.files.iter() {
+            cancel.check()?;
+            if self
+                .signatures
+                .file(*id)
+                .is_none_or(|old| !Arc::ptr_eq(old, file))
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 
@@ -187,9 +226,11 @@ impl AnalysisDatabase {
     /// diagnostics remain in the returned analysis; signature diagnostics are available
     /// through its retained [`SignatureSnapshot`].
     ///
-    /// An unchanged signature result and equal body environment permit retaining the old
-    /// `Arc`. Otherwise compatible imports, types and aggregate contracts may permit
-    /// body-fact remapping; edits are not assumed reusable merely because the name matches.
+    /// An unchanged file signature result and equal body environment permit sharing
+    /// body facts. Changes elsewhere refresh the retained signature context; an
+    /// unchanged complete context also permits retaining the result's `Arc`. Otherwise
+    /// compatible imports, types and aggregate contracts may permit body-fact remapping;
+    /// edits are not assumed reusable merely because the name matches.
     ///
     /// # Errors
     ///
@@ -238,16 +279,23 @@ impl AnalysisDatabase {
             .remove(&file.source().id())
             .expect("function environment");
         let previous = self.body_cache.get_id(owner_id);
-        let previous_environment = previous.map(|old| &old.environment);
-        let previous_types = previous.map(|old| &old.typed);
+        let previous_environment = previous.map(|old| &old.facts.environment);
+        let previous_types = previous.map(|old| &old.facts.typed);
         let result = if let Some(old) = previous.filter(|old| {
-            Arc::ptr_eq(&old.file, &file)
+            Arc::ptr_eq(&old.facts.file, &file)
                 && *previous_environment
                     .as_ref()
                     .expect("previous body environment")
                     == &environment
         }) {
-            old.clone()
+            if old.same_signature_snapshot(&signatures, cancel)? {
+                old.clone()
+            } else {
+                Arc::new(FunctionAnalysis {
+                    signatures: signatures.clone(),
+                    facts: old.facts.clone(),
+                })
+            }
         } else {
             let prepared = &file.prepared;
             let selection = BodySelection::Function(function);
@@ -260,6 +308,7 @@ impl AnalysisDatabase {
             let reusable = previous
                 .map(|old| -> Result<bool, AnalysisError> {
                     Ok(old
+                        .facts
                         .file
                         .declaration
                         .parsed
@@ -268,29 +317,31 @@ impl AnalysisDatabase {
                         .is_empty()
                         && file.declaration.parsed.physical().diagnostics().is_empty()
                         && old.diagnostics().is_empty()
-                        && old.file.diagnostics().is_empty()
+                        && old.facts.file.diagnostics().is_empty()
                         && file.diagnostics().is_empty()
                         && old
+                            .facts
                             .file
                             .prepared
                             .names
                             .facts
                             .imports
                             .same_bindings(&prepared.names.facts.imports)
-                        && old.names.catalog.same_reuse_namespaces(
+                        && old.facts.names.catalog.same_reuse_namespaces(
                             &prepared.names.facts.catalog,
-                            &old.names.items,
+                            &old.facts.names.items,
                             &prepared.names.facts.items,
                             cancel,
                         )?
                         && old
+                            .facts
                             .file
                             .prepared
                             .declarations
                             .imported_types
                             .same_reuse_inputs(
                                 &prepared.declarations.imported_types,
-                                old.file.prepared.names.facts.items.unit.as_ref(),
+                                old.facts.file.prepared.names.facts.items.unit.as_ref(),
                                 prepared.names.facts.items.unit.as_ref(),
                             )
                         && previous_environment
@@ -298,8 +349,9 @@ impl AnalysisDatabase {
                             .expect("previous body environment")
                             .imported_functions
                             == environment.imported_functions
-                        && old.environment.imported_statics == environment.imported_statics
-                        && old.environment.imported_constants == environment.imported_constants
+                        && old.facts.environment.imported_statics == environment.imported_statics
+                        && old.facts.environment.imported_constants
+                            == environment.imported_constants
                         && previous_environment
                             .as_ref()
                             .expect("previous body environment")
@@ -309,7 +361,7 @@ impl AnalysisDatabase {
                 .transpose()?
                 .unwrap_or(false);
             let reuse = previous.filter(|_| reusable).map(|old| BodyReuse {
-                previous_valid_bodies: &old.typed.facts().valid_bodies,
+                previous_valid_bodies: &old.facts.typed.facts().valid_bodies,
                 previous_diagnostics: old.diagnostics(),
                 previous_lowered: old.lowered(),
                 previous_types: &previous_types
@@ -346,15 +398,17 @@ impl AnalysisDatabase {
             let definitions = self.definitions.snapshot();
             declarations.publish_definitions(definitions.clone());
             Arc::new(FunctionAnalysis {
-                owner: owner_id,
-                definitions,
-                function,
                 signatures: signatures.clone(),
-                file,
-                environment,
-                names,
-                declarations,
-                typed,
+                facts: Arc::new(FunctionFacts {
+                    owner: owner_id,
+                    definitions,
+                    function,
+                    file,
+                    environment,
+                    names,
+                    declarations,
+                    typed,
+                }),
             })
         };
         #[cfg(test)]
@@ -380,7 +434,7 @@ impl AnalysisDatabase {
             });
             if let Some(result) = result {
                 self.body_cache
-                    .insert_id(result.owner, result)
+                    .insert_id(result.facts.owner, result)
                     .expect("function cache uses the analysis definition scope");
             }
         }
@@ -388,8 +442,8 @@ impl AnalysisDatabase {
 }
 
 impl FunctionAnalysis {
-    /// Borrows the identity table owning scoped IDs in this result.
+    /// Borrows the identity table owning scoped IDs in this body's retained facts.
     pub fn definitions(&self) -> &DefinitionTable {
-        &self.definitions
+        &self.facts.definitions
     }
 }

@@ -41,7 +41,6 @@ impl FunctionLowerer<'_, '_> {
 
         for arm in arms {
             let outer_scope = self.current_scope;
-            let irrefutable = self.source_body().patterns[&arm.pattern].irrefutable;
             let arm_block = self.new_block();
             let next_decision = self.new_block();
 
@@ -88,9 +87,6 @@ impl FunctionLowerer<'_, '_> {
             self.current_scope = outer_scope;
 
             decision_block = next_decision;
-            if irrefutable && arm.guard.is_none() {
-                break;
-            }
         }
 
         self.switch_to_block(decision_block);

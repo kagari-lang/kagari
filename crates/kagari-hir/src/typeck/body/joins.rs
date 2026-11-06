@@ -155,15 +155,21 @@ impl BodyChecker<'_> {
             if !reachable {
                 continue;
             }
-            reachable = !self
-                .names
-                .pattern_is_irrefutable(&self.lowered.module.body, arm.pattern)
-                || arm.guard.is_some();
-            let Ok(completes) = completion::expr_can_complete(
+            let Ok(can_continue) = completion::match_arm_can_continue(
                 &self.lowered.module,
                 self.names,
                 self.type_table,
-                arm.expr,
+                arm,
+                self.cancel,
+            ) else {
+                return TypeId::Unknown;
+            };
+            reachable = can_continue;
+            let Ok(completes) = completion::match_arm_can_complete(
+                &self.lowered.module,
+                self.names,
+                self.type_table,
+                arm,
                 self.cancel,
             ) else {
                 return TypeId::Unknown;

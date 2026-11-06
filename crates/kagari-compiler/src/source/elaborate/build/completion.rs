@@ -11,6 +11,18 @@ use kagari_hir::{
 use std::iter;
 
 impl Builder<'_, '_> {
+    pub(super) fn match_arm_can_continue(
+        &mut self,
+        id: ExprId,
+        index: usize,
+    ) -> Result<bool, ElaborationError> {
+        let result = self
+            .completion
+            .match_arm_can_continue(id, index, self.cancel)
+            .map_err(|_| ElaborationError::Cancelled)?;
+        self.require(result, self.input.expression_span(id), "foreign match arm")
+    }
+
     pub(super) fn diverging_prefix(
         &mut self,
         id: ExprId,

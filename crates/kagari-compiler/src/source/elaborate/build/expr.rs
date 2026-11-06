@@ -396,7 +396,7 @@ impl Builder<'_, '_> {
             ExprKind::Match { scrutinee, arms } => {
                 self.expression(scrutinee)?;
                 let mut checked = Vec::new();
-                for arm in &arms {
+                for (index, arm) in arms.iter().enumerate() {
                     self.pattern(arm.pattern)?;
                     let guard_completes = if let Some(guard) = arm.guard {
                         self.expression(guard)?;
@@ -415,7 +415,7 @@ impl Builder<'_, '_> {
                         guard: arm.guard,
                         value,
                     });
-                    if arm.guard.is_none() && self.body.patterns[&arm.pattern].irrefutable {
+                    if !self.match_arm_can_continue(id, index)? {
                         break;
                     }
                 }

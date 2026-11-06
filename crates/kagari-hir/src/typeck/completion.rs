@@ -106,6 +106,37 @@ pub(super) fn expr_can_complete(
     .normal)
 }
 
+/// Returns whether a matched arm's guard and value can produce a normal exit.
+pub(super) fn match_arm_can_complete(
+    module: &Module,
+    names: &ResolvedNames,
+    types: &TypeTable,
+    arm: &MatchArm,
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    CompletionCache::new(&module.body, names, types).query(Node::arm(arm), cancel)
+}
+
+/// Returns whether pattern failure or a normally completing guard can reach another arm.
+pub(super) fn match_arm_can_continue(
+    module: &Module,
+    names: &ResolvedNames,
+    types: &TypeTable,
+    arm: &MatchArm,
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    CompletionCache::new(&module.body, names, types).match_arm_can_continue(arm, cancel)
+}
+
+fn arm_can_continue(
+    nodes: &Body,
+    names: &ResolvedNames,
+    arm: &MatchArm,
+    guard_completes: bool,
+) -> bool {
+    !names.pattern_is_irrefutable(nodes, arm.pattern) || (arm.guard.is_some() && guard_completes)
+}
+
 /// Memoized completion facts for queries against one immutable body input.
 /// It is owned by a short-lived elaboration, not published or shared across revisions.
 pub(crate) struct CompletionCache<'a> {
@@ -149,6 +180,24 @@ impl<'a> CompletionCache<'a> {
         self.query(Node::Place(id), cancel)
     }
 
+    pub(crate) fn match_arm_can_continue(
+        &mut self,
+        arm: &MatchArm,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        cancel.check()?;
+        let guard_completes = match arm.guard {
+            Some(guard) => self.expression(guard, cancel)?,
+            None => true,
+        };
+        Ok(arm_can_continue(
+            self.nodes,
+            self.names,
+            arm,
+            guard_completes,
+        ))
+    }
+
     fn query(&mut self, root: Node, cancel: &CancellationToken) -> Result<bool, Cancelled> {
         let input = Completion {
             nodes: self.nodes,
@@ -179,12 +228,27 @@ enum Node {
     Normal,
 }
 
+impl Node {
+    fn arm(arm: &MatchArm) -> Self {
+        arm.guard
+            .map_or(Self::Expr(arm.expr), |guard| Self::Guarded(guard, arm.expr))
+    }
+}
+
 type Nodes<'a> = Box<dyn Iterator<Item = Node> + 'a>;
 
 /// Explicit traversal continuation; the work stack replaces recursive completion walking.
 enum Task<'a> {
     Record(Node),
     MatchArms(&'a [MatchArm]),
+    MatchArm {
+        arms: &'a [MatchArm],
+        exits: Exits,
+    },
+    MatchArmResume {
+        arms: &'a [MatchArm],
+        exits: Exits,
+    },
     Then(Exits),
     Visit(Node),
     Walk {
@@ -316,7 +380,9 @@ impl<'a> Completion<'a> {
                             continue;
                         }
                         Node::Guarded(guard, expr) => {
-                            Box::new([Node::Expr(guard), Node::ShortCircuit(expr)].into_iter())
+                            // A false guard continues matching; it is not a normal exit
+                            // from the match expression itself.
+                            Box::new([Node::Expr(guard), Node::Expr(expr)].into_iter())
                         }
                         Node::Branches(then, otherwise) => {
                             work.push(Task::Walk {
@@ -498,22 +564,33 @@ impl<'a> Completion<'a> {
                 Task::MatchArms(arms) => {
                     if value.normal {
                         work.push(Task::Then(value));
-                        let nodes = arms.iter().scan(false, |stopped, arm| {
-                            if *stopped {
-                                return None;
-                            }
-                            *stopped = arm.guard.is_none()
-                                && self.names.pattern_is_irrefutable(self.nodes, arm.pattern);
-                            Some(match arm.guard {
-                                Some(guard) => Node::Guarded(guard, arm.expr),
-                                None => Node::Expr(arm.expr),
-                            })
-                        });
-                        work.push(Task::Walk {
-                            nodes: Box::new(nodes),
+                        work.push(Task::MatchArm {
+                            arms,
                             exits: Exits::default(),
-                            alternatives: true,
                         });
+                    }
+                }
+                Task::MatchArm { arms, exits } => {
+                    if let Some(arm) = arms.first() {
+                        work.push(Task::MatchArmResume { arms, exits });
+                        work.push(Task::Visit(Node::arm(arm)));
+                    } else {
+                        value = exits;
+                    }
+                }
+                Task::MatchArmResume { arms, exits } => {
+                    let arm = &arms[0];
+                    let exits = exits.either(value);
+                    let guard_completes = arm
+                        .guard
+                        .is_none_or(|guard| facts[&Node::Expr(guard)].normal);
+                    if arm_can_continue(self.nodes, self.names, arm, guard_completes) {
+                        work.push(Task::MatchArm {
+                            arms: &arms[1..],
+                            exits,
+                        });
+                    } else {
+                        value = exits;
                     }
                 }
                 Task::Then(previous) => value = previous.then(value),

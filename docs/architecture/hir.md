@@ -361,9 +361,10 @@ qualification.
 signatures, constant results and node-keyed facts through read-only accessors.
 Writers are internal to HIR.
 [FunctionAnalysis](../../crates/kagari-hir/src/analysis/body_queries.rs)
-owns the selected function, lowering, signature snapshot, environment, bindings,
-diagnostics and result. `eligibility()` uses positive body evidence
-and shared-input validity, independently of diagnostic display truncation.
+pairs the current query's signature snapshot with shared immutable selected-body
+facts: the function, matching lowering/definition table, environment, bindings,
+diagnostics and result. `eligibility()` uses positive body evidence and the current
+snapshot's shared-input validity, independently of diagnostic display truncation.
 Unrequested/bodyless functions return no selected result, recovery returns facts
 with unavailable completion evidence, and cancellation returns an error before
 publication. A complete selected function is not proof that its entire dependency
@@ -412,10 +413,18 @@ and host policies, which retain their registration definition scope.
 
 Elaboration also queries [normal completion](../../crates/kagari-hir/src/compile_input/body/flow.rs)
 through the checker's existing work-stack algorithm. For `(loop {})?`, only the
-operand executes, so no propagation contract is required. The short-lived memo is
-tied to one immutable body; it does not publish solver state or cross-revision
-cache entries. Expanded operations retain explicit evaluated prefixes, selected
-calls/conversions and structured branches, rather than a flat execution schedule.
+operand executes, so no propagation contract is required. Match continuation uses
+the same owner: a refutable pattern may fail; an irrefutable pattern continues only
+through a guard that can complete normally and return false. For
+`match x { _ if { return 7; } => 1, _ => grow(x) }`, the guard exits the function,
+so neither arm value executes and `grow(x)` creates no concrete instance. Source
+checking still diagnoses both values independently. The checked-body query validates
+the match owner and arm index; elaboration retains only reachable arms, and MIR
+consumes that sequence without independently deciding arm reachability. The
+short-lived memo is tied to one immutable body; it does not publish solver state or
+cross-revision cache entries. Expanded operations retain explicit evaluated
+prefixes, selected calls/conversions and structured branches, rather than a flat
+execution schedule.
 
 The source compiler accepts only this admitted complete closure. Its
 [elaborator](../../crates/kagari-compiler/src/source/elaborate.rs) expands one
@@ -731,6 +740,15 @@ type annotations and aggregate contracts; bodies add local bindings, expression
 types and selected operations. Syntax errors can still leave useful facts and
 diagnostics. Cancellation is an error, checked before publishing completed results.
 Older requests do not replace newer published revision caches.
+
+Selected-body reuse separates the query context from its body payload. If an
+unrelated signature becomes invalid while the selected file and body environment
+remain unchanged, a new result shares the existing body facts but retains the new
+signature snapshot and reports unavailable eligibility, just like a fresh query.
+Previously returned results keep their original context. Reusing the entire result
+requires the same source revision and identical retained signature files, including
+the complete file set; rebuilding map containers alone does not invalidate it.
+Refreshing context does not rerun body checking or copy its tables.
 
 Inline modules share physical text, line indexing and one retained parse. Each
 logical source keeps a stable synthetic FileId and its own ModuleHandle, revision

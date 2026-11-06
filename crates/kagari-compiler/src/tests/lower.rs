@@ -360,19 +360,40 @@ fn unreachable_calls_after_return_do_not_create_instances() {
 #[test]
 fn irrefutable_match_arms_stop_unreachable_instantiation() {
     let context = DefinitionContext::new().unwrap();
-    for pattern in ["_", "value"] {
+    for (first_arm, later_reachable) in [
+        ("_ => 42", false),
+        ("value => 42", false),
+        ("_ if { return 42; } => 0", false),
+        ("_ if loop {} => 0", false),
+        ("0 if { return 42; } => 0", true),
+        ("_ if false => 0", true),
+    ] {
         let analyzed = common::program_ok(&format!(
-            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn main() -> i32 {{ match 42 {{ {pattern} => 42, _ => grow(1) }} }}"
+            "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn main() -> i32 {{ match 42 {{ {first_arm}, _ => grow(1) }} }}"
         ));
 
-        let ir = lower_budgeted_root(
+        let result = lower_budgeted_root(
             &analyzed,
             &MirLoweringOptions {
                 max_generic_instances: 0,
                 ..Default::default()
             },
-        )
-        .unwrap();
+        );
+        if later_reachable {
+            assert!(
+                matches!(
+                    &result,
+                    Err(MirLoweringError::Diagnostic(diagnostic))
+                        if matches!(diagnostic.kind, DiagnosticKind::CompileLimitExceeded {
+                            resource: "generic instances",
+                            limit: 0,
+                        })
+                ),
+                "{first_arm}: {result:?}"
+            );
+            continue;
+        }
+        let ir = result.unwrap_or_else(|error| panic!("{first_arm}: {error:?}"));
         assert_eq!(ir.functions.len(), 1);
         common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
     }

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{declarations::DeclarationId, tests::test_analysis};
-use kagari_common::identity::DefinitionPath;
+use kagari_common::identity::{DefinitionPath, ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     identity::FileId,
@@ -80,6 +80,113 @@ fn unrelated_applied_bound_errors_stay_in_the_signature_snapshot() {
         result.type_at(text.rfind('7').unwrap()),
         Some(TypeId::Builtin(BuiltinType::I32))
     );
+}
+
+#[test]
+fn selected_body_cache_refreshes_shared_signature_context() {
+    let mut sources = SourceDatabase::default();
+    for package in ["root", "other"] {
+        sources
+            .bind_module(
+                &format!("mem://{package}"),
+                ModuleIdentity {
+                    package: PackageId(package.into()),
+                    path: vec![],
+                },
+            )
+            .unwrap();
+    }
+    let root_text = "fn good() -> i32 { 42 }";
+    let valid_other = "fn helper() -> i32 { 2 }";
+    let root = sources
+        .set("mem://root", root_text.into(), SourceLayer::Base)
+        .unwrap();
+    let other = sources
+        .set("mem://other", valid_other.into(), SourceLayer::Base)
+        .unwrap();
+    let original_source = sources.snapshot();
+    let mut db = test_analysis();
+    let good = owner(&mut db, &sources, root, "good");
+    let original = query(&mut db, &sources, &good);
+    assert_eq!(original.eligibility(), BodyEligibility::Complete);
+    assert!(Arc::ptr_eq(&original, &query(&mut db, &sources, &good)));
+
+    let mut results = vec![original.clone()];
+    for (text, eligibility) in [
+        ("fn helper() -> Missing { 2 }", BodyEligibility::Unavailable),
+        (valid_other, BodyEligibility::Complete),
+    ] {
+        sources
+            .set("mem://other", text.into(), SourceLayer::Overlay)
+            .unwrap();
+        let updated = query(&mut db, &sources, &good);
+        let fresh = query(&mut test_analysis(), &sources, &good);
+        assert_eq!(updated.eligibility(), eligibility);
+        assert_eq!(updated.eligibility(), fresh.eligibility());
+        assert_eq!(updated.diagnostics(), fresh.diagnostics());
+        assert_eq!(
+            updated.type_at(root_text.find("42").unwrap()),
+            fresh.type_at(root_text.find("42").unwrap())
+        );
+        assert_eq!(
+            updated.signature_snapshot().revision(),
+            sources.snapshot().revision()
+        );
+        let updated_other = updated.signature_snapshot().file(other).unwrap();
+        assert_eq!(updated_other.source().text(), text);
+        assert_eq!(
+            updated_other.diagnostics(),
+            fresh
+                .signature_snapshot()
+                .file(other)
+                .unwrap()
+                .diagnostics()
+        );
+        // Only the query context changed: retain the same immutable body facts.
+        assert!(std::ptr::eq(original.type_table(), updated.type_table()));
+        assert_eq!(updated.checked_bodies(), original.checked_bodies());
+        assert_eq!(updated.reused_bodies(), original.reused_bodies());
+        assert!(!Arc::ptr_eq(&original, &updated));
+        assert!(Arc::ptr_eq(&updated, &query(&mut db, &sources, &good)));
+
+        let old_request = db
+            .body(
+                original_source.clone(),
+                original.owner(),
+                &Default::default(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(old_request.eligibility(), BodyEligibility::Complete);
+        assert_eq!(
+            old_request.signature_snapshot().revision(),
+            original_source.revision()
+        );
+        assert!(Arc::ptr_eq(&updated, &query(&mut db, &sources, &good)));
+        results.push(updated);
+    }
+
+    assert_eq!(original.eligibility(), BodyEligibility::Complete);
+    assert_eq!(
+        original
+            .signature_snapshot()
+            .file(other)
+            .unwrap()
+            .source()
+            .text(),
+        valid_other
+    );
+    assert_eq!(results[1].eligibility(), BodyEligibility::Unavailable);
+    assert_eq!(
+        results[1]
+            .signature_snapshot()
+            .file(other)
+            .unwrap()
+            .source()
+            .text(),
+        "fn helper() -> Missing { 2 }"
+    );
+    assert_eq!(results[2].eligibility(), BodyEligibility::Complete);
 }
 
 #[test]
@@ -220,7 +327,6 @@ fn incomplete_member_query_keeps_receiver_and_constants_report_prerequisite_fail
 
 #[test]
 fn imported_signature_changes_invalidate_a_cached_function_body() {
-    use kagari_common::identity::{ModuleIdentity, PackageId};
     let mut sources = SourceDatabase::default();
     for name in ["dep", "root"] {
         sources

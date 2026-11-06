@@ -1313,15 +1313,34 @@ the five repairs and representative refactored handoff boundaries. Structure,
 formatting, workspace all-target Clippy and diff checks passed. Original main-based
 comparison timings remain [historical workload evidence](performance-baseline.md#independent-comparison-lookahead-2026-11-06),
 not measurements of this HIR branch. The target does not contain main's fuzz crate
-or dependency updates; this integration carries only the five review repairs.
+or dependency updates; that initial integration carries only the five review repairs.
 
-The [refactored HIR review](review.md#refactored-hir-contract-review) follows the
-final HA0-HA5 design and current reading guide. It confirmed two open P2 findings:
-selected-body cache reuse retains stale shared-input eligibility, and terminating
-irrefutable guards still instantiate unreachable later arms (an existing path,
-not a new migration regression). Both have failing contract probes; a guarded-arm
-control and ten additional checked-input/MIR scenarios passed. The review owns
-reproduction, scope and limits; repairing these new findings is not activated.
+Both P2 findings from the subsequent HA0-HA5 review are repaired. Selected-body
+queries refresh the current signature context while sharing unchanged immutable
+body facts; retained old results keep their original context. Whole-result reuse
+compares the revision and complete signature-file set. The
+[query ownership contract](architecture/hir.md#query-work-reuse-and-publication)
+preserves matching source/arena/definition owners, cancellation and older-request
+publication protection without rechecking or copying body tables.
+
+HIR completion owns whether matching can continue beyond an arm. A terminating
+guard on an irrefutable pattern excludes the arm value and later concrete instances;
+pattern failure or a normally completing guard preserves continuation. The same
+iterative completion algorithm governs type joins and the checked-body query used
+by elaboration; MIR consumes the resulting arm sequence. Independent source
+diagnostics remain required. The guard defect predates the migration. Lasting
+rules live in [match completion](spec/syntax.md#blocks-and-statements) and the
+[HIR handoff](architecture/hir.md).
+
+Both failures were reproduced before repair. Focused validation passed 31 HIR
+cache/reuse/cancellation, completion, generic-completion and checked-body admission
+tests, plus 4 compiler tests for match instance budgets and terminating evaluation
+prefixes. One runtime control-flow test passed through source, encoded artifacts
+and JIT, including guard return, pattern failure, false guards and guard breaks
+with once-only side effects. These 36 tests extend existing contract owners;
+syntax/lint/format evidence above remains valid for unaffected code. Structure,
+formatting, workspace all-target Clippy and diff checks passed. Cache capacity and
+general flow/model migrations remain outside this repair.
 
 Full-workspace tests and the complete feature/backend/platform matrix remain
 CI-owned and unrun locally. The remaining

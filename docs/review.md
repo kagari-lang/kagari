@@ -24,8 +24,6 @@ lifetime safety remain required.
 
 - [Engineering a Compiler review](#engineering-a-compiler-chapter-review): chapter-led
   assessment at `5b57c9a8`, reconciled with current storage/optimization boundaries.
-- [Refactored HIR contract review](#refactored-hir-contract-review): checked input,
-  published facts, compiler handoff and selected-body cache consistency.
 - [Syntax and HIR follow-ups](#syntax-and-hir-follow-ups): historical-snapshot
   retention and remaining ambiguous-prefix lookahead costs to evaluate.
 - [Source line-index costs](#source-line-index-costs): measure construction and
@@ -64,130 +62,10 @@ have their described representation or missing feature. Test preparation progres
 and pending measurements belong to the [existing task](test-preparation-plan.md),
 not a separate review finding. Reconfirm affected behavior when activating a task.
 
-## Refactored HIR contract review
-
-This review uses `refactor/hir-architecture` at `4531b9f7`, with the five repairs
-from `e027d2a0` integrated. It follows the completed HA0-HA5 design, retained in
-[the final design before retirement](https://github.com/kagari-lang/kagari/blob/491f705750e96f86eb2a1dd226ed5051638fb0e9/docs/hir-architecture-design.md),
-and the current [HIR reading guide](architecture/hir.md). The earlier main-based
-review did not inspect this refactored handoff and is not its acceptance evidence.
-
-### P2: Selected-body reuse retains stale shared-input eligibility
-
-In [selected-body queries](../crates/kagari-hir/src/analysis/body_queries.rs), the
-exact-result reuse branch compares only the target file's `Arc` and its
-`BodyEnvironment`, then returns the old `Arc<FunctionAnalysis>`. That object also
-retains the old `SignatureSnapshot`. Its public `eligibility()` reads shared-input
-validity from that retained snapshot, so a new query can miss a newly introduced
-signature error elsewhere in the current source snapshot.
-
-A deterministic probe installs the standard native catalog and places these two
-files in separate packages within one `SourceDatabase` snapshot:
-
-```text
-// root package
-fn good() -> i32 { 42 }
-
-// other package, initially valid
-fn helper() -> i32 { 2 }
-```
-
-Use `AnalysisDatabase::declarations` to obtain the scoped identity of `good`, then
-`AnalysisDatabase::body` to cache its result. Change only the other file to
-`fn helper() -> Missing { 2 }`, keeping `good` unchanged. Query `good` against the
-new source snapshot, and compare with the same query in a fresh database.
-
-| Result | Retained signature revision | Eligibility | Other-file signature errors |
-| --- | --- | --- | --- |
-| Explicitly retained old result | 2 | Complete | 0 |
-| New query using the warm database | 2 | Complete | 0 |
-| New query using a fresh database | 3 | Unavailable | 1 |
-| Full analysis of the new snapshot | 3 | Unavailable | 1 |
-
-The warm result is pointer-identical to the old result. Keeping an explicitly
-retained old snapshot readable is correct; returning its outdated shared validity
-for the new query violates the documented agreement between selected-body and
-full-file eligibility. The failing probe asserts that the warm result is
-`Unavailable`, matching the fresh result. It was exercised through the public API
-in a temporary integration target and removed after recording this reproduction.
-
-The demonstrated impact is a public query contract that depends on cache history.
-Repository callers of `FunctionAnalysis::eligibility()` are currently tests; this
-probe does not establish a bypass of `CheckedCompilation` or executable admission.
-The selected-body cache owner should reuse semantic facts while refreshing the
-current signature snapshot/shared validity, and preserve explicitly held old results.
-The separate historical-retention cost follow-up below is not this correctness issue.
-
-### P2: A terminating irrefutable guard still instantiates later match arms
-
-The [completion contract](spec/syntax.md#blocks-and-statements) excludes
-arms after an irrefutable match from concrete generic instantiation. A guard that
-returns `false` can continue matching, but a guard that always returns from the
-function cannot. This checked source still requests the unreachable generic call:
-
-```text
-fn grow<T>(x: T) -> i32 { grow((x, x)) }
-fn main() -> i32 {
-    match 1 {
-        _ if { return 7; } => 1,
-        _ => grow(1)
-    }
-}
-```
-
-The source passes `check_program` and `CheckedCompilation::from_program`.
-With no Native providers and `MirLoweringOptions { max_generic_instances: 0,
-..Default::default() }`, `lower_program_to_mir` reports `CompileLimitExceeded`
-for generic instances at `grow(1)`. Replacing only that call with `0`, retaining
-the generic declaration, terminating guard and budget, produces verified MIR.
-Thus the rejected instance demand comes from the unreachable arm, rather than
-from the declaration or an installed provider. The bounded probe does not run the
-recursive function or attempt unlimited monomorphization.
-
-[HIR completion](../crates/kagari-hir/src/typeck/completion.rs) truncates matching
-only for an irrefutable arm without a guard. The
-[elaborator](../crates/kagari-compiler/src/source/elaborate/build/expr.rs) knows that
-this guard cannot complete and omits its arm value, but still retains later arms.
-[MIR match lowering](../crates/kagari-compiler/src/source/lower/expr/patterns.rs)
-then continues into a decision block with no predecessor after lowering the
-terminating guard, requesting instances for that unreachable continuation.
-
-This behavior already existed in match lowering before `188ac472`; it is not a
-new HA migration regression. The final design's unguarded-arm coverage does not
-establish the guarded case. Completion should own whether a next-arm path exists,
-with elaboration and MIR consuming that evidence consistently. Preserve later arms
-for refutable patterns or guards that can normally produce `false`, together with
-independent diagnostics for unreachable source.
-
-### Review coverage and limits
-
-The inspection follows temporary checker state into immutable signatures/body
-facts, cancellation/publication, owner-qualified body admission, registered Native
-contracts, compiler elaboration and instance planning. Private construction,
-source/arena checks and positive body completion remain explicit. Native records
-retain their adopted definition scope; required/native declarations are distinct
-from source functions missing a body. The trait-candidate optimization preserves
-candidate charging and compares only root properties that child canonicalization
-cannot change. Apart from the two findings above, these inspected paths produced no additional
-confirmed correctness issue.
-
-Target-branch validation passed 37 selected tests: 16 syntax grammar/resource/
-cancellation, 7 typed-field/traversal, 8 HIR callable/admission/reuse/cancellation/
-trait-search, 3 lint capture and 3 formatter cases. Ten temporary checked-input
-scenarios also produced verified MIR, covering non-completing operands, short
-circuiting, guards, assignments, nested captures/local functions and array repeats.
-This does not establish runtime side-effect/trap ordering. Both findings have
-failing contract probes; the terminating-guard control passed. Temporary targets
-were removed after retaining their reproduction and observations here. Structure,
-formatting, workspace all-target Clippy and diff checks passed.
-Full-workspace tests and the complete feature/backend/platform matrix remain CI-only. Physical body arenas,
-R8 invalidation, general solver algorithms and historical cache capacity are not
-newly activated by this review.
-
 ## Syntax and HIR follow-ups
 
-These follow-ups remain outside the five local contract repairs from the
-2026-11-06 review. Current grammar and optional-fact contracts live in the
+These follow-ups remain outside the completed local contract repairs from the
+2026-11-06 reviews. Current grammar and optional-fact contracts live in the
 [syntax](architecture/syntax.md) and [HIR](architecture/hir.md) architecture.
 The original review baseline was `76ef0798767920649152dbbe235a0ea70bf8e21c`.
 
