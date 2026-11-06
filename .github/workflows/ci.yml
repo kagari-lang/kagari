@@ -32,7 +32,7 @@ jobs:
 
       - name: Upload failing syntax inputs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: syntax-fuzz-failures
           path: fuzz/artifacts/syntax/
@@ -89,7 +89,7 @@ jobs:
 
       - name: Upload failing GC operation traces
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gc-graph-failures
           path: target/gc-graph-failures/*.trace
@@ -204,7 +204,7 @@ jobs:
           npm run package:vscode
 
       - name: Upload VSIX
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kagari-vscode
           path: target/editors/*.vsix
