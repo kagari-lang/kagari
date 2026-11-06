@@ -286,6 +286,11 @@ Local validation passes six actual scalar JIT/code-owner lifetime/checked-trap
 cases and two Windows image deployment/cleanup cases. Workspace all-target Clippy,
 structure, formatting and diff checks pass; backend source changes were unnecessary.
 Full workspace/platform/backend acceptance stays in CI on the consolidated PR.
+CI is currently blocked externally: on 2026-11-06, dispatching `pages.yml` for
+the PR branch returned HTTP 422, `Actions has been disabled for this user`.
+Push/reopen events produced no CI runs despite enabled repository settings.
+Restore account-level Actions access, trigger checks on the latest PR revision,
+and merge only after they pass; local results do not replace that acceptance.
 This maintenance does not activate deferred native expansion phases.
 
 [Scalar AOT deployment](spec/aot.md) is implemented for x86_64 Windows MSVC.
