@@ -79,6 +79,24 @@ the same toolchain/runner limits and retained corpus as above. Structure, fmt,
 workspace all-target Clippy and diff checks pass. Linux CI must rerun on this
 repair; bounded local fuzzing does not prove exhaustive recovery coverage.
 
+The [third PR #53 fuzz run](https://github.com/kagari-lang/kagari/actions/runs/42193725392/job/127811679088)
+found lost tokens when a parsed pattern could not become a range endpoint.
+The reduced `fn f() { match p { Point { v }..3 => 0 } }` lost `Point { v }`:
+conversion retained a missing start but discarded the consumed prefix. The range
+now owns that prefix as unexpected coverage at its `start` slot, before the
+operator, while preserving rejection and subsequent match arms. The same contract
+test covers wildcard, empty tuple, grouped, tuple, alternative, tuple-struct and
+struct starts, including nested recovery, with both range operators. A minimized
+seed also exercises the shared oracle's modes and limits. Selected local tests
+pass: match patterns (6), parser limits (7), corpus replay (2) and dependent HIR
+scalar range facts (1). Structure, fmt, workspace all-target Clippy and diff checks
+pass, and all three original CI inputs pass Windows ASan replay. These checks target
+the changed conversion/recovery boundary and its consumer; full workspace and
+Linux sanitizer acceptance require a new CI run. A 300-second Windows ASan
+campaign completed 89,605 inputs without a finding, using the same toolchain,
+runner limits and retained corpus as above plus the new seed. This is bounded
+evidence, not exhaustive recovery acceptance.
+
 The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
 Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
 sharing, retained inline views, source provenance, explicit recovered roles and

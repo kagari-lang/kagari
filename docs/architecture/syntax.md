@@ -103,6 +103,11 @@ In struct patterns, repeated rest markers and fields following `..` belong to
 the `close` slot, after the retained rest marker. Rejected pattern fields retain
 their source coverage rather than entering the earlier typed field list. These
 positions keep recovery traversal in authored order.
+Range-pattern endpoints admit only literals and paths. If a parsed wildcard or
+compound pattern is followed by `..` or `..=`, its rejected lexical coverage
+belongs to `RangePattern.start`, before the operator; the required start remains
+missing. For example, `Point { v }..3` retains `Point { v }` as unexpected input
+without treating it as a valid bound or losing it during traversal.
 Declaration keywords following attributes/visibility and import-group opening
 braces use `Required<Token<_>>`: prefix diagnostics can exhaust the parser budget
 before those tokens are consumed. In that case the slot is missing and the token

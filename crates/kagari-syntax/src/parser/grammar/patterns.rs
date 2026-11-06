@@ -139,10 +139,9 @@ impl Parser<'_> {
         if !self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
             return first;
         }
-        let mark = self.begin_at(
-            self.first(&first, self.cursor()),
-            first.depth.saturating_sub(1),
-        );
+        let first_token = self.first(&first, self.cursor());
+        let operator_start = self.cursor();
+        let mark = self.begin_at(first_token, first.depth.saturating_sub(1));
         let operation = if self.at(TokenKind::DotDotEq) {
             RangeOp::Inclusive
         } else {
@@ -158,6 +157,9 @@ impl Parser<'_> {
             }
             Required::Missing { at } => Required::Missing { at },
             Required::Present(_) => {
+                // RangePattern.start cannot own a compound pattern or wildcard.
+                // Retain the rejected prefix before the operator in traversal.
+                self.unexpected_range(first_token as usize, operator_start);
                 self.error_here(DiagnosticKind::ExpectedMatchPattern);
                 Required::Missing { at: self.anchor() }
             }
