@@ -1158,7 +1158,7 @@ versus Lua's 110,007; no script objects or GC occur. Fibonacci admits 21,892 scr
 frames including main. Each invocation selects the current route, admits its
 publication and arguments, reserves/initializes banks, copies parameters, publishes
 dependencies, leaves/reenters the driver, retires the window and publishes return
-values. [Route selection](../crates/kagari-runtime/src/module/dispatch/mod.rs)
+values. [Route selection](../crates/kagari-runtime/src/module/dispatch.rs)
 captures current code through a Mutex; [installation validation](../crates/kagari-runtime/src/module/installation.rs)
 also locks current metadata, and [frame admission](../crates/kagari-runtime/src/frame/admission.rs)
 validates executable metadata again. Repeated registry/liveness admission inside
@@ -4583,7 +4583,7 @@ bytecode's 32 library tests 0.12 s. Test counts alone do not explain elapsed tim
    invariant program once when fixing this path; independently preserve each
    metadata mutation/rejection assertion. No exact standalone case time was
    measured during this parallel run.
-4. [Provider cancellation](../crates/kagari/src/runtime/tests/embedding/native_provider_reset/mod.rs):
+4. [Provider cancellation](../crates/kagari/src/runtime/tests/embedding/native_provider_reset.rs):
    cancellation_boundaries_unwind_nested_provider_callbacks constructs an engine
    and runtime for each cancellation point, stopping after normal completion or
    the 200-point bound. The program is already prepared outside the loop. Audit
@@ -5372,7 +5372,7 @@ The source paths and these measurements identify the following review order:
    recurrence. Range-verified samples include select_call_route, installation
    validation/current capture, DefaultHasher/HostFrameId hashing, termination
    checks, type comparison, bank allocation and memmove. Source
-   [call selection](../crates/kagari-runtime/src/module/dispatch/mod.rs) captures
+   [call selection](../crates/kagari-runtime/src/module/dispatch.rs) captures
    the current installation and validates it; subsequent admission/metadata and
    host paths perform more checks/lookups. Review which facts can be owned across
    an exact internal transition while preserving publication selection, reentry,

@@ -51,7 +51,7 @@ No implementation changes or Cargo validation were performed during planning.
 | [Runtime values](../crates/kagari-runtime/src/value.rs) | Value is unrooted transport. Copying its tag/handle neither keeps the payload alive nor establishes a complete semantic type. |
 | [HIR method checking](../crates/kagari-hir/src/typeck/body/methods.rs) | Owns member resolution and records checked operations separately from spelling. Resolve intrinsic/member collisions here, not by backend string matching. |
 | [Grammar](kagari.ebnf) | Existing call suffixes use `::<T>()`; no new generic-call syntax is needed. |
-| [Identity tests](../crates/kagari/src/runtime/tests/language/interface_identity.rs), [host interfaces](../crates/kagari/src/runtime/tests/embedding/host_interfaces/mod.rs), [generic reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs) | Existing owners cover sharing, source/artifact routes, host admission and pinned generic operations. Extend distinct missing contracts rather than duplicating smoke suites. |
+| [Identity tests](../crates/kagari/src/runtime/tests/language/interface_identity.rs), [host interfaces](../crates/kagari/src/runtime/tests/embedding/host_interfaces.rs), [generic reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs) | Existing owners cover sharing, source/artifact routes, host admission and pinned generic operations. Extend distinct missing contracts rather than duplicating smoke suites. |
 
 For example, a Player becomes an Actor interface through a checked implementation
 table. Today the interface can invoke Actor methods and retain Player's identity,

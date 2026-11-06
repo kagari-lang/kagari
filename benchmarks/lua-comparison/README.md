@@ -382,7 +382,7 @@ number of operations and their execution protocol need attention.
 
 Code inspection explains the measured paths:
 
-- `kagari-vm/src/executor/mod.rs` reacquires the current frame several times per
+- `kagari-vm/src/executor.rs` reacquires the current frame several times per
   instruction, polls GC/cancellation and enters the observer lookup even when absent.
 - `kagari-runtime/src/session/store.rs` stores frame vectors in
   `HashMap<SessionId, Vec<ExecutionFrame>>`. Repeated frame access rechecks the session
@@ -628,7 +628,7 @@ recover total GC-heap object allocations; it does not count Rust allocations.
 | maps | 81,030 | 24,012 | 5 | 2,001 |
 
 The shared bottleneck is the per-instruction runtime protocol. The loop in
-[`executor/mod.rs`](../../crates/kagari-vm/src/executor/mod.rs) accesses the current
+[`executor.rs`](../../crates/kagari-vm/src/executor.rs) accesses the current
 frame repeatedly, and operand handlers access it again. Each access validates
 execution state, active-session identity and the top frame scope in
 [`frame.rs`](../../crates/kagari-runtime/src/frame.rs). Register writes also

@@ -34,7 +34,7 @@ and Miri coverage of the implementation.
 Code in `text` fences is a Rust-shaped schema: fields, ownership and state are
 normative design decisions, while visibility and helper names may be refined.
 These sketches explain ownership and algorithms; they are not production stubs.
-Executable provider examples live in [tests/support](../crates/kagari-gc/tests/support/mod.rs)
+Executable provider examples live in [tests/support](../crates/kagari-gc/tests/support.rs)
 and the [linked-list example](../crates/kagari-gc/examples/linked_list/main.rs).
 Focused behavior tests remain required before changing Runtime's collector.
 

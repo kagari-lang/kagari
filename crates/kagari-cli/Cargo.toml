@@ -1,4 +1,6 @@
 [package]
+# Test helpers use named modules; only the targets below are standalone tests.
+autotests = false
 name = "kagari-cli"
 version.workspace = true
 edition.workspace = true
@@ -37,3 +39,7 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Stora
 
 [dev-dependencies]
 rstest.workspace = true
+
+[[test]]
+name = "toolchain"
+path = "tests/toolchain.rs"

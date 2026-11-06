@@ -50,8 +50,8 @@ fine-grained incremental invalidation. Those are separate storage/query decision
 
 ## Storage and IDs
 
-Start with [LoweredModule](../../crates/kagari-hir/src/lower/mod.rs),
-[Module](../../crates/kagari-hir/src/hir/item/mod.rs),
+Start with [LoweredModule](../../crates/kagari-hir/src/lower.rs),
+[Module](../../crates/kagari-hir/src/hir/item.rs),
 [Body](../../crates/kagari-hir/src/hir/body.rs) and
 [the ID families](../../crates/kagari-hir/src/hir/ids.rs).
 
@@ -232,13 +232,13 @@ The complete mappings are beside their owners:
 
 | Source question | Model and field examples |
 | --- | --- |
-| Which declarations does a file contribute, and where are their payloads? | [Module / Item](../../crates/kagari-hir/src/hir/item/mod.rs): source order, per-kind collections, imports and shared body storage. |
+| Which declarations does a file contribute, and where are their payloads? | [Module / Item](../../crates/kagari-hir/src/hir/item.rs): source order, per-kind collections, imports and shared body storage. |
 | Which function fields come from `pub`, `async`, generics, parameters, `where`, result and body? | [Function / Param / FunctionKind](../../crates/kagari-hir/src/hir/item/function.rs): full signature expansion, omitted annotations/bodies and method links. |
 | How do field/variant declarations differ from constructor values and patterns? | [Struct / Field / Enum / Variant / OpaqueType](../../crates/kagari-hir/src/hir/item/adt.rs): complete declaration payloads, owner/member slots and native-provider surfaces. |
 | What do trait/impl headers, associated items and generic bounds store? | [TraitDef / Impl / associated members / bounds](../../crates/kagari-hir/src/hir/item/behavior.rs): required versus defined members, member input versus output constraints and function/constant links. |
 | Where do constant/static initializers, child module bodies and flattened use leaves go? | [Constants and statics](../../crates/kagari-hir/src/hir/item/storage.rs) and [modules/imports](../../crates/kagari-hir/src/hir/item/module.rs): distinct body owners, compile-time versus runtime declarations, header-only children, alias/glob and leaf/root source ranges. |
 | Is the final expression also a statement, and how is `+=` represented? | [BlockData / StmtKind](../../crates/kagari-hir/src/hir/stmt.rs): all statement payloads, tail absence, place/loop/pattern links. |
-| How does `object.run(41)` differ from calling a named function or closure? | [ExprKind](../../crates/kagari-hir/src/hir/expr/mod.rs): Call-to-Field links, name qualification versus call type arguments, all expression shapes and inline helper records. |
+| How does `object.run(41)` differ from calling a named function or closure? | [ExprKind](../../crates/kagari-hir/src/hir/expr.rs): Call-to-Field links, name qualification versus call type arguments, all expression shapes and inline helper records. |
 | Which parts of `items[next_index()].count` are places and which are expressions? | [PlaceKind](../../crates/kagari-hir/src/hir/place.rs): root and projection expansion, once-only target structure and later validation. |
 | Which names bind in a pattern, and what does shorthand synthesize? | [PatternKind / PatternField / PatternBound](../../crates/kagari-hir/src/hir/pattern.rs): all pattern forms, nested IDs and provisional bindings. |
 | How do generic arguments, associated equalities and projections occupy type fields? | [TypeKind](../../crates/kagari-hir/src/hir/ty.rs): every type form, callable normalization, grouping and invalid argument-order retention. |
@@ -289,7 +289,7 @@ fn add(x: i32) -> i32 {
 
 Read [item lowering](../../crates/kagari-hir/src/lower/item.rs), then
 [statement lowering](../../crates/kagari-hir/src/lower/stmt.rs) and
-[expression lowering](../../crates/kagari-hir/src/lower/expr/mod.rs).
+[expression lowering](../../crates/kagari-hir/src/lower/expr.rs).
 The diagrams below abbreviate complete IDs; positions are illustrative.
 
 ```text
@@ -331,7 +331,7 @@ is valid. Facts can remain useful alongside diagnostics.
 The runnable examples on `lower_module` and `analyze_source` verify storage/source
 ranges and the checked arithmetic type. Declaration metadata lives in
 [Declarations](../../crates/kagari-hir/src/declarations.rs); body checking builds
-on [ModuleSignatures](../../crates/kagari-hir/src/typeck/mod.rs). Missing facts can
+on [ModuleSignatures](../../crates/kagari-hir/src/typeck.rs). Missing facts can
 mean an inapplicable operation, a stage not requested or source recovery; each
 table's accessor contract explains which applies.
 
@@ -389,7 +389,7 @@ source, and bound ordinary visited nodes after a request. This is a progress
 bound, not a wall-clock latency guarantee; destruction and a concurrent request
 after the final check still follow cooperative cancellation semantics.
 
-[compile_input](../../crates/kagari-hir/src/compile_input/mod.rs) owns the
+[compile_input](../../crates/kagari-hir/src/compile_input.rs) owns the
 HIR-to-compiler handoff. `CheckedCompilation` borrows an already checked complete dependency
 closure and admits each module's environment and body directory. `CheckedEnvironment`
 exposes declaration contracts, while `CheckedBodyInput` ties source nodes, selected
@@ -418,7 +418,7 @@ cache entries. Expanded operations retain explicit evaluated prefixes, selected
 calls/conversions and structured branches, rather than a flat execution schedule.
 
 The source compiler accepts only this admitted complete closure. Its
-[elaborator](../../crates/kagari-compiler/src/source/elaborate/mod.rs) expands one
+[elaborator](../../crates/kagari-compiler/src/source/elaborate.rs) expands one
 reachable function, initializer or closure into an owned, temporary `CheckedBody`.
 The [instance planner](../../crates/kagari-compiler/src/source/lower/instances.rs)
 substitutes binders and selects method, native/default and interface-construction
@@ -514,7 +514,7 @@ No backend resolves source fields or introduces a special update/default operati
 ## Structured import paths and source sites
 
 [Import](../../crates/kagari-hir/src/hir/item/module.rs) and
-[ImportDirective](../../crates/kagari-hir/src/imports/mod.rs) retain flattened
+[ImportDirective](../../crates/kagari-hir/src/imports.rs) retain flattened
 written paths as `segments: Vec<String>`. For example, inside module `pkg::app`:
 
 ```text
@@ -647,7 +647,7 @@ precedence tiers independently inside each Type/Value slot. Path prefixes select
 Type and terminal lookups explicitly select their use-site category. Navigation
 retains that category; a dual import has two `source_targets_at` results and no
 arbitrary `source_target_at` winner. See
-[import records](../../crates/kagari-hir/src/imports/mod.rs) for the concrete fields.
+[import records](../../crates/kagari-hir/src/imports.rs) for the concrete fields.
 
 The [solver](../../crates/kagari-hir/src/imports/solver.rs) seeds declarations once
 and replaces one module's contributions at a time. Namespace observations include
@@ -705,7 +705,7 @@ entering it does not create another import directive. See
 
 ## Query work, reuse and publication
 
-[AnalysisDatabase](../../crates/kagari-hir/src/analysis/mod.rs) owns mutable caches;
+[AnalysisDatabase](../../crates/kagari-hir/src/analysis.rs) owns mutable caches;
 returned snapshots retain immutable source and facts through `Arc`. These are the
 actual entrypoint dependencies, not phases repeated by every position query:
 
@@ -802,7 +802,7 @@ For where non-source declarations enter this flow, follow
 [native declaration import](../../crates/kagari-hir/src/native/api.rs),
 [generated source views](../../crates/kagari-hir/src/native/render.rs),
 [validated language roles](../../crates/kagari-hir/src/language/items.rs) and
-[builtin bridges](../../crates/kagari-hir/src/builtin/mod.rs). The runnable semantic
+[builtin bridges](../../crates/kagari-hir/src/builtin.rs). The runnable semantic
 examples install `kagari_stdlib::catalog::shared()` explicitly, as required by the
 current foundation contract.
 

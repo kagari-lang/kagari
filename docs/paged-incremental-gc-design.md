@@ -351,7 +351,7 @@ collector barriers merely to access several objects.
 
 This builds on existing APIs, not a new registration facade:
 
-- [Object](../crates/kagari-runtime/src/native/objects/mod.rs) owns a rooted script
+- [Object](../crates/kagari-runtime/src/native/objects.rs) owns a rooted script
   object handle, not a Rust reference into payload memory.
 - [Object::get/set and Field](../crates/kagari-runtime/src/native/objects/fields.rs)
   provide checked field operations with prepared type/member evidence.
@@ -435,7 +435,7 @@ leave the scanner-visible representation. The selected policy permits collection
 during Native callbacks.
 
 The inventory executed the current
-[`catalog::declarations`](../crates/kagari-stdlib/src/catalog/mod.rs), then followed
+[`catalog::declarations`](../crates/kagari-stdlib/src/catalog.rs), then followed
 entries into their implementations. Reproduce the count by enumerating public
 `ModuleDecl::functions` (resolve IDs and exclude `private_functions`), methods of
 `implementations` with `trait_type == None`, and `traits[*].methods`. Include required

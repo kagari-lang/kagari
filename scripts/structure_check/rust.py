@@ -383,6 +383,9 @@ def inspect(source: Source, test_only: bool) -> list[dict]:
                   ufcs or node.type in {"qualified_type", "bracketed_type"})
 
     root = source.tree.root_node
+    if posixpath.basename(source.path) == "mod.rs":
+        emit("module-layout", root,
+             "use a named module file (foo.rs) with children in foo/, not foo/mod.rs")
     for node in descendants(root):
         if node.is_missing or (node.is_error and not is_parameter_attribute_recovery(node)):
             emit("parse-error", node, "Rust syntax could not be checked; fix or investigate the syntax")

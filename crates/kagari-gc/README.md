@@ -141,7 +141,7 @@ scope ends. The host-owned List registers one head slot at construction via
 slot through publication without registering a new Root. `pop_front` first roots
 its escaping result, then updates the same head slot and disconnects the removed
 node. Failure to reserve the result root leaves the list unchanged; the returned
-node requires a spare registration, while insertion and traversal do not. The [external provider contracts](tests/support/mod.rs)
+node requires a spare registration, while insertion and traversal do not. The [external provider contracts](tests/support.rs)
 also implement Vec append and ordered removal with actual next/end cursor repair.
 
 ```text

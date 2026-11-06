@@ -103,7 +103,7 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 #[test]
 fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     let (vm, loaded) = compile(
-        include_str!("../../../../tests/fixtures/native/structural-and-identity-hash-keys.kgr"),
+        include_str!("../../../tests/fixtures/native/structural-and-identity-hash-keys.kgr"),
         None,
     );
     let _loaded_program = loaded;

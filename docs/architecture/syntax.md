@@ -41,7 +41,7 @@ into its strict checked-program gate.
 
 ## Grammar fields and recovered roles
 
-[AST declarations](../../crates/kagari-syntax/src/ast/mod.rs) are the structural
+[AST declarations](../../crates/kagari-syntax/src/ast.rs) are the structural
 owner. `Expr`, `Stmt`, `Item`, `Member`, `Pattern` and `TypeSyntax` have explicit
 alternatives. Concrete nodes store typed children and punctuation, rather than
 selecting matching positions from an untyped tree. `ExprView`, `StmtView`,
@@ -320,10 +320,10 @@ to CI; local iteration selects representative affected fixtures.
 
 | Contract | Owner |
 | --- | --- |
-| Modes, limits and result | [Parser facade](../../crates/kagari-syntax/src/parser/mod.rs) |
+| Modes, limits and result | [Parser facade](../../crates/kagari-syntax/src/parser.rs) |
 | Cursor, recovery and depth | [Parser core](../../crates/kagari-syntax/src/parser/core.rs) |
 | Lexical backing and trivia | [Lexical table](../../crates/kagari-syntax/src/lexical.rs) |
-| Grammar and field layout | [AST](../../crates/kagari-syntax/src/ast/mod.rs), [grammar](../../crates/kagari-syntax/src/parser/grammar/mod.rs) |
+| Grammar and field layout | [AST](../../crates/kagari-syntax/src/ast.rs), [grammar](../../crates/kagari-syntax/src/parser/grammar.rs) |
 | Borrowed sites and visits | [Borrows](../../crates/kagari-syntax/src/ast/borrow.rs), [visitor](../../crates/kagari-syntax/src/ast/visit.rs) |
 | Physical reuse/projection | [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs) |
 | Recovered roles and lifetimes | [Typed contracts](../../crates/kagari-syntax/tests/typed_fields.rs) |

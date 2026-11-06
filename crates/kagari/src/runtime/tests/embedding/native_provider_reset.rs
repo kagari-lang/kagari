@@ -1,11 +1,11 @@
 #![cfg(feature = "source")]
-#[path = "../../../../../tests/support/provider_contracts.rs"]
+#[path = "../../../../tests/support/provider_contracts.rs"]
 mod contracts;
 mod external;
 mod results;
 // The source emitter and standalone artifact consumer share the reviewed provider.
 mod library;
-#[path = "../../../../../tests/support/native_provider.rs"]
+#[path = "../../../../tests/support/native_provider.rs"]
 mod provider;
 use crate::{
     context::ExecutionContext,

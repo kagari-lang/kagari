@@ -102,6 +102,11 @@ with explicit responsibilities; follow the active plan's migration size/build po
   splitting harms clarity/correctness; size alone does not prove a better design.
   Review changed responsibilities, record structural debt in the active plan and
   keep unrelated refactoring out of scope.
+- Use named Rust module files: `foo.rs` with children in `foo/`. Do not create
+  `foo/mod.rs`, including for private tests and test helpers. Keep Cargo crate
+  entrypoints (`lib.rs`, `main.rs` and declared target roots) in their usual form.
+  When helpers live directly under `tests/`, disable automatic test discovery and
+  declare the actual `[[test]]` targets so helpers are not compiled independently.
 - Use ordinary Rust modules; handwritten `include!` is forbidden. Reserve `include!`
   for generated code and `#[path]` for justified test/cross-target sharing.
 - Separate adjacent definitions with a blank line: functions/methods, trait signatures,
@@ -155,7 +160,8 @@ with explicit responsibilities; follow the active plan's migration size/build po
   intentional public facades explicit.
 - All `pub use`, including restricted/test-only re-exports, require an exact file/
   declaration entry under `reexport-whitelist` in `scripts/structure-exceptions.toml`
-  with reviewed consumer/ownership evidence. Library roots and `mod.rs` are not exempt.
+  with reviewed consumer/ownership evidence. Library roots and module entry files
+  are not exempt.
 
 ### Structural Review at Checkpoints
 

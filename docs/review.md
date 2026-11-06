@@ -70,7 +70,7 @@ performance defect or authorization for an API/runtime migration.
 
 ### Observed uses and distinctions
 
-The [engine](../crates/kagari/src/engine/mod.rs) wraps its source and analysis
+The [engine](../crates/kagari/src/engine.rs) wraps its source and analysis
 Databases in RefCell so [source operations](../crates/kagari/src/engine/source.rs)
 can update inputs, settings and query caches through `&self`. Explicit `&mut self`
 is a possible simplification here, but only after reviewing callers and session
@@ -568,7 +568,7 @@ Identity and release boundaries:
    name resolution or consider all retained generic contracts dead artifact data.
    Owners: [program lowering](../crates/kagari-compiler/src/source/program.rs),
    [type arguments](../crates/kagari-runtime/src/frame/types/arguments.rs) and
-   [executor interface entry](../crates/kagari-vm/src/executor/mod.rs).
+   [executor interface entry](../crates/kagari-vm/src/executor.rs).
 4. **Script → host → script.** A linked native binding validates/narrows arguments,
    protects conversion inputs/results and invokes a callback without a live cursor
    storage borrow. Reentry adds a suffix to the same session stack, sharing depth,
@@ -1072,8 +1072,8 @@ Evidence owners:
 
 - R8: [body reuse](../crates/kagari-hir/src/analysis/body_queries.rs),
   [imported functions](../crates/kagari-hir/src/imports/functions.rs),
-  [source identities](../crates/kagari-hir/src/imports/mod.rs) and
-  [aggregate equality](../crates/kagari-hir/src/aggregates/mod.rs).
+  [source identities](../crates/kagari-hir/src/imports.rs) and
+  [aggregate equality](../crates/kagari-hir/src/aggregates.rs).
 
 These findings remain review items, not automatically activated tasks or new
 prerequisites for unrelated work.

@@ -10,7 +10,7 @@ use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 const SHARED_TUPLE_COMPARISON: &str = include_str!(
-    "../../../../../../tests/fixtures/language/default_methods/tuple_operations/shared_tuple_comparison_composes_element_operations.kgr"
+    "../../../../../tests/fixtures/language/default_methods/tuple_operations/shared_tuple_comparison_composes_element_operations.kgr"
 );
 
 #[test]

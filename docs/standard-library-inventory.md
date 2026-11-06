@@ -60,7 +60,7 @@ sketches, not existing declarations.
 Current signatures were checked against the
 [module contributors](../crates/kagari-stdlib/src/foundation.rs),
 [composition/prelude](../crates/kagari-stdlib/src/assembly/composition.rs),
-[declaration catalog](../crates/kagari-stdlib/src/catalog/mod.rs) and the owners
+[declaration catalog](../crates/kagari-stdlib/src/catalog.rs) and the owners
 linked below. [Standard declarations](spec/standard-declarations.md),
 [builtins](spec/builtins.md), [collection access](spec/collection-access.md) and
 [value semantics](spec/value-semantics.md) own their detailed contracts. An internal

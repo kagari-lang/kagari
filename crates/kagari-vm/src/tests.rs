@@ -21,5 +21,5 @@ mod native_boundary;
 mod package_exports;
 mod prepared_execution;
 
-#[path = "../../../kagari-runtime/tests/support/native/program.rs"]
+#[path = "../../kagari-runtime/tests/support/native/program.rs"]
 pub(crate) mod native_program;

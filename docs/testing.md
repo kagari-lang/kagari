@@ -170,7 +170,7 @@ Use the existing owners as templates, not a new universal runner:
   rejects malformed fields and validates captured identities/revisions and UTF-8
   ranges before projecting IDs to logical paths. Missing/orphan pairs fail the
   owner inventory; normal comparisons never update expectations.
-- [CLI UI cases](../crates/kagari-cli/tests/ui/mod.rs) run six explicit human/JSON
+- [CLI UI cases](../crates/kagari-cli/tests/ui.rs) run six explicit human/JSON
   modes through the actual `kg` process. Source revisions and coordinates, complete
   records/summary, exact streams and status are asserted. Only reviewed location
   path fields map the owned temp root to `$FIXTURE`; arbitrary message/excerpt text

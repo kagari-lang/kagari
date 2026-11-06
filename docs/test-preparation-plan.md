@@ -201,14 +201,14 @@ harnesses and test setup policies remain unchanged.
 ### Placement rules
 
 1. Prefer one `#[cfg(test)] mod tests;` entry for grouped tests belonging to the
-   same module, with ordinary child declarations in `tests/mod.rs`. Keep relevant
+   same module, with ordinary child declarations in `tests.rs`. Keep relevant
    feature/platform gates. Within this directory, use meaningful names such as
    `arena.rs` or `defaults/` rather than repeating `_tests` on every leaf.
 2. Keep tests at the smallest correct semantic owner. Rust private items are
    accessible from their defining module and descendants, not arbitrary siblings
    ([Rust privacy rules](https://doc.rust-lang.org/reference/visibility-and-privacy.html)).
    For example, a private `analysis::body_queries` check can stay in
-   `analysis/body_queries/tests/mod.rs`, declared by `body_queries.rs`; it must not
+   `analysis/body_queries/tests.rs`, declared by `body_queries.rs`; it must not
    require widening visibility to move under `analysis::tests`.
 3. Preserve existing clear `src/tests/` and subsystem `tests/` trees. A small,
    single-entry `tests.rs` is acceptable; converting every such file to a directory
@@ -226,21 +226,22 @@ harnesses and test setup policies remain unchanged.
 Illustrative HIR destination, not an implemented tree:
 
 ```text
-src/analysis/
-  mod.rs
-  body_queries.rs
-  declaration_queries.rs
-  tests/
-    mod.rs
-    arena.rs
-    callable.rs
-    generic_types/
-      mod.rs
-      ...
-  body_queries/
+src/
+  analysis.rs
+  analysis/
+    body_queries.rs
+    declaration_queries.rs
+    tests.rs
     tests/
-      mod.rs
-      ...
+      arena.rs
+      callable.rs
+      generic_types.rs
+      generic_types/
+        ...
+    body_queries/
+      tests.rs
+      tests/
+        ...
 ```
 
 ### Inspected scope and priority
@@ -417,7 +418,7 @@ does not replace the existing `runtime::language_contract` runner or its route
 assertions. Common stateless preparation belongs under `src/test_support/`,
 declared once by the library, with source/native gates on the relevant modules.
 Local tests can stay beside their implementation instead of entering a central
-test directory. Library roots and `mod.rs` contain declarations/orchestration,
+test directory. Library roots and module entry files contain declarations/orchestration,
 not the accumulated test bodies.
 
 Runtime placement is similarly responsibility-based:

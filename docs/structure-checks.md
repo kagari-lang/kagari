@@ -72,12 +72,28 @@ not a general syntax-error exemption; reassess it when upgrading the parser.
 
 ## Enforced Rules
 
+All modules use named files: `foo.rs` declares children stored in `foo/`.
+This follows the [Rust Reference recommendation](https://doc.rust-lang.org/reference/items/modules.html#module-source-filenames),
+keeps filenames meaningful during navigation and avoids moving a leaf when it
+gains children. The choice changes filesystem organization, not Rust module paths,
+visibility or ownership. Cargo roots such as `lib.rs`, `main.rs` and explicit test
+entrypoints retain their target roles.
+
+Moving a module also requires rebasing file-relative `include_str!`, `include_bytes!`
+and top-level `#[path]` references, plus updating repository links. Ordinary child
+module declarations retain their logical directory. Test helpers directly under
+`tests/` must not become independent harnesses: set `autotests = false` and list the
+actual `[[test]]` targets, preserving names, paths and feature gates. Compare Cargo
+target inventories when migrating layouts; the filename check alone cannot prove
+target equivalence or resolve conditional/macro-generated paths.
+
 | Rule | Rejected source | Required change |
 | --- | --- | --- |
+| `module-layout` | Any Rust file named `mod.rs`, including test helpers and tracked generated sources | Use `foo.rs` with child modules in `foo/`. |
 | `wildcard-import` | Production `use x::*`, grouped globs, local enum globs and glob re-exports | Name imported items explicitly or qualify variants. |
 | `parent-traversal` | Production `super::super::` chains, including grouped imports | Import from the owning module through `crate::...`. |
 | `qualified-path` | Production paths at use sites with three or more components, paths starting at `crate`, `std`, `core`, `alloc` or a Cargo dependency, and leading `::` | Import the item or a meaningful short module name. |
-| `reexport-whitelist` | Every `pub use`, including restricted visibility and test-only scopes | Import directly from the owner or document one exact file/declaration whitelist entry. Library roots and `mod.rs` receive no exemption. |
+| `reexport-whitelist` | Every `pub use`, including restricted visibility and test-only scopes | Import directly from the owner or document one exact file/declaration whitelist entry. Library roots and module entry files receive no exemption. |
 | `effective-loc` | Any scanned Rust file exceeding 1200 effective LOC | Split by responsibility, including test files. |
 | `function-spacing` | Adjacent functions or methods without a separating blank line, including trait signatures and tests | Add a blank line before the following function's comments/attributes. Blank lines inside them do not count. |
 | `item-spacing` | Adjacent definitions involving a struct, enum, union, trait, impl block, inline module or extern block, including pairs with functions | Add a blank line before the following definition's comments/attributes. Compact import, out-of-line module, type alias and constant groups are outside this rule. |
@@ -106,7 +122,7 @@ names or determine whether an alias is meaningful.
 
 Re-export authorization is independent of file location. An intentional public
 boundary must explain its owner and consumers in a whitelist entry. Moving a
-re-export into `lib.rs`, `mod.rs` or a Cargo-declared library root does not approve
+re-export into `lib.rs`, a module entry file or a Cargo-declared library root does not approve
 it. The whitelist does not authorize forwarding layers or unrelated visibility
 growth; review those decisions against module ownership.
 

@@ -71,7 +71,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         .unwrap();
     let module = module.finish().unwrap();
     let program = compile_program(
-        include_str!("../../../../tests/fixtures/native/generic-native-default.kgr"),
+        include_str!("../../../tests/fixtures/native/generic-native-default.kgr"),
         Some(&module),
     );
     for mutation in 0..3 {

@@ -263,7 +263,7 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
             module.declaration().identity == kagari_stdlib::namespaces::module("core", "iter")
         })
         .unwrap();
-    let source = include_str!("../../../../tests/fixtures/collections/retained-custom-zip.kgr");
+    let source = include_str!("../../../tests/fixtures/collections/retained-custom-zip.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),

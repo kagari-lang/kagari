@@ -33,7 +33,7 @@ use std::sync::{
 };
 
 // Reuse the runtime contract owners without another invocation or ABI implementation.
-#[path = "../../../../../kagari-runtime/tests/support/native/invoke.rs"]
+#[path = "../../../../kagari-runtime/tests/support/native/invoke.rs"]
 mod native_invocation;
 use crate::tests::native_program::{self, ProgramFixture};
 

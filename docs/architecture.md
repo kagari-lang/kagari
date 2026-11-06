@@ -492,7 +492,7 @@ shared-application, interface and layout requests, and drains only pending work.
 Single-module lowering uses the same lifecycle; there is no whole-module rebuild
 fallback, process-global cache or separate generic implementation.
 
-[Module lowering](../crates/kagari-compiler/src/source/lower/mod.rs) separates owned
+[Module lowering](../crates/kagari-compiler/src/source/lower.rs) separates owned
 instance/layout/bridge state from short-lived contexts borrowing the shared checked
 catalog, module lookup and bridge identities. Source origin and output placement
 remain distinct. Layout discovery retains visited types, binder scope and input

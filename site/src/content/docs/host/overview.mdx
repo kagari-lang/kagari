@@ -55,7 +55,7 @@ owners below contain their complete declarations and imports:
 | Operation | Parameters after `self` | Return type |
 | --- | --- | --- |
 | <a href={source('crates/kagari/src/engine/source.rs')}>`compile_to_artifact`</a> | `source: SourceFile, artifact_options: ArtifactOptions` | `CompileResult<DefinitionMetadata<BytecodeArtifact>>` |
-| <a href={source('crates/kagari/src/program/mod.rs')}>`PreparedProgram::from_artifact`</a> (associated function) | `artifact: DefinitionMetadata<KbcArtifact>, compatibility: &ArtifactCompatibility, cancel: &CancellationToken` | `Result<Self, ProgramPreparationError>` |
+| <a href={source('crates/kagari/src/program.rs')}>`PreparedProgram::from_artifact`</a> (associated function) | `artifact: DefinitionMetadata<KbcArtifact>, compatibility: &ArtifactCompatibility, cancel: &CancellationToken` | `Result<Self, ProgramPreparationError>` |
 | <a href={source('crates/kagari/src/runtime.rs')}>`load_program`</a> (`&mut self`) | `program: &PreparedProgram, options: LoadOptions` | `LoadResult<LoadedModule>` |
 | <a href={source('crates/kagari/src/runtime/typed.rs')}>`execute_typed`</a> (`&self`) | `module: &LoadedModule, entry: impl Into<ProgramEntry<'a>>, arguments: A, context: &ExecutionContext` | `RunResult<R>` |
 

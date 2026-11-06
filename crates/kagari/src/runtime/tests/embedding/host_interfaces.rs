@@ -35,7 +35,7 @@ use kagari_vm::{reentry::reenter, vm::Vm};
 use std::sync::{Arc, Mutex};
 
 const SOURCE: &str = concat!(
-    include_str!("../../../../../../../examples/host-interfaces.kgr"),
+    include_str!("../../../../../../examples/host-interfaces.kgr"),
     "\nfn answer() -> i32 { 42 }\npub fn fail() -> i32 { boxed().read(-1) }\n"
 );
 

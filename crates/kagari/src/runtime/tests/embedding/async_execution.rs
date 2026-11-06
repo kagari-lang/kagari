@@ -9,7 +9,7 @@ use kagari_runtime::value::Value;
 use kagari_vm::vm::owned::DriveResult;
 
 // Shared with the source-free standalone consumer; it uses these parent imports.
-#[path = "../../../../../tests/support/async_fixture.rs"]
+#[path = "../../../../tests/support/async_fixture.rs"]
 mod fixture;
 use crate::{BytecodeArtifact, RunResult, engine::EngineConfig, error::EmbeddingError};
 use fixture::{Fixture, slice};
