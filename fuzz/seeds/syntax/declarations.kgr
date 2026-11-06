@@ -1,0 +1,7 @@
+pub type Host;
+pub fn read(value: Host) -> i32;
+trait Reader<T> {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+enum Maybe<T> { Some(T), None }

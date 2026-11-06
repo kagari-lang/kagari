@@ -1,0 +1,8 @@
+// 中文😀
+mod outer {
+    //! Module documentation
+    /* nested /* comment */ retained */
+    use a::{b, c as d};
+    mod inner { fn f() { "中文😀" } }
+    mod external;
+}

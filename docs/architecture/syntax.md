@@ -318,6 +318,12 @@ to CI; local iteration selects representative affected fixtures.
 
 ## Implementation and verification
 
+[Syntax fuzzing](../../fuzz/README.md) checks parser recovery, lexical losslessness,
+source coordinates, AST traversal and retained module lifetimes through one shared
+oracle. Stable tests replay seeds and generated growth/coordinate boundaries;
+the optional libFuzzer target mutates source under bounded runner limits. Neither
+path treats successful parsing as semantic acceptance.
+
 | Contract | Owner |
 | --- | --- |
 | Modes, limits and result | [Parser facade](../../crates/kagari-syntax/src/parser/mod.rs) |

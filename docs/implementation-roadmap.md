@@ -24,6 +24,20 @@ These capabilities are foundations to reuse, not migrations to replay.
 
 ## Strongly typed syntax CI acceptance
 
+Syntax fuzz follow-up adds one shared parser/AST oracle, stable seed replay and a
+bounded coverage-guided CI job. Scope is source/declaration parsing, recoverable
+traversal, source ranges, lexical preservation, budgets and retained lifetimes;
+HIR/type checking and formatter fuzzing remain outside this change. Local seed
+replay (2 tests), typed-field contracts (7) and parser-limit contracts (6) pass;
+these exercise the oracle and its directly consumed recovery/lifetime contracts.
+A Windows x64 MSVC AddressSanitizer campaign with cargo-fuzz 0.13.2 and rustc
+1.101.0-nightly (3e92e1a2d, 2026-11-01) completed 19,686 inputs without a finding
+under the README's 60-second command. The initial DLL lookup failure was resolved
+by adding the installed MSVC x64 sanitizer runtime to the process PATH; it was
+not counted as a fuzz run. Structure, fmt, workspace all-target Clippy and diff
+checks pass. Complete workspace/platform testing and the Linux sanitizer CI job
+remain CI acceptance; a bounded campaign does not establish exhaustive coverage.
+
 The [owned typed AST](architecture/syntax.md) and all consumers are implemented.
 Rowan storage, raw-tree APIs and the bounded prototype are removed. Physical parse
 sharing, retained inline views, source provenance, explicit recovered roles and

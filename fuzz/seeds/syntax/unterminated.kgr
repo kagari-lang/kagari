@@ -1,0 +1,1 @@
+fn f() { "text {call("nested")}
