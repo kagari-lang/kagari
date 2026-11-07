@@ -102,6 +102,11 @@ export async function stageZed({ directory } = {}) {
   manifest.grammars.kagari.rev = revision;
 
   const extensionDirectory = path.join(output, 'extension');
+  for (const asset of ['Cargo.toml', 'Cargo.lock', 'src/lib.rs']) {
+    const destination = path.join(extensionDirectory, asset);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await copyFile(path.join(source, asset), destination);
+  }
   const languageSource = path.join(source, 'languages', 'kagari');
   const languageDestination = path.join(extensionDirectory, 'languages', 'kagari');
   await mkdir(languageDestination, { recursive: true });
@@ -120,7 +125,7 @@ export async function stageZed({ directory } = {}) {
   return result;
 }
 
-// Match Zed 1.24.2's checkout_repo, including a shallow fetch of the literal SHA.
+// Match Zed 1.27.0's checkout_repo, including a shallow fetch of the literal SHA.
 export async function checkoutGrammar(stage) {
   const checkoutDirectory = path.join(stage.extensionDirectory, 'grammars', 'kagari');
   await mkdir(path.dirname(checkoutDirectory), { recursive: true });

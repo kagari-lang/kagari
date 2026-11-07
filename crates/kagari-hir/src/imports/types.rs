@@ -126,9 +126,13 @@ impl<'a> TypeCatalog<'a> {
             aliases: self.aliases.borrow().clone(),
             ..Default::default()
         };
-        for source in names.catalog.reachable_sources(&names.items, cancel)? {
+        for source in names
+            .catalog
+            .reachable_sources(&names.items, cancel)?
+            .iter()
+        {
             cancel.check()?;
-            if let Some(ty) = self.resolve(&source, cancel)? {
+            if let Some(ty) = self.resolve(source, cancel)? {
                 result.resolutions.insert(source.clone(), ty);
             }
             if let SourceItem::Variant(variant) = source.item

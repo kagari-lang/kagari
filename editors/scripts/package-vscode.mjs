@@ -3,6 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
+await import('./build-vscode.mjs');
+
 const require = createRequire(import.meta.url);
 const extension = fileURLToPath(new URL('../vscode/', import.meta.url));
 const artifacts = new URL('../../target/editors/', import.meta.url);

@@ -116,10 +116,15 @@ All captured/query/index owners are then dropped and the exact charged source
 budget must return to its native baseline. This is source ownership accounting,
 not RSS. Cross-root provider matching has a separate deterministic index-owner test.
 
-The two semantic worlds and their immutable native inputs are initialized once per
-fuzzer thread; ordinary contexts and index views are retired between inputs. The
-fresh world's contexts are additionally replaced before every generation, so it
-cannot inherit the reused world's cached facts. No test method is added to LSP.
+The fixture uses intrinsic types and its own source-defined trait. Both semantic
+worlds install a closed empty native provider generation through ordinary environment
+validation and source leases. Standard-library providers and generated native views
+are sampled separately by deterministic analyzer/host tests and the B07 retention
+probe; this target does not combine them with generated semantic edits. The two
+semantic worlds are initialized once per fuzzer thread; ordinary contexts and index
+views are retired between inputs. The fresh world's contexts are additionally
+replaced before every generation, so it cannot inherit the reused world's cached
+facts. No test method is added to LSP.
 This deeper target uses a 30-second input timeout; run costs and native setup are
 not parser-throughput evidence:
 

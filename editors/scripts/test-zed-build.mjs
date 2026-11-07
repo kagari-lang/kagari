@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { access, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, copyFile, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { artifactsDirectory, checkoutGrammar, productDirectory, stageZed } from './stage-zed.mjs';
 
-export const zedCommit = 'fb69067729cb16a7f6135e2c1600c26a28c59659';
+export const zedCommit = 'c84af5b99cbc366d675064e52b23664a015b6e35';
 const sdkVersion = '34.0';
 
 export function run(command, args, { cwd, timeoutMs = 120000, env = process.env } = {}) {
@@ -62,7 +62,7 @@ export async function resolveSdk({ sdkPath, download = false, wsl } = {}) {
     await access(clang);
   }
   const version = (await readFile(path.join(directory, 'VERSION'), 'utf8')).split(/\r?\n/)[0];
-  assert.equal(version, sdkVersion, 'Use the same WASI SDK version as pinned Zed 1.24.2');
+  assert.equal(version, sdkVersion, 'Use the same WASI SDK version as pinned Zed 1.27.0');
   // SDK 34 ships target-specific libc headers; clang defaults to wasip1.
   await access(path.join(directory, 'share', 'wasi-sysroot', 'include', 'wasm32-wasip1', 'stdio.h'));
   return { directory, clang, version };
@@ -93,12 +93,19 @@ export async function buildZed({ stage, sdkPath, download = false, timeoutMs = 1
   const compilerPaths = [wasmPath, src, path.join(src, 'parser.c'), path.join(src, 'scanner.c')]
     .map((hostPath) => wsl ? wslPath(wsl, hostPath) : hostPath);
   const [output, include, parser, scanner] = compilerPaths;
-  const args = ['-fPIC', '-shared', '-Os', '-Wl,--export=tree_sitter_kagari', '-o', output,
+  const args = ['-fPIC', '-shared', '-Os', '-Wl,--export=tree_sitter_kagari', '-Wl,--max-memory=4294967296', '-o', output,
     '-I', include, parser, scanner];
   const clangVersion = wsl ? runWsl(wsl, [compiler, '--version']) : run(compiler, ['--version'], { timeoutMs: 10000 });
   const options = { cwd: stage.extensionDirectory, timeoutMs };
   if (wsl) runWsl(wsl, [compiler, ...args], options);
   else run(compiler, args, options);
+  const repository = path.resolve(artifactsDirectory, '..', '..');
+  const adapterTarget = path.join(artifactsDirectory, 'zed-adapter');
+  run('cargo', ['build', '--locked', '--release', '--target', 'wasm32-wasip2',
+    '--manifest-path', path.join(repository, 'editors', 'zed', 'Cargo.toml'), '--target-dir', adapterTarget],
+  { cwd: repository, timeoutMs });
+  const adapter = path.join(adapterTarget, 'wasm32-wasip2', 'release', 'kagari_zed.wasm');
+  await copyFile(adapter, path.join(stage.extensionDirectory, 'extension.wasm'));
   const bytes = await readFile(wasmPath);
   const module = new WebAssembly.Module(bytes);
   assert.ok(WebAssembly.Module.exports(module).some((entry) => entry.kind === 'function'
@@ -106,6 +113,7 @@ export async function buildZed({ stage, sdkPath, download = false, timeoutMs = 1
   assert.equal(WebAssembly.Module.customSections(module, 'dylink.0').length, 1,
     'Zed loads the grammar as a Tree-sitter WASM dynamic library');
   const result = { ...stage, wasmPath, wasmBytes: bytes.length,
+    adapterSha256: createHash('sha256').update(await readFile(adapter)).digest('hex'),
     sdkDirectory: sdk.directory, sdkVersion: sdk.version, clangVersion: clangVersion.trim(),
     zedCommit, compilerArguments: args, wasmSha256: createHash('sha256').update(bytes).digest('hex'),
     compilerInvocation: { command: wsl ? 'wsl.exe' : compiler,

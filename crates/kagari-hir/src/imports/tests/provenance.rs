@@ -25,6 +25,101 @@ use kagari_types::declaration::names::NameNamespace;
 use std::sync::Arc;
 
 #[test]
+fn reachable_declarations_preserve_exact_scope_and_catalog_ownership() {
+    let mut sources = SourceDatabase::default();
+    let root_file = insert(
+        &mut sources,
+        "root",
+        include_str!("../../../tests/fixtures/editor/consumer.kgr"),
+    );
+    let library_file = insert(
+        &mut sources,
+        "library",
+        include_str!("../../../tests/fixtures/editor/library.kgr"),
+    );
+    let source = sources.snapshot();
+    let root = lower_module(source.file(root_file).unwrap());
+    let library = lower_module(source.file(library_file).unwrap());
+    let graph = ModuleGraph::build(
+        [&root, &library],
+        &DefinitionContext::new().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
+    let root_names = &graph
+        .imports_for(&SourceUnit::of(&root, &graph.catalog.definitions))
+        .unwrap()
+        .scope;
+    let library_names = &graph
+        .imports_for(&SourceUnit::of(&library, &graph.catalog.definitions))
+        .unwrap()
+        .scope;
+    let reachable = graph
+        .catalog
+        .reachable_sources(root_names, &Default::default())
+        .unwrap();
+    assert_eq!(
+        reachable.len(),
+        2,
+        "number and unused are foreign library functions"
+    );
+    assert!(reachable.iter().all(|item| item.unit.file == library_file));
+    let warm = graph
+        .catalog
+        .reachable_sources(root_names, &Default::default())
+        .unwrap();
+    assert!(Arc::ptr_eq(&reachable, &warm));
+    let from_library = graph
+        .catalog
+        .reachable_sources(library_names, &Default::default())
+        .unwrap();
+    assert_eq!(
+        from_library.len(),
+        1,
+        "the library sees consume, not its own functions"
+    );
+    assert!(from_library.iter().all(|item| item.unit.file == root_file));
+
+    let copied = graph.catalog.as_ref().clone();
+    let copied_result = copied
+        .reachable_sources(root_names, &Default::default())
+        .unwrap();
+    assert_eq!(copied_result, reachable);
+    assert!(!Arc::ptr_eq(&copied_result, &reachable));
+    let foreign = ModuleGraph::build(
+        [&root, &library],
+        &DefinitionContext::new().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
+    let foreign_names = &foreign
+        .imports_for(&SourceUnit::of(&root, &foreign.catalog.definitions))
+        .unwrap()
+        .scope;
+    let foreign_result = foreign
+        .catalog
+        .reachable_sources(foreign_names, &Default::default())
+        .unwrap();
+    assert_eq!(foreign_result.len(), 2);
+    assert!(foreign_result.iter().all(|item| {
+        item.unit.matches(&library, &foreign.catalog.definitions)
+            && !item.unit.matches(&library, &graph.catalog.definitions)
+    }));
+    assert!(
+        reachable
+            .iter()
+            .all(|item| item.unit.matches(&library, &graph.catalog.definitions))
+    );
+    assert_eq!(
+        graph
+            .catalog
+            .reachable_sources(root_names, &Default::default())
+            .unwrap(),
+        reachable
+    );
+}
+
+#[test]
 fn module_handles_require_the_owning_context_prefix_and_actual_namespace() {
     let lowered = lower_module(&SourceFile::new("same", "pub fn value() {}"));
     let context = DefinitionContext::new().unwrap();

@@ -1,6 +1,6 @@
 # Kagari editor tooling
 
-This npm workspace owns editor grammars, declarative adapters and their tests.
+This npm workspace owns editor grammars, language-server clients and their tests.
 `kagari-analyzer` is a separate Rust executable: basic highlighting requires
 neither the analyzer nor `kg`, a Kagari manifest, or any runtime dependency.
 
@@ -9,25 +9,29 @@ neither the analyzer nor `kg`, a Kagari manifest, or any runtime dependency.
 | Directory | Responsibility |
 | --- | --- |
 | [tree-sitter-kagari](tree-sitter-kagari/README.md) | Recoverable editor syntax, generated ABI 15 parser, scanner and corpus |
-| [zed](zed/README.md) | Zed-supported theme captures, bracket matching, language configuration and local staging |
-| [vscode](vscode/README.md) | TextMate grammar, standard scopes, language configuration and dependency-free VSIX |
+| [zed](zed/README.md) | Theme captures, editing configuration, minimal Rust launch adapter and local staging |
+| [vscode](vscode/README.md) | TextMate grammar, editing configuration and bundled language-server client |
 | `tests/contracts.mjs` | Small independent code/string/comment region oracle shared by both adapters |
 | `tests/zed`, `tests/vscode` | Adapter-specific capture/scope, editing-configuration and recovery contracts |
 
 The handwritten compiler parser and [syntax specification](../docs/spec/syntax.md)
 remain the language authorities. Tree-sitter does not feed compilation. TextMate
 is deliberately lexical: arbitrary references are not classified as resolved
-functions, constructors or types. Neither adapter provides semantic tokens,
-diagnostics, navigation, completion, formatting, debugger integration or server
-launching. Marketplace publication and automatic updates are outside this delivery.
+functions, constructors or types. Semantic services come from the separately built
+analyzer: diagnostics, hover, definition, implementation and basic completion. Both
+clients require an explicit absolute analyzer path and launch it over stdio. Semantic
+tokens, formatting, debugger integration, marketplace publication and automatic
+analyzer downloads are outside this delivery.
 
 ## Development prerequisites
 
 Use Node 22.12 or newer with npm, Python 3 and a native C/C++ toolchain. The one
 `package-lock.json` pins Tree-sitter CLI 0.25.10, native runtime 0.25.1,
 `vscode-textmate` 9.3.2, `vscode-oniguruma` 2.0.1 and `@vscode/vsce` 4.0.0.
-Node and grammar build tools are development dependencies, not script-runtime or
-installed VSIX dependencies. Installation may download pinned npm packages,
+The VS Code client pins `vscode-languageclient` 11.0.0 and bundles its runtime
+dependencies with esbuild 0.28.2. Build tools and `node_modules` are excluded from
+the installed VSIX; dependency license notices accompany the bundle. Installation
+may download pinned npm packages,
 Tree-sitter's CLI executable and Node headers; VSIX packaging does not publish.
 
 On Windows install Visual Studio C++ build tools. If Python is managed by uv,
@@ -71,14 +75,17 @@ by exact hashes, including when new files have not yet been added to Git.
 - **VS Code:** run `npm run package:vscode` and use **Extensions: Install from
   VSIX...** with `target/editors/kagari-language-0.1.0.vsix`. For a development
   checkout, launch an Extension Development Host with `editors/vscode` as its
-  extension-development path. No Node modules or analyzer installation is needed
-  by the language extension.
+  extension-development path after `npm run build:vscode`. Configure
+  `kagari.server.path` to enable semantic services; grammar editing remains available
+  with the server disabled. The installed VSIX needs no separate Node modules.
 
 Actual VS Code host contracts can be run with an existing editor, without an
 editor download:
 
 ```sh
-npm run test:vscode-host -- both --timeout-ms=60000
+npm run test:vscode-host -- both --analyzer=/absolute/kagari-analyzer
+npm run test:vscode-host -- dev --case=H01,H04 --analyzer=/absolute/kagari-analyzer
+npm run test:vscode-host -- both --suite=grammar
 ```
 
 The runner discovers the Windows installation; other platforms supply
@@ -87,6 +94,13 @@ extensions and portable state under `target/editors`, bounds child lifetimes,
 and terminates only owned process trees. Installed mode loads the real VSIX
 without development overrides, using a separate disposable test harness. See
 [host-test details](tests/vscode-host/README.md).
+
+Most protocol coverage belongs to fast in-process and headless suites, not editor
+hosts. `npm run test:lsp` uses an independent Microsoft protocol client against the
+real analyzer over stdio and TCP; `KAGARI_TEST_ANALYZER` selects its executable.
+Host cases H01–H05 sample activation, provider registration, unsaved state, recovery
+and installed packaging. The [Zed probe](zed/README.md#automated-real-client-interoperability)
+uses the real client for initialize/open/change/diagnostics without manual editing.
 
 ## Syntax-change workflow
 
@@ -135,33 +149,21 @@ actual editor. VS Code's token inspector must show code tokens inside identifier
 holes and strings/comments only in their own regions. Zed must load the actual
 WASM grammar, not merely index extension metadata.
 
-Historical pre-TL02 acceptance (not evidence for the new literal grammar) on Windows x64 used Node 22.21.1/npm 10.9.4, VS 2022
-17.14, Zed 1.24.2 (`fb69067729cb16a7f6135e2c1600c26a28c59659`) and VS Code
-1.142.0. WASI SDK 34.0 (`clang 23.1.0-wasi-sdk`) ran through Ubuntu WSL; no native
-Windows SDK build or Linux editor acceptance is inferred from that compilation.
-Corpus/native, generated-asset consistency, Zed capture/staging, actual
-TextMate/Oniguruma and independent shared-region checks passed. The packaged
-VSIX's exact nine-file payload, CRCs and maintained source bytes were verified.
+Language-server acceptance is independent of visual review. The current host
+harness targets existing VS Code 1.145.0 and Zed 1.27.0 installations on Windows;
+it records the actual editor, analyzer and bundle images used for each run. A
+successful grammar build or extension index does not establish an LSP exchange.
+The Zed probe requires actual editor changes and corresponding semantic diagnostics;
+VS Code H02/H03/H05 invoke registered providers in the real host.
 
-Actual Zed loaded the built WASM without grammar/query errors. Light/dark rendering,
-comment toggling, code pairing, suppression in ordinary/empty interpolated strings
-and comments, and pairing before an interpolation `}` were checked. Quote,
-interpolation-brace and block-comment-terminator deletion/restoration recovered
-without stale later-line highlighting. Context suppression was checked before
-whitespace as well as delimiters, independently of the following-character gate.
-The live probes targeted only an isolated owned window with bounded lifetimes;
-source resets were setup, not counted as editor operations.
-
-VS Code development and installed-VSIX hosts passed language detection and editing
-assertions with isolated profiles. Actual light/dark token-inspector review verified
-code categories inside nested interpolation, string text and nested comments.
-These checks establish selected boundaries, not every theme, source or platform.
-The [roadmap](../docs/implementation-roadmap.md#toolchain-distribution-and-modes)
-retains unrun CI and broader platform acceptance. The complete inventory and full
-workspace/feature/backend matrix were not run locally.
+The [LSP plan](../docs/lsp-design.md) owns phase acceptance and current measured
+evidence. The [roadmap](../docs/implementation-roadmap.md#toolchain-distribution-and-modes)
+retains unrun CI and broader platform work. Host reports are disposable local
+evidence, not a substitute for those tracked contracts. No Linux or macOS editor
+acceptance, full inventory run or exhaustive workspace matrix is inferred from
+selected Windows checks.
 
 Host runners isolate user/configuration/extensions/temporary storage and terminate
-only owned process trees. The final Code runner also isolates shared and portable
-storage. An early installed-mode probe accessed Code's default shared store before
-that separate flag was identified; Code-managed writes cannot be ruled out and
-were not reverted. The shipped runner does not rely on that default store.
+only owned process trees. The Code runner also isolates shared and portable storage;
+the Zed probe trusts only its disposable fixture profile. Production extensions do
+not change editor trust policy or expose test-only protocol methods.

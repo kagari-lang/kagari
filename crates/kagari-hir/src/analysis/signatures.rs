@@ -261,6 +261,9 @@ impl SignatureSnapshot {
         let result = Arc::new(result);
         cancel.check()?;
         let _ = self.environments.set((const_limits, result.clone()));
+        for file in self.files.values() {
+            file.prepared.names.facts.catalog.retire_reachable_sources();
+        }
         Ok(result)
     }
 

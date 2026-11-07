@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { access, copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,11 +12,14 @@ const repository = fileURLToPath(new URL('../../', import.meta.url));
 const extensionSource = path.join(repository, 'editors', 'vscode');
 const hostTests = path.join(repository, 'editors', 'tests', 'vscode-host', 'index.cjs');
 const artifacts = path.join(repository, 'target', 'editors');
+const fixtures = path.join(repository, 'crates', 'kagari-analyzer', 'tests', 'fixtures');
+const clientCases = { dev: ['H01', 'H02', 'H03', 'H04'], installed: ['H05'] };
 
 function cleanEnvironment() {
   const environment = { ...process.env };
   for (const name of ['ELECTRON_RUN_AS_NODE', 'VSCODE_IPC_HOOK_CLI', 'VSCODE_CWD', 'VSCODE_DEV',
-    'VSCODE_PORTABLE', 'VSCODE_LOGS', 'VSCODE_AMD_ENTRYPOINT', 'VSCODE_APPDATA', 'VSCODE_EXTENSIONS']) delete environment[name];
+    'VSCODE_PORTABLE', 'VSCODE_LOGS', 'VSCODE_AMD_ENTRYPOINT', 'VSCODE_APPDATA', 'VSCODE_EXTENSIONS',
+    'NODE_PATH', 'NODE_OPTIONS']) delete environment[name];
   return environment;
 }
 
@@ -136,7 +140,7 @@ async function worker() {
   assert.equal(mode, 'dev');
   const directory = process.env.KAGARI_HOST_RUN_DIRECTORY;
   const launchArgs = hostArguments(directory, process.env.KAGARI_HOST_EXTENSIONS_DIRECTORY,
-    process.env.KAGARI_HOST_SAMPLE);
+    process.env.KAGARI_HOST_WORKSPACE);
   const options = {
     vscodeExecutablePath: process.env.KAGARI_HOST_EXECUTABLE,
     extensionDevelopmentPath: extensionSource,
@@ -146,7 +150,8 @@ async function worker() {
       KAGARI_HOST_MODE: mode, KAGARI_HOST_RUN_DIRECTORY: directory,
       KAGARI_HOST_EXTENSION_SOURCE: extensionSource,
       KAGARI_HOST_EXTENSIONS_DIRECTORY: process.env.KAGARI_HOST_EXTENSIONS_DIRECTORY,
-      KAGARI_HOST_SAMPLE: process.env.KAGARI_HOST_SAMPLE },
+      KAGARI_HOST_WORKSPACE: process.env.KAGARI_HOST_WORKSPACE,
+      KAGARI_HOST_CASES: process.env.KAGARI_HOST_CASES },
   };
   await writeFile(path.join(directory, 'launch.json'), JSON.stringify({
     vscodeExecutablePath: options.vscodeExecutablePath,
@@ -156,14 +161,35 @@ async function worker() {
   await runTests(options);
 }
 
-async function runMode(mode, executable, cli, vsix, timeoutMs) {
+async function runMode(mode, executable, cli, vsix, timeoutMs, options) {
+  const phases = {};
+  let started = performance.now();
+  const selected = options.suite === 'grammar' ? ['grammar'] : clientCases[mode];
+  const cases = options.cases ? selected.filter((id) => options.cases.includes(id)) : selected;
+  assert.ok(cases.length, `Empty case selection for ${mode}/${options.suite}`);
   const directory = await mkdtemp(path.join(artifacts, `vscode-host-${mode}-`));
   const userData = path.join(directory, 'user-data');
   const extensions = path.join(directory, 'extensions');
-  const sample = path.join(directory, 'standalone.kgr');
+  const workspace = path.join(directory, 'acceptance.code-workspace');
   await mkdir(path.join(userData, 'User'), { recursive: true });
   await mkdir(extensions);
-  await writeFile(sample, '// Isolated standalone editor acceptance; no analyzer is launched.\nval answer = 42;\n');
+  const folders = [];
+  for (const id of cases) {
+    const destination = path.join(directory, 'fixtures', `${id}-雪 #`);
+    await mkdir(destination, { recursive: true });
+    if (['H02', 'H03', 'H05'].includes(id)) {
+      for (const relative of ['Kagari.toml', 'src/lib.kgr', 'src/api.kgr']) {
+        const file = path.join(destination, relative);
+        await mkdir(path.dirname(file), { recursive: true });
+        await copyFile(path.join(fixtures, 'editor', relative), file);
+      }
+      folders.push({ path: destination });
+    } else {
+      await copyFile(path.join(fixtures, 'workspace', 'standalone.kgr'), path.join(destination, 'standalone.kgr'));
+      await writeFile(path.join(destination, 'plain.txt'), 'Plain text does not activate Kagari.\n');
+    }
+  }
+  await writeFile(workspace, JSON.stringify({ folders }, null, 2) + '\n');
   await writeFile(path.join(userData, 'User', 'settings.json'), JSON.stringify({
     'telemetry.telemetryLevel': 'off',
     'update.mode': 'none',
@@ -182,7 +208,11 @@ async function runMode(mode, executable, cli, vsix, timeoutMs) {
     'git.enabled': false,
     'chat.disableAIFeatures': true,
     'chat.agent.enabled': false,
+    'kagari.server.enabled': false,
+    'kagari.server.path': options.analyzer,
   }, null, 2) + '\n');
+  phases.fixtureMs = performance.now() - started;
+  started = performance.now();
   console.log(`[kagari-host] ${mode} isolated artifacts: ${directory}`);
   if (mode === 'installed') {
     await access(vsix);
@@ -203,8 +233,11 @@ async function runMode(mode, executable, cli, vsix, timeoutMs) {
     ...cleanEnvironment(), VSCODE_PORTABLE: directory,
     KAGARI_HOST_MODE: mode, KAGARI_HOST_RUN_DIRECTORY: directory,
     KAGARI_HOST_EXECUTABLE: executable, KAGARI_HOST_EXTENSION_SOURCE: extensionSource,
-    KAGARI_HOST_EXTENSIONS_DIRECTORY: extensions, KAGARI_HOST_SAMPLE: sample,
+    KAGARI_HOST_EXTENSIONS_DIRECTORY: extensions, KAGARI_HOST_WORKSPACE: workspace,
+    KAGARI_HOST_CASES: JSON.stringify(cases),
   };
+  phases.installMs = performance.now() - started;
+  started = performance.now();
   if (mode === 'dev') {
     await boundedProcess(process.execPath, [script, '--worker'], {
       timeoutMs, logPath: path.join(directory, 'host.log'), environment,
@@ -215,7 +248,7 @@ async function runMode(mode, executable, cli, vsix, timeoutMs) {
     // remains the CLI-installed VSIX and the launch contains no development flags.
     const staged = path.join(directory, 'harness-package');
     await mkdir(staged);
-    await Promise.all(['package.json', 'harness.cjs', 'index.cjs', 'README.md'].map((name) =>
+    await Promise.all(['package.json', 'harness.cjs', 'index.cjs', 'cases.cjs', 'grammar.cjs', 'README.md'].map((name) =>
       copyFile(path.join(path.dirname(hostTests), name), path.join(staged, name))));
     const licenses = await Promise.all(['LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE'].map((name) =>
       readFile(path.join(extensionSource, name), 'utf8')));
@@ -230,7 +263,9 @@ async function runMode(mode, executable, cli, vsix, timeoutMs) {
       timeoutMs: 60000, environment: { ...cli.environment, VSCODE_PORTABLE: directory },
       logPath: path.join(directory, 'install-harness.log'),
     });
-    const launchArgs = hostArguments(directory, extensions, sample);
+    phases.harnessInstallMs = performance.now() - started;
+    started = performance.now();
+    const launchArgs = hostArguments(directory, extensions, workspace);
     await writeFile(path.join(directory, 'launch.json'), JSON.stringify({
       vscodeExecutablePath: executable, extensionDevelopmentPath: [], launchArgs,
     }, null, 2) + '\n');
@@ -246,6 +281,7 @@ async function runMode(mode, executable, cli, vsix, timeoutMs) {
     assert.equal(harness.extensionMode, 1, 'The installed harness must have a Production ExtensionContext');
     process.stdout.write(await readFile(path.join(directory, 'assertions.log'), 'utf8'));
   }
+  phases.hostMs = performance.now() - started;
   const launch = JSON.parse(await readFile(path.join(directory, 'launch.json'), 'utf8'));
   assert.deepEqual(launch.extensionDevelopmentPath, mode === 'dev' ? extensionSource : []);
   if (mode === 'installed') {
@@ -255,10 +291,23 @@ async function runMode(mode, executable, cli, vsix, timeoutMs) {
   const result = JSON.parse(await readFile(path.join(directory, 'result.json'), 'utf8'));
   assert.equal(result.mode, mode, 'The host must actually execute the expected test runner');
   assert.equal(result.loadOrigin, mode === 'dev' ? 'development-source' : 'isolated-installed-vsix');
-  assert.equal(result.standaloneLanguageId, 'kagari');
-  assert.equal(result.extensionActive, false);
-  assert.equal(result.themes.length, 2);
-  assert.ok(result.themes.every((theme) => theme.comments && theme.pairs && theme.bracketJump));
+  assert.deepEqual(result.selected, cases);
+  assert.deepEqual(result.executed, cases);
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(result.unrun, []);
+  assert.equal(result.cleanupError, undefined);
+  result.phases = phases;
+  result.analyzer = options.analyzer;
+  result.analyzerSha256 = options.analyzer
+    ? createHash('sha256').update(await readFile(options.analyzer)).digest('hex') : undefined;
+  result.bundleSha256 = createHash('sha256')
+    .update(await readFile(path.join(result.extensionPath, 'dist', 'extension.cjs'))).digest('hex');
+  result.vsixSha256 = mode === 'installed'
+    ? createHash('sha256').update(await readFile(vsix)).digest('hex') : undefined;
+  result.fixtureSha256 = Object.fromEntries(await Promise.all(
+    ['Kagari.toml', 'src/lib.kgr', 'src/api.kgr'].map(async (file) => [file,
+      createHash('sha256').update(await readFile(path.join(fixtures, 'editor', file))).digest('hex')])));
+  await writeFile(path.join(directory, 'result.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(`[kagari-host] verified ${mode}: ${path.join(directory, 'result.json')}`);
 }
 
@@ -275,17 +324,33 @@ async function main() {
     });
   }
   if (args.includes('--help')) {
-    console.log('node editors/scripts/test-vscode-host.mjs [both|dev|installed] [--vscode=/absolute/executable] [--vsix=/absolute/package.vsix] [--timeout-ms=120000]');
+    console.log('node editors/scripts/test-vscode-host.mjs [both|dev|installed] --analyzer=/absolute/kagari-analyzer [--suite=client|grammar] [--case=H01,H04] [--vscode=/absolute/executable] [--vsix=/absolute/package.vsix] [--timeout-ms=60000]');
     return;
   }
   const mode = args.find((arg) => !arg.startsWith('--')) ?? 'both';
   assert.ok(['both', 'dev', 'installed'].includes(mode), `Unknown host mode: ${mode}`);
-  const known = ['--vscode=', '--vsix=', '--timeout-ms='];
+  const known = ['--vscode=', '--vsix=', '--timeout-ms=', '--analyzer=', '--suite=', '--case='];
   for (const arg of args.filter((arg) => arg.startsWith('--'))) {
     assert.ok(known.some((option) => arg.startsWith(option)), `Unknown option: ${arg}`);
   }
   const option = (name) => args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
-  const timeoutMs = Number(option('timeout-ms') ?? 120000);
+  const suite = option('suite') ?? 'client';
+  assert.ok(['client', 'grammar'].includes(suite));
+  const cases = option('case')?.split(',');
+  const modes = mode === 'both' ? ['dev', 'installed'] : [mode];
+  if (cases) {
+    const available = suite === 'grammar' ? ['grammar'] : modes.flatMap((selected) => clientCases[selected]);
+    assert.ok(cases.length && new Set(cases).size === cases.length,
+      'Case selection must be nonempty and contain no duplicates');
+    assert.ok(cases.every((id) => available.includes(id)), `Case selection is incompatible with ${mode}/${suite}`);
+    for (const selected of modes) {
+      assert.ok(suite === 'grammar' || clientCases[selected].some((id) => cases.includes(id)),
+        `Empty case selection for ${selected}/${suite}; select a single mode or include a case for each mode`);
+    }
+  }
+  const analyzer = option('analyzer') ?? process.env.KAGARI_TEST_ANALYZER ?? '';
+  if (suite === 'client') { assert.ok(path.isAbsolute(analyzer), 'Pass an absolute --analyzer path'); await access(analyzer); }
+  const timeoutMs = Number(option('timeout-ms') ?? 60000);
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 300000,
     'Host timeout must be 1000..300000 milliseconds');
   const manifest = JSON.parse(await readFile(path.join(extensionSource, 'package.json'), 'utf8'));
@@ -297,8 +362,8 @@ async function main() {
   });
   console.log(`[kagari-host] existing executable: ${executable}; version=${version.trim().split(/\r?\n/)[0]}; no download`);
   await mkdir(artifacts, { recursive: true });
-  for (const selected of mode === 'both' ? ['dev', 'installed'] : [mode]) {
-    await runMode(selected, executable, cli, vsix, timeoutMs);
+  for (const selected of modes) {
+    await runMode(selected, executable, cli, vsix, timeoutMs, { suite, cases, analyzer });
   }
 }
 

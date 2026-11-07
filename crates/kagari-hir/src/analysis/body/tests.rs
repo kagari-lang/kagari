@@ -111,6 +111,15 @@ fn selected_body_cache_refreshes_shared_signature_context() {
     assert_eq!(cold.work.full_snapshot_calls, 0);
     assert_eq!(cold.work.selected_body_calls, 1);
     assert_eq!(cold.work.body_checks_started, 1);
+    assert_eq!(
+        cold.work.reachable_source_walks as usize,
+        cold.value
+            .signature_snapshot()
+            .declaration_snapshot()
+            .files()
+            .count(),
+        "type, callable, static and constant projections share one complete namespace walk per exact logical file"
+    );
     let original = cold.value;
     assert_eq!(original.eligibility(), BodyEligibility::Complete);
     let warm = measure(|| query(&mut db, &sources, &good)).unwrap();
@@ -118,6 +127,7 @@ fn selected_body_cache_refreshes_shared_signature_context() {
     assert_eq!(warm.work.body_checks_started, 0);
     assert_eq!(warm.work.bodies_restored, 0);
     assert_eq!(warm.work.shared_body_hits, 1);
+    assert_eq!(warm.work.reachable_source_walks, 0);
     assert!(Arc::ptr_eq(&original, &warm.value));
 
     let mut results = vec![original.clone()];

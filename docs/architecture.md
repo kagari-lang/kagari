@@ -2499,6 +2499,9 @@ its matching completion. Stale background results release resources without
 publishing. Per-root diagnostic contributions merge by physical URI, deduplicate
 exact records and preserve differing context provenance. Replaceable URI intents
 are validated at the final writer grant, including document version/incarnation.
+The pilot conservatively invalidates every root's contributions on an input
+change. Clearing previously granted nonempty sets can briefly flicker; finer
+dirty-root selection requires measured justification without weakening freshness.
 Reliable output and diagnostics share the same single writer credit; eligible
 diagnostics receive a turn after eight reliable frames. Clean completed contexts
 emit an empty result without retaining empty URI tombstones. Publication storage
@@ -2528,8 +2531,8 @@ while begin/end and terminal responses retain reliable delivery.
 
 The [editor tooling workspace](../editors/README.md) independently owns a
 Tree-sitter grammar, Zed queries/configuration and a VS Code TextMate extension.
-No adapter starts `kagari-analyzer` for basic highlighting or adds Node/editor
-libraries to SDK/runtime dependencies. Compiler syntax/HIR remain authoritative;
+Basic highlighting works with the server disabled. Editor adapters keep Node/editor
+libraries outside SDK/runtime dependencies. Compiler syntax/HIR remain authoritative;
 editor grammars do not perform type checking, resolve symbols or feed compilation.
 
 Tree-sitter's generated ABI15 C/JSON/header assets are built from the same
@@ -2550,8 +2553,24 @@ grammar repository or machine-specific committed manifest is required.
 
 VS Code independently uses TextMate/Oniguruma contexts and standard scopes,
 classifying identifiers inside interpolation holes as code rather than String text.
-Its VSIX is declarative and contains no activation code, language client or Node
-dependencies. Both adapters support multiline cooked/raw text; holes accept only
+Its VSIX also contains a bundled, pinned language client and dependency notices.
+One controller owns server replacement, shutdown and bounded crash recovery;
+the underlying language client never starts an independent restart loop. The
+configured absolute analyzer path launches over stdio. There is no automatic
+download or executable discovery. Disabled server settings preserve grammar
+behavior. Three automatic retries in a rolling minute use 250 ms, 1 s and 4 s
+delays, await provider/process cleanup, and reopen current unsaved buffers.
+Configuration changes invalidate pending recovery. The installed artifact
+contains its runtime bundle and runs without the development dependency tree.
+
+Zed's WASI adapter reads the explicit per-worktree binary path and arguments and
+returns the command to the host. Its small path validator recognizes host Windows
+paths because WASI's `std::path` cannot classify them. The adapter owns no
+semantic logic, download or parallel restart loop. The current checkpoint covers
+launch, negotiation, edits and versioned diagnostics; broader Zed behavior remains
+in LSP08. Real-host tests own only their launched processes and isolated profiles.
+
+Both adapters support multiline cooked/raw text; holes accept only
 `{name}` or `{name:?}` without whitespace or comments. Raw text never interpolates.
 An unmatched String delimiter or block comment extends to EOF; a newline cannot
 establish an unterminated String or promise recovery to the next declaration.

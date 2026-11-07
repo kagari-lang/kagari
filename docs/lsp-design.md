@@ -1,9 +1,9 @@
 # Kagari language server design
 
 Status: implementation authorized through LSP04 on 2026-11-07, with a commit at
-each implementation phase. LSP00-LSP03 have local functional/ownership checkpoints;
-the remaining diagnostic latency miss is carried to LSP04 and blocks Gate A. LSP04 continues on the same
-`feat/lsp` branch. Later phases remain queued. The Lattice transport foundation
+each implementation phase. The LSP00-LSP04 pilot and selected local Gate A
+acceptance are complete on `feat/lsp`. Full-workspace/exhaustive CI acceptance
+remains separate; later phases are queued. The Lattice transport foundation
 replaces the original synchronous stdio scaffold; diagnostics, hover, definition,
 implementation and basic completion are advertised. This document owns the LSP scope,
 decisions and implementation checkpoints; the [roadmap](implementation-roadmap.md#language-server)
@@ -65,9 +65,9 @@ none substitutes for the others.
 
 The inventory describes the intended Kagari language server, not every optional
 LSP message irrespective of language relevance. Each row owns a finite behavior,
-its semantic dependency and its earliest phase. All semantic rows are unstarted.
-The current lifecycle/full-sync scaffold does not establish the new actor/TCP
-foundation. Register only the implemented subset of each capability; for example,
+its semantic dependency and its earliest phase. The five pilot rows are implemented
+through LSP04; later rows remain queued. Register only the implemented subset of
+each capability; for example,
 completion in the pilot does not imply completion resolve or automatic imports.
 
 | Batch | Purpose | Phases |
@@ -143,28 +143,65 @@ batches, not missing prerequisites for the listed features.
 
 ## Baseline and gaps
 
-| Existing owner | Reusable behavior | Work needed for LSP |
+| Owner | Implemented pilot contract | Queued integration work |
 | --- | --- | --- |
-| [Analyzer session](../crates/kagari-analyzer/src/session.rs) and [transport](../crates/kagari-analyzer/src/server.rs) | Lifecycle, stdio framing, UTF-16, full document synchronization | Initialization settings, asynchronous jobs, request cancellation and semantic capabilities |
-| [Documents](../crates/kagari-analyzer/src/documents.rs) | Original URI, language ID, client version; invalid notifications do not partially commit | Open-incarnation identity, workspace routing and output ownership |
-| [Source database](../crates/kagari-source/src/source_database.rs) | Base/overlay text, stable FileId, revisioned immutable snapshots | Atomic editor capture; explicit deletion and package-origin mapping |
-| [Project discovery](../crates/kagari-package/src/project.rs) | Workspace selection, dependency graph, recoverable root outcomes, unpublished lock | Overlay-aware acquisition and a tooling-only incomplete-input handoff |
-| [HIR analysis](../crates/kagari-hir/src/analysis.rs) | Declaration/signature/selected-body stages, recovery, caches and cancellation | Selected-body editor projections and cancellation throughout query work |
-| [HIR queries](../crates/kagari-hir/src/queries) | Types, definitions, namespaces, documentation, methods, calls and binding usage | Common position-to-owner routing; no complete reference occurrence index exists |
+| [Analyzer session](../crates/kagari-analyzer/src/session.rs) and [transport](../crates/kagari-analyzer/src/server.rs) | Typed actor lifecycle, stdio/TCP, bounded jobs, cancellation/progress and five capabilities | Semantic edit commitment (LSP06), broader configuration/live roots (LSP08) |
+| [Documents](../crates/kagari-analyzer/src/documents.rs) | Original URI/version/incarnation, atomic full synchronization and bounded metadata | Ranged synchronization and broader workspace lifecycle (LSP08) |
+| [Source database](../crates/kagari-source/src/source_database.rs) | Atomic overlay capture, immutable revisions, deletion/origin mapping and retained source leases | Closed-file edit revalidation (LSP06) |
+| [Project discovery](../crates/kagari-package/src/project.rs) | Overlay-aware acquisition, approved-root containment, recovering graph and explicit completeness | Broader workspace/configuration invalidation (LSP08) |
+| [HIR analysis](../crates/kagari-hir/src/analysis.rs) | Selected-body editor facts, shared projections, relation snapshots, bounded reuse and cancellation | Occurrences/coverage (LSP05), semantic transformations (LSP06) |
+| [HIR queries](../crates/kagari-hir/src/queries) | Types, definitions, namespaces, documentation, methods, calls and binding usage | Complete reference occurrences (LSP05), actual call-site projection (LSP07) |
 | [Formatter](../crates/kagari-format/src/lib.rs) / [linter](../crates/kagari-lint/src/lib.rs) | Pure formatting; optional rules over retained analysis | LSP translation and shared configuration currently private to CLI |
-| [Editor adapters](../editors/README.md) | VS Code TextMate and Zed/Tree-sitter syntax support | Server launch and actual semantic editor acceptance |
+| [Editor adapters](../editors/README.md) | Bundled VS Code client/recovery and installed acceptance; thin Zed launch/sync checkpoint; independent grammars | Broader Zed/configuration/lifecycle acceptance (LSP08) |
 
 Three existing distinctions are essential:
 
 * `ProgramInputs::source_snapshot` uses `package://.../source.kgr` keys, while
   open documents use physical file paths. A file overlay is not automatically a
   package overlay. One file may participate in several independent root contexts.
-* `AnalysisDatabase::snapshot` checks all included bodies. Selected-body queries
-  already exist, but many editor projections currently require `FileAnalysis`.
+* `AnalysisDatabase::snapshot` checks all included bodies. `editor` shares fact
+  projection with `FileAnalysis` while selecting the containing function; actual
+  const/static initializer extents retain the documented full-snapshot fallback.
   Routing every hover through a full snapshot would discard the staged design.
 * `SourceDatabase::replace_captured` replaces the complete document set and resets
   overlays. Publishing a disk capture and then restoring buffers would expose an
   incorrect intermediate world, even if the eventual text is correct.
+
+Gate A's review of the implemented pilot leaves concrete follow-up boundaries:
+
+* **LSP05, HIR occurrence projection and `analysis/indexes`:** the current complete
+  implementation index covers signatures, not references. `binding_usage` returns
+  local counts and omits unavailable bodies; it cannot prove an exhaustive empty
+  reference result. Add source-site occurrences and explicit signature/body
+  coverage, preserving analysis/body-qualified locals, alias-binding versus
+  underlying-target roles, and both field/local targets at shorthand sites.
+  Reuse provider/source provenance for cross-root joins and keep unmappable caller
+  binders an explicit coverage failure. Occurrence work must yield between bounded
+  body units; copying the signature index's whole-context turn into a full root
+  body scan would lose interactive scheduling.
+* **LSP06, HIR transformations, acquisition and session edit validation:** pilot
+  `FeatureOutput` is owned JSON for retained read results; an admitted older capture
+  can legitimately finish after a newer capture. That route does not validate an
+  edit against live text. Rename needs an owned semantic `EditPlan`, complete
+  affected coverage, alias/trait/shorthand handling and collision checks, followed
+  by live stamp/version/incarnation checks and acquisition-owned closed-file
+  fingerprint validation before response commitment. Reject generated/read-only
+  destinations and incompatible client edit capabilities. `prepareRename` cannot
+  authorize reuse of its earlier capture for `rename`.
+* **LSP05 identity/coverage groundwork, then LSP07 HIR call edges:** selected call
+  facts exist, but no complete caller/call-site projection or incoming-call index
+  exists. The type table also records protocol/operator applications and callable
+  specializations without an explicit call. The hierarchy producer must select
+  actual source call sites, define caller ownership/presentation for nested
+  functions, closures and initializers, preserve interface-contract targets, and distinguish
+  intentionally indirect/helper calls from unavailable semantic coverage. Incoming
+  results require candidate caller-body coverage; declaration-index completeness
+  and implementation fan-out are not substitutes. Hierarchy item lifetimes also
+  need the bounded instance-qualified handle owner planned below.
+
+These extensions fit the established HIR/worker/session boundaries. Read-only
+navigation evidence does not establish occurrence completeness or edit safety;
+those remain acceptance obligations of their owning phases.
 
 ## User scenario and data flow
 
@@ -514,13 +551,12 @@ initial integration; verify its workspace dependencies and Tokio feature resolut
 in LSP00. Kagari pins the reviewed revision; the Lattice repository itself is
 not modified by this implementation.
 
-At LSP04, add Microsoft's
+LSP04 uses Microsoft's
 [`vscode-languageclient`](https://github.com/microsoft/vscode-languageserver-node/tree/main/client)
 to the editor extension instead of implementing another client protocol stack.
-Its version must match the supported editor/Node environment at that checkpoint.
-TypeScript and its Node/VS Code type packages are build-time dependencies only if
-the client is authored in TypeScript. The current extension remains declarative
-and has none of these dependencies; this document does not modify manifests.
+The pinned client is 11.0.0, bundled with esbuild 0.28.2 for VS Code >=1.142.0
+and the provisioned Node environment. The extension uses JavaScript, without an
+additional TypeScript toolchain.
 The independent headless interoperability suite uses `vscode-languageserver-protocol`
 as an editor-tooling development dependency, with a version aligned to the selected
 client stack. Its Node protocol connection does not require the VS Code host.
@@ -531,11 +567,11 @@ that path remains covered by the real extension-host suite. Do not shim the
 ### Client delivery and recovery contracts
 
 LSP04 owns a working installed client, not just a development-host connection.
-The current [VSIX packaging script](../editors/scripts/package-vscode.mjs) passes
-`--no-dependencies`, and the current
-[payload allowlist](../editors/vscode/.vscodeignore) contains only declarative assets.
-Those settings are correct for the current syntax extension but would omit a new
-client entrypoint/dependency graph unless changed with the client implementation.
+The [VSIX packaging script](../editors/scripts/package-vscode.mjs) builds the
+bundle before packaging without a development dependency tree. The explicit
+[payload allowlist](../editors/vscode/.vscodeignore) includes grammar assets,
+the built client entrypoint and required dependency notices. Installed-artifact
+acceptance proves that this closure runs without a development fallback.
 
 Bundle the Node extension entry and its `vscode-languageclient` dependencies with
 esbuild at LSP04, keeping the host-provided `vscode` module external. Add esbuild
@@ -1945,21 +1981,20 @@ mock handlers returning canned JSON would not prevent editor failures.
 
 ### Current evidence and gaps
 
-The current [stdio process tests](../crates/kagari-analyzer/tests/stdio.rs) check
-the lifecycle scaffold, with a bounded reader and process cleanup. Their `result()`
-and `error()` helpers assume the next frame is the requested response. Once
-diagnostics, progress and server-originated requests interleave, that assumption
-must be replaced by response demultiplexing. This is a harness gap, not evidence
-that the current scaffold's tests are failing.
+The [process tests](../crates/kagari-analyzer/tests/stdio.rs) demultiplex replies
+by request ID and keep bounded notification/history queues. They cover stdio,
+TCP-connect/listen, blocked output and process cleanup. The real in-process actor
+peer carries detailed semantic scheduling; the independent Node peer checks wire
+interoperability and a representative semantic transcript.
 
-The existing [VS Code host suite](../editors/tests/vscode-host/index.cjs) verifies
-language recognition and syntax/editor commands in development and installed
-modes. It deliberately asserts that the extension is inactive and has no server
-entrypoint. LSP04 must replace those obsolete assertions with the selected client
-lifecycle and preserve syntax functionality when the server is disabled. Its
-existing bounded theme wait does not establish a test-runtime problem. Measure
-setup, execution, waiting and teardown before attributing a slow suite to one cause;
-no timing result for the planned semantic suite is claimed.
+The [VS Code host suite](../editors/tests/vscode-host/index.cjs) selects H01-H05
+and a separate grammar route, proves actual development/installed load origins,
+and preserves syntax functionality when the server is disabled. Per-case and
+outer deadlines retain failure/unrun reports and bound owned-process cleanup.
+The current checkpoint records measured setup/host/installation durations and
+the minimal actual Zed interoperability witness. Exhaustive editor/platform
+behavior remains CI/follow-up scope; ordinary semantic regressions stay below
+the editor layer.
 
 ### Four layers with distinct responsibilities
 
@@ -2212,7 +2247,7 @@ not measurements or reasons to delete a contract when a suite grows:
 | Local affected T0/T1 selection | <= 10 s | Select package/target/case contracts; full workspace tests remain CI-only |
 | Pilot T1 suite | <= 60 s | Shared executor/immutable preparation, fresh session state, bounded case concurrency |
 | Selected T2 interoperability/process suite | <= 30 s | Prebuilt executable, bounded processes; selected stdio/TCP transcripts |
-| T3 development semantic suite | <= 60 s including host startup/cleanup | One host run; case timeout initially 10 s, no per-case editor launch |
+| T3 development semantic suite | <= 60 s including host startup/cleanup | One host run; cases have a 10 s deadline, H04 has 30 s for its complete retry/recovery sequence; no per-case editor launch |
 | T3 installed artifact smoke | <= 90 s including host startup/cleanup | One installed host; packaging/install time additionally reported |
 
 Add a five-minute outer watchdog for the combined pilot host job, including setup,
@@ -2220,6 +2255,12 @@ with explicit substep deadlines. A timeout is a failing/incomplete job, not a gr
 run with remaining tests omitted. Keep compiler/dependency download costs visible
 in total CI latency even though warm-suite budgets exclude them. No new automatic
 editor download is required; provision/cache the selected executable separately.
+
+H04's 30 s exception covers actual client cleanup, all three prescribed automatic
+retry delays (250 ms, 1 s and 4 s), exhaustion and explicit recovery. Its observed
+11 s route cannot fit the original generic 10 s case budget. The aggregate host
+budget stays 60 s, and failed/timed-out cases retain failed and unrun rows before
+the outer watchdog terminates only its owned process tree.
 
 Normal PR CI runs T0/T1 affected contracts and the established repository checks,
 the small T2 suite and one supported-editor T3 contract lane. Include installed
@@ -2708,397 +2749,322 @@ listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
 
-LSP03's functional/ownership checkpoint is complete. The four semantic request
-routes, retained generations, bounded implementation coverage, cancellation and
-idle retirement pass their focused owner and actor checks. The independent
-stdio/TCP peer and real VS Code/Zed checks also pass on a frozen release image.
-Those client changes belong to LSP04. Diagnostic-tail correctness passes, but
-the 650 ms p95 target remains unmet; its measured preparation cost and finite
-repair are carried below to LSP04 Gate A. This is not a performance gate pass.
+LSP04's functional/editor integration, formal performance, retention and bounded
+sanitizer checks pass. Selected local Gate A acceptance is complete; later
+feature phases remain queued. Lasting server and HIR
+contracts live in [architecture](architecture.md#language-server-foundation) and
+[the HIR owner](architecture/hir.md#query-work-reuse-and-publication); completed
+phase logs remain in Git history.
 
-Local checkpoint checks pass: structure (1,956 Rust files, zero violations),
-workspace all-target Clippy, formatting and diff whitespace. Selected actor tests
-cover admitted generations, work-done cancellation, actual running-worker credit
-retirement and idle cursor cleanup; acquisition/analysis owner tests cover
-canonical overlays and retained source accounting. Twelve offline benchmark
-oracle tests pass. Full-workspace tests and exhaustive platform/feature matrices
-remain CI-only; no local result is a CI claim.
+The five pilot features share production source/package/HIR services. The actor
+retains each request's admitted generation and immutable capture, returns only
+owned bounded protocol values, and yields implementation work after one context.
+Cancellation makes one terminal decision and returns worker credit only on its
+matching completion. Coalesced idle maintenance releases obsolete captures and
+index cursors without requiring another client request. Canonical aliases retain
+unsaved overlays and original navigation URIs, including generated native views.
+Modified native aliases withhold dependent semantics until restored.
 
-LSP02's functional/ownership checkpoint is complete. The analysis worker retains its database and source leases;
-native startup opens the generated-document store on acquisition, renders and
-validates on analysis, then publishes exact bytes on acquisition before semantic
-readiness. Background diagnostics use a 150 ms debounce and separate replaceable
-publication slots, with generation/incarnation checks at writer grant. The pilot
-conservatively invalidates all root contributions on an input change; immediate
-clears of previously granted nonempty sets can cause flicker. More precise dirty
-root selection requires measured justification after correctness is established.
-Publication retention has a separate 16 MiB/1,024 URI/16,384 record budget; it is
-not included in the reliable outbox's 64 MiB cap. Overflow is a visible fault,
-never a silently truncated semantic set.
+The implementation index proves complete signature coverage in its declared
+scope. Distinct physical roots with the same namespace do not share identities.
+An independent root containing the same declaration but an untranslatable caller
+binder returns an explicit incomplete/failure result; it never silently omits
+matches. This remains the documented pilot boundary in the implementation-search
+section, with scope translation owned by LSP05. Module const/static initializer
+queries deliberately use the existing full snapshot; ordinary selected-function
+and header queries retain their narrower work contracts.
 
-Integration revealed that `AnalysisDatabase::clone` shares the append-only
-`DefinitionContext` writer. Using a permanent native baseline as the cloning
-source would therefore retain user declarations from retired contexts. Each
-context instead creates its own database and identity writer from the validated
-provider/source batch, then retains that database across jobs. Native preparation
-is repeated once per new context; the baseline remains native-only. This finite
-ownership correction precedes the first semantic timing baseline. Context-native
-text and copied-origin buffers participate in the shared input budget, and an
-explicit retained analysis result owns its own source lease after context retirement.
+Resource review covers retained source leases, the sixteen-entry selected-body
+history, bounded declaration metadata, current-generation index rows and pinned
+old cursors. The outbox reserves every admitted terminal/progress lifecycle.
+Retained JSON charges include complete BTreeMap nodes, separately from encoded
+bytes: Rust 1.99.1's installed allocator source has B=6, eleven key/value slots,
+twelve child edges and at least five entries per non-root node. Recheck that
+implementation-specific allowance on a toolchain change. Payload accounting is
+not an RSS estimate.
 
-Concrete LSP03 follow-up from worker integration: HIR's selected-function cache
-can retain older `FunctionAnalysis` and their signature snapshots while declaration
-identities remain present. Before selected-body jobs land, define source revision
-pruning at the HIR cache owner and keep actual retained source allocations charged.
-Full-snapshot LSP02 publication does not populate that selected-function cache;
-its previous input lease remains alive until a successful replacement. This is
-part of the existing retention gate, not an additional caching subsystem.
-The same LSP03 retention work must bound append-only definition metadata within a
-long-lived context under repeated declaration renames; retiring whole contexts
-alone does not address that distinct lifetime. Preserve current identities while
-their explicit snapshots are retained and report cache-reset/reuse costs honestly.
+Local semantic/ownership evidence includes exact old captures, inline modules,
+recovered receiver completion, native destinations, const/static initializer
+routing, foreign declaration movement, used/unused callable changes, inherited
+trait/associated-type applicability, provider replacement and ambiguity. Actor
+witnesses cover admitted generations, work-done and request-ID cancellation,
+running selected-body credit retirement, actual implementation continuation
+cleanup while idle, blocked output and terminal delivery. Acquisition checks
+exercise Windows junction aliases, conflicting overlays and approved-root escape
+rejection. Twelve offline benchmark input/report/oracle tests pass.
 
-LSP02 local evidence includes generated-store atomic publication/corruption tests,
-the SDK's existing materialized navigation and IO-failure scenarios, real standard
-catalog validation, independent context identity tables and exact retained-source
-accounting. Three analysis-owner scenarios cover typed worker admission/retirement,
-inline diagnostic coordinates, native-view authority, cancellation and capacity
-cleanup. Five publication-owner scenarios cover stale generations/incarnations,
-root merging, saturated reliable output, bounded fairness and atomic budget failure.
-Clean completed contexts emit one-shot empty intents without retaining empty URI
-tombstones. A real-actor T1 holds an actual completed old HIR result, admits an
-edit, releases and observes the old completion, then asserts only current output,
-the exact semantic error code/range and untitled-close clearing. The final affected
-T1 run took 1.58 s. Real-process stdio/connect/listen lifecycle sampling also passes.
-Structure (1,924 Rust files, zero findings), format, workspace all-target Clippy
-and diff checks pass; exhaustive workspace/platform tests remain CI-only.
+Final local implementation checks pass: structure (1,958 Rust files, zero
+violations), workspace all-target Clippy with warnings denied, formatting and
+whitespace checks. Full-workspace tests and exhaustive feature/platform matrices
+remain CI-only. No implementation build failure is carried.
 
-Expanded FZ02 replay passes. Its Windows ASan campaign completed 27,667 executions
-in 61 s without a finding (seed 2858611154, peak RSS 518 MiB); hashes of all 11
-exercised state-owner/group/options/protocol files matched before and after. The
-nightly/MSVC environment and input/time/RSS limits match the campaigns below;
-instrumented compilation (3m44s plus 1m20s) is excluded. The oracle covers matching
-and forged job IDs, cancellation without credit release, stale/future completion,
-publication stamps, close/reopen and full reliable-queue fairness. It does not
-claim exhaustive native/HIR coverage; FZ04 owns that semantic boundary.
+**Automated editor evidence.** The independent Node peer passes stdio and TCP on
+final image SHA256
+`64d0a38f09318ad6b7e654e63372a3ad6a2499eb1b164f1f076fc66578ba8a88`
+(release/default, build 20.7565 s excluded). VS Code 1.145 runs H01-H04 in one
+host: 464/1,440/139/10,136 ms per case and 14.395 s including host startup/cleanup.
+H04's documented 30 s bound covers the complete bounded retry sequence; other
+cases use 10 s and the aggregate host bound remains 60 s. The installed H05 route
+passes in 582 ms; fixture/install/harness/host phases are 8/677/1,179/3,028 ms.
+The actual installed VSIX SHA256 is
+`5d5f807048b7e1b1f2db107ad5c1c5590f586ee8d0a5facb8a60324782f3a7a4`;
+the bundled client is
+`b45f12d175e65d3db07cf3c60bf4e351912d96e5ec3c7fc65b7b34dade38a008`.
+It runs without development flags or the dependency tree. Mixed/empty/duplicate
+case selection fails before launch; timeout/failure reports preserve unrun cases.
 
-The diagnostic process benchmark requires a fixed unrelated error witness in every
-edit state. The first correctness trial exposed that an immediate invalidation
-clear is not completed analysis; that trial is excluded from timing evidence.
-Corrected stdio/TCP checks require exact nonempty diagnostic sets for body and
-dependency-signature errors and repairs, including a dependent file whose client
-version is unchanged. Frozen scenario/edit/image hashes accompany the samples.
-Interactive B05/B06 measurements and B07's query/history retention campaign move
-to LSP03's first actual query consumers; LSP02 establishes worker-credit and source
-retirement correctness plus B01/B03 diagnostic timing. Gate A still requires all
-pilot rows before LSP04 acceptance; no control-only request is substituted for a
-semantic query measurement.
+Zed 1.27.0 (`c84af5b99cbc366d675064e52b23664a015b6e35`) passes actual startup,
+negotiation, open, applyEdit-triggered full changes at versions 1/2 and changed/
+restored diagnostic codes in 3.618 s. Disk text stays unchanged. Grammar and WASI
+adapter hashes are respectively
+`6e95a6cbe40816941ea9ce83eadc167b0d8b427a1307a740f9b6469e0828b879` and
+`ff0579d95cf5db71a701fb97b07e549bbcf81419e4da2151d9a506739858d225`.
+All owned host/relay/analyzer PIDs exit. These are correctness feedback durations;
+root build/tail-check contention was possible, so they are not speedup evidence.
+Selected offline editor assertions also pass after rebuilding the disposable
+native grammar binding and replacing obsolete syntax-only adapter expectations;
+the optional standalone WASM case was explicitly skipped. Actual Zed exercised
+the staged WASM products above. Reproduction and installation scope remain in the
+[editor guide](../editors/README.md#validation-scope).
 
-The first seven-group release diagnostic baseline measured these medians/ranges:
-initialize response 14.1323 ms from spawn (13.4651-26.2842); open to first exact
-diagnostic set 5,735.4579 ms (5,680.2885-6,284.4929); body error 3,098.5779 ms
-(3,050.7383-3,306.6097) and repair 3,104.2235 ms (3,058.2467-3,517.9548);
-dependency-signature error 5,626.8249 ms (5,477.4870-6,037.4814) and repair
-5,623.7181 ms (5,470.0387-6,522.9542). Seven groups establish medians/ranges,
-not p95/p99. These edit latencies clearly miss the 650 ms product target; Gate A
-is not passed. LSP03 must profile declaration/signature preparation, prerequisite
-and body checking, cache reuse and projection at their owners before choosing an
-optimization. Existing retained-result body counters describe construction history
-and cannot be presented as work performed by each warm query. Add operation-scoped
-evidence without replacing semantic checks or measuring an invalidation clear.
+**Performance diagnosis and lineage.** The frozen LSP02 diagnostic baseline uses
+Rust/Cargo 1.99.1, Windows 11 Pro 26300, i9-12900K/24 logical CPUs, balanced power,
+release/default features, default Cargo parallelism and serial fresh processes.
+Generated-document caches are empty per process; OS caches are uncontrolled.
+Seven groups establish medians/ranges, not p95: initialize-from-spawn 14.1323 ms,
+first exact diagnostics 5,735.4579 ms, body error/repair 3,098.5779/3,104.2235 ms,
+signature error/repair 5,626.8249/5,623.7181 ms. Its frozen executable SHA256 is
+`8fc37b144d30e10b27a03b6d1b00a2175b4690a19ea4a639b205b1fcd052913c`;
+source base is `7643eb99` plus the archived patch. Its sentinel-bearing diagnostic
+schedule and source recipe remain unchanged. The
+[benchmark guide](../crates/kagari-analyzer/tests/fixtures/benchmark/README.md)
+owns reproduction, frozen-input checks, archive validation and paired replay.
+New semantic/cancellation/memory rows establish their first baseline in this
+batch; unsupported older methods are never zero-time comparison samples.
 
-Environment: rustc/Cargo 1.99.1, Windows 11 Pro 26300, i9-12900K/24 logical CPUs,
-balanced power plan, release/default features and Cargo parallelism, seven serial
-fresh processes with empty isolated native-document caches, OS caches uncontrolled.
-No build/fuzz work overlapped sampling. Build invocation 53.0941 s is excluded.
-The immutable archive is `target/lsp-benchmark/LSP02-diagnostics-sentinel-release`;
-reproduction and archive verification are in the tracked benchmark guide. Image
-SHA256 is `8fc37b144d30e10b27a03b6d1b00a2175b4690a19ea4a639b205b1fcd052913c`;
-source base is `7643eb99` plus its archived dirty patch. Source, harness, lock,
-workload and edit hashes matched across the run. This is a baseline, not a speedup
-or regression comparison; the lock/cache/scenario change starts a new lineage.
+The final paired replay uses seven fresh baseline/candidate groups in alternating
+AB/BA order on the same frozen schedule. Median paired changes reduce body
+error/repair by 82.74%/82.43% and signature error/repair by 88.95%/88.99%. Current
+medians are 495.593/499.793 ms and 563.510/557.696 ms; replayed baseline medians
+are 2,854.039/2,845.916 ms and 5,086.583/5,089.832 ms. The 95% group-bootstrap
+intervals for paired changes exclude zero (20,000 resamples, seed 178921).
+These are cumulative LSP03-LSP04 improvements against LSP02, not a claim that
+the final reachability memo alone produces that change. The earlier independently
+collected baseline numbers above are not substituted for this paired replay.
+First exact diagnostics improves by median paired 132.828 ms (2.55%). Startup
+and initialize RTT changes are approximately 0.028/0.029 ms, below the 10% plus
+2 ms regression threshold; their direction is statistically inconclusive and no
+startup speedup is claimed. No compared row flags a regression.
 
-LSP03 protocol integration retains an admitted input generation for every ordinary
-request. Later edits coalesce background captures, but preserve earlier pending or
-running captures with live request waiters. Typed feature completions return
-bounded owned protocol values; continuation scheduling yields after one complete
-implementation context. Round-robin history includes the active owner until its
-continuation returns, preventing a yielded index from repeatedly receiving a new
-unserved priority. Cancellation commits one terminal response and retains worker
-credit through its matching completion. Work-done token cancellation uses the same
-serial/token owner as request-ID cancellation.
+HIR diagnosis first removed repeated exact-input preparation and inappropriate
+body invalidation after a source revision changed. Existing checked-body
+restoration still validates full semantic contracts; actually used imported
+callables replace an irrelevant whole-visible-callable-set comparison. Actual
+operation counters show a body edit checking two bodies and restoring 993 in app;
+a signature edit checks/restores 9/1,980 in app and 4/990 in API. Construction
+provenance on a retained result is not current-operation work evidence.
 
-Navigation chooses original open URIs through captured physical provider keys,
-including lexical junction/symlink aliases, and verifies the admitted text before
-mapping source-owned coordinates. Generated self-navigation uses its exact retained
-materialized view; a raw file ID from another analysis context is never sufficient.
+A twenty-repetition LSP03 diagnostic-tail correctness run still reported body p95
+716-724 ms and signature p95 827-833 ms against the unchanged 650 ms target.
+The exact-input instrumented release probe then found six identical namespace
+reachability walks per logical file (348 in app/288 in API). LSP04 shares complete
+results under one immutable namespace catalog and exact weak name-table key.
+Clones start empty; cancellation checks precede hit/publication, successful body
+environments retire the memo, and aggregate scope/capacity/requested-byte limits
+are 1,024/65,536/16 MiB. Over-budget results stay complete and uncached. Fixed
+source references own no text. The primary precedent is rustc's
+[query owner/shared result model](https://rustc-dev-guide.rust-lang.org/query.html)
+(rolling guide consulted 2026-11-08); this is a finite exact-input memo rather than
+a new incremental framework.
 
-Semantic outputs are bounded before actor delivery by encoded bytes and a
-conservative retained-JSON charge. Small BTreeMap objects need a complete node
-allocation allowance: charging only initialized key/value pairs understates nested
-completion objects. The allowance was reviewed against Rust 1.99.1's installed
-`alloc::collections::btree::node`: B=6, eleven key/value slots, twelve child edges,
-parent/header and at least five entries per non-root node. The code charges an
-internal-node allowance for every possible node and separately charges string and
-array capacities. Toolchain changes require reviewing this implementation-specific
-bound. These are requested payload bounds, not allocator RSS estimates. Optional
-diagnostic/report writer grants preserve all outstanding small terminal/progress
-allowances; oversized feature results fail explicitly instead of consuming them.
+The same release probe reduces actual walks to 58/48. Body repair worker time
+changes 554 to 351 ms; signature-edit app/API changes 603/328 to 426/240 ms,
+with unchanged checker/restoration counts. This single instrumented operation
+sequence proves work elimination, not a tail distribution. Ten focused HIR
+contracts cover aggregate reserved capacity, empty scopes, importer/catalog/context
+provenance, interrupted traversal, cancelled hits, retained old results and
+semantic invalidation. The temporary archive-specific probe is removed.
 
-LSP03's HIR work diagnosis found two distinct costs. Unchanged full analysis was
-rebuilding declaration/signature and constant prerequisite projections even when
-all captured physical wrappers and package bindings were identical. Exact-input
-preparation now reuses the declaration/signature snapshot, and the signature owner
-memoizes complete body environments under its constant limits. Provider/parse
-changes clear preparation; constant-policy changes clear dependent signatures.
-These owners retain checked facts, share complete projections and reject cancelled
-preparation before publication. Default release builds omit work instrumentation.
+The formal uninstrumented final-image diagnostic-tail campaign completes seven
+quiet fresh process groups, twenty measured edits per route per group (560 edits).
+All exact version/code/message/range oracles pass. Per-group nearest-rank p95
+medians and ranges are:
 
-The body-edit probe then proved that an unchanged scale module failed only
-namespace/callable comparisons: its root package's source revision had changed,
-although the relevant semantic contracts had not. That forced 992 checks in the
-app context after a single body edit. The replacement retains strict whole-file
-sharing, but lets the existing arena-aware body restorer compare complete semantic
-namespace/import/type/aggregate contracts. Callable dependencies are selected from
-previous resolved expression names and checked call targets; changed binding
-sets, ambiguity, access, constants/statics and receiver/implementation contracts
-remain independent invalidation guards. Fresh names/imports provide current source
-addresses and navigation sites. The same probe then recorded two checks and 993
-restores. These instrumented development counts establish the mechanism; timing
-runs overlapped builds and are not release speedup evidence.
+| Route | Median group p95 (ms) | Group p95 range (ms) |
+| --- | ---: | ---: |
+| Body error | 499.485 | 497.035-506.448 |
+| Body repair | 501.611 | 497.935-511.631 |
+| Signature error | 568.577 | 562.925-583.964 |
+| Signature repair | 569.538 | 560.930-575.150 |
 
-The follow-up instrumented release probe also exercises the dependency-signature
-edit: the app context checks nine bodies and restores 1,980, while the API context
-checks four and restores 990. A subsequent unchanged capture starts zero body or
-signature checks in either context. The remaining phase profile is dominated by
-signature and imported-body-environment projections, so these counts alone do not
-establish the end-to-end 650 ms diagnostic target. The actual process benchmark
-remains the acceptance oracle; instrumented worker timings exclude actor debounce,
-acquisition and writer delivery and are not substituted for that result.
+Every group meets 650 ms total including the fixed 150 ms debounce, leaving at
+most 433.964 ms of that client-observed budget after the configured interval.
+This subtraction describes the same observed operation, not a separate worker
+phase timer. First exact diagnostics has median 5,076.844 ms (5,018.424-5,249.016);
+spawn-to-initialize is 14.089 ms (13.591-27.462). Seven startup observations are
+medians/ranges; twenty edit observations support p50/p95 but no p99 claim.
+Environment, source recipe and fresh native-cache policy match the frozen
+baseline above. No builds, hosts, allocator probes or fuzz campaigns overlap
+formal sampling. The earlier simultaneous build/host check is correctness-only
+and excluded from performance acceptance.
 
-The LSP03 diagnostic-tail correctness run still misses the diagnostic budget:
-twenty repetitions report body-edit p95 around 716-724 ms and signature-edit p95
-around 827-833 ms. These are a carried LSP04 acceptance gap, not a revised target.
-A subsequent instrumented release worker probe on those exact frozen inputs
-isolated repeated namespace reachability. A body repair performs 348 actual
-walks in the app context: 230 ms of the 419 ms spent in signature/environment
-preparation (55%), with only two body checks and 993 restores. A dependency
-signature edit repeats 348 walks/214 ms in app and 288 walks/115 ms in API. Four
-binding projections request the same pure reachable-source set; recursive type
-surface preparation raises the observed total to six walks per logical file.
-The probe covers cold startup, body error/repair and signature error/repair;
-compilation is excluded. It is worker diagnosis, not the end-to-end acceptance run.
+The seven-group semantic query baseline uses twenty warmups and two hundred
+measured requests per method in each process. All four independent answer/range/
+edit oracles pass. Median group p95 (and group range) is hover 0.572 ms
+(0.468-0.621), definition 0.512 ms (0.476-0.718), implementation 0.256 ms
+(0.239-0.293) and completion 0.788 ms (0.704-0.937). Every group meets its warm
+product target. Cold complete implementation indexing is 108.478 ms
+(105.585-112.033), with HIR already prepared by diagnostics; it is not cold
+process readiness. Body/signature edit-to-query medians are 227.213/217.756 ms;
+repair routes are 223.705/219.837 ms. These seven observations are medians/ranges.
 
-LSP04 will share that complete projection under the immutable namespace catalog
-and exact name-table allocation, preserving every source-unit identity check.
-The cache must have an aggregate capacity bound, reset when a catalog is cloned,
-publish only after successful cancellation checks, and retire after complete body
-environments materialize. Header-only snapshots also need a finite aggregate
-allowance; a per-importer cap alone leaves dense historical retention unbounded.
-The matching precedent is rustc's
-[query owner and cheaply shared result model](https://rustc-dev-guide.rust-lang.org/query.html)
-(rolling guide consulted 2026-11-08). Kagari uses an exact immutable-input cache
-for this measured repeated computation; it does not adopt rustc's dependency
-graph, disk persistence or a general incremental query framework.
+B05 offers forty requests at 25 Hz in each normal/slow-reader route, one concurrent
+implementation request and ten edits per route. All offered requests complete
+with the exact admitted semantic answers and current diagnostic witnesses; there
+are zero errors or lost responses. Median group p95 is 743.880 ms
+(738.747-807.746) normally and 812.233 ms (790.810-826.143) with 40 ms/frame reader
+delay. The initial load gate is bounded/accounted correctness, not the no-overload
+warm-latency target. Forty-one client pending IDs include already decoded results
+and are not a server queue measurement. The raw reports retain planned/write/read
+times, canonical result bytes and every response; server admission/queue times
+remain unmeasured. The combined suite completes 977 requests per process, 6,839
+across seven groups, including warmups, initialization and shutdown. No p99 is
+claimed from these sample counts.
 
-Eleven focused HIR contracts pass locally (2.34 s), including selected inline/body
-routing, native destinations, recovered field/method completion, exact replacement
-spans, cancellation/capacity, explicit old results, foreign declaration movement,
-used/unused callable changes and new ambiguity. Existing inherited trait,
-constant/static/method invalidation and cancelled/older publication cases also
-pass. Three normal source fixtures pass formatter checks; the recovered member
-fixture deliberately preserves malformed syntax. Current HIR behavior is described
-at its [owner](architecture/hir.md#query-work-reuse-and-publication).
+B06 runs seven fresh release-test/verification processes, each with twenty fresh
+actor/worker samples (140 total). The actual selected-body entry is held while
+the client cancels; every terminal is `RequestCancelled` while the worker still
+owns its credit. Matching completion retires that credit after release. Group
+p95 ranges are 0.098-0.134 ms for client cancel-to-terminal and 3.795-4.066 ms
+for client cancel-to-credit completion, both within the 50/250 ms targets. The
+latter is a stronger elapsed upper bound than server signal-to-retirement and
+includes the controlled pause (group p95 0.114-0.147 ms). Post-release retirement
+upper bounds are separately recorded (group p95 3.684-3.981 ms). All timestamps
+share one monotonic clock. This is the small-body controlled-entry route, with
+no unpaused or large-body intraloop p95 claim. Queued/token cancellation and
+actual index continuation retirement remain separate T1 correctness witnesses.
+The frozen test image is
+`f295ffe6efdde3a43abedb8466fa030426bc214f273eb7ff416750d93aec03e6`;
+its 34.433 s build is excluded and native/process caches are shared only within
+each group. This instrumented test profile is not compared to default-release
+query latency.
 
-Initializer owner routing exposed a concrete gap: a signature-only editor query
-inside a static closure returned no type for `value + argument`, although complete
-file analysis already knew both bindings were `i32`. HIR now routes positions
-inside actual module const/static initializer extents to its existing complete
-snapshot, retaining the matching logical file and shared projections. It does not
-copy checking into the analyzer or treat an initializer as a source function.
-This explicit fallback can check unrelated bodies; metrics assert one full
-snapshot call and zero selected-body calls. Header/function queries retain their
-zero-full-snapshot contract. A finer initializer service is deferred rather than
-added as an unmeasured framework in this phase.
+B07's 1,000-edit acquisition/analysis component probe passes its retained-old-query,
+body/signature changes, close/reopen and provider/context replacement assertions.
+It uses release/verification with a global System allocation counter and external
+Windows `GetProcessMemoryInfo` checkpoints; there is no actor or transport in
+this measurement. Its first memory baseline is:
 
-The strengthened initializer owner scenario verifies closure-local types and
-definition targets, recovered field/method completion, constant references and
-unchanged old answers after an edit. It passes alongside the three editor reuse
-and retention cases (four tests, 1.78 s). The existing analyzer source-lease scenario
-also retains an initializer result after its database and captures retire, then
-returns to the original charged baseline when that result drops (one test, 2.23 s).
-The malformed member fixture intentionally preserves authored recovery bytes.
+| Checkpoint | Source leases (B) | Index rows (B) | Definition records | Live requested layouts (MiB) | RSS (MiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Native baseline | 530,481 | 0 | 0 | 59.344 | 80.508 |
+| Edit 500 | 2,124,370 | 42,680 | 3,417 | 144.099 | 172.000 |
+| Edit 1,000 | 2,124,372 | 42,680 | 3,417 | 144.109 | 172.711 |
+| Only explicit old query retained | 1,062,187 | 0 | 0 | 92.825 | 169.293 |
+| Old query released | 530,481 | 0 | 0 | 59.360 | 89.750 |
 
-Selected-body cache history is bounded to sixteen entries in LRU order. The session
-charges the actual source owners retained by declaration/signature/full/selected
-and native caches, and an immutable returned editor/signature result owns its own
-lease. Admitted older captures use transient databases, avoiding replacement of a
-newer context cache. Obsolete definition metadata is bounded by replacing the
-mutable database when total interned nodes exceed max(65,536, 4 × current live
-site/module-prefix/impl-owner inventory + 4,096). Large live projects increase that
-allowance. Old snapshots retain their tables; cross-context joins require explicit
-identity and source provenance. This is a finite node-count policy, not a metadata
-byte/RSS claim; the retention campaign measures those separately and may justify
-later tuning. No foreign-ID or source-free validation guard is relaxed.
+The source budget returns exactly to native baseline, with zero current contexts,
+rows and definition records. Requested-layout live allocations return within
+16,821 B of their native baseline; RSS need not return byte-exactly because the
+allocator/OS can retain pages. The 500-to-1,000 plateau, not that within-process
+RSS difference, establishes stable retained ownership. Peak live requested layouts
+are 185.970 MiB and OS peak RSS is 219.793 MiB. Process-cumulative requested layouts
+are 150,051,282,108 B over 1,041,454,776 requests, including native bootstrap;
+that records substantial allocation churn separately from live retention. No
+allocation-volume reduction or paired RSS regression verdict is claimed from
+this first baseline. Compiler preparation remains the owner for future allocation
+profiling; live source/index bounds do not measure that transient work.
+The image SHA256 is
+`ffb7d7db5f19dbdbd3217497d0a2768561b48a446fe281b8b0dca2e2fb481f56`.
+The runner explicitly builds with `--profile release` (0.609 s excluded), primes
+IO before native baseline, pauses for external sampling, and snapshots allocation
+counts before checkpoint IO. Neither pauses nor instrumented run time are speed
+evidence. Machine/toolchain/power and default build parallelism match above;
+native state is prepared once, user-state churn is retained within the fresh
+process, and OS caches are uncontrolled.
 
-Scheduler review found that pruning a just-dispatched context's service history
-let an index continuation repeatedly return with a new-context priority. The
-scheduler now retains that worker turn's owner until the next dispatch. A focused
-policy test uses two actual captured standalone contexts: after A1 and B's first
-index chunk, A2 runs before B's continuation. No mock semantic/index result is
-needed to establish this scheduling contract.
+**Fuzz acceptance.** FZ01's unchanged framing owner reuses its prior Windows
+ASan evidence. The three affected owners complete fresh, serial campaigns:
 
-Alias review exposed a shared acquisition defect: only buffers lexically inside
-an initial root were registered in the overlay cache. A buffer opened through an
-outside junction could therefore leave dependent analysis reading canonical disk
-bytes. Acquisition now captures every admitted physical identity before source
-reads and registers overlays globally, while each rooted reader still enforces
-containment. Standalone inputs share that identity registry. Captures retain the
-normalized document-to-provider mapping even for unavailable/conflicting buffers,
-so native-view checks cannot lose authority when semantic bindings are absent.
-Canonical identities are bounded to 8 KiB each and 1 MiB in aggregate; exhaustion
-fails capture explicitly. Analysis uses captured data and performs no filesystem
-IO. The package filesystem owner shares its existing ancestor/symlink resolution
-mechanism with explicit-origin capture; package reads keep their containment proof.
+| Target | Inputs | Duration | Peak ASan RSS (MiB) | Seed |
+| --- | ---: | ---: | ---: | ---: |
+| FZ01 framing (reused) | 261,928 | 61 s | 514 | 263841550 |
+| FZ02 session/publication | 53,819 | 61 s | 525 | 10402026 |
+| FZ03 documents/coordinates | 51,626 | 61 s | 528 | 10403026 |
+| FZ04 analysis reuse | 528 | 61 s | 507 | 10404026 |
 
-The existing alias scenario was strengthened with the actual outside-root failure:
-an unsaved API overlay must appear in both its own and dependent captures, while
-conflicting aliases still withhold semantics and equal buffers share one provider.
-The native-view scenario uses an actual junction alias, checks canonical baseline
-selection and the original definition URI, then verifies modification diagnostics,
-dependent suppression and restoration. Both cases pass (0.93 s). The acquisition
-boundary suite passes two cases (0.24 s), and the package path-boundary case passes
-(0.79 s), preserving escaped/dangling links, non-directory ancestors, missing tails
-and duplicate physical source rejection. Broader platform matrices remain CI scope.
+Successful campaigns exit zero with no artifacts, timeouts, assertion failures or
+ASan findings. They use nightly 1.101.0 (`249c1e4e3`, 2026-11-05), LLVM 23.1.5,
+cargo-fuzz 0.13.2, MSVC ASan, optimized release with line tables, default Cargo
+parallelism and one fuzz worker on the machine above. Compilation is excluded;
+execution counts are bounded smoke evidence, not throughput comparisons. FZ02/03
+use 64 KiB/10 s per-input limits; FZ04 uses 1 KiB/30 s. Each has a 60 s mutation
+budget and 2 GiB RSS ceiling, fresh generated corpus plus committed seeds, with
+leak checking retained. Final image SHA256 values are:
 
-LSP01 adds a dedicated synchronous acquisition worker, one active job/typed result,
-and generation-checked actor publication. Initial workspace folders (with rootUri
-fallback), save, watched files and `kagari.reloadWorkspace` trigger capture. The
-reload command acknowledges scheduling; semantic requests acquire retained input
-barriers in the following phases. All open buffers participate before dependency
-and module reads, including newly created unsaved modules. Context keys include
-workspace, selected package root and a retirement epoch. Conflicting physical
-aliases and unavailable project inputs cannot silently fall back to disk semantics.
+* FZ02: `8f602e7a8a049742af99d5444e9d3ad9fb5ba021f0e24a04d324efd33c7fa767`.
+* FZ03: `41e1a5168e11b89c76216031617ca1c8b5ee47392ec63a1ab12528e3f8653411`.
+* FZ04: `98980792099a7584ecfa798f119c82ff39e167c1e7483df5d59e761a9c7f3ab2`.
 
-The input boundary required one coherent source-model refinement: package
-`SourceText` and source `CapturedSource` retain immutable `SourceFile` content rather
-than copying strings and rebuilding line indexes. Source identity rebinding shares
-that content. The bounded input registry charges each live content allocation once;
-request, context and whole-capture leases keep it charged until the last consumer
-releases it. SDK/compiler/HIR/CLI callers use the same registration path. Open
-documents retire their physical identity on close; source snapshots remain valid,
-and acquisition context identities are independent. Limits include 1,024 open
-documents, 8 KiB per URI, 256 KiB total document metadata, 32 initial roots and
-256 MiB retained source input. Exhausted metadata cannot represent a new buffer
-safely, so the session fails explicitly; text overflow remains recoverable on the
-next valid full update.
+Per-build/campaign provenance proves stable owner/build/corpus inputs (647 files).
+Intentional verification repairs between revisions are recorded separately; there
+is no claim of unchanged source across those edits. FZ02/03 source and images are
+retained from their passing revision because the subsequent analysis-oracle setup
+change cannot execute on their paths. FZ04 rebuild cost is 79.251 s; final FZ02/03
+compile costs are 78.694/1.879 s, excluded from campaign time. All child PIDs exit.
 
-Tooling recovery now keeps a valid `mod healthy;` beside an unfinished function,
-but never discovers a `mod uncertain` lacking its required terminator/body. Strict
-package compilation still rejects the incomplete root. This is a package/source
-contract correction, not an analyzer parser or alternate resolver.
+FZ02's first empty input exposed obsolete verifier limits after terminal/progress
+reservation changed. The request model now reserves three outbox frames per slot
+plus control capacity. The publication model has no request registry, so its
+unused request limit is one; its twelve-frame saturation model and original
+full-queue seed remain unchanged. Empty plus seven curated inputs replay before
+the successful campaign. Production limits and invariant assertions are preserved.
 
-Selected LSP01 checks cover shared-content transaction rejection and old snapshots,
-overlay removal, package recovery and path boundaries, strict dependency capture,
-HIR package/native identity, compiler inline/physical identity and SDK snapshot
-replay. Real-actor T1 covers two roots, unsaved dependencies/new modules,
-close/create/delete/watch, custom URIs and explicit metadata-exhaustion termination.
-The document owner and FZ03 replay cover independent UTF-16/string models,
-incarnations and bounded recovery. Five acquisition-owner tests include actual
-Windows junction alias conflict/recovery and approved-root escape rejection; the
-alias test exposed and corrected nearest-manifest discovery using a lexical alias
-instead of its approved canonical relative path. The three real-process stdio,
-TCP-connect and TCP-listen lifecycle cases pass in 0.12 s. Structure, format,
-workspace all-target Clippy and diff checks pass; no build failures are carried.
+FZ04's initial full-standard-library setup timed out on its first empty input at
+32 s. Isolated fixed-image replay completes the full oracle and exact retirement
+assertions under a diagnostic 120 s bound. File-mode timings of 53.430/32.869 s
+for the same empty file twice include optional LSan callback reruns (four units
+for two files), so they are not single-input measurements. The fixture uses only
+intrinsic types and a source-defined trait, while full standard inventories were
+repeatedly prepared in fresh contexts. Its final setup installs a closed empty
+provider generation through production environment validation, actual publication
+plans and source leases. Acquisition, selected HIR, all four feature outputs,
+relation/index coverage, old-capture queries and exact cleanup assertions remain
+unchanged; no mocked facts or test wire method is introduced.
 
-FZ03's Windows ASan campaign completed 42,551 inputs in 61 s without a finding
-(seed 3516736307, reported peak RSS 545 MiB). The three curated seeds plus a fresh
-generated corpus exercise the independent text/UTF-16 model. Toolchain, machine,
-worker/input/time/RSS limits match the LSP00 sanitizer environment below; source
-owner hashes were unchanged before/after. Compilation is excluded and concurrent
-builds prevent throughput comparison. This is bounded evidence, not exhaustive
-state-space coverage.
+Empty plus all five unchanged curated semantic seeds replay in 0.03 s in the
+ordinary test profile (prior full-standard setup 13 s; build 9.86 s excluded).
+This measures verification efficiency, not product speed. The final ASan run
+executes all seeds and reaches mutations within the unchanged 60 s/30 s limits.
+Full-standard/generated-native combinations are sampled separately by the fixed
+ASan replay, deterministic owner tests, B07 and actual editor integration; this
+fuzzer does not combine those providers with generated edits. Sampling is an
+explicit coverage boundary. Linux sanitizers, longer campaigns, exhaustive
+schedules and broader editor/platform matrices remain CI/follow-up scope.
+Commands and oracle limits live in
+[fuzz/README.md](../fuzz/README.md#lsp-framing-and-lifecycle-targets).
 
-The B01/B03 acquisition component uses the same frozen pilot: seven fresh worker
-groups, 20 warmups then 200 alternating unsaved-dependency captures each. It asserts
-two contexts, 20 distinct physical files and exact overlay bytes before accepting
-timings. Fresh-worker captures range 21.4242-25.5182 ms (median 22.3515 ms); the
-median group p50 is 22.1111 ms, and group p95 values range 25.0456-36.2929 ms
-(median 25.3362 ms). Maximum charged source bytes sampled at completion are
-448,085, not an in-flight peak or RSS measurement. Every worker releases its
-charges on termination. Environment: Windows 11 Pro 26300, i9-12900K/24 logical
-CPUs, rustc 1.99.1 (58cf8f9c3), workspace test profile with debug assertions,
-default features/build parallelism, one worker per sequential group, warm OS file
-cache, power mode unreported; build cost excluded. This component baseline excludes
-HIR, wire transport and diagnostic readiness and makes no speedup claim. Its
-reproduction commands live in the [benchmark input guide](../crates/kagari-analyzer/tests/fixtures/benchmark/README.md).
+The repairs touch three verification-only files. Default-release behavior and the
+exercised B06/B07 paths are unchanged, so their passing measurements are retained.
+A current-source release rebuild has SHA256
+`73bdec74f2a7992888a40517530726aaf250626537fe75d2e1cf535e1f5f6e1c`.
+Its `.text`, `.data`, `.pdata` and `.reloc` sections equal the measured image;
+only 24 bytes within COFF/debug timestamps and the `.rdata` CodeView PDB
+identifier differ. Comparing
+all remaining bytes after identifying those fields using the
+[Microsoft PE layout](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#debug-directory-image-only)
+proves program equivalence without modifying either image. The source proof
+records all three changed verification files and stable before/after inputs.
+Workspace and verification-scoped Clippy, structure (1,958 files/zero violations),
+formatting, local documentation links and diff checks pass after the repairs.
 
-LSP00 replaces `lsp-server` with the pinned Lattice runtime, typed method
-registration and concrete handlers, a shared bounded codec, async loopback TCP
-and dedicated blocking stdio threads. The library and executable share production
-owners. Request serials survive wire-ID reuse until writer acknowledgement;
-ordinary requests have 64 credits and lifecycle requests have two reserved
-credits. A single acknowledged deadline adapter handles startup, blocked output
-and shutdown deadlines. Output drains before actor stop. Ingress permits survive
-Lattice prefetch; decoded body allocations are dropped before the permit moves
-into dispatch, and bounded logs cannot retain an oversized input allocation.
-
-Source-owned line indexing now treats LF, CRLF and lone CR consistently.
-`SourceFile::line` also supplies CLI diagnostic excerpts so physical source
-coordinates and displayed lines cannot disagree. Over-limit full document updates
-release the current text, mark synchronization unavailable and recover on a later
-valid full update; retained snapshots remain immutable.
-
-A finite sequencing refinement moves concrete acquisition and HIR worker bridges
-into LSP01 and LSP02 respectively, with their first real consumers. LSP00 already
-uses Lattice deferred completion for transport startup/driver reports; it does
-not create unused worker types or a second actor kernel. The codec remains under
-`protocol/codec.rs`, beside envelope validation, because all transport adapters
-consume that IO-independent owner. These changes do not defer any pilot feature
-or acceptance gate.
-
-Selected local evidence: source mixed-newline coordinates and directly
-impacted CLI excerpt rendering pass; protocol/URI cases, request ownership and
-reserved lifecycle admission, bounded document recovery, real-actor memory
-shutdown/drain and blocked-writer tests pass. Real executable stdio, TCP-connect
-and TCP-listen transcripts pass, as do independent Microsoft Node protocol-client
-stdio/TCP witnesses and six benchmark report/input tests. Full workspace tests
-remain CI-only. The nine process cases include an actual blocked stdout pipe
-with input kept open: the write deadline reports the specific failure and the
-owned process exits nonzero within its bound. The warm suite took 5.03 s; the
-independent Node suite took 0.269 s. Structure (1,884 Rust files, zero findings),
-format, workspace all-target Clippy with warnings denied and diff checks pass.
-No implementation build errors are carried into LSP01.
-
-Curated FZ01/FZ02 seed replay passes. Final Windows ASan campaigns completed
-261,928 wire inputs and 117,195 session-owner inputs, 61 s each, without a finding;
-reported peak RSS was 514 MiB and 494 MiB. Seeds were 263841550 and 2293461470.
-Environment: i9-12900K, 24 logical CPUs, Windows 11 Pro 10.0.26300,
-rustc nightly 1.101.0 (249c1e4e3, 2026-11-05), cargo-fuzz 0.13.2, MSVC 14.44 ASan,
-default release profile/build parallelism, one fuzz worker, retained generated
-corpus plus committed seeds, 60 s budget, 64 KiB input limit, 10 s per-input timeout
-and 2 GiB RSS ceiling. Compilation is excluded; concurrent builds prevent using
-campaign throughput as a performance comparison. FZ02 was rebuilt after reserved
-control admission changed the shared owner, and owner hashes matched before/after
-the final run. Its random actions cover ordinary admission; reserved lifecycle
-capacity has a separate deterministic owner test. These campaigns do not establish
-exhaustive schedules or editor correctness. Linux sanitizer and broader platform
-coverage remain CI-only. Commands and oracle limits are in [fuzz/README.md](../fuzz/README.md#lsp-framing-and-lifecycle-targets).
-
-The first frozen B01 protocol-only baseline uses seven fresh processes: spawn to
-initialize median 13.7051 ms (range 13.2404-20.8875 ms), initialize round trip median
-4.2484 ms (range 3.5465-5.2429 ms). This is not a speedup claim or semantic readiness
-measurement. Environment: Windows 11 build 26300, Intel family 6 model 151,
-24 logical CPUs, rustc 1.99.1 (58cf8f9c3), Cargo 1.99.1, default features/build
-parallelism, release profile; OS filesystem cache uncontrolled and power mode
-unreported. The warm build took 0.323 s and is excluded. Source/image/lock/workload
-hashes and raw samples are validated by the runner; the frozen pilot has two
-packages, 20 files, 9,953 lines and 150,197 source bytes. Its generated program
-passes `kg check`; semantic benchmark rows remain explicitly unavailable until
-their owning phases. Reproduce protocol checks with
-`uv run python scripts/benchmark_lsp.py --check --transport stdio` and `--transport tcp`;
-create a new measured archive with `--output target/lsp-benchmark/NAME`, and compare
-an archived image using `--baseline target/lsp-benchmark/BASELINE --output target/lsp-benchmark/NEW`.
+Gate A's selected local functional, performance, ownership and fuzz evidence is
+complete. The only measured case-budget adjustment is H04's explicit 30 s retry
+sequence; aggregate feedback targets and product latency targets are preserved.
+Later occurrence/edit/call-hierarchy work remains with LSP05/LSP06/LSP07 at the
+boundaries reviewed in [Baseline and gaps](#baseline-and-gaps). No broader feature
+phase is activated by this checkpoint. Full-workspace and exhaustive CI results
+remain unrun locally and are not claimed as passed.
 
 ### Gate A: validate the architecture with the pilot
 

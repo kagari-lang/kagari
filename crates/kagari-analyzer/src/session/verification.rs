@@ -205,10 +205,11 @@ pub(crate) fn check(input: &[u8]) {
     }
     publications::check(input);
     let capacity = usize::from(input.first().copied().unwrap_or(0) % 8) + 1;
+    let outbox_count = capacity * 3 + 8;
     let limits = SessionLimits {
         requests: capacity,
-        outbox_count: capacity + 8,
-        outbox_bytes: (capacity + 8) * 4096 + 1024,
+        outbox_count,
+        outbox_bytes: outbox_count * 4096 + 1024,
         result_bytes: 1024,
         ..SessionLimits::default()
     };

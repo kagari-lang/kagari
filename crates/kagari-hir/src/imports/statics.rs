@@ -51,7 +51,11 @@ impl ImportedStatics {
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         let mut result = Self::default();
-        for source in names.catalog.reachable_sources(&names.items, cancel)? {
+        for source in names
+            .catalog
+            .reachable_sources(&names.items, cancel)?
+            .iter()
+        {
             cancel.check()?;
             let SourceItem::Static(id) = source.item else {
                 continue;
@@ -73,7 +77,7 @@ impl ImportedStatics {
                 continue;
             };
             result.statics.insert(
-                source,
+                source.clone(),
                 ImportedStatic {
                     declaration: *declaration,
                     site: module

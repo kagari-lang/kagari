@@ -1,7 +1,7 @@
 {
   "name": "kagari-language",
   "displayName": "Kagari",
-  "description": "Declarative syntax highlighting and basic editing support for Kagari.",
+  "description": "Kagari syntax highlighting and language server integration",
   "version": "0.1.0",
   "publisher": "kagari-lang",
   "license": "MIT OR Apache-2.0",
@@ -13,18 +13,30 @@
   "engines": {
     "vscode": "^1.142.0"
   },
-  "categories": ["Programming Languages"],
-  "keywords": ["kagari", "syntax", "highlighting"],
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "kagari",
+    "syntax",
+    "highlighting"
+  ],
   "scripts": {
     "test": "node --test ../tests/vscode/*.test.mjs",
-    "package": "vsce package --no-dependencies --out ../../target/editors/kagari-language-0.1.0.vsix"
+    "package": "node ../scripts/package-vscode.mjs",
+    "build": "node ../scripts/build-vscode.mjs"
   },
   "contributes": {
     "languages": [
       {
         "id": "kagari",
-        "aliases": ["Kagari", "kagari"],
-        "extensions": [".kgr"],
+        "aliases": [
+          "Kagari",
+          "kagari"
+        ],
+        "extensions": [
+          ".kgr"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -34,6 +46,42 @@
         "scopeName": "source.kagari",
         "path": "./syntaxes/kagari.tmLanguage.json"
       }
-    ]
-  }
+    ],
+    "commands": [
+      {
+        "command": "kagari.restartServer",
+        "title": "Kagari: Restart Language Server"
+      },
+      {
+        "command": "kagari.showOutput",
+        "title": "Kagari: Show Language Server Output"
+      }
+    ],
+    "configuration": {
+      "title": "Kagari",
+      "properties": {
+        "kagari.server.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Enable Kagari semantic language services. Syntax highlighting remains available when disabled."
+        },
+        "kagari.server.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "restricted": true,
+          "description": "Absolute path to kagari-analyzer. No executable is downloaded or discovered automatically."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "11.0.0"
+  },
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onLanguage:kagari",
+    "onCommand:kagari.restartServer"
+  ]
 }

@@ -48,7 +48,11 @@ impl ImportedConstants {
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         let mut result = Self::default();
-        for source in names.catalog.reachable_sources(&names.items, cancel)? {
+        for source in names
+            .catalog
+            .reachable_sources(&names.items, cancel)?
+            .iter()
+        {
             cancel.check()?;
             let SourceItem::Const(id) = source.item else {
                 continue;
@@ -84,7 +88,7 @@ impl ImportedConstants {
                 continue;
             };
             result.constants.insert(
-                source,
+                source.clone(),
                 ImportedConstant {
                     site: site.clone(),
                     value: value.clone(),

@@ -3,8 +3,17 @@ name = "Kagari"
 version = "0.1.0"
 schema_version = 1
 authors = ["Kagari contributors"]
-description = "Kagari syntax highlighting and basic editing support"
+description = "Kagari syntax highlighting and language server integration"
 repository = "https://github.com/kagari-lang/kagari"
+
+[lib]
+kind = "Rust"
+version = "0.7.0"
+
+[language_servers.kagari]
+name = "Kagari"
+languages = ["Kagari"]
+language_ids = { Kagari = "kagari" }
 
 [grammars.kagari]
 repository = "https://github.com/kagari-lang/kagari.git"

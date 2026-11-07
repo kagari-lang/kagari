@@ -143,6 +143,32 @@ commands above, without `--check`. Wire timings establish observable latency and
 answers; selected-body work counters remain separate verification evidence and
 are not inferred from a fast response or a cached snapshot's provenance.
 
+## Controlled running cancellation
+
+Build before sampling; use the Cargo-reported release test executable for seven
+fresh process groups. This focused command is the corresponding single-group
+entrypoint (PowerShell):
+
+```powershell
+$env:KAGARI_LSP_CANCEL_SAMPLES = '20'
+cargo test --locked -p kagari-analyzer --lib --features verification --release tests::features::cancellation::running_selected_body_cancellation_reports_terminal_before_worker_retirement -- --exact --nocapture
+```
+
+Copy `target/lsp-benchmark/B06-running-cancel.json` after each process into a new
+archive before the next group overwrites that scratch report. Retain executable,
+source, toolchain, environment and raw sample metadata alongside each copy. The
+test defaults to one sample for ordinary correctness feedback; only groups with
+at least twenty samples emit nearest-rank p50/p95.
+
+A real selected-body entry gate holds the worker while the client cancels. The
+terminal must be `RequestCancelled` while its worker still owns the credit; release
+then proves matching completion and retirement. All durations use one monotonic
+clock. Client cancel-to-credit completion is an upper bound on server retirement
+and includes the controlled pause; post-release retirement is separate. This is
+controlled cancellation evidence, with no unpaused or large-body intraloop p95
+claim. Queued cancellation and an actual canceled index continuation remain T1
+correctness witnesses rather than fabricated timing samples.
+
 ## Memory component runner
 
 From the repository root:

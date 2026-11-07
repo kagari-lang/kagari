@@ -1,7 +1,16 @@
 //! Deterministic interruption after work begins, without thread timing or sleeps.
 
-use crate::{analysis::error::AnalysisError, declarations::DeclarationId, tests::test_analysis};
-use kagari_common::cancellation::CancellationToken;
+use crate::{
+    analysis::error::AnalysisError,
+    declarations::DeclarationId,
+    imports::{ModuleGraph, SourceUnit},
+    lower::lower_module,
+    tests::test_analysis,
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, PackageId, map::DefinitionContext},
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::{cell::RefCell, sync::Arc};
 
@@ -12,6 +21,7 @@ pub(crate) enum Checkpoint {
     TraitCandidates,
     Constants,
     Namespaces,
+    ReachableSources,
     Publish,
 }
 
@@ -51,6 +61,90 @@ impl Drop for ResetRequest {
     fn drop(&mut self) {
         REQUEST.with(|request| *request.borrow_mut() = None);
     }
+}
+
+#[test]
+fn interrupted_reachability_never_publishes_a_partial_scope() {
+    let mut sources = SourceDatabase::default();
+    for (name, text) in [
+        (
+            "root",
+            include_str!("../../tests/fixtures/editor/consumer.kgr"),
+        ),
+        (
+            "library",
+            include_str!("../../tests/fixtures/editor/library.kgr"),
+        ),
+    ] {
+        sources
+            .bind_module(
+                name,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+        sources.set(name, text.into(), SourceLayer::Base).unwrap();
+    }
+    let source = sources.snapshot();
+    let lowered = source
+        .files()
+        .map(|file| lower_module(file))
+        .collect::<Vec<_>>();
+    let graph = ModuleGraph::build(
+        &lowered,
+        &DefinitionContext::new().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
+    let root = lowered
+        .iter()
+        .find(|file| file.source.module_identity().path == ["root"])
+        .unwrap();
+    let names = &graph
+        .imports_for(&SourceUnit::of(root, &graph.catalog.definitions))
+        .unwrap()
+        .scope;
+    let cancel = CancellationToken::default();
+    let _reset = ResetRequest;
+    REQUEST.with(|request| {
+        *request.borrow_mut() = Some(Request {
+            point: Checkpoint::ReachableSources,
+            remaining: 2,
+            visits: 0,
+            triggered: false,
+            cancel: cancel.clone(),
+        })
+    });
+    assert!(graph.catalog.reachable_sources(names, &cancel).is_err());
+    let interrupted = REQUEST.with(|request| request.borrow_mut().take().unwrap());
+    assert!(interrupted.triggered);
+    assert_eq!(
+        interrupted.visits, 2,
+        "the real traversal must start before interruption"
+    );
+    let complete = graph
+        .catalog
+        .reachable_sources(names, &Default::default())
+        .unwrap();
+    assert_eq!(
+        complete.len(),
+        2,
+        "a retry must recover both number and unused"
+    );
+    assert!(
+        complete
+            .iter()
+            .all(|item| graph.catalog.identity(item.unit.module).path == ["library"])
+    );
+    // A populated memo still respects the request token, without retiring its owner.
+    assert!(graph.catalog.reachable_sources(names, &cancel).is_err());
+    let retained = graph
+        .catalog
+        .reachable_sources(names, &Default::default())
+        .unwrap();
+    assert!(Arc::ptr_eq(&complete, &retained));
 }
 
 #[test]

@@ -12,7 +12,7 @@
     "directory": "editors/tests/vscode-host"
   },
   "engines": { "vscode": "^1.142.0" },
-  "files": ["harness.cjs", "index.cjs", "README.md", "LICENSE"],
+  "files": ["harness.cjs", "index.cjs", "cases.cjs", "grammar.cjs", "README.md", "LICENSE"],
   "main": "./harness.cjs",
   "activationEvents": ["onStartupFinished"]
 }

@@ -5,15 +5,20 @@ import test from 'node:test';
 const extension = new URL('../../vscode/', import.meta.url);
 const json = async (name) => JSON.parse(await readFile(new URL(name, extension), 'utf8'));
 
-test('manifest is a declarative Kagari language contribution without an executable client', async () => {
+test('manifest bundles an explicit-path client alongside independent language assets', async () => {
   const manifest = await json('package.json');
   assert.equal(manifest.name, 'kagari-language');
   assert.equal(manifest.publisher, 'kagari-lang');
   assert.equal(manifest.license, 'MIT OR Apache-2.0');
   assert.equal(manifest.engines.vscode, '^1.142.0');
-  for (const field of ['main', 'browser', 'activationEvents', 'dependencies', 'devDependencies']) {
-    assert.equal(manifest[field], undefined, field);
-  }
+  assert.equal(manifest.main, './dist/extension.cjs');
+  assert.equal(manifest.browser, undefined);
+  assert.equal(manifest.dependencies['vscode-languageclient'], '11.0.0');
+  assert.ok(manifest.activationEvents.includes('onLanguage:kagari'));
+  const settings = manifest.contributes.configuration.properties;
+  assert.equal(settings['kagari.server.enabled'].default, true);
+  assert.equal(settings['kagari.server.path'].default, '');
+  assert.equal(settings['kagari.server.path'].restricted, true);
   assert.deepEqual(manifest.contributes.languages.map(({ id, extensions }) => ({ id, extensions })),
     [{ id: 'kagari', extensions: ['.kgr'] }]);
   const [contribution] = manifest.contributes.grammars;
@@ -24,7 +29,8 @@ test('manifest is a declarative Kagari language contribution without an executab
   const grammar = await json(contribution.path);
   assert.equal(grammar.scopeName, contribution.scopeName);
   await json(manifest.contributes.languages[0].configuration);
-  assert.deepEqual(Object.keys(manifest.contributes).sort(), ['grammars', 'languages']);
+  assert.deepEqual(manifest.contributes.commands.map(({ command }) => command),
+    ['kagari.restartServer', 'kagari.showOutput']);
 });
 
 test('editing configuration pairs only supported delimiters and respects lexical categories', async () => {
@@ -44,7 +50,8 @@ test('packaging uses a payload allowlist and repository-consistent license texts
   const ignore = await readFile(new URL('.vscodeignore', extension), 'utf8');
   const rules = ignore.split(/\r?\n/).filter((line) => line && !line.startsWith('#'));
   assert.deepEqual(rules, ['**', '!package.json', '!README.md', '!LICENSE', '!LICENSE-MIT', '!LICENSE-APACHE',
-    '!language-configuration.json', '!syntaxes/', '!syntaxes/kagari.tmLanguage.json']);
+    '!language-configuration.json', '!syntaxes/', '!syntaxes/kagari.tmLanguage.json',
+    '!dist/', '!dist/extension.cjs', '!dist/THIRD-PARTY-NOTICES.txt']);
   const notice = await readFile(new URL('LICENSE', extension), 'utf8');
   assert.ok(notice.includes('SPDX-License-Identifier: MIT OR Apache-2.0'));
   for (const name of ['LICENSE-MIT', 'LICENSE-APACHE']) {

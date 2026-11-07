@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [lsp_wire, lsp_session, lsp_documents]
+        target: [lsp_wire, lsp_session, lsp_documents, lsp_analysis]
 
     steps:
       - name: Checkout
@@ -65,7 +65,11 @@ jobs:
       - name: Fuzz bounded LSP contracts
         run: |
           mkdir -p target/fuzz-corpus/${{ matrix.target }}
-          cargo +nightly fuzz run ${{ matrix.target }} --features fuzzing,lsp target/fuzz-corpus/${{ matrix.target }} fuzz/seeds/${{ matrix.target }} -- -max_total_time=60 -max_len=65536 -timeout=10 -rss_limit_mb=2048
+          if [ "${{ matrix.target }}" = "lsp_analysis" ]; then
+            cargo +nightly fuzz run lsp_analysis --features fuzzing,lsp target/fuzz-corpus/lsp_analysis fuzz/seeds/lsp_analysis -- -max_total_time=60 -max_len=1024 -timeout=30 -rss_limit_mb=2048
+          else
+            cargo +nightly fuzz run ${{ matrix.target }} --features fuzzing,lsp target/fuzz-corpus/${{ matrix.target }} fuzz/seeds/${{ matrix.target }} -- -max_total_time=60 -max_len=65536 -timeout=10 -rss_limit_mb=2048
+          fi
 
       - name: Upload failing LSP inputs
         if: failure()
@@ -195,8 +199,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Install Rust toolchain for the protocol peer
+      - name: Install Rust toolchain for the protocol peer and Zed adapter
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+          components: clippy, rustfmt
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
@@ -230,6 +237,9 @@ jobs:
       - name: Build analyzer for independent protocol tests
         run: cargo build --locked -p kagari-analyzer --bin kagari-analyzer
 
+      - name: Verify running selected-body cancellation and worker retirement
+        run: cargo test --locked -p kagari-analyzer --lib --features verification running_selected_body_cancellation_reports_terminal_before_worker_retirement -- --nocapture
+
       - name: Test independent Node LSP peer over stdio and TCP
         env:
           KAGARI_TEST_ANALYZER: ${{ github.workspace }}/target/debug/kagari-analyzer
@@ -244,6 +254,11 @@ jobs:
       - name: Build and validate Zed WASM grammar (download official WASI SDK 34)
         timeout-minutes: 6
         run: npm run build:zed -- --download-sdk
+
+      - name: Check thin Zed launch adapter
+        run: |
+          cargo fmt --manifest-path zed/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path zed/Cargo.toml --target wasm32-wasip2 --target-dir ../target/editors/zed-adapter -- -D warnings
 
       - name: Test Zed captures, configuration and WASM staging
         timeout-minutes: 6

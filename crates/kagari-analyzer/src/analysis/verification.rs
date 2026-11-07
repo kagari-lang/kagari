@@ -5,6 +5,7 @@ use crate::{
     analysis::{
         AnalysisFailure, AnalysisState,
         diagnostics::ProjectionLimits,
+        environment::prepare,
         features::{FeatureInput, FeatureOutput, QueryStep},
     },
     documents::DocumentInput,
@@ -85,9 +86,21 @@ impl Worlds {
         let mut reused = AnalysisState::new(root.clone(), budget.clone(), limits);
         let mut fresh = AnalysisState::new(root, budget.clone(), limits);
         for state in [&mut reused, &mut fresh] {
-            for document in state.prepare(&store, &Default::default()).unwrap().iter() {
+            // This oracle covers intrinsic types and its source-defined Read trait.
+            // The empty closed provider generation uses ordinary validation and leases.
+            let environment = prepare(
+                &state.source_root,
+                &store,
+                Vec::new(),
+                &CancellationToken::default(),
+            )
+            .unwrap();
+            let lease = budget.retain(environment.sources.iter().cloned()).unwrap();
+            for document in environment.publications.iter() {
                 document.publish().unwrap();
             }
+            state.environment = Some(environment);
+            state.environment_lease = Some(lease);
         }
         let baseline_bytes = budget.retained_bytes();
         Self {

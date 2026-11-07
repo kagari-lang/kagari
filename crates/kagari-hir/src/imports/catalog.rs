@@ -8,7 +8,7 @@ use crate::{
     imports::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
         SourceItem, SourceUnit, bindings::LookupOutcome, cache::same_name_tables,
-        solver::Observation,
+        catalog::reachability::ReachabilityCache, solver::Observation,
     },
     native::paths::source_package_alias,
     resolver::table::NameTable,
@@ -28,6 +28,8 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
+
+mod reachability;
 
 /// Unfiltered member candidates for one namespace and its glob-expansion policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +73,8 @@ pub struct NamespaceCatalog {
     /// Ordinary source importers receive no additional visibility.
     pub(crate) native_trait_references: BTreeMap<ModuleHandle, BTreeSet<DefinitionPath>>,
     pub(crate) packages: PackageEnvironment,
+    /// Pure importer projections; cloning the catalog starts with an empty memo.
+    reachable: ReachabilityCache,
 }
 
 /// A canonical target plus the selected binding origins along its lookup path.
@@ -168,6 +172,7 @@ impl NamespaceCatalog {
             installed_aliases: BTreeMap::new(),
             native_dependencies: BTreeMap::new(),
             native_trait_references: BTreeMap::new(),
+            reachable: ReachabilityCache::default(),
         }
     }
 
@@ -494,6 +499,26 @@ impl NamespaceCatalog {
     /// Collects foreign declarations reachable through scope bindings and accessible namespaces, guarding namespace cycles.
     pub(crate) fn reachable_sources(
         &self,
+        names: &Arc<NameTable>,
+        cancel: &CancellationToken,
+    ) -> Result<Arc<HashSet<SourceDeclRef>>, Cancelled> {
+        cancel.check()?;
+        if let Some(sources) = self.reachable.get(names) {
+            cancel.check()?;
+            return Ok(sources);
+        }
+        let sources = Arc::new(self.collect_reachable_sources(names, cancel)?);
+        cancel.check()?;
+        Ok(self.reachable.insert(names, sources))
+    }
+
+    /// Completed body environments own the projections needed by subsequent queries.
+    pub(crate) fn retire_reachable_sources(&self) {
+        self.reachable.clear();
+    }
+
+    fn collect_reachable_sources(
+        &self,
         names: &NameTable,
         cancel: &CancellationToken,
     ) -> Result<HashSet<SourceDeclRef>, Cancelled> {
@@ -526,6 +551,8 @@ impl NamespaceCatalog {
         let mut sources = HashSet::new();
         self.add_package_namespaces(&ctx, &mut pending, cancel)?;
         while let Some(target) = pending.pop() {
+            #[cfg(test)]
+            checkpoint(Checkpoint::ReachableSources);
             cancel.check()?;
             if let ResolvedTarget::Source(source) = &target
                 && source.unit != *unit

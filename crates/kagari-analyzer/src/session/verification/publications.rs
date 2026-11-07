@@ -299,7 +299,9 @@ fn replace(
 
 pub(super) fn check(input: &[u8]) {
     let limits = SessionLimits {
-        requests: 4,
+        // This model owns one JobCredit and no Requests registry. Preserve the
+        // twelve-frame saturation boundary while satisfying session validation.
+        requests: 1,
         outbox_count: 12,
         outbox_bytes: 65536,
         result_bytes: 1024,

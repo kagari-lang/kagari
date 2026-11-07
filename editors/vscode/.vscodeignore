@@ -1,4 +1,4 @@
-# Allow only the declarative extension payload and licensing.
+# Allow the bundled client, declarative language assets and licensing.
 **
 !package.json
 !README.md
@@ -8,3 +8,6 @@
 !language-configuration.json
 !syntaxes/
 !syntaxes/kagari.tmLanguage.json
+!dist/
+!dist/extension.cjs
+!dist/THIRD-PARTY-NOTICES.txt

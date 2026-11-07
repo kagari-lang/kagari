@@ -1,10 +1,33 @@
 # Kagari for VS Code
 
-Declarative syntax highlighting, comment toggling and basic bracket/quote pairing
-for `.kgr` files. Language ID: `kagari`; TextMate scope: `source.kagari`.
-There is no activation code, language server, analyzer launch or runtime dependency.
-`kagari-lang.kagari-language` names the language contribution rather than implying
-semantic language services. This extension is not published.
+Syntax highlighting, editing configuration and a thin language-server client for
+`.kgr` files. Language ID: `kagari`; TextMate scope: `source.kagari`. The bundled
+client launches an explicitly configured `kagari-analyzer` over stdio. It registers
+diagnostics, hover, definition, implementation and completion through the server's
+advertised capabilities. This extension is not published.
+
+## Configure the analyzer
+
+Build `cargo build --locked -p kagari-analyzer`, then set an absolute executable path:
+
+```json
+{
+  "kagari.server.path": "F:/path/to/kagari/target/debug/kagari-analyzer.exe",
+  "kagari.server.enabled": true
+}
+```
+
+The executable is never downloaded or searched on `PATH`. A missing or invalid path
+appears in the Kagari status item and output channel. Use **Kagari: Show Language
+Server Output** for startup failures and **Kagari: Restart Language Server** after
+repairing a configuration. Setting `kagari.server.enabled` to `false` stops the owned
+server; grammar highlighting and editing remain available.
+
+One controller owns startup, replacement, shutdown and recovery. An unexpected exit
+first finishes client cleanup, then retries after 250 ms, 1 s and 4 s, with at most
+three automatic restarts in sixty seconds. Further failures require an explicit
+restart. Configuration changes and disabling invalidate queued recovery. Reopening
+the protocol connection resends current editor buffers, including unsaved text.
 
 ## Develop and install locally
 
@@ -13,6 +36,7 @@ Use Node 22.21.1 and the pinned tools installed from the parent `editors/` packa
 
 ```sh
 npm --workspace kagari-language test
+npm run build:vscode
 npm run package:vscode
 ```
 
@@ -30,15 +54,12 @@ For an Extension Development Host, run from the repository root:
 code --new-window --extensionDevelopmentPath=editors/vscode examples/syntax/string-interpolation.kgr
 ```
 
-The minimum engine is VS Code 1.142.0 (the installed local version, not evidence of
-GUI acceptance). In the host and installed VSIX, verify the Kagari language mode,
-comment toggling, bracket and quote pairing in code versus strings/comments, and
-the selected examples in light
-and dark themes. **Developer: Inspect Editor Tokens and Scopes** should show code
-inside `meta.embedded.expression.kagari` for identifier holes, string text around
-it, and inert braces/backslashes in raw Strings. Verify this without `kg`
-or an analyzer running. Automated tokenization is not a substitute for this GUI
-acceptance; see the parent editor tooling documentation for recorded results.
+The minimum engine is VS Code 1.142.0. `build:vscode` bundles the pinned
+`vscode-languageclient` 11.0.0 and its runtime dependencies with esbuild; the VSIX
+includes the bundle and dependency license notices, without `node_modules`, build
+tools or an analyzer binary. Packaging always builds first. Follow the
+[isolated host guide](../tests/vscode-host/README.md) for H01–H05 client acceptance
+against an existing editor and the actual installed VSIX.
 
 ## Scope and maintenance
 
@@ -77,6 +98,6 @@ repository examples directly. `tokenize.mjs` exports `async tokenize(text)` for
 shared adapter contracts: `{start, end, scopes, type}` spans use UTF-16 offsets;
 `type` is `code`, `string` or `comment`. LF separators are omitted from spans (CR is
 retained for CRLF), and no synthetic TextMate newline token escapes into the result.
-The VSIX allowlist excludes tests, dependencies and tooling.
+The VSIX allowlist excludes tests, dependency directories and tooling.
 
 Licensed under MIT OR Apache-2.0; license texts are included in the VSIX.

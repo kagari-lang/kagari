@@ -11,8 +11,10 @@ const manifest = parseToml(readFileSync(new URL('../../zed/extension.toml', impo
 test('all shipped queries compile against the shipped grammar', () => {
   for (const file of ['highlights.scm', 'brackets.scm', 'overrides.scm']) assert.ok(query(file));
   assert.equal(manifest.grammars.kagari.path, 'editors/tree-sitter-kagari');
-  assert.equal(manifest.language_servers, undefined);
-  assert.equal(manifest.lib, undefined);
+  assert.deepEqual(manifest.language_servers.kagari.languages, ['Kagari']);
+  assert.equal(manifest.language_servers.kagari.language_ids.Kagari, 'kagari');
+  assert.equal(manifest.lib.kind, 'Rust');
+  assert.equal(manifest.lib.version, '0.7.0');
   assert.deepEqual(config.path_suffixes, ['kgr']);
   assert.equal(config.grammar, 'kagari');
   assert.deepEqual(config.line_comments, ['// ']);

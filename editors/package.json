@@ -4,8 +4,13 @@
   "version": "0.1.0",
   "description": "Development tooling for Kagari editor grammars and adapters",
   "license": "MIT OR Apache-2.0",
-  "workspaces": ["tree-sitter-kagari", "vscode"],
-  "engines": { "node": ">=22.12.0" },
+  "workspaces": [
+    "tree-sitter-kagari",
+    "vscode"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "generate": "npm run generate --workspace tree-sitter-kagari",
     "build:grammar": "npm run build --workspace tree-sitter-kagari",
@@ -20,11 +25,13 @@
     "test:zed-host": "node scripts/test-zed-host.mjs",
     "test:vscode-host": "node scripts/test-vscode-host.mjs",
     "package:vscode": "node scripts/package-vscode.mjs",
-    "test:lsp": "node --test tests/lsp.test.mjs"
+    "test:lsp": "node --test tests/lsp.test.mjs",
+    "build:vscode": "node scripts/build-vscode.mjs"
   },
   "devDependencies": {
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.0.0",
+    "esbuild": "0.28.2",
     "node-addon-api": "8.9.2",
     "node-gyp": "11.5.0",
     "node-gyp-build": "4.8.4",

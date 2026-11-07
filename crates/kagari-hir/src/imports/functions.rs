@@ -78,9 +78,13 @@ impl<'a> FunctionCatalog<'a> {
         cancel: &CancellationToken,
     ) -> Result<ImportedFunctions, Cancelled> {
         let mut result = ImportedFunctions::default();
-        for source in names.catalog.reachable_sources(&names.items, cancel)? {
+        for source in names
+            .catalog
+            .reachable_sources(&names.items, cancel)?
+            .iter()
+        {
             cancel.check()?;
-            if let Some(function) = self.resolve(&source, cancel)? {
+            if let Some(function) = self.resolve(source, cancel)? {
                 result.functions.insert(source.clone(), function);
             }
         }

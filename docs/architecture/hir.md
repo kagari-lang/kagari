@@ -796,6 +796,25 @@ invalidate the database's signature cache. Warm selected-body reads borrow this
 projection rather than cloning all imported callable maps. These caches contain
 checked facts and never executable state.
 
+Namespace reachability is another shared preparation product. The immutable
+`NamespaceCatalog` memoizes a complete foreign-source set for an exact
+`Arc<NameTable>` allocation; weak keys prevent address reuse without retaining
+name-table contents. Type, callable, static and constant projections borrow that
+same set, while each consumer still validates the complete source unit before
+reading facts. A catalog clone starts empty, and changed source/catalog/name-table
+identities cannot inherit old scoped references. Traversal runs outside the memo
+lock, and cancellation checks precede both hit returns and complete publication.
+
+This memo is bounded across all importers in one catalog: at most 1,024 scope
+keys, 65,536 actual hash-set capacity slots and a conservative 16 MiB requested
+storage charge including spare buckets and weak-key metadata. Source references
+contain only fixed identity/slot fields, with no hidden strings or vectors. An
+over-budget computation returns its complete uncached result; no source set is
+truncated. Completed body environments retire these memos, so retained selected
+snapshots keep their checked environments without dense historical reachability
+copies. Header-only snapshots may retain the bounded memo for their own lifetime.
+This bounds requested memo storage, not allocator RSS.
+
 Internal traversal can still return temporary values while stopping. In
 [block lowering](../../crates/kagari-hir/src/lower/stmt.rs), cancellation stops the
 statement loop; the optional tail is lowered afterward, the partial block is
