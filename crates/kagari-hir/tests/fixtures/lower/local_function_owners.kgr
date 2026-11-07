@@ -1,0 +1,24 @@
+fn outer<T>(x: T) -> i32 {
+    fn first<U>(x: U) -> U {
+        x
+    }
+    {
+        fn first() -> i32 {
+            1
+        }
+    }
+    fn last() -> i32 {
+        42
+    }
+    last()
+}
+
+struct S {}
+
+impl S {
+    fn method(self) {
+        fn child() {}
+    }
+}
+
+fn after() {}

@@ -203,7 +203,11 @@ fn measure(
 }
 
 fn main() {
-    let args = env::args().skip(1).collect::<Vec<_>>();
+    // Cargo appends --bench even when the built-in benchmark harness is disabled.
+    let args = env::args()
+        .skip(1)
+        .filter(|arg| arg != "--bench")
+        .collect::<Vec<_>>();
     assert!(
         args.iter().all(|arg| matches!(
             arg.as_str(),

@@ -12,25 +12,9 @@ use kagari_source::source::SourceFile;
 
 #[test]
 fn outer_attributes_preserve_nested_arguments_trivia_and_item_dispatch() {
-    let text = r#"/// Tagged module.
-#[tool::syntax("text with ) and ]", tags = [[1, true], sample::tag],)]
-# /* between delimiters */ [meta]
-pub mod model {
-    #[meta] pub struct Item { #[meta(readable = true)] val value: i32 }
-    #[meta] pub enum State { Ready }
-    #[meta] pub trait Inspect {
-        #[meta] type Output;
-        #[meta] const DEFAULT: i32;
-        #[meta] fn read(self) -> Self::Output;
-    }
-    #[meta] impl Inspect for Item {
-        #[meta] type Output = i32;
-        #[meta] const DEFAULT: i32 = 7;
-        #[meta] fn read(self) -> i32 { self.value }
-    }
-    #[meta] pub(super) fn make() -> i32 { 42 }
-}
-"#;
+    let text = include_str!(
+        "../../tests/fixtures/attributes/outer_attributes_nested_arguments_trivia_and_item_dispatch.kgr"
+    );
     let source = SourceFile::new("attributes.kgr", text);
     let parsed = parse(&source, ParseOptions::default(), &Default::default())
         .expect("fresh cancellation token");

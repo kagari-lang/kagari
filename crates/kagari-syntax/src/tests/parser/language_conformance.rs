@@ -7,91 +7,32 @@ use crate::tests::common;
 #[case::modules_and_imports(
     "docs/spec/syntax.md#modules-and-imports",
     "inline modules, public imports, aliases, and glob imports",
-    r#"
-pub mod gameplay {
-    pub use crate::math::{Vector as Vec2, ops::*};
-    pub const TICK_RATE: i32 = 60;
-}
-"#
+    include_str!("../../../tests/fixtures/parser/conformance/modules_and_imports.kgr")
 )]
 #[case::generic_functions(
     "docs/spec/syntax.md#functions",
     "generic functions with parameter bounds and where clauses",
-    r#"
-fn identity<T: Clone>(value: T) -> T
-where T: Clone
-{
-    value
-}
-"#
+    include_str!("../../../tests/fixtures/parser/conformance/generic_functions.kgr")
 )]
 #[case::structs_and_enums(
     "docs/spec/syntax.md#structs-and-enums",
     "val and var fields plus enum tuple payloads",
-    r#"
-pub struct Player<T> {
-    val id: T,
-    pub var name: String,
-}
-
-enum Maybe<T> {
-    None,
-    Some(T),
-}
-"#
+    include_str!("../../../tests/fixtures/parser/conformance/structs_and_enums.kgr")
 )]
 #[case::traits_and_impls(
     "docs/spec/traits.md#trait-declarations",
     "trait declarations and trait impl blocks",
-    r#"
-trait Display {
-    fn show(self) -> String;
-}
-
-struct Player {
-    val name: String,
-}
-
-impl Display for Player {
-    pub fn show(self) -> String {
-        self.name
-    }
-}
-"#
+    include_str!("../../../tests/fixtures/parser/conformance/traits_and_impls.kgr")
 )]
 #[case::blocks_and_statements(
     "docs/spec/syntax.md#blocks-and-statements",
     "val and var bindings, assignment, while, loop, break, and tail if",
-    r#"
-fn main() -> i32 {
-    var total = 0;
-    while total < 3 {
-        total = total + 1;
-    }
-    loop {
-        break;
-    }
-    if total == 3 { total } else { 0 }
-}
-"#
+    include_str!("../../../tests/fixtures/parser/conformance/blocks_and_statements.kgr")
 )]
 #[case::patterns_and_collections(
     "docs/spec/syntax.md#patterns",
     "tuple patterns, wildcard patterns, arrays, structs, fields, and indexes",
-    r#"
-struct Point {
-    val x: i32,
-    val y: i32,
-}
-
-fn main() -> i32 {
-    val point = Point { x: 1, y: 2 };
-    val pair = (point.x, [1, 2][0]);
-    match pair {
-        (_, value) => value,
-    }
-}
-"#
+    include_str!("../../../tests/fixtures/parser/conformance/patterns_and_collections.kgr")
 )]
 fn syntax_spec_positive_cases(
     #[case] spec_section: &str,

@@ -1,0 +1,14 @@
+fn main() -> i32 {
+    var total = 0;
+    while total < 3 {
+        total = total + 1;
+    }
+    loop {
+        break;
+    }
+    if total == 3 {
+        total
+    } else {
+        0
+    }
+}

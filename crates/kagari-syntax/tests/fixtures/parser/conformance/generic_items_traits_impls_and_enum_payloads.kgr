@@ -1,0 +1,23 @@
+pub struct PlayerInfo<T> {
+    val id: T,
+    pub var title: String,
+}
+
+enum Maybe<T> {
+    None,
+    Some(T),
+}
+
+trait Display {
+    fn to_string(self) -> String;
+}
+
+impl<T> Display for PlayerInfo<T> where T: Display + Clone {
+    pub fn to_string(self) -> String {
+        self.title
+    }
+}
+
+fn identity<T: Clone>(value: T) -> T where T: Display + Clone {
+    value
+}

@@ -1,0 +1,73 @@
+trait Factory {
+    fn make() -> Self;
+}
+
+struct Player {
+    val health: i32
+}
+
+impl Factory for Player {
+    fn make() -> Self {
+        Player { health: 100 }
+    }
+}
+
+use self::Factory as Maker;
+
+use self::Factory as Default;
+
+struct Holder {
+    val player: Player
+}
+
+fn consume(player: Player) {}
+
+fn contextual() -> Player {
+    Factory::make()
+}
+
+fn concrete() -> Player {
+    Player::make()
+}
+
+fn qualified() -> Player {
+    <Player as Factory>::make()
+}
+
+fn generic<T: Factory>() -> T {
+    Factory::make()
+}
+
+fn generic_owner<T: Factory>() -> T {
+    T::make()
+}
+
+fn alias() -> Player {
+    Maker::make()
+}
+
+fn shadowed_prelude() -> Player {
+    Default::make()
+}
+
+fn value_shadow(Factory: i32) -> Player {
+    Factory::make()
+}
+
+fn local_shadow() -> Player {
+    val Factory = 42;
+    Factory::make()
+}
+
+fn returned() -> Player {
+    return Factory::make();
+}
+
+fn boundaries() {
+    var player: Player = Factory::make();
+    player = Factory::make();
+    consume(Factory::make());
+    val holder = Holder { player: Factory::make() };
+    val delayed = Factory::make();
+    consume(delayed);
+}

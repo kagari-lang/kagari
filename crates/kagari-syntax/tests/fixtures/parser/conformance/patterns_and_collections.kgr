@@ -1,0 +1,12 @@
+struct Point {
+    val x: i32,
+    val y: i32,
+}
+
+fn main() -> i32 {
+    val point = Point { x: 1, y: 2 };
+    val pair = (point.x, [1, 2][0]);
+    match pair {
+        (_, value) => value,
+    }
+}

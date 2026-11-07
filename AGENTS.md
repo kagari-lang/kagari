@@ -212,6 +212,29 @@ it.
   cancellation, reload and process/platform contracts. Record sampled-out combinations;
   sampling is not zero-loss coverage. Counts/coverage percentages are not targets.
 
+### Test source and fixture layout
+
+Follow [testing.md](docs/testing.md#classify-the-contract-before-choosing-a-format).
+
+- Put complete fixed Kagari test programs in `.kgr` fixtures under the owning crate's
+  `tests/fixtures/`, not large Rust literals or `format!` templates. Keep Rust setup,
+  operations and assertions at their semantic owner. Custom AST/HIR, type, identity
+  or lifecycle assertions are not a reason to embed the entire program in Rust.
+- Keep inline source only for concrete needs: byte/escape-sensitive witnesses,
+  generated scales or compact fragments tied directly to Rust tables/assertions.
+  Use existing `include_str!` or named/file-driven `rstest` patterns; do not invent
+  a fixture template language, universal runner or additional test binary.
+- Format ordinary fixtures with `kg fmt` and verify with `kg fmt --check`: normal
+  indentation, no incidental outer blank lines, and one final newline. Preserve
+  authored bytes for deliberate trivia/CRLF, malformed recovery, golden and
+  diagnostic-range contracts; never weaken assertions or blindly regenerate
+  expectations to make formatting pass. Load fixtures as-is.
+- Inherit `.kgr` LF policy from root `.gitattributes`; do not repeat it per directory.
+  Local rules are for other formats or narrow, justified exceptions. Raw-byte fixtures
+  may need an exact-path `-text` override; existing CRLF alone does not justify one.
+- Keep structural, typed-fact and lifecycle assertions explicit in Rust; successful
+  analysis or matching diagnostics alone cannot establish those contracts.
+
 ### Validation and execution
 
 - Locally run a small affected contract set plus directly impacted regressions, using

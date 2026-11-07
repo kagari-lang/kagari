@@ -51,37 +51,9 @@ fn apply(effect: effects::SkillEffect) -> crate::Result {
 
 #[test]
 fn parses_generic_items_traits_impls_and_enum_payloads() {
-    let module = common::parse_ok(
-        r#"
-pub struct PlayerInfo<T> {
-    val id: T,
-    pub var title: String,
-}
-
-enum Maybe<T> {
-    None,
-    Some(T),
-}
-
-trait Display {
-    fn to_string(self) -> String;
-}
-
-impl<T> Display for PlayerInfo<T>
-where T: Display + Clone
-{
-    pub fn to_string(self) -> String {
-        self.title
-    }
-}
-
-fn identity<T: Clone>(value: T) -> T
-where T: Display + Clone
-{
-    value
-}
-"#,
-    );
+    let module = common::parse_ok(include_str!(
+        "../../../tests/fixtures/parser/conformance/generic_items_traits_impls_and_enum_payloads.kgr"
+    ));
 
     let items = module.items().collect::<Vec<_>>();
     assert_eq!(items.len(), 5);

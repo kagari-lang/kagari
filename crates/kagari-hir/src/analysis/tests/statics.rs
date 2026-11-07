@@ -45,25 +45,7 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 
 #[test]
 fn runtime_static_initializers_have_distinct_owners_and_ordinary_inference() {
-    let text = r#"
-        const LIMIT: i32 = 3;
-        static var count: i32 = later + seed();
-        static val later: i32 = LIMIT;
-        static val object: Box<i32> = Box { value: identity(7) };
-        static val values: [i32] = { var xs = []; xs = [1]; xs };
-        struct Box<T> { var value: T }
-        fn identity<T>(value: T) -> T { value }
-        fn seed() -> i32 { 2 }
-        fn run() -> i32 {
-            count += 1;
-            object.value = 9;
-            values[0] = 2;
-            val read = || count;
-            val snapshot = count;
-            val capture = || snapshot;
-            read() + capture()
-        }
-    "#;
+    let text = include_str!("../../../tests/fixtures/analysis/statics/runtime_initializers.kgr");
     let result = analyze(text);
     assert!(
         result.diagnostics().is_empty(),
@@ -125,16 +107,9 @@ fn runtime_static_initializers_have_distinct_owners_and_ordinary_inference() {
 
 #[test]
 fn static_cycles_and_runtime_traps_are_checked_without_const_evaluation() {
-    let result = analyze(
-        r#"
-        static val first: i32 = second;
-        static val second: i32 = first;
-        static val self_cycle: i32 = self_cycle;
-        static val trapped: i32 = 1 / 0;
-        static val call_cycle: i32 = read();
-        fn read() -> i32 { call_cycle }
-    "#,
-    );
+    let result = analyze(include_str!(
+        "../../../tests/fixtures/analysis/statics/cycles_and_runtime_traps.kgr"
+    ));
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",

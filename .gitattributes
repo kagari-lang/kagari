@@ -1,0 +1,2 @@
+# Keep Kagari source bytes consistent across platforms.
+*.kgr text eol=lf

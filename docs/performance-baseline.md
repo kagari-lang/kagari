@@ -21,6 +21,178 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## Persistent HIR baseline, Windows 2026-11-07
+
+Use the [frontend benchmark guide](frontend-benchmarks.md) for current AST same-lock
+comparisons and HIR timing/allocation campaigns. AST comparisons no longer apply
+Rowan migration budgets. This is a **candidate-only characterization**, not a
+before/after speedup or a comparison with the older macOS experiment below.
+Production analysis algorithms were unchanged.
+
+This Windows baseline was recorded **before** the harness relocation from
+`examples/` to `benches/`. The measurements, hashes and example-target identity below
+remain historical, not newly measured bench-target results. Changed harness paths,
+tooling and target fingerprints invalidate the old HIR runner archives for current
+comparisons. Regenerate a baseline only during the next performance campaign; the
+relocation needs neither a compatibility reader nor a full rerun.
+
+### Environment and reproduction
+
+- Intel Core i9-12900K, 16 physical / 24 logical CPUs; Windows 11 Professional
+  10.0.26300, x86_64-pc-windows-msvc.
+- Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`). Workspace
+  release profile: optimization level 3, no debug info/assertions; HIR example
+  features empty, dependencies resolved by the unchanged lockfile. Default Cargo
+  parallelism/target; serial, single-threaded measurement processes.
+- Base revision `3c8dedffbdd09fa838919045882e370dd0c46e35` plus the persistent
+  benchmark patch. Source SHA-256:
+  `dfadc9057627d2ff4166607a1e9e576ec7b68579699ae83371209497e2ad825c`.
+  Harness SHA-256:
+  `62cfe4408835546faed68567c8e3069136329dedb7dbfc5548567d4e542abdba`.
+  Runner/tooling SHA-256:
+  `621acf800fa94d6019d9614b21894053abdba316766b4265baa2979f3254884b`.
+  Lock SHA-256:
+  `b7e97eeadc9e6d58b129b207206e0f1e1d984984802804a56b7cf742fdfa98cd`.
+- Each timing process discarded one complete suite warmup and then measured one
+  suite using fresh databases per route. Catalog initialization was separate;
+  provider analysis remained inside queries. Memory processes had no warmup and
+  used a separate allocator-instrumented executable. OS caches were uncontrolled,
+  with no affinity/frequency control. Builds and tests did not overlap measurement;
+  background OS activity was not controlled.
+
+Recorded commands (runner CLI unchanged; the current runner builds bench targets):
+
+```text
+uv run python scripts/benchmark_hir.py --check --output target/hir-check-validated
+uv run python scripts/benchmark_hir.py --output target/hir-baseline-current
+```
+
+The campaign's warm Cargo build took 2.072 s, excluded from all query samples.
+Seven independent samples were collected for each of seven timing cases and three
+size-96 memory cases. The outer command's 1,200 s limit interrupted the campaign
+**after all 49 timing samples and 19 of 21 memory samples**. The two remaining
+memory-only processes (generic and dependency, sample seven) were run separately
+from the same archived image. Completion first verified all retained raw/sample
+pairs, manifests, image hashes, source fingerprints and environment; it then
+repeated whole-run validation and archive loading. No timing sample was resumed,
+replaced or synthesized. The archive records the interruption. Allow more than
+20 minutes for an uninterrupted campaign on this machine; a partial archive alone
+is not an accepted baseline, and the runner has no general resume mode.
+
+Source bytes for plain 24/96/384 were 3,137 / 12,497 / 50,221; generic bytes were
+3,757 / 14,485 / 57,681. Dependency/96 used 7,578 bytes across five user modules.
+All routes included 38 standard-provider modules with 594 provider functions;
+user function counts were size + 1 (plain/dependency) or size + 4 (generic).
+The source recipes, edits and hash framing are owned by
+[`workloads.rs`](../crates/kagari-hir/benches/hir_baseline/workloads.rs).
+
+### Query measurements
+
+All times below are **milliseconds, median ± MAD**, each from seven processes.
+Cold means a fresh analysis database, not cold OS caches. Snapshot numbers exclude
+provider installation and destruction; program checks follow a direct snapshot.
+Staged numbers depend on earlier preparation in the same route and must not be
+subtracted from independent direct measurements.
+
+| Workload / functions | Direct cold snapshot | Unchanged snapshot |
+| --- | ---: | ---: |
+| Plain / 24 | 539.18 ± 4.27 | 139.03 ± 1.30 |
+| Plain / 96 | 1,512.58 ± 11.63 | 139.87 ± 1.92 |
+| Plain / 384 | 5,920.72 ± 57.96 | 139.39 ± 1.84 |
+| Generic / 24 | 539.17 ± 7.70 | 138.91 ± 3.91 |
+| Generic / 96 | 1,548.77 ± 26.29 | 140.99 ± 2.99 |
+| Generic / 384 | 6,051.63 ± 64.46 | 139.07 ± 1.37 |
+| Dependency / 96 | 650.14 ± 15.31 | 155.74 ± 1.97 |
+
+| Size-96 workload | Declarations | Signatures after declarations | Snapshot after signatures | Direct-route program check |
+| --- | ---: | ---: | ---: | ---: |
+| Plain | 23.74 ± 0.35 | 84.84 ± 1.37 | 1,498.02 ± 14.27 | 18.67 ± 0.43 |
+| Generic | 23.97 ± 0.23 | 84.74 ± 0.29 | 1,533.98 ± 13.91 | 19.43 ± 0.29 |
+| Dependency | 24.76 ± 0.71 | 96.64 ± 2.47 | 623.71 ± 6.98 | 19.79 ± 0.36 |
+
+| Edited/selected query | Median ± MAD | Observed min–max |
+| --- | ---: | ---: |
+| Plain/96 body-edited snapshot | 155.80 ± 0.49 | 155.31–160.80 |
+| Dependency body-edited snapshot | 591.36 ± 8.97 | 564.36–600.33 |
+| Dependency signature-edited snapshot | 571.79 ± 7.21 | 562.31–594.85 |
+| Dependency selected body after declarations | 140.30 ± 5.79 | 133.05–155.40 |
+| Dependency unchanged selected body | 130.58 ± 4.24 | 125.44–136.32 |
+| Dependency signature-edited selected body | 132.91 ± 1.41 | 131.50–138.72 |
+
+The unchanged selected query retained the same result `Arc` in all seven samples;
+its reported one checked / zero reused bodies describe the **original result's
+construction**, not another body check. Signature edits returned distinct results,
+changed both consumers' inferred type from `i32` to `i64`, and preserved the old
+snapshot's `i32`. Body edits additionally asserted old/new lowered literal and
+checked scalar facts, not just changed source metadata.
+
+Cached body facts do not eliminate query preparation. Current `snapshot` and `body`
+prepare declarations/signatures and body environments before deciding whether
+retained file/body facts are compatible. See the
+[query ownership contract](architecture/hir.md#query-work-reuse-and-publication),
+[`prepare_signatures`](../crates/kagari-hir/src/analysis/signatures.rs), and the
+[selected query](../crates/kagari-hir/src/analysis/body.rs). For example, an unchanged
+`consumer_a::f0` can rebuild surrounding environments and then return the old `Arc`.
+This explains why sharing and measurable warm latency can coexist; **which step
+accounts for most of that latency remains unprofiled**. Do not infer isolated
+checker cost by subtracting these independent medians. Optimization is outside
+this infrastructure change.
+
+### Snapshot lifetime and allocation measurements
+
+Lifecycle timing sums nine measured operation blocks, excluding validation; it is
+**not contiguous elapsed time**. All explicit checked-program/snapshot aliases are
+released at the indicated boundary, followed by the analysis database.
+
+| Size-96 workload | Measured block sum | Drop old aliases | Drop new aliases | Drop database |
+| --- | ---: | ---: | ---: | ---: |
+| Plain | 1,754.94 ± 39.34 | 3.26 ± 0.21 | 3.06 ± 0.38 | 12.11 ± 2.68 |
+| Generic | 1,768.44 ± 17.93 | 4.48 ± 0.25 | 4.83 ± 0.48 | 11.91 ± 0.47 |
+| Dependency | 1,266.90 ± 20.45 | 3.67 ± 0.15 | 3.19 ± 0.17 | 10.18 ± 0.61 |
+
+The following table reports **median requested allocator bytes**, not RSS. Except
+for baseline live bytes, byte rows are within-process deltas from the baseline
+checkpoint. Reallocation contributes a successful request and an old-layout free.
+Peak tracks logical live bytes, not allocator-internal realloc overlap.
+
+| Size-96 lifecycle observation | Plain | Generic | Dependency |
+| --- | ---: | ---: | ---: |
+| Baseline live bytes (absolute) | 5,876,798 | 5,887,756 | 5,845,555 |
+| Old snapshot/program live delta | 67,977,159 | 68,963,885 | 71,522,925 |
+| Both snapshots/programs live delta | 98,027,228 | 99,992,936 | 103,647,919 |
+| After old aliases released | 69,657,539 | 70,648,886 | 72,934,731 |
+| After new aliases released | 45,981,657 | 46,886,988 | 47,744,219 |
+| After database released | 14,519 | 16,507 | 2,050 |
+| Peak live delta | 98,964,366 | 100,934,922 | 103,649,379 |
+| Cumulative requested-byte delta | 6,638,135,485 | 6,690,986,163 | 4,555,595,246 |
+| Successful request-count delta | 34,662,396 | 35,126,259 | 24,374,646 |
+
+For both-snapshot live deltas, MAD was 2,064 / 32,992 / 4,496 bytes respectively;
+final live deltas were identical across each family's seven samples. Source backing,
+shared catalog and process facilities remain alive at the final checkpoint: the
+nonzero residual is not a leak assertion. Database-owned facts explain why caller
+release is not complete reclamation. Cumulative allocation is churn across the
+whole instrumented lifecycle, not simultaneously retained memory or speed evidence.
+
+### Validity and limits
+
+All 70 samples passed manifest, semantic, timing and allocation-accounting checks.
+Summary output flagged 26 of 220 timing metrics with MAD above 10% of their median,
+mostly installation, lookup, source-edit and destruction blocks; plain database/new
+alias destruction and generic lifecycle program-check noise also remain visible.
+The large generic cold snapshot ranged from 5,965.08 to 6,895.65 ms despite its
+smaller MAD. These samples are descriptive, not significance or regression-budget
+claims. Raw vectors/ranges remain in the local archive; this section retains the
+method, representative results and limitations independently of ignored files.
+
+A separate same-implementation plain/24 pilot exercised one-sample baseline
+archival, two fresh AB/BA pairs for timing and memory, and saved-only comparison.
+Both comparison paths passed validation; low sample counts were correctly flagged,
+and saved-only output was explicitly unpaired. This is tooling validation, **not
+speedup evidence**. Workspace Clippy, focused HIR cache/snapshot contracts and
+benchmark correctness checks are separate from performance measurement; complete
+workspace tests and other platform/backend matrices remain CI scope.
+
 ## HIR architecture and candidate filtering, macOS 2026-11-06
 
 ### Ownership change and workload
@@ -478,7 +650,7 @@ only supplied an immutable image/metadata; its timing is not acceptance evidence
 
 ### Existing traversal APIs
 
-The [traversal probe](../crates/kagari-hir/examples/ast_baseline/traversal.rs)
+The [traversal probe](../crates/kagari-hir/benches/ast_baseline/traversal.rs)
 compares physical `NodeRef::descendants()` with `NodeRef::visit()`, and logical
 `ModuleSyntax::descendants()` with `visit_owned()`. The logical pair excludes
 independently owned child-module bodies; do not compare it against the physical
@@ -542,8 +714,9 @@ must establish the end-to-end benefit before adoption; no new cache is proposed.
 
 Traversal image SHA-256:
 `d72dc8b555d4f5554614a7b55f46732cd3b1ee76d54b3911715470c5b9ca7949`.
-Reproduce with workspace release `cargo build --release -p kagari-hir --example
-ast_baseline`, then run `target/release/examples/ast_baseline --traversal` in seven
+Historical reproduction: build with workspace release
+`cargo build --release -p kagari-hir --example ast_baseline`, then run
+`target/release/examples/ast_baseline --traversal` in seven
 separate sequential processes. Use the median of each mode's eleven samples,
 then report medians/ranges across processes and paired within-process ratios.
 The short-list experiment uses the unchanged runner with a frozen baseline image
@@ -734,8 +907,8 @@ The machine/toolchain, workspace release profile, default features/parallelism,
 single measurement thread and warm-source methodology are the Windows environment
 above. Seven fresh alternating executable pairs use the existing eight workload
 recipes, three warmups and eleven samples; compilation/tests do not overlap timing.
-Allocation counting is separate. Reproduction: freeze the baseline release example,
-build the candidate with `cargo build --offline --locked --release -p kagari-hir
+Allocation counting is separate. Historical reproduction: freeze the baseline
+release example, build the candidate with `cargo build --offline --locked --release -p kagari-hir
 --example ast_baseline`, then run both executables without arguments in alternating
 order seven times and with `--memory` separately. Validate workload identity and
 correctness using `scripts/benchmark_ast.py`; aggregate process medians and paired
@@ -885,10 +1058,12 @@ The only resolved dependency changes are orphan removal of `countme 3.0.1`, `has
 
 ### Workloads and timing scopes
 
-[Driver](../crates/kagari-hir/examples/ast_baseline/main.rs),
-[recipes](../crates/kagari-hir/examples/ast_baseline/workloads.rs),
-[allocator probe](../crates/kagari-hir/examples/ast_baseline/allocation.rs) and
-[runner](../scripts/benchmark_ast.py) own the reproducible method. Hashes below
+[Driver](../crates/kagari-hir/benches/ast_baseline/main.rs),
+[recipes](../crates/kagari-hir/benches/ast_baseline/workloads.rs),
+[allocator probe](../crates/kagari-hir/benches/ast_baseline/allocation.rs) and
+[runner](../scripts/benchmark_ast.py) locate the current implementation; the
+historical method uses their frozen revisions as explained in
+[reproduction and acceptance limits](#reproduction-and-acceptance-limits). Hashes below
 use length-delimited BLAKE3 over source bytes. Corpus fixtures normalize CRLF to
 LF. File/source/line-index setup, input loading, compilation and correctness
 walks are excluded. Every process checks input hashes, lexical counts, diagnostics,
@@ -1011,39 +1186,47 @@ interned graph. It does not infer the proportion of CPU time saved by each chang
 
 ### Reproduction and acceptance limits
 
-Preserve the original control image/metadata and source corpus before replacing
-production code. To reproduce the corrected comparison, use an isolated checkout
-of `e1b38ebb`, apply only the field calibration above, and build its release
-`ast_baseline` example. Prepare its frozen image/metadata with the runner, retaining
-that checkout because the corpus root is compiled into the image. Build the
-integrated checkout with the same toolchain/configuration and run:
+This is a historical Rowan-to-owned-AST migration result, not an instruction to
+run the current benchmark against a Rowan checkout. The migration-specific runner
+and validation policy are frozen in Git at `3c8dedff`:
 
 ```text
-cargo build --release -p kagari-hir --example ast_baseline
-target/release/examples/ast_baseline --check
-target/release/examples/ast_baseline --memory
-uv run python scripts/benchmark_ast.py --baseline-executable <recalibrated-control-image>
+git show 3c8dedff:scripts/benchmark_ast.py
+git show 3c8dedff:scripts/tests/test_ast_benchmark.py
 ```
 
-The runner archives images, exact lockfiles, harness/input hashes, raw samples,
-process ranges, paired ratios and allocation deltas. Its fail-closed tests reject
-missing/nonfinite evidence, changed inputs, invalid memory accounting, unresolved
-required noise and failed budgets. Near-threshold results require a second
-independent complete paired report with identical images. Ignored raw archives
-are supplemental; the method and accepted results are recorded here.
+That revision is a reference for the old tooling, not a replacement for the measured
+candidate/control revisions and image hashes above. Reconstructing the experiment
+requires isolated historical checkouts: production control `e1b38ebb` with only
+the documented field calibration, the recorded candidate and matching calibrated
+harness, and the original toolchain/configuration. Preserve the images, exact
+lockfiles, metadata and source corpus; keep the control checkout because its corpus
+root is compiled into the executable. Do not apply current production code or the
+current neutral runner to recreate the historical acceptance decision.
 
-Focused local acceptance covers explicit missing/list/skipped/trivia roles, both
-offset widths, cancellation/depth limits, lowering/source sites, physical inline
+The frozen tooling allowed the documented Rowan/orphan dependency removals,
+archived images, lockfiles, harness/input hashes and raw samples, and evaluated
+migration timing/noise and retained-memory budgets. Near-threshold results required
+a second independent complete paired report with identical images. Those rules
+explain the historical acceptance tables above; they are not current performance
+policy. The [current frontend guide](frontend-benchmarks.md#ast-neutral-same-lock-comparisons)
+describes same-lock comparisons with no Rowan exception, confirmation mode or
+performance acceptance thresholds. Ignored archives remain supplemental to the
+method and results recorded here.
+
+At the recorded measurement checkpoint, focused local acceptance covered explicit
+missing/list/skipped/trivia roles, both offset widths, cancellation/depth limits,
+lowering/source sites, physical inline
 parse/projection ownership, ordinary/native admission, documentation/navigation,
 formatter exact output/token/typed-shape preservation, lint policy and package
 external/inline visibility. Structure, fmt, workspace all-target Clippy with
-warnings denied, diff checks and benchmark-tool tests pass. The analysis-navigation
+warnings denied, diff checks and benchmark-tool tests passed. The analysis-navigation
 checks exercise HIR's actual implementation; an analyzer name filter selecting
 zero tests is not evidence.
 
-Complete acceptance in CI remains outstanding: workspace tests, ignored complete
-formatter grammar inventory, complete editor/syntax inventories, standalone SDK
-feature/source-free consumers, JIT/AOT and Windows/platform contracts. The existing
+At that checkpoint, complete acceptance in CI remained outstanding: workspace tests,
+ignored complete formatter grammar inventory, complete editor/syntax inventories,
+standalone SDK feature/source-free consumers, JIT/AOT and Windows/platform contracts. The existing
 [CI workflow](../.github/workflows/ci.yml) owns those jobs. Local results do not
 assert that CI passed or that other machines/features have the same performance.
 

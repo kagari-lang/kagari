@@ -3,16 +3,8 @@ use crate::{analyze_source, hir::expr::ExprKind, typeck::table::CallTarget};
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 use kagari_stdlib::catalog as foundation_catalog;
 
-const FACTORIES: &str = r#"
-trait Factory { fn make() -> Self; }
-struct Player {}
-impl Factory for Player { fn make() -> Self { Player {} } }
-struct Pair<T> { val value: T, val flag: bool }
-impl<T: Factory> Factory for Pair<T> {
-    fn make() -> Self { Pair { value: T::make(), flag: false } }
-}
-fn take(value: Pair<Player>) {}
-"#;
+const FACTORIES: &str =
+    include_str!("../../../../tests/fixtures/analysis/struct_update/factories.kgr");
 
 #[test]
 fn struct_update_fields_keep_explicit_order_and_omitted_declaration_order() {
@@ -105,20 +97,7 @@ fn struct_update_context_links_fields_bases_and_factory_receivers() {
     }
     let source = SourceFile::new(
         "update-generic.kgr",
-        format!(
-            r#"
-{FACTORIES}
-fn generic<T: Factory>(base: Pair<T>) -> Pair<T> {{ Pair {{ value: Factory::make(), ..base }} }}
-fn numeric(base: Pair<u8>) -> Pair<u8> {{ Pair {{ value: 1, ..base }} }}
-trait Pick {{ type Item; }}
-struct Tag {{}}
-impl Pick for Tag {{ type Item = i32; }}
-struct Cell<T> {{ val value: T }}
-impl Factory for Cell<i32> {{ fn make() -> Self {{ Cell {{ value: 42 }} }} }}
-fn projected(base: Cell<i32>) -> Cell<i32> {{ Cell<<Tag as Pick>::Item> {{ ..base }} }}
-fn projected_factory() -> Cell<i32> {{ Cell<<Tag as Pick>::Item> {{ ..Factory::make() }} }}
-"#
-        ),
+        include_str!("../../../../tests/fixtures/analysis/struct_update/generic_projection.kgr"),
     );
     let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
     assert!(

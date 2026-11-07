@@ -84,6 +84,12 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Check frontend benchmark tooling
+        run: uv run python -m unittest discover -s scripts/tests -p 'test_*benchmark.py'
+
+      - name: Check HIR benchmark evidence
+        run: uv run python scripts/benchmark_hir.py --check
+
       - name: Run tests
         run: cargo test --workspace --no-fail-fast
 

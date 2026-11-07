@@ -78,13 +78,7 @@ fn attributes_preserve_structured_metadata_and_target_ranges() {
 
 #[test]
 fn lowers_items_into_hir_module() {
-    let lowered = common::lower_ok(
-        r#"
-struct Player { val id: i32, var hp: i32 }
-enum Color { Red, Blue }
-fn main(value: i32) -> i32 { value }
-"#,
-    );
+    let lowered = common::lower_ok(include_str!("../../tests/fixtures/lower/items.kgr"));
 
     assert_eq!(lowered.module.items.len(), 3);
     assert!(matches!(lowered.module.items[0], Item::Struct(_)));
@@ -111,25 +105,9 @@ fn main(value: i32) -> i32 { value }
 
 #[test]
 fn lowers_module_trait_and_impl_namespace_items() {
-    let lowered = common::lower_ok(
-        r#"
-mod gameplay;
-
-trait Display {
-    fn show(self) -> String;
-}
-
-struct Player {
-    val name: String,
-}
-
-impl Display for Player {
-    fn show(self) -> String {
-        self.name
-    }
-}
-"#,
-    );
+    let lowered = common::lower_ok(include_str!(
+        "../../tests/fixtures/lower/module_trait_and_impl_namespace.kgr"
+    ));
 
     assert_eq!(lowered.module.modules.len(), 1);
     assert_eq!(lowered.module.modules[0].name, "gameplay");
@@ -247,17 +225,9 @@ fn lowers_function_body_expressions_and_statements() {
         other => panic!("unexpected assign stmt kind: {other:?}"),
     }
 
-    let nested = common::lower_ok(
-        r#"
-struct Point { var x: i32 }
-struct Holder { var inner: Point }
-
-fn main() {
-    var holder = Holder { inner: Point { x: 1 } };
-    holder.inner.x = 2;
-}
-"#,
-    );
+    let nested = common::lower_ok(include_str!(
+        "../../tests/fixtures/lower/nested_field_assignment.kgr"
+    ));
     let block = nested
         .module
         .block(nested.module.functions[0].body.unwrap());
@@ -348,19 +318,9 @@ fn inline_ast_lowering_owns_only_its_items_and_attributes() {
 
 #[test]
 fn local_function_rows_preserve_owners_and_module_membership() {
-    let lowered = common::lower_ok(
-        r#"
-fn outer<T>(x: T) -> i32 {
-    fn first<U>(x: U) -> U { x }
-    { fn first() -> i32 { 1 } }
-    fn last() -> i32 { 42 }
-    last()
-}
-struct S {}
-impl S { fn method(self) { fn child() {} } }
-fn after() {}
-"#,
-    );
+    let lowered = common::lower_ok(include_str!(
+        "../../tests/fixtures/lower/local_function_owners.kgr"
+    ));
     let functions = &lowered.module.functions;
     assert_eq!(
         functions

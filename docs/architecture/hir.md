@@ -723,6 +723,12 @@ entering it does not create another import directive. See
 
 ## Query work, reuse and publication
 
+The [frontend benchmark guide](../frontend-benchmarks.md#hir-workloads-and-query-routes)
+measures these entry points through independent staged, direct, warm, edited and
+selected-body routes, plus snapshot retention/release. It owns commands and
+measurement caveats; [recorded results](../performance-baseline.md) are
+revision-specific evidence, not additional query or reuse guarantees.
+
 [AnalysisDatabase](../../crates/kagari-hir/src/analysis.rs) owns mutable caches;
 returned snapshots retain immutable source and facts through `Arc`. These are the
 actual entrypoint dependencies, not phases repeated by every position query:

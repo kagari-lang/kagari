@@ -1,0 +1,13 @@
+struct Player {
+    val id: i32,
+    var hp: i32
+}
+
+enum Color {
+    Red,
+    Blue
+}
+
+fn main(value: i32) -> i32 {
+    value
+}

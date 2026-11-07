@@ -1,0 +1,4 @@
+pub mod gameplay {
+    pub use crate::math::{ Vector as Vec2, ops::* };
+    pub const TICK_RATE: i32 = 60;
+}
