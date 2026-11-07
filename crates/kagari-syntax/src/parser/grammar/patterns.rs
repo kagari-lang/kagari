@@ -139,10 +139,9 @@ impl Parser<'_> {
         if !self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
             return first;
         }
-        let mark = self.begin_at(
-            self.first(&first, self.cursor()),
-            first.depth.saturating_sub(1),
-        );
+        let first_token = self.first(&first, self.cursor());
+        let operator_start = self.cursor();
+        let mark = self.begin_at(first_token, first.depth.saturating_sub(1));
         let operation = if self.at(TokenKind::DotDotEq) {
             RangeOp::Inclusive
         } else {
@@ -158,6 +157,9 @@ impl Parser<'_> {
             }
             Required::Missing { at } => Required::Missing { at },
             Required::Present(_) => {
+                // RangePattern.start cannot own a compound pattern or wildcard.
+                // Retain the rejected prefix before the operator in traversal.
+                self.unexpected_range(first_token as usize, operator_start);
                 self.error_here(DiagnosticKind::ExpectedMatchPattern);
                 Required::Missing { at: self.anchor() }
             }
@@ -272,6 +274,7 @@ impl Parser<'_> {
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) && self.continue_parsing() {
             if self.at(TokenKind::DotDot) {
                 if rest.is_some() {
+                    self.position(4, 0); // StructPattern.close owns the rejected suffix.
                     self.error_here(DiagnosticKind::UnexpectedToken);
                     self.bump_as_error();
                     if self.at(TokenKind::Comma) {
@@ -284,7 +287,14 @@ impl Parser<'_> {
                 }
             } else if self.at(TokenKind::Ident) {
                 if rest.is_some() {
+                    self.position(4, 0);
                     self.error_here(DiagnosticKind::UnexpectedToken);
+                    self.rejected(Self::parse_pattern_field);
+                    if self.at(TokenKind::Comma) {
+                        self.bump_as_error();
+                        continue;
+                    }
+                    break;
                 }
                 let field = self.parse_pattern_field();
                 let separator = self.eat(TokenKind::Comma).map(Required::Present);

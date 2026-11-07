@@ -339,12 +339,18 @@ test('grouped/unit/singleton and struct rest patterns precede identifier interpo
 });
 
 test('struct updates stay lexical before identifier interpolation', async () => {
+  const operands = ['base', 'Default::default()', '', 'base,', '=base'];
   for (const newline of ['\n', '\r\n']) {
-    for (const operand of ['base', 'Default::default()', '', 'base,', '=base']) {
-      const text = `fn main() { val point = Point {
+    const fragments = operands.map(operand => `fn main() { val point = Point {
         label: "inner {score}", ..${operand}
-      }; val s = "before {point} tail"; val after = 42; }`.replaceAll('\n', newline);
-      const spans = await tokenize(text);
+      }; val s = "before {point} tail"; val after = 42; }`.replaceAll('\n', newline));
+    const document = fragments.join(newline);
+    const tokens = await tokenize(document);
+    for (const [index, text] of fragments.entries()) {
+      const operand = operands[index];
+      const start = document.indexOf(text);
+      const spans = tokens.filter(span => span.start < start + text.length && span.end > start)
+        .map(span => ({ ...span, start: span.start - start, end: span.end - start }));
       region(text, spans, 'before ', 'string');
       region(text, spans, 'inner ', 'string');
       region(text, spans, 'score', 'code', 'variable.other.kagari');

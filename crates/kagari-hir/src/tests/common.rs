@@ -3,7 +3,7 @@ use crate::{
     aggregates::AggregateCatalog,
     declarations::Declarations,
     hir::ids::BodySelection,
-    lower::{LoweredModule, lower_module},
+    lower::{LoweredModule, lower_module_controlled},
     resolver::resolved::{DeclarationNames, ResolvedNames},
     semantic::body::ModuleFacts,
     typeck::{
@@ -22,8 +22,8 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_source::source::SourceFile;
-
 use kagari_syntax::parser::{ParseOptions, parse};
+use std::sync::Arc;
 
 pub fn lower_ok(text: &str) -> LoweredModule {
     let source = SourceFile::new("test.kg", text);
@@ -34,7 +34,7 @@ pub fn lower_ok(text: &str) -> LoweredModule {
         "{:?}",
         parsed.diagnostics()
     );
-    lower_module(&source)
+    lower_module_controlled(Arc::new(source), &parsed.module(), &Default::default())
 }
 
 pub fn definition(

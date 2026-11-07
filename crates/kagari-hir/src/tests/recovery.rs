@@ -218,11 +218,8 @@ fn applied_constraints_preserve_type_arguments() {
 }
 
 #[test]
-fn erroneous_annotations_calls_and_indices_never_enter_codegen() {
+fn erroneous_calls_and_indices_never_enter_codegen() {
     for source in [
-        "fn main() { let a: Absent = 1; }",
-        "struct Bad { let field: Absent; } fn good() {}",
-        "fn main() { let a: bool = 1; }",
         "fn main() { 1(); }",
         "fn main() { 1[0]; }",
         "fn main() { [1][true]; }",

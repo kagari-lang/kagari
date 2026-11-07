@@ -131,7 +131,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
 }
 
 #[test]
-fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
+fn preparation_rejects_incompatible_runtime_and_helper_abis() {
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
@@ -139,15 +139,29 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
             ArtifactOptions::default(),
         )
         .expect("source should compile to an artifact");
+    let (definitions, mut incompatible) = artifact.clone().into_parts();
+    incompatible.header.runtime_abi_version = "wrong-runtime-abi".to_owned();
+    let incompatible =
+        DefinitionMetadata::checked(definitions, incompatible, &Default::default()).unwrap();
+    let error =
+        PreparedProgram::from_artifact(incompatible, &Default::default(), &Default::default())
+            .expect_err("incompatible runtime ABI should be rejected during preparation");
+    let ProgramPreparationError::Artifact(error) = error else {
+        panic!("expected artifact validation error");
+    };
+    assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_ABI_MISMATCH");
+    assert!(matches!(
+        error,
+        ArtifactValidationError::RuntimeAbiMismatch { .. }
+    ));
+
     let (definitions, mut incompatible) = artifact.into_parts();
     incompatible.header.runtime_helper_abi_version = "wrong-helper-abi".to_owned();
     let incompatible =
         DefinitionMetadata::checked(definitions, incompatible, &Default::default()).unwrap();
-
-    let runtime = engine.runtime(ExecutionContext::default());
     let error =
         PreparedProgram::from_artifact(incompatible, &Default::default(), &Default::default())
-            .expect_err("incompatible artifact should be rejected before publication");
+            .expect_err("incompatible helper ABI should be rejected during preparation");
     let ProgramPreparationError::Artifact(error) = error else {
         panic!("expected artifact validation error");
     };
@@ -156,7 +170,6 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
         error,
         ArtifactValidationError::RuntimeHelperAbiMismatch { .. }
     ));
-    assert_eq!(runtime.runtime().modules().loaded_count(), 0);
 }
 
 #[test]

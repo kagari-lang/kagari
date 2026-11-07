@@ -200,6 +200,9 @@ impl<'a> Parser<'a> {
         assert_eq!(mark.frame + 1, self.frames.len());
         self.frames.pop();
         self.stopped = Some(self.stopped.map_or(suffix, |first| first.min(suffix)));
+        // Discarded reads belong exclusively to the root's unparsed suffix.
+        // Enclosing sites and rejected entries must end at the retained cursor.
+        self.cursor = suffix;
     }
 
     pub(crate) fn position(&mut self, field: u16, entry: usize) {
@@ -249,7 +252,14 @@ impl<'a> Parser<'a> {
         let recoveries = self.recoveries.len();
         drop(parse(self));
         self.recoveries.truncate(recoveries);
-        self.unexpected_range(first, self.cursor);
+        // Parsing advances through trailing trivia, but the rejected entry's
+        // coverage ends at its last written token, just like an ordinary node.
+        // The enclosing traversal owns the following gap, even with no close.
+        let mut end = self.cursor;
+        while end > first && self.lexical.kind(end - 1).is_trivia() {
+            end -= 1;
+        }
+        self.unexpected_range(first, end);
     }
 
     pub(crate) fn finish_remaining_tokens(&mut self) {

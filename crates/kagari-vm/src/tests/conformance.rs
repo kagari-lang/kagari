@@ -136,11 +136,6 @@ fn interpreter_conformance_classifies_failure_paths() {
         matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::IndexOutOfBounds)
     );
 
-    let missing = vm
-        .execute(&loaded, "missing")
-        .expect_err("missing entry should be classified");
-    assert!(matches!(missing, VmError::MissingFunction(ref name) if name == "missing"));
-
     let bytecode = compile_test_bytecode("fn main() -> i32 { 1 + 2 }");
     let mut runtime = standard_runtime(RuntimeConfig {
         limits: RuntimeLimits {

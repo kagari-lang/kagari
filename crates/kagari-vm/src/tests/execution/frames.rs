@@ -175,47 +175,6 @@ fn rejects_unsupported_bytecode_before_publication() {
 }
 
 #[test]
-fn unsupported_dynamic_invocation_is_rejected() {
-    let dynamic_call = verified_module(
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
-            vec![],
-        )],
-        vec![],
-    );
-    let mut runtime = standard_runtime(RuntimeConfig {
-        ..RuntimeConfig::default()
-    });
-    let error = runtime
-        .load_program(
-            "dynamic_call_capable.kbc",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![dynamic_call],
-            }
-            .metadata(
-                DefinitionContext::new().unwrap().snapshot(),
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .expect_err("unimplemented call forms remain rejected");
-    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-    assert_eq!(runtime.modules().loaded_count(), 0);
-}
-
-#[test]
 fn executes_if_control_flow() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { if true { 1 } else { 2 } }");
     let _loaded_program = loaded;

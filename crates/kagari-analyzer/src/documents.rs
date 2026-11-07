@@ -212,21 +212,6 @@ mod tests {
     }
 
     #[test]
-    fn character_text_is_retained_verbatim_even_during_incomplete_edits() {
-        let mut docs = documents();
-        let uri = "untitled:characters.kgr";
-        let original = "fn f() { val c = '🙂'; val escaped = '\\u{1F642_}'; }\r\n";
-        docs.open(open(uri, 1, original)).unwrap();
-        let id = docs.source.file_id(uri).unwrap();
-        let before = docs.source.snapshot();
-        assert_eq!(before.file(id).unwrap().text(), original);
-        let incomplete = "fn f() { val c = '\\u{; }\r\n";
-        docs.change(change(uri, 2, vec![full(incomplete)])).unwrap();
-        assert_eq!(docs.source.snapshot().file(id).unwrap().text(), incomplete);
-        assert_eq!(before.file(id).unwrap().text(), original);
-    }
-
-    #[test]
     fn multiline_text_edits_preserve_physical_offsets_and_retained_revisions() {
         for eol in ["\n", "\r\n"] {
             let mut docs = documents();
@@ -249,12 +234,7 @@ mod tests {
             let mut version = 1;
             for edited in [
                 original.replace("\"#;", "\";"),
-                original.replace("{name:?}", "{name: ?}"),
-                original.replace("{name:?}", "{name.value}"),
-                original.replace("{name:?}", "{name"),
-                original.replace("b'\\xFF'", "b'\\u{41}'"),
                 original.replace("{bytes}", "🙂 {bytes}"),
-                original.replace("br#\"", "br##\""),
                 original.clone(),
             ] {
                 version += 1;

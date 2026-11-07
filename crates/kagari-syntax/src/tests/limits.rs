@@ -1,11 +1,115 @@
+use crate::ast::site::Required;
 use crate::ast::visit::NodeRef;
 
-use crate::parser::{ParseLimits, ParseOptions, parse};
+use crate::parser::{ParseLimits, ParseMode, ParseOptions, parse};
+use crate::tests::common;
 
 use {
     kagari_common::cancellation::CancellationToken,
     kagari_source::{diagnostic::DiagnosticKind, source::SourceFile},
 };
+
+#[test]
+fn exhausted_header_recovery_does_not_consume_following_tokens() {
+    for text in [
+        "pub(/<=type A;",
+        "#[tag(,)] type A;",
+        "#[tag(,)] impl A {}",
+        "trait T { #[tag(,)] type A; }",
+        "use a { b };",
+    ] {
+        for mode in [ParseMode::Source, ParseMode::Declarations] {
+            let parsed = parse(
+                &SourceFile::new("prefix-limit", text),
+                ParseOptions {
+                    mode,
+                    limits: ParseLimits {
+                        max_diagnostics: 0,
+                        ..Default::default()
+                    },
+                },
+                &Default::default(),
+            )
+            .unwrap();
+            let module = parsed.module();
+            let missing = NodeRef::ModuleBody(module.body())
+                .descendants()
+                .find_map(|node| match node {
+                    NodeRef::TypeAlias(node) => {
+                        Some(matches!(node.data().keyword, Required::Missing { .. }))
+                    }
+                    NodeRef::OpaqueTypeDef(node) => {
+                        Some(matches!(node.data().keyword, Required::Missing { .. }))
+                    }
+                    NodeRef::ImplBlock(node) => {
+                        Some(matches!(node.data().keyword, Required::Missing { .. }))
+                    }
+                    NodeRef::AssociatedType(node) => {
+                        Some(matches!(node.data().keyword, Required::Missing { .. }))
+                    }
+                    NodeRef::UseTreeList(node) => {
+                        Some(matches!(node.data().open, Required::Missing { .. }))
+                    }
+                    _ => None,
+                });
+            assert_eq!(missing, Some(true), "{text}: {mode:?}");
+            assert!(parsed.diagnostics().iter().any(|diagnostic| matches!(
+                diagnostic.kind,
+                DiagnosticKind::CompileLimitExceeded { .. }
+            )));
+            let suffix = module
+                .body()
+                .unexpected()
+                .find(|part| part.position().field == "unparsed_suffix")
+                .unwrap();
+            assert!(suffix.text().contains(if text.starts_with("use") {
+                "{"
+            } else if text.contains("impl") {
+                "impl"
+            } else {
+                "type"
+            }));
+        }
+    }
+}
+
+#[test]
+fn abandoned_expressions_keep_recovery_disjoint_from_the_unparsed_suffix() {
+    for expression in ["0 + || 1", "0 as Box<Box<i32>>", "f(|| 1)", "a[|| 1]"] {
+        for body in [
+            expression.to_owned(),
+            format!("static val x: i32 = {expression};"),
+            format!("Point {{ ..base, x: {expression} }}"),
+        ] {
+            let source = SourceFile::new("abandoned.kgr", format!("fn f() {{ {body} }}"));
+            for mode in [ParseMode::Source, ParseMode::Declarations] {
+                for limits in (3..=12).flat_map(|limit| {
+                    [
+                        ParseLimits {
+                            max_tree_depth: limit,
+                            ..Default::default()
+                        },
+                        ParseLimits {
+                            max_nesting: limit,
+                            ..Default::default()
+                        },
+                    ]
+                }) {
+                    let parsed =
+                        parse(&source, ParseOptions { mode, limits }, &Default::default()).unwrap();
+                    let module = parsed.module();
+                    let actual = common::grammar_text(NodeRef::ModuleBody(module.body()));
+                    let expected = parsed
+                        .tokens()
+                        .filter(|token| !token.lexical_kind().is_trivia())
+                        .map(|token| token.text())
+                        .collect::<String>();
+                    assert_eq!(actual, expected, "{body}: {mode:?}, {limits:?}");
+                }
+            }
+        }
+    }
+}
 
 #[test]
 fn parser_diagnostic_budget_stops_recovery_and_preserves_lossless_suffix() {

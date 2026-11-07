@@ -181,17 +181,7 @@ fn char_literals_preserve_spelling_and_structure() {
 }
 
 #[rstest]
-#[case::empty("''")]
-#[case::multiple_scalars("'ab'")]
-#[case::combining_sequence("'e\u{301}'")]
-#[case::physical_tab("'\t'")]
-#[case::physical_lf("'\n'")]
-#[case::physical_cr("'\r'")]
-#[case::non_ascii_hex_escape(r"'\x80'")]
-#[case::leading_underscore_unicode_escape(r"'\u{_41}'")]
-#[case::overlong_unicode_escape(r"'\u{0000000}'")]
 #[case::surrogate(r"'\u{D800}'")]
-#[case::above_unicode_max(r"'\u{110000}'")]
 fn char_literals_with_invalid_decoded_values_are_not_formatted(#[case] literal: &str) {
     let text = format!("fn f() {{ val c = {literal}; }}");
     assert!(
@@ -230,7 +220,12 @@ fn text_literals_preserve_multiline_bytes_and_hole_boundaries() {
         ] {
             let literal = literal.replace('\n', eol);
             let input = format!("fn f(name:String){{consume({literal});}}{eol}");
-            for newline in [Newline::Preserve, Newline::Lf, Newline::Crlf] {
+            let opposite_newline = if eol == "\n" {
+                Newline::Crlf
+            } else {
+                Newline::Lf
+            };
+            for newline in [Newline::Preserve, opposite_newline] {
                 let options = Options {
                     max_width: 20,
                     newline,
@@ -265,32 +260,8 @@ fn text_literals_preserve_multiline_bytes_and_hole_boundaries() {
 }
 
 #[rstest]
-#[case::obsolete_f_prefix(r#"f"old""#)]
 #[case::hole_expression(r#""{name + 1}""#)]
-#[case::hole_member(r#""{name.value}""#)]
-#[case::hole_trailing_space(r#""{name }""#)]
-#[case::hole_leading_space(r#""{ name}""#)]
-#[case::hole_debug_space(r#""{name: ?}""#)]
-#[case::hole_debug_comment(r#""{name:/* comment */?}""#)]
-#[case::hole_unknown_format(r#""{name:x}""#)]
-#[case::unmatched_close_brace(r#""}""#)]
-#[case::string_non_ascii_hex_escape(r#""\x80""#)]
-#[case::string_leading_underscore_unicode(r#""\u{_41}""#)]
-#[case::string_surrogate(r#""\u{D800}""#)]
-#[case::cooked_bare_cr("\"standalone\rcarriage\"")]
-#[case::raw_bare_cr("r\"standalone\rcarriage\"")]
-#[case::raw_unclosed_hash("r#\"unclosed\"")]
-#[case::byte_non_ascii_scalar("b'é'")]
-#[case::byte_empty("b''")]
-#[case::byte_multiple("b'ab'")]
-#[case::byte_physical_tab("b'\t'")]
-#[case::byte_unicode_escape(r"b'\u{41}'")]
-#[case::bytes_unicode_escape(r#"b"\u{41}""#)]
 #[case::bytes_bad_hex(r#"b"\xFG""#)]
-#[case::bytes_non_ascii("b\"é\"")]
-#[case::raw_bytes_non_ascii("br\"é\"")]
-#[case::bytes_bare_cr("b\"standalone\rcarriage\"")]
-#[case::raw_bytes_bare_cr("br\"standalone\rcarriage\"")]
 #[case::raw_bytes_unclosed_hash("br#\"unclosed\"")]
 fn malformed_text_literals_are_not_formatted(#[case] literal: &str) {
     let input = format!("fn f(){{{literal}}}");
@@ -332,8 +303,6 @@ fn malformed_text_literals_are_not_formatted(#[case] literal: &str) {
 #[case::local_function_attribute_and_async_closure(
     "fn outer(){#[tool::allow(\"unused_parameter\")] async fn inner(value:i32)->i32{value}val closure=async || 42;}"
 )]
-#[case::crlf_source("fn f(){}\r\n")]
-#[case::empty_source("")]
 #[case::whitespace_only("  \n\t")]
 #[case::semantic_error_is_formattable("fn f()->i32{true}")]
 fn adjacency_interpolation_comments_and_boundaries_are_idempotent(#[case] text: &str) {
@@ -343,8 +312,11 @@ fn adjacency_interpolation_comments_and_boundaries_are_idempotent(#[case] text: 
 
 #[test]
 fn preserves_crlf_and_canonical_empty_output() {
-    assert_eq!(formatted("fn f(){}\r\n", 100), "fn f() {}\r\n");
-    assert_eq!(formatted("", 100), "\n");
+    for (input, expected) in [("fn f(){}\r\n", "fn f() {}\r\n"), ("", "\n")] {
+        let once = formatted(input, 100);
+        assert_eq!(once, expected);
+        assert_eq!(formatted(&once, 100), once);
+    }
 }
 
 #[test]

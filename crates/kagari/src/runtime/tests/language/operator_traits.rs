@@ -33,15 +33,14 @@ fn ordinary_execution(
             Default::default(),
         )
         .unwrap();
-    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
-        let artifact = if encoded {
-            BytecodeArtifact::from_bytes(
-                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
-            )
-            .unwrap()
-        } else {
-            artifact.clone()
-        };
+    let decoded =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
+    let direct =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let decoded =
+        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+    for (loaded_program, jit) in [(&direct, false), (&decoded, false), (&decoded, true)] {
         let context = ExecutionContext {
             jit_policy: if jit {
                 JitPolicy::Enabled
@@ -51,17 +50,14 @@ fn ordinary_execution(
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program, Default::default())
             .unwrap();
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = runtime
                 .prepare_native(
-                    &loaded_program,
+                    loaded_program,
                     &loaded,
                     ProgramEntry::Main,
                     &mut backend,

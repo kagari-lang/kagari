@@ -48,9 +48,19 @@ fn applied_interface_associated_signatures_survive_both_artifact_boundaries() {
         &Default::default(),
     )
     .unwrap();
-    let artifact = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap();
+    assert_eq!(decoded.header, artifact.header);
+    assert_eq!(
+        decoded.program.modules[decoded.program.root.index()]
+            .functions
+            .len(),
+        artifact.program.modules[artifact.program.root.index()]
+            .functions
+            .len()
+    );
+    let artifact = decoded;
     verify_program(&artifact.program, &context.snapshot(), &Default::default()).unwrap();
     let facts = artifact
         .program

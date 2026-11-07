@@ -113,6 +113,20 @@ Skipped tokens have a parser-assigned owner, named field, list entry and
 `Ast::unexpected`; ownership is not guessed from overlapping spans. A struct
 update is a final entry: `Point { ..base, x: 1 }` retains `x: 1` as unexpected
 content, without admitting it as an ordinary field.
+Malformed static tails belong to the `terminator` slot, after the initializer.
+In struct patterns, repeated rest markers and fields following `..` belong to
+the `close` slot, after the retained rest marker. Rejected pattern fields retain
+their source coverage rather than entering the earlier typed field list. These
+positions keep recovery traversal in authored order.
+Range-pattern endpoints admit only literals and paths. If a parsed wildcard or
+compound pattern is followed by `..` or `..=`, its rejected lexical coverage
+belongs to `RangePattern.start`, before the operator; the required start remains
+missing. For example, `Point { v }..3` retains `Point { v }` as unexpected input
+without treating it as a valid bound or losing it during traversal.
+Declaration keywords following attributes/visibility and import-group opening
+braces use `Required<Token<_>>`: prefix diagnostics can exhaust the parser budget
+before those tokens are consumed. In that case the slot is missing and the token
+stays exclusively in the unparsed suffix, rather than appearing in both places.
 When grammar parses a first entry separately, continuation parsing records
 recovery positions relative to the complete owning list, including that entry.
 
@@ -122,6 +136,13 @@ and all three commas. A recovery entry index uses the unfiltered slots. An optio
 getter can also hide a missing required child or a different grammar alternative;
 inspect the stored named field when that distinction matters. The
 [recovery types](../../crates/kagari-syntax/src/ast/site.rs) own the detailed states.
+
+An `Error(SyntaxSite)` alternative has no retained typed children. Its traversal
+emits every lexical token in its resolved coverage exactly once, including tokens
+that parsed successfully before the construct was rejected in its enclosing
+context. Sparse unexpected-token records alone cannot reconstruct such a node;
+for example, a static declaration rejected inside a trait still retains its full
+spelling through grammar traversal.
 
 Type lowering exhaustively matches `TypeView`, including grouped, tuple, array,
 function, applied and qualified types. Interpolation exposes ordered text/hole
@@ -219,6 +240,14 @@ pieces, so expression shifts remain distinct from generic angle delimiters.
 | `ModuleSyntax::visit_owned()` | Same callback model, excluding nested inline bodies but retaining their headers |
 | `ModuleSyntax::descendants()` | Eagerly collects the logical-module walk before returning an iterator |
 
+An empty recovered child has an insertion anchor but no lexical coverage. It does
+not advance `elements()`' trivia cursor or claim trivia preceding that anchor.
+After a parser stop, such trivia can belong to the enclosing unparsed suffix;
+emitting it for the empty child as well would duplicate source tokens.
+Similarly, a rejected entry's unexpected coverage stops at its last written
+token. Parsing may already have skipped trailing trivia, but that gap still
+belongs to the enclosing traversal, including when the closing delimiter is absent.
+
 Traversal does not poll cancellation. Source spelling accessors returning `&str`
 borrow the original bytes; helpers returning `String` allocate. In particular,
 `Path::text()` joins present names with `::` and omits trivia/missing segments,
@@ -276,6 +305,12 @@ budget still accepts valid source. Each construction frame accumulates maximum
 child depth, including names/signatures and iterative expression wrappers. Sibling
 width does not consume nesting. A limit stops further growth; it does not promise
 that already completed outer recovery wrappers fit the exact threshold.
+
+If an expression wrapper is abandoned after reading children, its operator or
+postfix suffix is retained only in the root's unparsed suffix. The parser restores
+the cursor to that suffix boundary when dropping the wrapper. Enclosing source
+sites and rejected-entry coverage must stop there too; otherwise an outer error
+node can emit the discarded reads a second time.
 
 Cancellation is cooperative and coarse. Public entry/phase handoffs and the final
 successful handoff check immediately. Grammar sequence loops call one parser
@@ -346,6 +381,12 @@ idempotence establish preservation. The ignored complete grammar inventory belon
 to CI; local iteration selects representative affected fixtures.
 
 ## Implementation and verification
+
+[Syntax fuzzing](../../fuzz/README.md) checks parser recovery, lexical losslessness,
+source coordinates, AST traversal and retained module lifetimes through one shared
+oracle. Stable tests replay seeds and generated growth/coordinate boundaries;
+the optional libFuzzer target mutates source under bounded runner limits. Neither
+path treats successful parsing as semantic acceptance.
 
 | Contract | Owner |
 | --- | --- |

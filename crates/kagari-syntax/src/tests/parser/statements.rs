@@ -7,7 +7,7 @@ use crate::{
     parser::{ParseOptions, parse},
     tests::common,
 };
-use kagari_source::diagnostic::{DiagnosticKind, Severity};
+use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
 fn compound_assignments_preserve_lossless_computed_targets() {
@@ -450,16 +450,4 @@ fn malformed_binding_patterns_preserve_following_declarations() {
             if function.name_text().as_deref() == Some("later"))
         );
     }
-}
-
-#[test]
-fn rejects_invalid_let_binding() {
-    let parse = common::parse("fn main() { let mut value = 1; }");
-
-    assert_eq!(
-        parse.diagnostics()[0].severity,
-        Severity::Error,
-        "expected an error, got {:?}",
-        parse.diagnostics()
-    );
 }

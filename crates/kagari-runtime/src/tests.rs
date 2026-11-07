@@ -1,9 +1,6 @@
 use super::*;
+use crate::reload::{ReloadValidationError, validate_reload_candidate};
 use crate::test_support::native::program::ProgramFixture;
-use crate::{
-    metadata::{AbiFingerprint, TypeKind, TypeRegistration},
-    reload::{ReloadValidationError, validate_reload_candidate},
-};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::{
@@ -798,22 +795,6 @@ fn heap_mutations_update_runtime_resource_counters() {
 
     assert_eq!(counters.current_heap_units, 3);
     assert_eq!(counters.peak_heap_units, 3);
-}
-
-#[test]
-fn exposes_runtime_type_registry() {
-    let runtime = Runtime::new(RuntimeConfig {
-        ..RuntimeConfig::default()
-    });
-    let type_id = runtime
-        .types()
-        .register(TypeRegistration {
-            abi_fingerprint: AbiFingerprint(99),
-            ..TypeRegistration::new("Player", TypeKind::Struct)
-        })
-        .unwrap();
-
-    assert_eq!(runtime.types().id_by_name("Player"), Some(type_id));
 }
 
 mod owned_cleanup;

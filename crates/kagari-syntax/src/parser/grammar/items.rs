@@ -215,6 +215,7 @@ impl Parser<'_> {
         let initializer = self.parse_expr().node;
         let terminator = self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
         if matches!(terminator, Required::Missing { .. }) {
+            self.position(9, 0); // StaticDef.terminator owns the rejected tail.
             self.recover_static_tail();
         }
         let site = self.end(mark);
@@ -418,7 +419,7 @@ impl Parser<'_> {
         let mark = self.begin();
         let attributes = self.parse_attributes();
         let visibility = self.parse_visibility();
-        let keyword = self.take();
+        let keyword = self.expect(TokenKind::TypeKw, DiagnosticKind::UnexpectedToken);
         let name = self.parse_name(DiagnosticKind::ExpectedFunctionName);
         let generics = self.parse_generic_params();
         let bounds = self.eat(TokenKind::Colon).map(|colon| {
@@ -564,7 +565,7 @@ impl Parser<'_> {
 
     fn parse_use_group(&mut self) -> UseTreeList {
         let mark = self.begin();
-        let open = self.take();
+        let open = self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedUseTree);
         let (trees, _) = self.list(
             TokenKind::RBrace,
             Self::use_tree_starts,

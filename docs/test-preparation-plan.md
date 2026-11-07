@@ -7,6 +7,8 @@ and standard documentation loops. The user authorized TP05-TP09 on 2026-10-15;
 source-owned test organization and focused local acceptance are complete. The
 [TP10-TP13 directory readability follow-up](#directory-readability-follow-up-tp10-tp13)
 was recorded on 2026-10-28; its direction is agreed, but implementation is deferred.
+The user authorized [TP14 contract-test pruning](#contract-test-pruning-tp14) on
+2026-11-07, independently of the deferred layout and measurement work.
 Native collection migration and compiler pipeline redesign remain outside scope.
 
 ## Contract
@@ -41,6 +43,8 @@ Native collection migration and compiler pipeline redesign remain outside scope.
 - [x] TP04: prepare invariant compiler ABI input and cancellation providers once
   per scenario; reuse native-only analysis for independent documentation examples.
 - [x] TP04 validation: focused existing contracts and structural checks.
+- [x] TP14: remove evidenced duplicate contract tests and redundant preparation;
+  validate retained owners without changing production behavior or test harnesses.
 - [ ] Final measurement: matched timing and retained-memory comparison, deferred
   until optimization is complete and machine load permits a meaningful comparison.
   Consolidate measured results and retire this plan when complete.
@@ -170,6 +174,598 @@ cargo test -p kagari-compiler --lib tests::bytecode::artifacts::rejects_
 cargo test -p kagari-stdlib --test documentation
 cargo clippy -p kagari --test standard_traits --test instantiation --test associated_types --test conversion_traits --test collection_interfaces --test collection_access --test native_provider_reset --test syntax_examples --test default_methods -- -D warnings
 ```
+
+## Contract-test pruning (TP14)
+
+### Scope and preservation
+
+The 2026-11-07 audit found duplicate smoke tests, upper-layer repetitions of
+lower-layer rules, historical/multiplicative matrices and unused preparation.
+The user first authorized a new branch and a conservative implementation batch,
+then explicitly requested completion of all three audited pruning directions:
+remove evidenced weak/empty copies, migrate unique assertions to existing
+scenarios, and reduce history/spelling/Cartesian matrices with explicit losses.
+Earlier case-preservation requirements govern relocation, not this explicitly
+authorized removal of redundant cases. Distinct assertions and execution
+boundaries remain mandatory; lower test counts are not an acceptance target.
+
+The initial batch owns:
+
+- Parser duplicate rejection cases, an empty grammar-gap test and its unused
+  payload model; inventory checks still reject undeclared gap IDs.
+- Four HIR rebinding conformance copies already owned by typed diagnostic tests,
+  and three malformed `let` inputs that could pass on syntax errors instead of
+  their claimed annotation/type errors. Retain valid call/index admission cases
+  and the existing valid-syntax annotation recovery owners.
+- VM duplicate reflection, debugger-construction and DynamicCall rejection
+  smoke tests, plus a runtime registry lookup copy. Retain initial field reads,
+  reflection mutation/debugger control, host paths and publication rejection.
+- Two SDK language smoke cases, and consolidation of runtime/helper ABI
+  preparation rejection using one compiled artifact. Preserve both error codes
+  and variants; actual reload failure/old-version assertions keep their owner.
+- Compiler identical-input arithmetic/metadata preparation, a scalar foundation
+  case already covered by the codec contract, and immediate revalidation of
+  unchanged verified bytecode. Keep explicit Add selection assertions.
+
+The authorized completion also owns the finite audit candidates below. It is
+not a requirement to remove every similar-looking test: independent oracles,
+public/dependency/product boundaries and lifecycle assertions remain protected.
+Production code, dependency/feature/API/ABI changes, test layout moves, global
+caches and new harnesses remain out of scope. Test-only support and browser/editor
+test runners may change. No timing or memory improvement is claimed without
+matched measurements.
+
+### Acceptance and ledger
+
+- [x] Inspect retained counterparts and record the finite deletion scope.
+- [x] Implement the selected duplicate removals and assertion-preserving merges.
+- [x] Run selected retained-owner tests and directly adjacent boundary regressions.
+- [x] Complete structure, formatting, workspace Clippy and diff checks.
+- [x] Reconcile local results, pending CI and any carried errors.
+
+Local tests select the retained parser rejection/grammar inventories, four HIR
+typed diagnostics plus valid annotation recovery and call/index admission,
+compiler metadata/foundation/codec contracts, VM helper/debugger/publication
+owners, runtime metadata, and SDK ABI preparation/language/real reload owners.
+These representative cases directly establish the removed copies' contracts;
+they are not a package-by-package workspace sweep. CI retains exhaustive
+workspace, source-free, feature/backend/platform and product acceptance.
+
+2026-11-07: completed the bounded implementation and local acceptance on
+`test/prune-redundant-contract-tests`, starting from clean `a82d9c4b`. Static
+registration comparison shows 13 fewer ordinary tests and five fewer named
+parameterized cases (18 net, including the empty gap test). Three malformed
+annotation inputs and one exclusively consumed scalar fixture were removed.
+No production code, test harness, feature or dependency changed.
+
+Independent diff review found no blocking coverage loss. The parser owner now
+retains the deleted copy's first-diagnostic error assertion, not merely an
+any-error check. The deleted combined VM smoke's zero-argument native path is
+also exercised by the retained comparator/Probe lifecycle, separately from the
+two-argument host-call test. The remaining installed-access mutation/debugger
+control scenario is unchanged. Both preparation ABI errors retain their exact
+codes and variants; real reload rejection and old-entry usability remain covered.
+
+Focused local validation passed 36 distinct tests, with the strengthened parser
+case rerun after its assertion was merged:
+
+| Package | Passed | Selected owners |
+| --- | ---: | --- |
+| `kagari-syntax` | 5 | `invalid_syntax_diagnostics_reject_non_spec_forms` and the four `tests::grammar_coverage::` tests |
+| `kagari-hir` | 7 | `ui::typed::{val_local_rebinding, parameter_rebinding, rejects_assignment_to_val_field, rejects_assignment_to_const}`, retained mutation acceptance, `composite_annotations_retain_structure_without_authorizing_codegen`, and `erroneous_calls_and_indices_never_enter_codegen` |
+| `kagari-compiler` | 7 | `lowers_function_metadata_into_bytecode`, three `language_foundation::compile_success` cases, `portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering`, `normalizes_ir_operands_as_typed_values`, and `flattens_branch_targets_to_instruction_offsets` |
+| `kagari-vm` | 10 | Type-of/initial-read/get-set reflection, host helper/path results, live-locals/step-trap debugger, unsupported-call rejection, retained installed-access mutation/control, and `comparator_failure_stops_callbacks_and_preserves_original_elements` |
+| `kagari-runtime` | 1 | `metadata_registry_carries_reload_and_path_validation_records` |
+| `kagari` | 6 | `preparation_rejects_incompatible_runtime_and_helper_abis`, namespace-shadowing, applied-trait argument distinction/marker acceptance, per-execution cancellation, and actual prepared reload failure |
+
+Structure (1,818 Rust files, no findings/exceptions), formatting, workspace
+Clippy with `-D warnings` and diff checks passed. Initial formatting checking
+found two extra blank lines left by deletions; both were corrected. No build,
+test or lint failures remain. Full-workspace tests, exhaustive feature/backend/
+platform and external product checks were not run and remain CI-owned; these
+focused results do not establish complete CI acceptance or measured speedup.
+TP10-TP13 and performance acceptance remain deferred.
+
+### Completion of the three pruning directions
+
+The follow-through removes the remaining audited weak copies in syntax/HIR,
+SDK readonly/identity/Eq checks and basic interface calls, VM scalar native calls
+and repeated missing-entry checks. The HIR mutation smoke and its now-empty
+module are removed; typed-fact mutation owners remain. All decisions below are
+implemented, not a new queue.
+
+Unique assertions now run on existing prepared scenarios:
+
+- Parser delimiter count/severity/typed-kind checks share their original UI
+  fixture parse and full JSON comparison. New parser UI fixtures must declare
+  their typed expectation rather than silently skip it. Both original inputs
+  and JSON expectations are unchanged.
+- Opaque declaration source-mode rejection shares the substantive declaration
+  scenario; documentation/losslessness and top-level/nested distinctions remain.
+- VM field reflection returns the executed initial and updated reads as `(1, 9)`.
+  The weaker installed-access write is removed, but debugger control remains.
+- Tuple `ScriptOwned` classification moves to the value owner. Trait method
+  origin, trait type and path-access records move to metadata registration;
+  the inherent method and a minimal `Runtime::types()` facade check remain.
+- Full artifact-header and root-function-count equality move to the existing
+  associated-interface MIR/KBC roundtrip; its verification remains independent.
+
+Preparation is actually reduced, rather than moving old preparations into loops:
+
+- HIR `lower_ok` lowers its already checked parsed tree. The standard hash/numeric
+  checks also stop discarding a separate lowering for seven analysis inputs.
+- Six SDK runners retain all 41 source scenarios and 123 direct-interpreter,
+  decoded-interpreter and decoded-JIT route executions. Encodes/decodes fall from
+  82 to 41 and artifact preparations from 123 to 82. Each route still creates a
+  fresh context/token/runtime, uses its original GC threshold, drops the result
+  before root checks, and retains the Result/Option collection assertion.
+- TextMate still checks every one of five operands under both EOLs, but tokenizes
+  two complete documents instead of ten isolated fragments. The first fragment
+  starts fresh; the other four per EOL now inherit preceding document state.
+  This relinquishes eight independent fresh-stack starts, not operand assertions.
+
+#### Retained samples and relinquished combinations
+
+| Owner | Before -> after | Explicitly relinquished coverage |
+| --- | --- | --- |
+| Compiler const ABI | 115 historical-format serializations -> 0 | The unrelated const-fixture x old-format combinations; const fingerprints/float bits remain |
+| Runtime ABI rejection | 28 artifact roundtrips / 56 loader checks -> 1 / 2 | Runtime ABI v5-v31 x current/matching-old requirements; v32 retains both requirements and exact error kind |
+| Helper ABI rejection | 2 artifact roundtrips / 4 loader checks -> 1 / 2 | Helper v3 x both requirements; v4 retains both and its exact error kind |
+| KBC wire format | 115 old-version attempts -> 3 representative invalid formats | Exhaustive versions 1-114; wire and in-memory owners now check zero, previous (115) and future (117), relative to current 116; loader retains current and matching-invalid requirements |
+| CLI unrelated options | 23 options x 3 positions = 69 -> 23 | Positions 1 and 2 for each illegal option (46 combinations); position 0 retains every option and escaping assertion; nonempty positive modes still cover all three positions |
+| CLI empty option list | 3 identical argument vectors -> 1 | Only two duplicate executions of the exact default-mode input |
+| Formatter rejection | 39 -> 5 upper-layer cases | Detailed malformed spellings listed below; retain surrogate char, interpolation expression, bad byte hex, unclosed raw bytes and generic malformed input |
+| Formatter literal EOL/mode | 15 x 2 x 3 = 90 -> 60 | LF input with explicit LF and CRLF input with explicit CRLF for each literal (30 combinations); Preserve and opposite-forced EOL retain all literals and idempotence |
+| Formatter CRLF/empty | Two duplicate table rows removed | Width-40 repetitions; exact bytes and second-format idempotence now share width-100 owner preparation; whitespace-only remains |
+| Analyzer multiline edits | 8 edits x 2 EOLs = 16 -> 6 | Debug-format space, member interpolation, incomplete hole, Unicode byte escape and raw-byte hash mismatch under both EOLs; retain delimiter damage, non-BMP insertion, restore, coordinates and old snapshots |
+| Common snapshot capacity | 3 cycle counts x 4 states = 12 -> 4 | Cycle counts 1 and 128 for repeated/distinct x drop/retain (8 combinations); 16 cycles retain all four states and existing COW/prefix/Weak assertions |
+| Python unsigned CSV fields | 79 fields x 8 spellings = 632 -> 79 field checks + 8 grammar checks = 87 | Seven additional spellings per field (553 full-report combinations); all eight spelling classes remain at `_rows`, all 79 suite/field mappings remain on public parsing paths with exact field-error checks |
+| Pages deploy guard | 288 -> 15 contexts | 273 cross-products, chiefly multiple disabled conditions at once; exact YAML conjunction, both normal event kinds, all opt-in classes and each independent failure remain |
+| Native editing grammar | 19 byte corpus cases -> 5 tree goldens | 14 CLI-corpus copies of Node-owned rejection inputs; retained goldens include accepted trees and unterminated raw-byte EOF recovery; refreshed native binding proves retained negative owners |
+| Grammar witness | 3 full-file parses -> 2 | The valid-only copy; alias/static owners retain whole-file validity plus node assertions |
+| Direct WASM old integer spellings | 4 -> 2 compile inputs | Type-name `isize` and suffix `1usize` on the actual WASM product; retain type-name `usize` and suffix `1isize`; native owners still check both spellings in each category |
+| Product recipe source matching | Two source-text assertions removed | Duplicate static checks of command spelling/order; actual command recording and bad-graph early-stop remain, as do top-level wiring and direct graph-negative checks |
+
+The formatter no longer repeats these named character-rejection rows:
+`empty`, `multiple_scalars`, `combining_sequence`, `physical_tab`, `physical_lf`,
+`physical_cr`, `non_ascii_hex_escape`, `leading_underscore_unicode_escape`,
+`overlong_unicode_escape`, `above_unicode_max`.
+Its removed malformed-text rows are:
+`obsolete_f_prefix`, `hole_member`, `hole_trailing_space`, `hole_leading_space`,
+`hole_debug_space`, `hole_debug_comment`, `hole_unknown_format`,
+`unmatched_close_brace`, `string_non_ascii_hex_escape`,
+`string_leading_underscore_unicode`, `string_surrogate`, `cooked_bare_cr`,
+`raw_bare_cr`, `raw_unclosed_hash`, `byte_non_ascii_scalar`, `byte_empty`,
+`byte_multiple`, `byte_physical_tab`, `byte_unicode_escape`,
+`bytes_unicode_escape`, `bytes_non_ascii`, `raw_bytes_non_ascii`,
+`bytes_bare_cr`, `raw_bytes_bare_cr`.
+These are deliberately fewer formatter entrypoint probes, not proof that every
+removed spelling has an equivalent lower-layer test. Lexer/parser/literal owners
+remain unchanged and keep responsibility for detailed language rules.
+The removed analyzer character-only scenario similarly relinquishes its exact
+escape spelling, while lifecycle and Unicode/CRLF snapshot observations remain.
+
+The byte corpus removed pattern rejection for cooked/raw byte strings; direct
+cooked, named raw and nested cooked/raw attribute values; three non-ASCII byte
+forms; byte-char/string Unicode escapes; multi/empty byte chars; and bad byte hex.
+Ten inputs exactly match Node counterparts; four differ only in attribute-to-item
+whitespace. All 14 rejected with identical native error trees after the binding
+refresh; none of the removed `:error` entries asserted that exact recovery tree.
+
+These reductions are representative sampling, not a zero-loss or complete-matrix
+claim. Deliberately retained audit candidates include the typed-operand manual
+oracle (independent checks are not redundant merely because a verifier exists)
+and HIR typed/golden companions (different assertions/environments; eliminating
+preparation would require broader registration machinery or a cache). No such
+machinery was added to make test counts smaller. GC, borrowing, cancellation,
+source-free/real-native, compile-fail and actual-host boundaries are unchanged.
+
+#### Final local acceptance
+
+- [x] Complete the three directions across the finite audited candidate set.
+- [x] Record actual preparation reductions and every sampled-out dimension.
+- [x] Compare retained assertions and independently review Rust/product changes.
+- [x] Execute the affected focused selections below and complete skipped targets.
+- [x] Pass required structure, formatting, workspace Clippy and diff checks.
+
+This completion ran 154 Rust tests across affected owners, all passing:
+
+| Package | Passed | Selection |
+| --- | ---: | --- |
+| `kagari-common` | 6 | Four retained capacity states, backing release and module-prefix ownership |
+| `kagari-hir` | 5 | Lowering, both typed mutation owners and standard hash/numeric analysis |
+| `kagari-syntax` | 11 | Dedicated rejection and declaration owners, remaining conformance rows, both merged typed/golden delimiter cases, inventory and partial recovery |
+| `kagari-format` | 22 | Retained rejection samples, literal byte/EOL preservation, idempotence and exact CRLF/empty output |
+| `kagari-cli` | 54 | `args::tests::disassembly_` on the `kg` binary target |
+| `kagari-analyzer` | 5 | `documents::tests::` on the analyzer binary target |
+| `kagari-bytecode` | 2 | Independent wire and in-memory format admission |
+| `kagari-compiler` | 9 | ABI/const samples, artifact assertion migration, stronger control flow, Add selection and independent typed operands |
+| `kagari-runtime` | 5 | Value classification/payload, metadata records/duplicates and runtime facade |
+| `kagari-vm` | 7 | Merged field lifecycle, debugger control, entry/trap recovery, checked scalar native and slot/JIT routes |
+| `kagari` | 28 | Two source fixtures per migrated runner, LF/CRLF for both text runners, retained readonly/identity/Eq/provider/interface/declaration owners |
+
+The initial multi-package `--lib` tooling selection executed only formatter;
+CLI/analyzer binary selections were subsequently run explicitly. Three ignored
+formatter full-inventory entries matched the broad literal filter and remain
+CI-only, not passed. Five long SDK fixture names were truncated by harness
+registration; shorter unique filters subsequently ran all five intended cases.
+No selected local target remains unexecuted. Earlier passing evidence remains
+valid for unchanged first-batch owners; it is not an unrun CI claim.
+
+Additional focused validation passed four Python unittest methods (87 negative
+subchecks plus positive schema/warmup checks); 27 site Node tests, with the Unix
+process-group test skipped on Windows; two TextMate Node tests; five refreshed
+native grammar Node tests; and five CLI corpus golden cases. Browser/Worker/UI,
+WASI/actual editor hosts, full inventories and the feature/backend/platform matrix
+were not run. The WASM runner syntax check passed, not actual WASM acceptance.
+
+Native binding refresh initially failed Python discovery; retry with installed
+Python succeeded and rebuilt committed parser/scanner sources without grammar
+regeneration. Structure checked 1,817 Rust files with no findings/exceptions;
+`cargo fmt --all -- --check`, workspace/all-target Clippy with `-D warnings`,
+link/content and diff checks passed. There are no carried build/test/lint errors.
+
+Against `a82d9c4b`, static registrations decrease by 125 Rust cases: 21 fewer
+ordinary tests, 56 fewer explicit case rows and 48 additional eliminated
+Cartesian repetitions. This excludes function-internal loops and backend routes;
+Node/corpus/Python counts are separate. No speed or memory reduction was measured.
+TP14's authorized implementation/local acceptance is complete; CI acceptance,
+TP10-TP13 layout work and the independent measurement debt are not marked complete.
+
+### Slow-test preparation follow-up
+
+The user reported over-60-second harness warnings for the SDK interpolation
+rejection matrix and VM observed-boundary cancellation sweep after `ea4e9d09`.
+These were not among the preceding 154 selected tests. Isolated reproduction
+passed both: 18.47 s for SDK rejection and 12.98 s for VM cancellation, excluding
+build time. These are single diagnostic observations, not a matched benchmark or
+a diagnosis of the user's concurrent/CI environment.
+
+For example, rejecting `"{value + 1}"` previously built a fresh default SDK engine
+for each of 16 malformed spellings. The SDK now samples that one expression hole,
+uses the existing standard baseline with an independent source session, and
+requires `EmbeddingError::Diagnostics` containing `KG_TYPE_INVALID_LITERAL`.
+The 15 other SDK spellings (member/index/call/qualified/block holes, five whitespace
+forms, empty/unmatched braces, and `f`/`fr` prefixes) are no longer repeated here.
+Detailed parser rejection/recovery and incomplete-text cases remain at the syntax
+owner; this is reduced upper-layer sampling, not unchanged spelling coverage.
+The adjacent missing-protocol/type/const cases are outside this focused change.
+
+The cancellation test retains direct and decoded programs and the same `0..80`
+point sweep, observed-boundary termination and cancellation assertions. Only
+invariants move out of the sweep: one decoded artifact, one function-owned
+`NativeInstallation` for the standard library and stateless boundary callback,
+and an unbound logging declaration/builder template. Each attempt clones that
+unbound builder, binds its own callback, and creates a new runtime/heap,
+cancellation token, observer and effect counter, with GC threshold `Some(1)`. For example,
+cancelling inside the callback still checks completed effects, root/depth cleanup,
+session-sticky cancellation, successful `ready` after session exit, version
+retirement and zero live objects. Stateful logging registrations are deliberately
+not shared. No production code, process-wide cache or cancellation points change.
+
+- [x] Reproduce the two reported tests and inspect preparation/coverage owners.
+- [x] Reduce the SDK matrix and move cancellation invariants outside the sweep.
+- [x] Run the two affected tests and selected parser/installation/callback regressions.
+- [x] Complete structure, formatting, workspace Clippy and diff checks.
+- [x] Record actual diagnostic timings, local results and unrun CI scope.
+
+Validation selects the renamed SDK propagation test, the original VM sweep,
+syntax interpolation rejection/incomplete-text owners, runtime shared-installation
+isolation, and VM callback depth/session cancellation neighbors. Use the same
+workspace dev/test O1 profile, default features/parallelism and cached builds;
+each exact test runs in its own process. The reproduction host is Windows,
+Intel i9-12900K (16 cores/24 logical processors), Rust 1.99.1
+(`58cf8f9c3`, 2026-10-13). Record build and harness execution separately; no
+whole-suite speedup or retained-memory claim follows from these local samples.
+Full workspace and exhaustive feature/backend/platform execution remain CI-only.
+
+The final exact selections passed: SDK
+`interpolation_syntax_errors_reach_the_sdk_compile_boundary` in 1.38 s and VM
+`cancellation_at_observed_boundaries_cleans_callback_scopes` in 8.47 s. Their
+preceding rebuilds took 23.44 s and 9.35 s respectively and are excluded from
+those execution samples. SDK uses default `source,native` features; VM uses its
+default features. Relative to the 18.47/12.98 s isolated reproductions, the SDK
+also performs less upper-layer work (16 spellings -> one), while the VM retains
+its two routes, point bound and all cleanup/recovery assertions. These are single
+fresh-process diagnostics with a warm build cache, not statistically established
+speedups or a guarantee against 60-second warnings under concurrent CI load.
+
+All seven distinct focused tests passed: the two affected tests, syntax
+`interpolation_rejects_expressions_whitespace_keywords_and_old_prefixes` and
+`incomplete_interpolation_and_invalid_text_report_diagnostics`, runtime
+`shared_registrations_keep_installation_and_failure_state_runtime_local`, and VM
+`callback_depth_failure_precedes_effects_and_cleans_native_roots` and
+`cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session`.
+Independent review confirmed that the shared installation callbacks are stateless,
+the logging template is unbound, and its definition owner stays valid when cloned;
+per-attempt captures are never shared. Repeated independent decoder contexts are
+no longer sampled, but fresh runtime admission of the decoded artifact remains.
+Structure (1,817 Rust files), formatting, workspace/all-target Clippy with
+`-D warnings` and diff checks passed. No production code or dependencies changed;
+no build/test/lint failures are carried. Full CI and performance acceptance above
+remain unverified.
+
+#### CPU utilisation investigation
+
+The subsequent user report concerns low CPU during `cargo test`. No concurrency,
+production code or runner configuration was changed for this investigation. The
+four ordinary SDK runner files were temporarily instrumented, then restored
+byte-for-byte from pre-probe copies, preserving the preceding uncommitted changes.
+
+Environment: the same Windows 11/i9-12900K/Rust 1.99.1 host above, 24 available
+logical CPUs, workspace O1 test profile, default package features and build/test
+parallelism. `RUST_TEST_THREADS`, `CARGO_BUILD_JOBS`, `RUSTFLAGS` and encoded
+Rust flags were unset in the probe environment; no project Cargo config or
+repository-wide serial-test override was found. User-global configuration and the
+original reported invocation were not established. Builds were cached; the
+processes below ran one at a time, not concurrently with another test probe.
+
+A temporary Windows sampler read each test process's kernel+user CPU time with
+`GetProcessTimes` at approximately 0.2 s intervals. CPU seconds / wall seconds
+estimates used logical cores; dividing by 24 gives normalized machine CPU, not
+necessarily Task Manager's frequency-adjusted utilisation. Only the test process
+is measured, not Cargo/builds or unrelated processes. It runs the executable from
+Cargo's `--no-run --message-format=json` output in the owning package directory.
+
+| Selected workload | Process wall | Process CPU | Average cores | Normalized CPU | Peak sampled cores |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Exact VM cancellation sweep | 8.64 s | 8.48 s | 0.98 | 4.1% | 1.07 |
+| 21 ordinary SDK cases | 9.66 s | 98.81 s | 10.23 | 42.6% | 20.17 |
+| Same 21, with completion timestamps | 9.91 s | 99.33 s | 10.02 | 41.8% | 19.76 |
+
+The SDK selection is `runtime::tests::language::<owner>::ordinary_execution` for
+`type_inference` (5), `numeric_operations` (4), `result_option` (7) and
+`string_interpolation` (5). Each retains its three routes. Cached Cargo/build
+wall time was 0.36-0.39 s and is excluded. All selections passed; these are
+single-process diagnostic samples, not an exhaustive run or stable benchmark.
+
+The first SDK trace used about 14-19 cores in its early 1 s buckets, then about
+1-2 cores from 6 s onward. Completion timestamps rule out explaining this solely
+as one final slow test: in the timestamped run only 10 of 21 cases had completed
+by 8.07 s, and the final pair finished only 0.004 s apart.
+
+Temporary phase markers narrowed the low-parallelism interval to cleanup:
+engine construction completed around 1.34-1.41 s per case, source compilation by
+3.25-4.03 s, and artifact preparation by 4.82-6.22 s. Explicitly dropping the
+existing decoded/direct prepared products and engine at function exit took
+0.10-2.20 s per case. Runtime teardown between lanes also grew while other cases
+were finishing. This instrumented run passed all 21 cases (9.21 s harness time;
+9.53 s total process time including captured diagnostic output); its 21.88 s
+rebuild is excluded. The markers identify a teardown bottleneck, not which
+individual owner, allocator, dependency or Windows synchronization causes it.
+Native stack/wait attribution is required before changing locks or allocators.
+
+The ownership review also rules out a misleading explanation: these ordinary
+runners create independent engines, installation writers and analysis contexts.
+The process-wide SDK baseline mutex only guards source-session creation when
+that helper is used; it does not hold compilation/execution under a lock.
+Shared-session definition writers do serialize imports/COW, but cannot simply be
+blamed for the independent-engine batch measured here. Shared stdlib source-table
+snapshot locks are short; their contribution is unmeasured.
+
+Scheduling adds a separate structural limit. Cargo metadata currently lists 44
+potential test-enabled targets (26 unit/binary and 18 integration), plus library
+doctest owners; this is not a claim that all are nonempty or enabled on every
+feature/platform. [Cargo](https://doc.rust-lang.org/cargo/commands/cargo-test.html)
+runs ordinary test executables serially, while
+[libtest](https://doc.rust-lang.org/rustc/tests/index.html#execution-options)
+parallelizes cases inside the current executable. `-j` controls builds, not these
+case threads. A single serial sweep can therefore consume one core (about 4.2%
+on this host) while other executables have not started. Increasing the thread
+limit cannot split that test body or eliminate serialized teardown.
+
+[Nextest's execution model](https://nexte.st/docs/design/how-it-works/) can schedule
+across binaries, but runs each test in a new process. Adopting it without matched
+measurements would discard the current per-process OnceLock preparation reuse
+and repeat cold setup. No runner migration, thread-count tuning, global-cache
+change or full-workspace test execution is authorized by these diagnostic results.
+The SDK-specific next measurement is teardown stack/wait attribution, followed
+by a bounded ownership/allocation or scheduling decision at the responsible owner.
+The workspace follow-up below establishes priorities without generalizing that
+SDK mechanism to other owners.
+
+#### Workspace scope and non-SDK sampling
+
+The root manifest is a virtual workspace with no `default-members` override.
+`cargo metadata --no-deps --format-version 1` confirms that all 26 members are
+also default members. Thus bare `cargo test` **at the repository root** selects
+the entire workspace; invocation from a member directory can select differently.
+The initial SDK/VM samples were not a measurement of that whole command.
+
+No CI run was available for `test/prune-redundant-contract-tests`. For historical
+prioritization, inspect the successful [main CI run 42212573892](https://github.com/kagari-lang/kagari/actions/runs/42212573892),
+SHA `f5fa12a4f9cbfc3c51b3f335f99cb07b2534d49f`, rust job `127874563006`,
+created 2026-11-06. Its `Run tests` step executes
+`cargo test --workspace --no-fail-fast`. Download without rerunning CI:
+
+```text
+gh api repos/kagari-lang/kagari/actions/runs/42212573892/jobs
+gh api repos/kagari-lang/kagari/actions/jobs/127874563006/logs
+```
+
+Method: restrict logs to that step, pair each top-level `running N tests` with
+its result and executable header, and sum harness elapsed times. Account for
+stdout/stderr header interleaving; exclude the SDK's nested child harness
+(1 test, 3.45 s) from additive totals. Individual harness log intervals agree
+with reported elapsed within 0.008 s. This is elapsed-time attribution, not CPU
+profiling. Later feature/inventory steps are excluded.
+
+| Historical executable | Tests, including ignored | Harness seconds | Share of executable elapsed |
+| --- | ---: | ---: | ---: |
+| SDK `kagari` | 867 | 1230.32 | 48.10% |
+| `kagari_hir` | 637 | 415.84 | 16.26% |
+| `kagari_vm` | 371 | 403.43 | 15.77% |
+| `kagari_compiler` | 261 | 252.54 | 9.87% |
+| `kagari_stdlib` | 64 | 92.73 | 3.63% |
+| Other 39 executables | 1686 | 162.80 | 6.37% |
+
+The top four account for 90.01% of executable elapsed. All 44 total 2557.66 s
+(3833 passed, 53 ignored); doctests add 65 passes and 2.23 s harness time,
+or 8.25 s including their preparation/compilation and transitions. The test step
+lasted 3209 s, including a separately reported 641 s build. Runtime's 604 tests
+took only 1.82 s: test count alone is not a useful optimization ranking.
+Two over-60-second warnings occurred in SDK offline-nominal effect ordering and
+stdlib documentation analysis; both passed. No warning is not evidence of low
+aggregate cost.
+
+Limits: this predates pruning and the current working tree. It used Ubuntu
+26.04.1, Rust 1.99.1, optimized test profile, restored Rust cache and
+`CARGO_INCREMENTAL=0`; CPU model/count and effective harness thread count were
+not logged. Neither these shares nor its 53-minute step duration describe the
+current Windows run, and historical success is not current-branch CI acceptance.
+
+Local follow-up selects HIR/compiler/VM paths from those high-cost owners, plus
+small GC and CLI controls. Same Windows environment and default concurrency as
+above; groups run sequentially, not concurrently with each other. Each process
+has cold process-local initialization even when build artifacts are cached.
+
+| Current selection | Passed | Process wall | Process CPU | Average cores | Peak sampled cores |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HIR body queries | 10 | 3.89 s | 12.09 s | 3.11 | 9.75 |
+| Compiler foundation | 3 | 1.52 s | 3.89 s | 2.56 | 2.97 |
+| VM optimized prepared execution | 8 | 4.14 s | 28.17 s | 6.81 | 8.12 |
+| GC incremental target | 8 | 0.175 s | 0.016 s | not meaningful at this duration | no interval |
+| CLI lint process contracts | 2 | 5.42 s | 0.094 s, parent only | not process-tree CPU | not comparable |
+
+Build/Cargo wall times, excluded above: HIR 0.35 s, compiler 0.28 s, VM 0.28 s,
+GC 3.13 s (dependency rebuild), CLI 6.60 s (rebuild). All 31 cases passed.
+Exact scope, reproducible through Cargo (sampling used the resulting binaries):
+
+```text
+cargo test -p kagari-hir --lib analysis::body_queries::tests::
+cargo test -p kagari-compiler --lib tests::language_foundation::compile_success::
+cargo test -p kagari-vm --lib tests::prepared_execution::optimized_execution_preserves_results_traps_and_source_origins::
+cargo test -p kagari-gc --test incremental
+cargo test -p kagari-cli --test toolchain lint_
+```
+
+Distinct observations and next decisions:
+
+- HIR completes nine cases by 1.64 s; only
+  `assignment_member_receivers_survive_errors_and_snapshot_revisions` remains
+  until 3.88 s, using about one core. Unlike the SDK trace, this **is** a single
+  long-case tail. Its three source variants each build fresh analysis state and
+  run ordered cache/edit/snapshot checks. Review invariant preparation there;
+  preserve valid, unknown-member and incomplete-member recovery contracts and
+  old-snapshot assertions rather than dropping variants just to reduce time.
+- Compiler's three cases reach approximately three cores; VM's eight reach
+  approximately eight, with no sustained one-core tail like the SDK batch.
+  Small selected case counts cap available concurrency; their low percentage of
+  24 CPUs is not evidence of a disabled harness or whole-crate serialization.
+- GC's harness reports 0.00 s; process startup/exit and CPU accounting granularity
+  dominate this sample. It does not justify a GC scheduling optimization.
+- CLI's two cases launch nine `kg` children. `Project::run` waits for each child
+  while draining pipes. Parent-only `GetProcessTimes` omits their work; measure
+  cumulative process-tree CPU, including exited children, before attributing
+  CLI utilization. The reported parent value is not machine utilization.
+
+Prioritize SDK teardown attribution and high-cost HIR/VM/compiler preparation,
+not thread-count increases or deletion of cheap tests. Cross-executable serial
+scheduling remains a separate known limit. No runner, runtime, lock or test
+behavior changed in this follow-up, and no full local workspace run was made.
+Current Windows whole-suite shares, native wait attribution and current-branch
+full CI remain unmeasured. Content/link review and `git diff --check` validate
+this documentation-only update; prior implementation checks are not rerun.
+
+#### Native stack attribution and immutable MIR retention
+
+The user subsequently requested investigation of production-language costs, not
+just test scheduling. Three process-scoped CDB 10.0.26100.7705 snapshots of the
+unchanged 21-case SDK workload provide native evidence. Each fresh test process
+was attached noninvasively after a requested delay (2, 6 or 7.5 s), with local
+PDBs and no system-wide tracing. Attachment/symbol loading perturbs timing;
+these runs are stack evidence only, not performance comparisons. All passed.
+Reproduction: build the filtered SDK library executable as above, launch it from
+`crates/kagari`, then use the installed x64 CDB with
+`-pv -p <test-pid> -y <absolute-target/debug/deps> -c "~* kb 35; qd"`.
+Offsets in Windows internal routines without private symbols are not exact
+function attribution; the exported wait/critical-section/heap frames and Rust
+ownership chains are the evidence used here.
+
+| Requested snapshot delay | Active test threads | Free-path heap waits | Allocation-path heap waits, excluding free paths |
+| --- | ---: | ---: | ---: |
+| 2 s | 21 | 0 | 0 |
+| 6 s | 15 | 11 | 3 |
+| 7.5 s | 13 | 11 | 1 |
+
+Late stacks contain `RtlFreeHeap -> RtlEnterCriticalSection ->
+ZwWaitForAlertByThreadId`, reached through several independent production owners:
+installation `DeclarationCatalog`, HIR `AnalysisDatabase`/`FileAnalysis`, lowered
+native records retaining definition `TableData`, core runtime metadata and
+`VerifiedMirProgram`. Allocation waits also include `VerifiedMirModule::clone`
+under SDK publication retention. Thus heap synchronization during allocation and
+release is directly observed; it is no longer merely an allocator hypothesis.
+These snapshots do not measure its percentage of total time or establish one
+owner as the dominant allocation source. They do not implicate Kagari's analysis
+writer locks or JIT page unmapping as the explanation for these sampled waits.
+
+A bounded production fix changes SDK `ProgramState.mir` and
+`RetainedPreparation.mir` to `Option<Arc<VerifiedMirProgram>>`. Previously,
+`Runtime::load_program -> retained_inputs` deep-cloned modules/functions/analyses,
+even for interpreter execution; retrieving current publication inputs copied them
+again. In the 21-case workload, three loads per case implied 63 full MIR clones.
+Now each verified source/artifact product is wrapped once and shared by exact
+publication token. Direct and decoded artifacts remain independently verified;
+no validation, cancellation check, native cache or code lease is bypassed/shared.
+This follows [Rust Arc ownership](https://doc.rust-lang.org/std/sync/struct.Arc.html)
+(Rust 1.99.1): cloning shares immutable data, with destruction by the last owner.
+Arc rather than Rc preserves movable runtime attachments; PreparedProgram itself
+remains Rc/RefCell-owned and non-Send. Validity and generation guarantees remain;
+the last destruction time/thread can change. No public API or artifact format
+changes, new dependency, global cache or allocator replacement is introduced.
+
+Matched comparison uses a preserved pre-fix executable and rebuilt current
+executable, alternating before/after three times, default features/test threads,
+same Windows/i9-12900K/24-logical-CPU/Rust 1.99.1/O1 profile as above. No debugger,
+other probe or build overlaps the measured processes. Build artifacts and fixture
+files are warm; each process starts its own initialization. External machine load
+is not controlled. The current SDK rebuild took 30.93 s, excluded from execution.
+All 21 cases passed in every run.
+
+| Metric | Before, three runs | After, three runs | Median before -> after |
+| --- | --- | --- | --- |
+| Process wall seconds | 9.246 / 9.457 / 9.279 | 9.388 / 8.994 / 8.964 | 9.279 -> 8.994 |
+| Process CPU seconds | 98.125 / 98.906 / 97.797 | 97.422 / 97.984 / 96.328 | 98.125 -> 97.422 |
+
+The observed median wall reduction is 3.1%, CPU 0.7%; one pair is slower, and
+three samples do not establish a stable or whole-suite speedup. A separate
+post-change 6 s stack snapshot still shows 11 free-path heap waits among 16 active
+tests. The redundant MIR allocation is removed, but the wider bottleneck remains.
+Do not respond to this small gain with speculative additional local optimizations.
+
+Next bounded diagnosis: measure `compiler::source::program::candidate::expand ->
+update_requests::proof_catalog`. The 2 s snapshot reaches this path after
+`verify_program` has already prepared proof records and validated a full-module
+catalog for the same immutable candidate. Planning collects those declarations
+and prepares/validates a catalog again. Other sampled stacks traverse
+`collect_module_abi` and type/proof normalization. Quantify preparation versus
+actual demand queries, candidate rounds, exact visibility sets and standard/user
+record counts before redesigning this boundary. Not every module is the entire
+stdlib, and not every validation is redundant: different visibility, new
+candidates, raw artifacts, resource/cancellation limits and retained demands
+still require their current guarantees. Late analysis-table destruction is a
+separate retained-allocation source, not proof that temporary proof catalogs
+caused those waits. No proof API redesign is included in this checkpoint.
+
+Correctness scope reuses existing tests, without adding private-Arc assertions or
+more test cases: four SDK contracts cover actual-native source/decoded lifetime,
+reload/GC, source-update attachments and product destruction; one artifact-native
+contract runs with default features to regenerate its disposable fixture and
+again with `--no-default-features --features native` for the real source-free
+boundary. All six executions passed, in addition to the 21-case comparison.
+Commands:
+
+```text
+cargo test -p kagari --lib -- source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints source_updates_retain_requested_native_input_without_retaining_prepared_caches caches_products_across_runtimes_and_retains_them_after_backend_drop
+cargo test -p kagari --test artifact_features real_cranelift_compiles_portable_artifact_without_source
+cargo test -p kagari --no-default-features --features native --test artifact_features real_cranelift_compiles_portable_artifact_without_source
+```
+
+Structural review: two small production files retain explicit feature-scoped
+imports and private ownership, with no re-exports, new modules or size exceptions.
+Formatting, structure and workspace Clippy (`--workspace --all-targets -- -D warnings`)
+passed. Full-workspace tests and exhaustive feature/platform validation remain
+CI-only and unrun for this working tree.
 
 ## Directory readability follow-up (TP10-TP13)
 

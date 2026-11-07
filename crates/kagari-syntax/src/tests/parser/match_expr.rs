@@ -1,8 +1,14 @@
-use crate::ast::visit::NodeRef;
-
-use crate::ast::views::{ExprView, PatternBoundView};
-
-use crate::{ast::borrow::AstNode, kind::SyntaxKind, tests::common};
+use crate::{
+    ast::{
+        borrow::AstNode,
+        expr::Pattern,
+        site::Required,
+        views::{ExprView, PatternBoundView},
+        visit::NodeRef,
+    },
+    kind::SyntaxKind,
+    tests::common,
+};
 
 #[test]
 fn parses_match_expression_with_simple_patterns() {
@@ -176,6 +182,67 @@ fn struct_pattern_rest_is_local_and_distinct_from_ranges() {
         assert!(!wrapper.has_rest());
         assert_eq!(wrapper.range_inclusive(), None);
         assert!(wrapper.elements().all(|element| element.has_rest()));
+    }
+}
+
+#[test]
+fn invalid_range_starts_preserve_tokens_and_following_arms() {
+    for prefix in [
+        "_",
+        "()",
+        "(1)",
+        "(1, 2)",
+        "(A | B)",
+        "Some(v)",
+        "Point { v }",
+        "Point { .., v }",
+    ] {
+        for operator in ["..", "..="] {
+            let text = format!("fn f() {{ match p {{ {prefix}{operator}3 => 0, _ => 1 }} }}");
+            let parsed = common::parse(&text);
+            assert!(!parsed.diagnostics().is_empty(), "{text}");
+            let module = parsed.module();
+            let root = NodeRef::ModuleBody(module.body());
+            let actual = common::grammar_text(root);
+            let expected = parsed
+                .tokens()
+                .filter(|token| !token.lexical_kind().is_trivia())
+                .map(|token| token.text())
+                .collect::<String>();
+            assert_eq!(actual, expected, "{text}");
+            let range = root
+                .descendants()
+                .find_map(|node| match node {
+                    NodeRef::Pattern(pattern) if matches!(pattern.data(), Pattern::Range(_)) => {
+                        Some(pattern)
+                    }
+                    _ => None,
+                })
+                .expect("expected recovered range");
+            let Pattern::Range(data) = range.data() else {
+                unreachable!()
+            };
+            assert!(matches!(data.start, Required::Missing { .. }));
+            assert!(matches!(data.end, Required::Present(_)));
+            let rejected = range.with(data.as_ref()).unexpected().collect::<Vec<_>>();
+            assert_eq!(rejected.len(), 1);
+            assert_eq!(rejected[0].position().field, "start");
+            assert_eq!(rejected[0].text(), prefix);
+            let match_expr = root
+                .descendants()
+                .find_map(|node| match node {
+                    NodeRef::MatchExpr(expr) => Some(expr),
+                    _ => None,
+                })
+                .unwrap();
+            let arms = match_expr.arms().arms().collect::<Vec<_>>();
+            assert_eq!(arms.len(), 2, "{text}");
+            assert!(matches!(arms[0].expr(), Some(ExprView::Literal(value))
+                if value.text().as_deref() == Some("0")));
+            assert!(arms[1].pattern().unwrap().is_wildcard());
+            assert!(matches!(arms[1].expr(), Some(ExprView::Literal(value))
+                if value.text().as_deref() == Some("1")));
+        }
     }
 }
 

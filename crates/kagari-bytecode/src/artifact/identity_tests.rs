@@ -347,7 +347,11 @@ fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
     .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     assert!(KbcArtifact::from_bytes(&bytes).is_ok());
-    for version in 1..KBC_ARTIFACT_FORMAT_VERSION {
+    for version in [
+        0,
+        KBC_ARTIFACT_FORMAT_VERSION - 1,
+        KBC_ARTIFACT_FORMAT_VERSION + 1,
+    ] {
         let mut old = bytes.clone();
         old[4..6].copy_from_slice(&version.to_le_bytes());
         assert!(KbcArtifact::from_bytes(&old).is_err());

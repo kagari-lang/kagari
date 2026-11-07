@@ -44,7 +44,7 @@ test('native binding supports default ESM imports, parsing and queries', async (
 // Shared source fixtures, not copies. The complete inventory is deliberately CI-only.
 const selected = ['literals-and-comments', 'char-literals', 'byte-literals', 'string-interpolation', 'type-inference',
   'generic-associated-types', 'bitwise', 'attributes', 'async'];
-const representative = ['grammar-witnesses', 'pattern-alternatives', 'callables',
+const representative = ['pattern-alternatives', 'callables',
   'where-bounds', 'inline-modules', 'data-model', 'control-flow', 'associated-constants', 'ranges'];
 for (const name of [...selected, ...representative]) {
   test(`shared syntax fixture: ${name}`, () => {

@@ -134,21 +134,32 @@ test('deploy requires successful build, main, non-PR event and explicit Actions 
     ['github.event_name', '!=', 'pull_request'],
     ['vars.PAGES_DEPLOY_ENABLED', '==', 'true'],
   ]);
-  for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
-    for (const ref of ['refs/heads/main', 'refs/heads/topic', 'refs/pull/7/merge']) {
-      for (const event of ['pull_request', 'push', 'workflow_dispatch']) {
-        for (const enabled of [undefined, '', 'false', 'True', 'TRUE', 'true', ' true ', '1']) {
-          const context = {
-            needs: { build: { result } },
-            github: { ref, event_name: event },
-            vars: { PAGES_DEPLOY_ENABLED: enabled },
-          };
-          assert.equal(canDeploy(clauses, context),
-            result === 'success' && ref === 'refs/heads/main' && event !== 'pull_request' && ['true', 'True', 'TRUE'].includes(enabled),
-            JSON.stringify(context));
-        }
-      }
-    }
+  for (const [overrides, expected] of [
+    [{}, true],
+    [{ enabled: undefined }, false],
+    [{ enabled: '' }, false],
+    [{ enabled: 'false' }, false],
+    [{ enabled: 'True' }, true],
+    [{ enabled: 'TRUE' }, true],
+    [{ enabled: ' true ' }, false],
+    [{ enabled: '1' }, false],
+    [{ event: 'workflow_dispatch' }, true],
+    [{ result: 'failure' }, false],
+    [{ result: 'cancelled' }, false],
+    [{ result: 'skipped' }, false],
+    [{ ref: 'refs/heads/topic' }, false],
+    [{ ref: 'refs/pull/7/merge' }, false],
+    [{ event: 'pull_request' }, false],
+  ]) {
+    const { result, ref, event, enabled } = {
+      result: 'success', ref: 'refs/heads/main', event: 'push', enabled: 'true', ...overrides,
+    };
+    const context = {
+      needs: { build: { result } },
+      github: { ref, event_name: event },
+      vars: { PAGES_DEPLOY_ENABLED: enabled },
+    };
+    assert.equal(canDeploy(clauses, context), expected, JSON.stringify(context));
   }
 });
 
