@@ -1,9 +1,10 @@
 # Kagari language server design
 
-Status: design on 2026-11-07 against `f8fe3486`; Tokio IO, direct use of Lattice's
-local actor kernel and removal of `lsp-server` are selected. This task authorizes design;
-the semantic server phases below are unstarted. The existing stdio server and
-syntax adapters remain implemented. This document owns the proposed LSP scope,
+Status: implementation authorized through LSP04 on 2026-11-07, with a commit at
+each accepted phase. LSP00 is accepted locally; LSP01-LSP04 follow on the same
+`feat/lsp` branch. Later phases remain queued. The Lattice transport foundation
+replaces the original synchronous stdio scaffold; semantic features are not yet
+advertised. This document owns the proposed LSP scope,
 decisions and implementation checkpoints; the [roadmap](implementation-roadmap.md#language-server)
 owns activation. Current contracts remain in [architecture](architecture.md#language-server-foundation),
 the [HIR guide](architecture/hir.md) and [package specification](spec/packages.md).
@@ -29,7 +30,7 @@ codec, JSON-RPC envelopes and LSP request lifecycle. Actor envelopes and JSON-RP
 wire envelopes are distinct: the former belong to Lattice, the latter to Kagari.
 Stdio and single-connection TCP are alternative transports for the same session
 core. The execution model below specifies transport, state and scheduling
-contracts; their implementation is unstarted.
+contracts; the checkpoint section distinguishes implemented owners from queued work.
 
 Design for the complete Kagari editor feature set below, then implement it in
 batches. The pilot delivers five user features: diagnostics, hover, go to
@@ -41,15 +42,15 @@ standalone buffers and generated standard-library navigation share the same core
 References, rename, the other go-to operations, workspace indexes, editing and
 editor presentation are planned parts of this design. They are not advertised
 until their batch passes acceptance. LSP04 is an explicit architecture review
-gate before expansion; LSP06 adds a second gate for workspace edits. This is a
-design scope, not authorization to start implementation or to build every feature
-at once. General incremental compilation and persistent indexes are not required.
+gate before expansion; LSP06 adds a second gate for workspace edits. The authorized
+implementation batch ends at LSP04; later inventory rows are explicit follow-up
+scope. General incremental compilation and persistent indexes are not required.
 
 Performance baselines and fuzz contracts land with the owning phases, starting
 at LSP00. Gate A requires measured pilot results and targeted fuzz evidence;
 gate B adds index/edit workloads and semantic edit fuzzing. Performance targets
 and regression thresholds below are proposed acceptance policy, not measurements
-of the current scaffold or promises established by this design-only change.
+of the current product. Only recorded phase measurements establish evidence.
 
 Automated verification uses semantic-owner tests, an in-process real server,
 independent headless protocol clients and a small real-editor contract suite.
@@ -228,7 +229,7 @@ requires a concrete consumer and moves this boundary rather than wrapping it.
 
 Retain `lsp-types` 0.97.0 until a required protocol feature demonstrates a gap.
 The feature contract targets the supported LSP 3.17 subset, not a claim that 3.17
-is the latest specification. The existing implementation uses `lsp-server` 0.10.0;
+is the latest specification. The original scaffold used `lsp-server` 0.10.0;
 LSP00 replaces its transport, envelope and handshake consumers together, updates
 the existing tests, and removes the dependency. Do not keep two transport stacks
 or retain that crate solely for its small JSON-RPC message structs.
@@ -463,7 +464,7 @@ add their required packages to the lockfile at implementation time.
 | `tokio` 1 | Direct IO/bridge dependency with `rt-multi-thread`, `macros`, `net`, `io-util`, `sync`, `time`; Lattice owns the executor; currently locked at 1.54.1 |
 | `lsp-types` 0.97.0 | Existing protocol parameter/result types, method names and capabilities |
 | `serde` 1 / `serde_json` 1 | Existing typed parameter decoding and JSON envelopes; lock currently resolves 1.0.229 / 1.0.154 |
-| `log` 0.4 | Add direct dependency at LSP00 for structured levels/targets through the bounded sink; already locked at 0.4.34; no blocking default logger |
+| Logging | LSP00 uses an explicit bounded process sink; no unused facade dependency or blocking default logger |
 | `getrandom` 0.4 | Add when opaque result handles arrive in LSP05; OS-random server-instance namespace; already locked at 0.4.3 |
 | `thiserror` 2 | Reuse workspace dependency for typed transport/acquisition/query errors; currently locked at 2.0.21 |
 | `rstest` 0.28 | Existing development dependency; fake workers/streams and real process tests otherwise use standard-library facilities |
@@ -509,7 +510,8 @@ explicit `std::env` parsing with unknown/conflicting options rejected.
 The local Lattice checkout is an inspection/development source, not an absolute
 path to commit into Cargo.toml. Pin the reviewed public Git revision for the
 initial integration; verify its workspace dependencies and Tokio feature resolution
-in LSP00. This document does not change either repository's manifests or source.
+in LSP00. Kagari pins the reviewed revision; the Lattice repository itself is
+not modified by this implementation.
 
 At LSP04, add Microsoft's
 [`vscode-languageclient`](https://github.com/microsoft/vscode-languageserver-node/tree/main/client)
@@ -2644,7 +2646,7 @@ runtime GC and reload ownership are unchanged by the analyzer's Tokio executor.
 
 ## Implementation sequence and acceptance
 
-All phases are unstarted. Update this document at each checkpoint; do not create a
+LSP00 is accepted locally. Update this document at each checkpoint; do not create a
 parallel LSP plan. Each phase must build at its boundary, and only accepted features
 are advertised. No intermediate broken-build allowance is proposed.
 
@@ -2682,6 +2684,75 @@ Verification lands within these phases, without a separate testing backlog:
 
 Reuse passing evidence for unchanged images/contracts. Each row requires its
 listed new boundary, not a rerun of every earlier timing or fuzz matrix.
+
+### Current implementation checkpoint
+
+LSP00 replaces `lsp-server` with the pinned Lattice runtime, typed method
+registration and concrete handlers, a shared bounded codec, async loopback TCP
+and dedicated blocking stdio threads. The library and executable share production
+owners. Request serials survive wire-ID reuse until writer acknowledgement;
+ordinary requests have 64 credits and lifecycle requests have two reserved
+credits. A single acknowledged deadline adapter handles startup, blocked output
+and shutdown deadlines. Output drains before actor stop. Ingress permits survive
+Lattice prefetch; decoded body allocations are dropped before the permit moves
+into dispatch, and bounded logs cannot retain an oversized input allocation.
+
+Source-owned line indexing now treats LF, CRLF and lone CR consistently.
+`SourceFile::line` also supplies CLI diagnostic excerpts so physical source
+coordinates and displayed lines cannot disagree. Over-limit full document updates
+release the current text, mark synchronization unavailable and recover on a later
+valid full update; retained snapshots remain immutable.
+
+A finite sequencing refinement moves concrete acquisition and HIR worker bridges
+into LSP01 and LSP02 respectively, with their first real consumers. LSP00 already
+uses Lattice deferred completion for transport startup/driver reports; it does
+not create unused worker types or a second actor kernel. The codec remains under
+`protocol/codec.rs`, beside envelope validation, because all transport adapters
+consume that IO-independent owner. These changes do not defer any pilot feature
+or acceptance gate.
+
+Selected local evidence: source mixed-newline coordinates and directly
+impacted CLI excerpt rendering pass; protocol/URI cases, request ownership and
+reserved lifecycle admission, bounded document recovery, real-actor memory
+shutdown/drain and blocked-writer tests pass. Real executable stdio, TCP-connect
+and TCP-listen transcripts pass, as do independent Microsoft Node protocol-client
+stdio/TCP witnesses and six benchmark report/input tests. Full workspace tests
+remain CI-only. The nine process cases include an actual blocked stdout pipe
+with input kept open: the write deadline reports the specific failure and the
+owned process exits nonzero within its bound. The warm suite took 5.03 s; the
+independent Node suite took 0.269 s. Structure (1,884 Rust files, zero findings),
+format, workspace all-target Clippy with warnings denied and diff checks pass.
+No implementation build errors are carried into LSP01.
+
+Curated FZ01/FZ02 seed replay passes. Final Windows ASan campaigns completed
+261,928 wire inputs and 117,195 session-owner inputs, 61 s each, without a finding;
+reported peak RSS was 514 MiB and 494 MiB. Seeds were 263841550 and 2293461470.
+Environment: i9-12900K, 24 logical CPUs, Windows 11 Pro 10.0.26300,
+rustc nightly 1.101.0 (249c1e4e3, 2026-11-05), cargo-fuzz 0.13.2, MSVC 14.44 ASan,
+default release profile/build parallelism, one fuzz worker, retained generated
+corpus plus committed seeds, 60 s budget, 64 KiB input limit, 10 s per-input timeout
+and 2 GiB RSS ceiling. Compilation is excluded; concurrent builds prevent using
+campaign throughput as a performance comparison. FZ02 was rebuilt after reserved
+control admission changed the shared owner, and owner hashes matched before/after
+the final run. Its random actions cover ordinary admission; reserved lifecycle
+capacity has a separate deterministic owner test. These campaigns do not establish
+exhaustive schedules or editor correctness. Linux sanitizer and broader platform
+coverage remain CI-only. Commands and oracle limits are in [fuzz/README.md](../fuzz/README.md#lsp-framing-and-lifecycle-targets).
+
+The first frozen B01 protocol-only baseline uses seven fresh processes: spawn to
+initialize median 13.7051 ms (range 13.2404-20.8875 ms), initialize round trip median
+4.2484 ms (range 3.5465-5.2429 ms). This is not a speedup claim or semantic readiness
+measurement. Environment: Windows 11 build 26300, Intel family 6 model 151,
+24 logical CPUs, rustc 1.99.1 (58cf8f9c3), Cargo 1.99.1, default features/build
+parallelism, release profile; OS filesystem cache uncontrolled and power mode
+unreported. The warm build took 0.323 s and is excluded. Source/image/lock/workload
+hashes and raw samples are validated by the runner; the frozen pilot has two
+packages, 20 files, 9,953 lines and 150,197 source bytes. Its generated program
+passes `kg check`; semantic benchmark rows remain explicitly unavailable until
+their owning phases. Reproduce protocol checks with
+`uv run python scripts/benchmark_lsp.py --check --transport stdio` and `--transport tcp`;
+create a new measured archive with `--output target/lsp-benchmark/NAME`, and compare
+an archived image using `--baseline target/lsp-benchmark/BASELINE --output target/lsp-benchmark/NEW`.
 
 ### Gate A: validate the architecture with the pilot
 
@@ -2797,9 +2868,8 @@ git diff --check
 ```
 
 Full workspace tests and complete editor/platform/backend matrices remain CI-only.
-This design-only change requires content, relative-link and diff checks, not Rust
-builds or Clippy. No implementation tests, LSP benchmark measurements or new LSP
-fuzz campaign results are claimed.
+Actual phase evidence is recorded in the current implementation checkpoint. Full CI, platform and long campaign
+coverage is not inferred from local checks.
 
 On completion, move lasting ownership into architecture, protocol behavior into
 its tooling specification and installation details into the editor guide. Move

@@ -1,16 +1,8 @@
-//! Stdio LSP foundation; language analysis and editor highlighting are separate products.
-mod documents;
-mod protocol;
-mod server;
-mod session;
-
-#[cfg(test)]
-mod tests;
-
+//! Executable owner of one language-server process.
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    match server::run_stdio() {
+    match kagari_analyzer::run() {
         Ok(status) => status,
         Err(error) => {
             eprintln!("kagari-analyzer: {error}");

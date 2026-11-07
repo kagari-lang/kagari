@@ -10,8 +10,10 @@ cargo-fuzz = true
 
 [features]
 fuzzing = ["dep:libfuzzer-sys"]
+lsp = ["dep:kagari-analyzer"]
 
 [dependencies]
+kagari-analyzer = { path = "../crates/kagari-analyzer", optional = true, features = ["verification"] }
 kagari-common.workspace = true
 kagari-source.workspace = true
 kagari-syntax.workspace = true
@@ -24,3 +26,19 @@ test = false
 doc = false
 bench = false
 required-features = ["fuzzing"]
+
+[[bin]]
+name = "lsp_wire"
+path = "fuzz_targets/lsp_wire.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing", "lsp"]
+
+[[bin]]
+name = "lsp_session"
+path = "fuzz_targets/lsp_session.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing", "lsp"]

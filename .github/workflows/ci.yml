@@ -38,6 +38,43 @@ jobs:
           path: fuzz/artifacts/syntax/
           if-no-files-found: ignore
 
+  lsp-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lsp_wire, lsp_session]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Replay LSP corpus without sanitizer
+        run: cargo test --locked -p kagari-syntax-fuzz --features lsp --lib lsp_tests::replay_${{ matrix.target }}_seeds
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+
+      - name: Fuzz bounded LSP contracts
+        run: |
+          mkdir -p target/fuzz-corpus/${{ matrix.target }}
+          cargo +nightly fuzz run ${{ matrix.target }} --features fuzzing,lsp target/fuzz-corpus/${{ matrix.target }} fuzz/seeds/${{ matrix.target }} -- -max_total_time=60 -max_len=65536 -timeout=10 -rss_limit_mb=2048
+
+      - name: Upload failing LSP inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}-failures
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
+
   structure:
     runs-on: ubuntu-latest
 
@@ -84,7 +121,7 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Check frontend benchmark tooling
+      - name: Check benchmark tooling
         run: uv run python -m unittest discover -s scripts/tests -p 'test_*benchmark.py'
 
       - name: Check HIR benchmark evidence
@@ -92,6 +129,12 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --no-fail-fast
+
+      - name: Build analyzer process for benchmark correctness
+        run: cargo build --locked -p kagari-analyzer --bin kagari-analyzer
+
+      - name: Check LSP benchmark answers and report schema
+        run: uv run python scripts/benchmark_lsp.py --check --profile dev --candidate target/debug/kagari-analyzer --transport stdio
 
       - name: Upload failing GC operation traces
         if: failure()
@@ -152,6 +195,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Install Rust toolchain for the protocol peer
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
@@ -177,6 +226,14 @@ jobs:
         env:
           PYTHON: ${{ steps.python.outputs.python-path }}
         run: npm ci
+
+      - name: Build analyzer for independent protocol tests
+        run: cargo build --locked -p kagari-analyzer --bin kagari-analyzer
+
+      - name: Test independent Node LSP peer over stdio and TCP
+        env:
+          KAGARI_TEST_ANALYZER: ${{ github.workspace }}/target/debug/kagari-analyzer
+        run: npm run test:lsp
 
       - name: Check generated parser consistency
         run: npm run check:generated
@@ -259,7 +316,7 @@ jobs:
 
       - name: Test Windows analyzer URI and document lifecycle contracts
         timeout-minutes: 5
-        run: cargo test --locked -p kagari-analyzer --bin kagari-analyzer --no-fail-fast
+        run: cargo test --locked -p kagari-analyzer --lib --no-fail-fast
 
       - name: Test Windows analyzer stdio lifecycle and Unicode CRLF input
         timeout-minutes: 5

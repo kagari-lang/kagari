@@ -2414,8 +2414,9 @@ Ordinary reflection stays within declared metadata and member adapters.
 
 ### Language server foundation
 
-`kagari-analyzer` is a binary-only workspace product, launched over stdio with
-`cargo run --locked -p kagari-analyzer` or the built executable. Stdout contains
+`kagari-analyzer` has library and executable targets. The executable defaults to
+`--stdio`; `--tcp-connect ADDRESS` and `--tcp-listen ADDRESS` support a numeric
+loopback address and one session per process. `--version` reports its build. Stdout contains
 only LSP frames; logs/errors use stderr. It advertises UTF-16 positions and
 open/close/full-text synchronization, not diagnostics, semantic IDE queries,
 formatting or editor server-launch integration. Syntax highlighting is a separate
@@ -2423,11 +2424,15 @@ editor-grammar concern. The [editor guide](../editors/README.md) owns installati
 and validation scope; the [roadmap](implementation-roadmap.md#toolchain-distribution-and-modes)
 owns pending CI. The [language-server design](lsp-design.md) owns the full planned
 feature inventory, workspace inputs and editor launch, with a five-feature pilot
-and architecture/edit gates before broader delivery; implementation is unstarted.
+and architecture/edit gates before broader delivery; LSP00 establishes the
+transport foundation and later phases add semantic/editor behavior.
 
 The analyzer depends on source services and protocol/transport libraries, not on
-SDK/runtime execution. `server` drives transport; `session` owns lifecycle and
-capabilities; `protocol` validates URIs; `documents` tracks original URI, language
+SDK/runtime execution. `server` owns one Lattice ActorRuntime and bounded process
+cleanup. Its Tokio executor runs the typed SessionActor, TCP and deadline adapters;
+blocking stdio/logging use dedicated process-owned threads. `session` owns lifecycle,
+request serials, output credits and capabilities; `protocol` validates JSON-RPC,
+bounded Content-Length frames and URIs; `documents` tracks original URI, language
 ID and client version by source-owned FileId. Text, source revisions, overlays and
 retained snapshots remain in `kagari-source`. For example, opening an unsaved
 `untitled:Untitled-1` installs an overlay; a full change replaces its text without

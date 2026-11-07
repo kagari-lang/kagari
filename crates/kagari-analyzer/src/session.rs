@@ -1,220 +1,277 @@
-//! LSP lifecycle, capability publication and ordered document notification dispatch.
-use crate::documents::Documents;
-use kagari_source::source_database::SourceDatabase;
-use lsp_server::{ErrorCode, Message, Notification, Request, Response};
-use lsp_types::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    InitializeParams, InitializeResult, InitializedParams, PositionEncodingKind,
-    ServerCapabilities, ServerInfo, TextDocumentSyncKind, TextDocumentSyncOptions,
-    notification::{
-        DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Exit, Initialized,
-        Notification as NotificationMethod,
+//! Single owner of protocol state; Lattice dispatches concrete feature messages.
+use std::io::Error;
+pub(crate) mod inputs;
+pub(crate) mod lifecycle;
+pub(crate) mod outbox;
+pub(crate) mod requests;
+pub(crate) mod requests_messages;
+pub(crate) mod tasks;
+pub(crate) mod timers;
+#[cfg(any(test, feature = "verification"))]
+pub(crate) mod verification;
+
+use crate::{
+    documents::Documents,
+    logging::LogSink,
+    protocol::{ErrorCode, Message as WireMessage, RequestId, Response, ResponseError},
+    server::{
+        ProcessNotice, ThreadOwners,
+        options::{Endpoint, SessionLimits},
     },
-    request::{Initialize, Request as RequestMethod, Shutdown},
+    session::{
+        outbox::{Outbox, WriteFrame},
+        requests::{AdmissionError, Requests},
+        timers::{Deadline, Timers},
+    },
+    transport::{self, IngressBudget},
 };
-use serde::de::DeserializeOwned;
-use serde_json::{Value, from_value};
-use std::process::ExitCode;
+use kagari_source::source_database::SourceDatabase;
+use lattice_actor::{
+    context::ActorContext,
+    state_machine::Stateless,
+    traits::{Actor, MessageMetadata, MessageOutcome},
+};
+use serde_json::Value;
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+        mpsc::SyncSender,
+    },
+    time::Instant,
+};
+use tokio::sync::{mpsc, watch};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum State {
-    Uninitialized,
-    AwaitingInitialized,
+pub(crate) enum Lifecycle {
+    AwaitInitialize,
+    AwaitInitialized,
     Running,
-    Shutdown,
+    ShuttingDown,
+    AwaitExit,
+    Stopping,
 }
 
-pub(crate) enum Action {
-    None,
-    Reply(Response),
-    Exit(ExitCode),
+pub(crate) struct SessionActor {
+    endpoint: Option<Endpoint>,
+    pub state: Lifecycle,
+    pub documents: Documents,
+    pub limits: SessionLimits,
+    pub requests: Requests,
+    pub outbox: Outbox,
+    pub timers: Timers,
+    timer_receiver: Option<watch::Receiver<Option<Instant>>>,
+    pub writer: mpsc::Sender<WriteFrame>,
+    pub output: Option<mpsc::Receiver<WriteFrame>>,
+    pub budget: IngressBudget,
+    pub stop: watch::Sender<bool>,
+    pub logger: LogSink,
+    pub threads: ThreadOwners,
+    notices: SyncSender<ProcessNotice>,
+    status: Arc<AtomicU8>,
+    pub shutdown_serial: Option<u64>,
+    pub shutdown_written: bool,
+    pub exit_received: bool,
+    writer_ready: bool,
 }
 
-pub(crate) struct Session {
-    state: State,
-    documents: Documents,
-}
-
-impl Session {
-    pub(crate) fn new(source: SourceDatabase) -> Self {
-        Self {
-            state: State::Uninitialized,
-            documents: Documents::new(source),
-        }
+impl SessionActor {
+    pub fn new(
+        endpoint: Endpoint,
+        root: &str,
+        limits: SessionLimits,
+        logger: LogSink,
+        threads: ThreadOwners,
+        notices: SyncSender<ProcessNotice>,
+        status: Arc<AtomicU8>,
+    ) -> io::Result<Self> {
+        let (writer, output) = mpsc::channel(1);
+        let (stop, _) = watch::channel(false);
+        let (timers, timer_receiver) = Timers::new();
+        let documents = Documents::new(
+            SourceDatabase::new(root).map_err(Error::other)?,
+            limits.clone(),
+        );
+        Ok(Self {
+            endpoint: Some(endpoint),
+            state: Lifecycle::AwaitInitialize,
+            documents,
+            requests: Requests::new(limits.requests),
+            outbox: Outbox::new(limits.clone()),
+            budget: IngressBudget::new(&limits),
+            limits,
+            timers,
+            timer_receiver: Some(timer_receiver),
+            writer,
+            output: Some(output),
+            stop,
+            logger,
+            threads,
+            notices,
+            status,
+            shutdown_serial: None,
+            shutdown_written: false,
+            exit_received: false,
+            writer_ready: false,
+        })
     }
 
-    pub(crate) fn handle(&mut self, message: Message) -> Action {
-        match message {
-            Message::Request(request) => Action::Reply(self.request(request)),
-            Message::Notification(notification) => self.notification(notification),
-            Message::Response(response) => {
-                eprintln!(
-                    "kagari-analyzer: unexpected client response {}",
-                    response.id
-                );
-                Action::None
-            }
-        }
-    }
-
-    fn request(&mut self, request: Request) -> Response {
-        let reject = |code: ErrorCode, message: &str| {
-            Response::new_err(request.id.clone(), code as i32, message.into())
-        };
-        if self.state == State::Shutdown {
-            return reject(ErrorCode::InvalidRequest, "server has shut down");
-        }
-        if request.method == Initialize::METHOD {
-            if self.state != State::Uninitialized {
-                return reject(ErrorCode::InvalidRequest, "server is already initialized");
-            }
-            if let Err(error) = decode::<InitializeParams>(request.params.clone()) {
-                return reject(ErrorCode::InvalidParams, &error);
-            }
-            self.state = State::AwaitingInitialized;
-            return Response::new_ok(request.id, capabilities());
-        }
-        if matches!(
-            self.state,
-            State::Uninitialized | State::AwaitingInitialized
-        ) {
-            return reject(ErrorCode::ServerNotInitialized, "server is not initialized");
-        }
-        if request.method == Shutdown::METHOD {
-            if let Err(error) = decode::<()>(request.params.clone()) {
-                return reject(ErrorCode::InvalidParams, &error);
-            }
-            self.state = State::Shutdown;
-            return Response::new_ok(request.id, ());
-        }
-        reject(ErrorCode::MethodNotFound, "unsupported request")
-    }
-
-    fn notification(&mut self, notification: Notification) -> Action {
-        if notification.method == Exit::METHOD {
-            let valid = decode::<()>(notification.params).is_ok();
-            let orderly = valid && self.state == State::Shutdown;
-            if !orderly {
-                eprintln!("kagari-analyzer: exit requires a completed shutdown and no parameters");
-            }
-            return Action::Exit(if orderly {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::FAILURE
-            });
-        }
-        let result = if notification.method == Initialized::METHOD {
-            self.initialized(notification.params)
-        } else if self.state != State::Running {
-            Err("notification outside the running session".into())
+    pub fn admit(
+        &mut self,
+        ctx: &mut ActorContext<Self>,
+        id: RequestId,
+        method: &str,
+    ) -> Option<u64> {
+        let admitted = if matches!(method, "initialize" | "shutdown") {
+            self.requests.admit_control(id.clone(), method.to_owned())
         } else {
-            self.document_notification(&notification.method, notification.params)
+            self.requests.admit(id.clone(), method.to_owned())
         };
-        if let Err(error) = result {
-            eprintln!("kagari-analyzer: ignored {}: {error}", notification.method);
+        match admitted {
+            Ok(serial) => Some(serial),
+            Err(AdmissionError::Full) => {
+                let result = self.outbox.push(
+                    Response::new_err(
+                        id,
+                        ErrorCode::RequestFailed as i32,
+                        "request capacity exhausted".into(),
+                    )
+                    .into(),
+                    None,
+                    4096,
+                );
+                if let Err(error) = result {
+                    self.fail(ctx, error.to_string());
+                }
+                None
+            }
+            Err(error) => {
+                self.fail(ctx, format!("request admission failed: {error:?}"));
+                None
+            }
         }
-        Action::None
     }
 
-    fn initialized(&mut self, params: Value) -> Result<(), String> {
-        if self.state != State::AwaitingInitialized {
-            return Err("unexpected initialized notification".into());
+    pub fn finish(&mut self, serial: u64, outcome: Result<Value, ResponseError>) -> io::Result<()> {
+        if let Some(id) = self.requests.terminal(serial) {
+            self.outbox.push(
+                WireMessage::Response(Response {
+                    id: Some(id),
+                    response_result: outcome,
+                }),
+                Some(serial),
+                4096,
+            )?;
         }
-        decode::<InitializedParams>(params)?;
-        self.state = State::Running;
         Ok(())
     }
 
-    fn document_notification(&mut self, method: &str, params: Value) -> Result<(), String> {
-        match method {
-            DidOpenTextDocument::METHOD => self
-                .documents
-                .open(decode::<DidOpenTextDocumentParams>(params)?),
-            DidChangeTextDocument::METHOD => self
-                .documents
-                .change(decode::<DidChangeTextDocumentParams>(params)?),
-            DidCloseTextDocument::METHOD => self
-                .documents
-                .close(decode::<DidCloseTextDocumentParams>(params)?),
-            _ if method.starts_with("$/") => Ok(()),
-            _ => Err("unsupported notification".into()),
+    pub fn reject(&mut self, serial: u64, code: ErrorCode, message: &str) -> io::Result<()> {
+        self.finish(
+            serial,
+            Err(ResponseError {
+                code: code as i32,
+                message: message.into(),
+                data: None,
+            }),
+        )
+    }
+
+    pub fn require_running(&mut self, serial: u64) -> io::Result<bool> {
+        if self.state == Lifecycle::Running {
+            return Ok(true);
         }
-    }
-}
-
-fn decode<T: DeserializeOwned>(params: Value) -> Result<T, String> {
-    from_value(params).map_err(|error| format!("invalid parameters: {error}"))
-}
-
-fn capabilities() -> InitializeResult {
-    InitializeResult {
-        capabilities: ServerCapabilities {
-            position_encoding: Some(PositionEncodingKind::UTF16),
-            text_document_sync: Some(
-                TextDocumentSyncOptions {
-                    open_close: Some(true),
-                    change: Some(TextDocumentSyncKind::FULL),
-                    ..Default::default()
-                }
-                .into(),
-            ),
-            ..Default::default()
-        },
-        server_info: Some(ServerInfo {
-            name: "kagari-analyzer".into(),
-            version: Some(env!("CARGO_PKG_VERSION").into()),
-        }),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn request(session: &mut Session, method: &str, params: Value) -> Response {
-        let Action::Reply(response) =
-            session.handle(Request::new(1.into(), method.into(), params).into())
-        else {
-            panic!("request must receive a response");
+        let (code, message) = if matches!(
+            self.state,
+            Lifecycle::AwaitInitialize | Lifecycle::AwaitInitialized
+        ) {
+            (ErrorCode::ServerNotInitialized, "server is not initialized")
+        } else {
+            (ErrorCode::InvalidRequest, "server has shut down")
         };
-        response
+        self.reject(serial, code, message)?;
+        Ok(false)
     }
 
-    fn notify(session: &mut Session, method: &str, params: Value) -> Action {
-        session.handle(Notification::new(method.into(), params).into())
+    pub fn fail(&mut self, ctx: &mut ActorContext<Self>, message: String) {
+        if self.state == Lifecycle::Stopping {
+            return;
+        }
+        self.logger.write(message);
+        self.status.store(1, Ordering::Release);
+        self.stop(ctx);
     }
 
-    fn code(response: Response) -> i32 {
-        response.response_result.unwrap_err().code
+    fn stop(&mut self, ctx: &mut ActorContext<Self>) {
+        self.state = Lifecycle::Stopping;
+        self.budget.close();
+        self.stop.send_replace(true);
+        for serial in self.requests.unresolved() {
+            if let Some(token) = self.requests.token(serial) {
+                token.cancel();
+            }
+        }
+        let _ = self.notices.try_send(ProcessNotice::Cleanup);
+        ctx.request_stop();
     }
 
-    #[test]
-    fn invalid_initialized_notifications_do_not_advance_the_session() {
-        let mut session = Session::new(SourceDatabase::new("c:/project").unwrap());
-        assert!(matches!(
-            notify(&mut session, "initialized", json!({})),
-            Action::None
-        ));
+    pub fn begin_exit(&mut self) {
+        self.exit_received = true;
+        self.timers
+            .set(Deadline::Cleanup, Instant::now() + self.limits.cleanup);
+        let _ = self.notices.try_send(ProcessNotice::Cleanup);
+    }
 
-        assert!(
-            request(&mut session, "initialize", json!({"capabilities": {}}))
-                .response_result
-                .is_ok()
-        );
+    fn schedule(&mut self, ctx: &mut ActorContext<Self>) -> io::Result<()> {
+        if self.state == Lifecycle::Stopping {
+            return Ok(());
+        }
+        if self.writer_ready
+            && let Some(frame) = self.outbox.grant()
+        {
+            self.timers
+                .set(Deadline::Write, Instant::now() + self.limits.write);
+            self.writer
+                .try_send(frame)
+                .map_err(|_| Error::other("writer credit invariant violated"))?;
+        }
+        if self.exit_received && self.shutdown_written && self.outbox.is_empty() {
+            self.status.store(0, Ordering::Release);
+            self.stop(ctx);
+        }
+        Ok(())
+    }
+}
 
-        assert!(matches!(
-            notify(&mut session, "initialized", Value::Null),
-            Action::None
-        ));
-        assert_eq!(
-            code(request(&mut session, "custom/request", Value::Null)),
-            -32002
-        );
-        notify(&mut session, "initialized", json!({}));
-        assert_eq!(
-            code(request(&mut session, "custom/request", Value::Null)),
-            -32601
-        );
+impl Actor for SessionActor {
+    type Error = io::Error;
+    type Behavior = Stateless;
+
+    async fn started(&mut self, ctx: &mut ActorContext<Self>) -> io::Result<()> {
+        timers::start(ctx, self.timer_receiver.take().expect("single startup"));
+        self.timers
+            .set(Deadline::Initialize, Instant::now() + self.limits.startup);
+        transport::prepare(
+            ctx,
+            self.endpoint.take().expect("single endpoint startup"),
+            self.logger.clone(),
+            &self.limits,
+        )
+    }
+
+    fn after_message(
+        &mut self,
+        ctx: &mut ActorContext<Self>,
+        _: &MessageMetadata,
+        outcome: MessageOutcome,
+    ) {
+        if outcome != MessageOutcome::Handled {
+            self.fail(ctx, format!("session dispatch failed: {outcome:?}"));
+            return;
+        }
+        if let Err(error) = self.schedule(ctx) {
+            self.fail(ctx, error.to_string());
+        }
     }
 }

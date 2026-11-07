@@ -1,0 +1,29 @@
+pub trait Metric {
+    fn value(self) -> i32 {
+        7
+    }
+}
+
+pub struct Counter {
+    pub val current: i32
+}
+
+impl Metric for Counter {
+    fn value(self) -> i32 {
+        self.current
+    }
+}
+
+pub struct DefaultCounter {}
+
+impl Metric for DefaultCounter {}
+
+pub struct Box<T> {
+    pub val inner: T
+}
+
+impl<T> Metric for Box<T> {}
+
+pub fn default_value() -> i32 {
+    7
+}

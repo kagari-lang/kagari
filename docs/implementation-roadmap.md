@@ -507,8 +507,8 @@ separately proposed debug/DAP modes.
 
 ## Language server
 
-The [LSP design](lsp-design.md) proposes extending the existing stdio analyzer
-through LSP00-LSP08. Design is authorized; implementation is unstarted. Its full
+The [LSP design](lsp-design.md) owns LSP00-LSP08. Implementation through LSP04 is
+authorized on `feat/lsp`, with phase commits; LSP00 is accepted locally. Its full
 feature inventory includes definition/declaration/type/implementation navigation,
 references, rename, symbols, completion, diagnostics, source edits, semantic
 presentation and workspace/client lifecycle. The LSP00-LSP04 pilot delivers five
@@ -525,7 +525,8 @@ performance/fuzz evidence; gate B adds semantic edit evidence. Existing HIR
 benchmark and cargo-fuzz infrastructure remain the owners of reusable tooling.
 LSP00 introduces library and executable targets in the same analyzer crate so
 verification consumes production code, with a non-default narrow verification
-surface. No LSP benchmark results or new LSP fuzz campaigns are claimed yet.
+surface. Phase-specific local tests, protocol benchmark measurements and bounded
+fuzz evidence are recorded in the active design checkpoint.
 The test architecture places semantic combinations at their source/HIR owners,
 most wire/lifecycle behavior in a real in-process server harness, interoperability
 in selected real-process/headless-client cases, and editor-specific behavior in a

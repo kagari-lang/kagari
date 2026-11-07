@@ -1,0 +1,14 @@
+use api::Metric as Measure;
+
+pub fn read(counter: api::Counter) -> i32 {
+    counter.value()
+}
+
+pub fn baseline() -> i32 {
+    val value = api::default_value();
+    value
+}
+
+pub fn unicode() -> String {
+    "你好😀"
+}

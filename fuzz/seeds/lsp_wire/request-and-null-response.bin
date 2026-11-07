@@ -1,0 +1,5 @@
+Content-Length: 81
+
+{"jsonrpc":"2.0","id":"pilot","method":"initialize","params":{"capabilities":{}}}Content-Length: 38
+
+{"jsonrpc":"2.0","id":1,"result":null}

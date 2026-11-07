@@ -748,16 +748,53 @@ mod tests {
     }
 
     #[test]
-    fn unicode_positions_reject_partial_codepoints_and_crlf() {
-        let source = SourceFile::new("unicode", "中😀x\r\n后\n");
-        for encoding in [PositionEncoding::Utf8, PositionEncoding::Utf16] {
-            for offset in [0, 3, 7, 8, 10, 13, 14] {
-                let position = source.position(offset, encoding).unwrap();
+    fn unicode_positions_preserve_mixed_newlines_and_reject_split_scalars() {
+        // Deliberate byte-sensitive input: CRLF, LF, adjacent CR and final CR.
+        let text = "中😀x\r\n后\n\r\r\n末\r";
+        let source = SourceFile::new("unicode", text);
+        for (encoding, expected) in [
+            (
+                PositionEncoding::Utf8,
+                [(0, 0), (0, 3), (0, 7), (0, 8), (1, 3), (4, 3)],
+            ),
+            (
+                PositionEncoding::Utf16,
+                [(0, 0), (0, 1), (0, 3), (0, 4), (1, 1), (4, 1)],
+            ),
+        ] {
+            for (offset, (line, character)) in [0, 3, 7, 8, 13, 20].into_iter().zip(expected) {
+                let position = Position { line, character };
+                assert_eq!(source.position(offset, encoding), Some(position));
+                assert_eq!(source.offset(position, encoding), Some(offset));
+            }
+            for (offset, line, character) in
+                [(10, 1, 0), (14, 2, 0), (15, 3, 0), (17, 4, 0), (21, 5, 0)]
+            {
+                let position = Position { line, character };
+                assert_eq!(source.position(offset, encoding), Some(position));
                 assert_eq!(source.offset(position, encoding), Some(offset));
             }
             assert!(source.position(9, encoding).is_none());
+            assert!(source.position(16, encoding).is_none());
             assert!(source.position(2, encoding).is_none());
+            assert!(source.position(text.len() + 1, encoding).is_none());
+            assert!(
+                source
+                    .offset(
+                        Position {
+                            line: 6,
+                            character: 0
+                        },
+                        encoding
+                    )
+                    .is_none()
+            );
         }
+        assert_eq!(source.text(), text);
+        for (line, expected) in ["中😀x", "后", "", "", "末", ""].into_iter().enumerate() {
+            assert_eq!(source.line(line), Some(expected));
+        }
+        assert_eq!(source.line(6), None);
         assert!(
             source
                 .offset(

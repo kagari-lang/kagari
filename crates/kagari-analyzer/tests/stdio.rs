@@ -1,191 +1,398 @@
 use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
     io::{self, BufRead, BufReader, Read, Write},
-    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
-    sync::mpsc::{self, Receiver},
-    thread,
+    net::{Shutdown, SocketAddr, TcpListener, TcpStream},
+    process::{Child, Command, ExitStatus, Stdio},
+    sync::mpsc::{self, Receiver, SyncSender},
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-use lsp_server::{Message, Notification, Request};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 const MAX_HEADER_BYTES: usize = 8 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
+const MAX_PENDING: usize = 64;
+const MAX_HISTORY: usize = 32;
+
+#[derive(Clone, Copy, Debug)]
+enum Transport {
+    Stdio,
+    TcpConnect,
+    TcpListen,
+}
+
+struct PendingChild(Option<Child>);
+
+impl Drop for PendingChild {
+    fn drop(&mut self) {
+        if let Some(child) = &mut self.0 {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
 
 struct Server {
     child: Child,
-    stdin: Option<ChildStdin>,
-    stdout: Receiver<io::Result<Option<Value>>>,
+    input: Option<Box<dyn Write + Send>>,
+    socket: Option<TcpStream>,
+    output: Receiver<io::Result<Option<Value>>>,
+    read_grant: Option<SyncSender<()>>,
     stderr: Receiver<io::Result<Vec<u8>>>,
+    auxiliary_stdout: Option<Receiver<io::Result<Vec<u8>>>>,
+    threads: Vec<JoinHandle<()>>,
+    outstanding: BTreeSet<String>,
+    responses: BTreeMap<String, Value>,
+    notifications: VecDeque<Value>,
+    history: VecDeque<Value>,
 }
 
 impl Server {
-    fn spawn() -> Self {
-        let (stdout_tx, stdout) = mpsc::channel();
-        let (stderr_tx, stderr) = mpsc::channel();
-        let mut server = Self {
-            child: Command::new(env!("CARGO_BIN_EXE_kagari-analyzer"))
+    fn spawn(transport: Transport) -> Self {
+        let listener = match transport {
+            Transport::Stdio => None,
+            Transport::TcpConnect | Transport::TcpListen => {
+                Some(TcpListener::bind("127.0.0.1:0").expect("reserve loopback address"))
+            }
+        };
+        let address = listener
+            .as_ref()
+            .map(|listener| listener.local_addr().unwrap());
+        let mut command = Command::new(env!("CARGO_BIN_EXE_kagari-analyzer"));
+        match transport {
+            Transport::Stdio => {
+                command.arg("--stdio");
+            }
+            Transport::TcpConnect => {
+                command.args(["--tcp-connect", &address.unwrap().to_string()]);
+            }
+            Transport::TcpListen => {
+                command.args(["--tcp-listen", &address.unwrap().to_string()]);
+            }
+        }
+        // The listener adapter needs to bind the selected address itself.
+        let listener = if matches!(transport, Transport::TcpListen) {
+            drop(listener);
+            None
+        } else {
+            listener
+        };
+        let mut pending = PendingChild(Some(
+            command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
                 .expect("spawn kagari-analyzer"),
-            stdin: None,
-            stdout,
-            stderr,
+        ));
+        let child = pending.0.as_mut().unwrap();
+        let stdout = child.stdout.take().expect("child stdout");
+        let stderr = child.stderr.take().expect("child stderr");
+        let mut threads = Vec::new();
+        let (stderr_tx, stderr_rx) = mpsc::sync_channel(1);
+        threads.push(thread::spawn(move || {
+            let _ = stderr_tx.send(drain_output(stderr));
+        }));
+        let mut auxiliary_stdout = None;
+        let mut socket = None;
+        let (input, reader): (Box<dyn Write + Send>, Box<dyn Read + Send>) = match transport {
+            Transport::Stdio => (Box::new(child.stdin.take().unwrap()), Box::new(stdout)),
+            Transport::TcpConnect | Transport::TcpListen => {
+                drop(child.stdin.take());
+                let stream = match listener {
+                    Some(listener) => accept(&listener, child),
+                    None => connect(address.unwrap(), child),
+                };
+                // Windows can inherit the listener's nonblocking mode on accept.
+                stream.set_nonblocking(false).unwrap();
+                stream.set_read_timeout(Some(TIMEOUT)).unwrap();
+                stream.set_write_timeout(Some(TIMEOUT)).unwrap();
+                stream.set_nodelay(true).unwrap();
+                socket = Some(stream.try_clone().unwrap());
+                let (tx, rx) = mpsc::sync_channel(1);
+                auxiliary_stdout = Some(rx);
+                threads.push(thread::spawn(move || {
+                    let _ = tx.send(drain_output(stdout));
+                }));
+                (Box::new(stream.try_clone().unwrap()), Box::new(stream))
+            }
         };
-        server.stdin = server.child.stdin.take();
-        let stdout = server.child.stdout.take().expect("child stdout");
-        let stderr = server.child.stderr.take().expect("child stderr");
-        thread::spawn(move || {
-            let mut reader = BufReader::new(stdout);
-            loop {
+        let (output_tx, output) = mpsc::sync_channel(32);
+        let (read_grant, permits) = mpsc::sync_channel(1);
+        threads.push(thread::spawn(move || {
+            let mut reader = BufReader::new(reader);
+            while permits.recv().is_ok() {
                 let frame = read_frame(&mut reader);
                 let finished = !matches!(&frame, Ok(Some(_)));
-                if stdout_tx.send(frame).is_err() || finished {
+                if output_tx.send(frame).is_err() || finished {
                     break;
                 }
             }
-        });
-        thread::spawn(move || {
-            let _ = stderr_tx.send(drain_stderr(stderr));
-        });
-        server
+        }));
+        Self {
+            child: pending.0.take().unwrap(),
+            input: Some(input),
+            socket,
+            output,
+            read_grant: Some(read_grant),
+            stderr: stderr_rx,
+            auxiliary_stdout,
+            threads,
+            outstanding: BTreeSet::new(),
+            responses: BTreeMap::new(),
+            notifications: VecDeque::new(),
+            history: VecDeque::new(),
+        }
     }
 
-    fn send(&mut self, message: Message) {
-        let mut bytes = Vec::new();
-        message.write(&mut bytes).expect("encode LSP message");
-        // Keep writes below pipe capacity; responses/barriers bound queued input.
-        assert!(bytes.len() < 4096, "test input must remain small");
+    fn send(&mut self, message: Value) {
+        let body = serde_json::to_vec(&message).unwrap();
+        let header = format!("Content-Length: {}\r\n\r\n", body.len());
+        let bytes = [header.as_bytes(), &body].concat();
+        assert!(
+            bytes.len() < 4096,
+            "test input must remain below pipe capacity"
+        );
         self.write_raw(&bytes);
     }
 
     fn write_raw(&mut self, bytes: &[u8]) {
-        let stdin = self.stdin.as_mut().expect("stdin is still open");
-        stdin.write_all(bytes).expect("write child stdin");
-        stdin.flush().expect("flush child stdin");
+        let input = self.input.as_mut().expect("input is still open");
+        input.write_all(bytes).expect("write analyzer input");
+        input.flush().expect("flush analyzer input");
     }
 
-    fn request(&mut self, id: i32, method: &str, params: Value) {
-        self.send(Message::Request(Request::new(
-            id.into(),
-            method.to_owned(),
-            params,
-        )));
+    fn request(&mut self, id: Value, method: &str, params: Value) {
+        assert!(self.outstanding.len() < MAX_PENDING);
+        assert!(
+            self.outstanding.insert(id.to_string()),
+            "duplicate client request ID"
+        );
+        self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
     }
 
     fn notify(&mut self, method: &str, params: Value) {
-        self.send(Message::Notification(Notification::new(
-            method.to_owned(),
-            params,
-        )));
+        self.send(json!({"jsonrpc": "2.0", "method": method, "params": params}));
     }
 
-    fn output(&self) -> Option<Value> {
-        self.stdout
-            .recv_timeout(TIMEOUT)
-            .expect("timed out or reader stopped while awaiting stdout")
-            .expect("stdout must contain only complete Content-Length-framed JSON")
+    fn receive(&mut self, deadline: Instant) -> Option<Value> {
+        self.read_grant
+            .as_ref()
+            .unwrap()
+            .send(())
+            .expect("peer reader is live");
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        let frame = self
+            .output
+            .recv_timeout(timeout)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "waiting for analyzer output: {error}; recent frames: {:?}",
+                    self.history
+                )
+            })
+            .expect("complete Content-Length-framed JSON output");
+        if let Some(frame) = &frame {
+            assert_eq!(frame["jsonrpc"], "2.0", "{frame}");
+            if self.history.len() == MAX_HISTORY {
+                self.history.pop_front();
+            }
+            self.history.push_back(frame.clone());
+        }
+        frame
     }
 
-    fn result(&self, id: i32) -> Value {
-        let response = self.output().expect("response before stdout EOF");
+    fn dispatch(&mut self, frame: Value) {
+        if let Some(method) = frame.get("method") {
+            assert!(method.is_string(), "method is a string: {frame}");
+            assert!(frame.get("result").is_none() && frame.get("error").is_none());
+            if let Some(id) = frame.get("id") {
+                let result = match method.as_str().unwrap() {
+                    "window/workDoneProgress/create" => Value::Null,
+                    "workspace/configuration" => {
+                        let items = frame["params"]["items"].as_array().unwrap();
+                        Value::Array(items.iter().map(|_| Value::Null).collect())
+                    }
+                    "workspace/workspaceFolders" => Value::Null,
+                    unexpected => panic!("unconfigured server request {unexpected}: {frame}"),
+                };
+                self.send(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+            } else {
+                assert!(
+                    self.notifications.len() < 128,
+                    "notification budget exceeded"
+                );
+                self.notifications.push_back(frame);
+            }
+            return;
+        }
+        let id = frame.get("id").expect("response has an ID").to_string();
+        assert!(
+            self.outstanding.contains(&id),
+            "unsolicited or duplicate reply: {frame}"
+        );
+        assert_ne!(frame.get("result").is_some(), frame.get("error").is_some());
+        assert!(
+            self.responses.insert(id, frame).is_none(),
+            "duplicate pending reply"
+        );
+    }
+
+    fn response(&mut self, id: Value) -> Value {
+        let key = id.to_string();
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            if let Some(response) = self.responses.remove(&key) {
+                assert!(self.outstanding.remove(&key));
+                return response;
+            }
+            let frame = self.receive(deadline).expect("response before output EOF");
+            self.dispatch(frame);
+        }
+    }
+
+    fn result(&mut self, id: Value) -> Value {
+        let response = self.response(id.clone());
         let result = response
             .get("result")
             .expect("successful response has a result")
             .clone();
         assert_eq!(
             response,
-            json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            "expected exactly this response, not a notification or another request's reply"
+            json!({"jsonrpc": "2.0", "id": id, "result": result})
         );
         result
     }
 
-    fn error(&self, id: i32, code: i32) {
-        let response = self.output().expect("error response before stdout EOF");
-        let message = response["error"]["message"]
-            .as_str()
-            .filter(|message| !message.is_empty())
-            .expect("error response has a nonempty message");
-        assert_eq!(
-            response,
-            json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "error": {"code": code, "message": message}
-            })
+    fn error(&mut self, id: Value, code: i32) {
+        let response = self.response(id.clone());
+        assert_eq!(response["id"], id);
+        assert_eq!(response["error"]["code"], code, "{response}");
+        assert!(
+            response["error"]["message"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty())
         );
+        assert!(response.get("result").is_none());
     }
 
-    fn initialize(&mut self, id: i32) {
-        self.request(id, "initialize", initialize_params());
+    fn initialize(&mut self, id: Value) {
+        self.request(id.clone(), "initialize", initialize_params());
         let result = self.result(id);
+        assert_eq!(result["capabilities"]["positionEncoding"], "utf-16");
         assert_eq!(
-            result["capabilities"],
-            json!({
-                "positionEncoding": "utf-16",
-                "textDocumentSync": {"openClose": true, "change": 1}
-            }),
-            "advertise only UTF-16 positions and implemented full-document synchronization"
+            result["capabilities"]["textDocumentSync"]["openClose"],
+            true
+        );
+        assert_eq!(result["capabilities"]["textDocumentSync"]["change"], 1);
+        assert_eq!(result["serverInfo"]["name"], "kagari-analyzer");
+        assert!(
+            result["serverInfo"]["version"]
+                .as_str()
+                .is_some_and(|version| !version.is_empty())
         );
         self.notify("initialized", json!({}));
     }
 
-    fn shutdown(&mut self, id: i32) {
-        self.request(id, "shutdown", Value::Null);
+    fn shutdown(&mut self, id: Value) {
+        self.request(id.clone(), "shutdown", Value::Null);
         assert_eq!(self.result(id), Value::Null);
     }
 
     fn finish(&mut self, expected_code: Option<i32>) {
-        let status = self.wait();
-        let stderr = self
-            .stderr
-            .recv_timeout(TIMEOUT)
-            .expect("timed out or reader stopped while draining stderr")
-            .expect("read child stderr");
-        assert_eq!(
-            self.output(),
-            None,
-            "unexpected trailing protocol output; stderr: {}",
-            String::from_utf8_lossy(&stderr)
+        let deadline = Instant::now() + TIMEOUT;
+        while let Some(frame) = self.receive(deadline) {
+            self.dispatch(frame);
+        }
+        assert!(
+            self.outstanding.is_empty(),
+            "requests without terminal replies"
         );
+        assert!(self.responses.is_empty(), "unconsumed replies");
+        let status = wait(&mut self.child, deadline);
+        let stderr = self.stderr.recv_timeout(TIMEOUT).unwrap().unwrap();
+        if let Some(stdout) = &self.auxiliary_stdout {
+            assert!(
+                stdout.recv_timeout(TIMEOUT).unwrap().unwrap().is_empty(),
+                "TCP mode wrote stdout"
+            );
+        }
+        let stderr = String::from_utf8_lossy(&stderr);
         match expected_code {
-            Some(code) => assert_eq!(
-                status.code(),
-                Some(code),
-                "unexpected exit status; stderr: {}",
-                String::from_utf8_lossy(&stderr)
-            ),
+            Some(code) => assert_eq!(status.code(), Some(code), "stderr: {stderr}"),
             None => assert!(
                 !status.success(),
-                "unexpected successful exit; stderr: {}",
-                String::from_utf8_lossy(&stderr)
+                "unexpected successful exit; stderr: {stderr}"
             ),
         }
-    }
-
-    fn wait(&mut self) -> ExitStatus {
-        let deadline = Instant::now() + TIMEOUT;
-        loop {
-            if let Some(status) = self.child.try_wait().expect("poll child status") {
-                return status;
-            }
-            assert!(Instant::now() < deadline, "analyzer did not exit in time");
-            thread::sleep(Duration::from_millis(10));
+        drop(self.input.take());
+        for worker in self.threads.drain(..) {
+            worker.join().expect("peer reader must not panic");
         }
     }
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
-        // Also runs during assertion failures and timeouts; never leave a child behind.
-        drop(self.stdin.take());
+        drop(self.read_grant.take());
+        drop(self.input.take());
         let _ = self.child.kill();
         let _ = self.child.wait();
+        // A failed assertion can leave the bounded reader parked on send. Dropping
+        // the receiver during unwind releases it; never block Drop on that sender.
+    }
+}
+
+fn accept(listener: &TcpListener, child: &mut Child) -> TcpStream {
+    listener.set_nonblocking(true).unwrap();
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => return stream,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+            Err(error) => panic!("accept analyzer connection: {error}"),
+        }
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "analyzer exited before connecting"
+        );
+        assert!(Instant::now() < deadline, "analyzer did not connect");
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn connect(address: SocketAddr, child: &mut Child) -> TcpStream {
+    let deadline = Instant::now() + TIMEOUT;
+    loop {
+        match TcpStream::connect_timeout(&address, Duration::from_millis(50)) {
+            Ok(stream) => return stream,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::ConnectionRefused | io::ErrorKind::TimedOut
+                ) => {}
+            Err(error) => panic!("connect to analyzer: {error}"),
+        }
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "analyzer exited before listening"
+        );
+        assert!(Instant::now() < deadline, "analyzer did not listen");
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn wait(child: &mut Child, deadline: Instant) -> ExitStatus {
+    loop {
+        if let Some(status) = child.try_wait().expect("poll child status") {
+            return status;
+        }
+        assert!(Instant::now() < deadline, "analyzer did not exit in time");
+        thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -193,9 +400,7 @@ fn initialize_params() -> Value {
     json!({
         "processId": null,
         "rootUri": null,
-        "capabilities": {
-            "general": {"positionEncodings": ["utf-8", "utf-16", "utf-32"]}
-        }
+        "capabilities": {"general": {"positionEncodings": ["utf-8", "utf-16", "utf-32"]}}
     })
 }
 
@@ -203,8 +408,8 @@ fn invalid_output(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-// Parse framing strictly so logs, partial headers/bodies and trailing bytes cannot
-// disappear behind a permissive line reader or a JSON-only response assertion.
+// Independent literal framing oracle: this intentionally does not call the
+// production codec, so shared encoder/decoder mistakes cannot validate themselves.
 fn read_frame(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
     let mut header_bytes = 0;
     let mut content_length = None;
@@ -217,7 +422,7 @@ fn read_frame(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
             return if header_bytes == 0 {
                 Ok(None)
             } else {
-                Err(invalid_output("stdout ended inside an LSP header"))
+                Err(invalid_output("EOF inside header"))
             };
         }
         header_bytes += count;
@@ -229,10 +434,13 @@ fn read_frame(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
         }
         let (name, value) = line[..line.len() - 2]
             .split_once(':')
-            .ok_or_else(|| invalid_output("non-header text on stdout"))?;
+            .ok_or_else(|| invalid_output("non-header text on protocol stream"))?;
         if name.eq_ignore_ascii_case("Content-Length") {
             let value = value.trim();
-            if content_length.is_some() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+            if content_length.is_some()
+                || value.is_empty()
+                || !value.bytes().all(|byte| byte.is_ascii_digit())
+            {
                 return Err(invalid_output("invalid or duplicate Content-Length"));
             }
             content_length = Some(
@@ -241,7 +449,9 @@ fn read_frame(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
                     .map_err(|_| invalid_output("invalid Content-Length"))?,
             );
         } else if !name.eq_ignore_ascii_case("Content-Type") {
-            return Err(invalid_output("unexpected header or log on stdout"));
+            return Err(invalid_output(
+                "unexpected header or log on protocol stream",
+            ));
         }
     }
     let length = content_length.ok_or_else(|| invalid_output("missing Content-Length"))?;
@@ -255,7 +465,7 @@ fn read_frame(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
-fn drain_stderr(mut reader: impl Read) -> io::Result<Vec<u8>> {
+fn drain_output(mut reader: impl Read) -> io::Result<Vec<u8>> {
     let mut retained = Vec::new();
     let mut buffer = [0; 4096];
     loop {
@@ -263,24 +473,24 @@ fn drain_stderr(mut reader: impl Read) -> io::Result<Vec<u8>> {
         if count == 0 {
             return Ok(retained);
         }
-        // Keep draining even if a failing server logs excessively.
         let keep = count.min(MAX_STDERR_BYTES - retained.len());
         retained.extend_from_slice(&buffer[..keep]);
     }
 }
 
-#[test]
-fn stdio_initializes_synchronizes_and_exits_with_stdin_open() {
-    let mut server = Server::spawn();
-    server.initialize(1);
-    let uri = "untitled:Unicode-stdio.kgr";
+#[rstest]
+#[case::stdio(Transport::Stdio)]
+#[case::tcp_connect(Transport::TcpConnect)]
+#[case::tcp_listen(Transport::TcpListen)]
+fn transports_share_ordered_lifecycle_and_exit_without_input_eof(#[case] transport: Transport) {
+    let mut server = Server::spawn(transport);
+    server.initialize(json!(1));
+    let uri = "untitled:Unicode-transport.kgr";
     server.notify(
         "textDocument/didOpen",
         json!({"textDocument": {
-            "uri": uri,
-            "languageId": "kagari",
-            "version": 1,
-            "text": "val greeting = \"你好😀\"; val scalar: char = '🙂'; val escaped = '\\u{1F642_}';\r\n"
+            "uri": uri, "languageId": "kagari", "version": 1,
+            "text": "val greeting = \"你好😀\"; val scalar: char = '🙂';\r\n"
         }}),
     );
     server.notify(
@@ -293,8 +503,7 @@ fn stdio_initializes_synchronizes_and_exits_with_stdin_open() {
     server.notify(
         "textDocument/didChange",
         json!({
-            "textDocument": {"uri": uri, "version": 3},
-            "contentChanges": [{"text": ""}]
+            "textDocument": {"uri": uri, "version": 3}, "contentChanges": [{"text": ""}]
         }),
     );
     server.notify(
@@ -302,58 +511,147 @@ fn stdio_initializes_synchronizes_and_exits_with_stdin_open() {
         json!({"textDocument": {"uri": uri}}),
     );
     server.notify("kagari/unsupportedNotification", json!({}));
-
-    // This ordered reply must be the next frame: no fake diagnostics or replies
-    // to any preceding notification may be filtered out by the harness.
-    server.request(2, "kagari/unsupportedRequest", json!({}));
-    server.error(2, -32601);
-    server.shutdown(3);
+    // Ask for responses in reverse order: notification and response arrival order
+    // is independent of which client operation currently waits for its result.
+    server.request(json!(2), "kagari/unsupportedRequest", json!({}));
+    server.request(json!("2"), "kagari/otherRequest", json!({}));
+    server.error(json!("2"), -32601);
+    server.error(json!(2), -32601);
+    server.shutdown(json!(3));
     server.notify("exit", Value::Null);
-    assert!(server.stdin.is_some());
-    // In particular, do not close stdin here: exit must not wait for transport EOF.
+    assert!(server.input.is_some());
     server.finish(Some(0));
 }
 
 #[test]
-fn stdio_rejects_invalid_requests_without_corrupting_lifecycle() {
-    let mut server = Server::spawn();
-    server.request(1, "shutdown", Value::Null);
-    server.error(1, -32002);
-    server.request(2, "initialize", json!({"capabilities": 42}));
-    server.error(2, -32602);
-    server.initialize(3);
-    server.request(4, "initialize", initialize_params());
-    server.error(4, -32600);
-    server.request(5, "shutdown", json!({}));
-    server.error(5, -32602);
-    server.request(6, "textDocument/hover", Value::Null);
-    server.error(6, -32601);
-    server.shutdown(7);
-    server.request(8, "shutdown", Value::Null);
-    server.error(8, -32600);
-    server.request(9, "kagari/unsupportedRequest", json!({}));
-    server.error(9, -32600);
+fn invalid_requests_do_not_corrupt_lifecycle_or_request_identity() {
+    let mut server = Server::spawn(Transport::Stdio);
+    server.request(json!(1), "shutdown", Value::Null);
+    server.error(json!(1), -32002);
+    server.request(json!(2), "initialize", json!({"capabilities": 42}));
+    server.error(json!(2), -32602);
+    server.initialize(json!(3));
+    server.request(json!(4), "initialize", initialize_params());
+    server.error(json!(4), -32600);
+    server.request(json!(5), "shutdown", json!({}));
+    server.error(json!(5), -32602);
+    server.request(json!(6), "kagari/unimplemented", Value::Null);
+    server.error(json!(6), -32601);
+    // Reuse is legal after the previous terminal reply, including after errors.
+    server.shutdown(json!(6));
+    server.request(json!(7), "shutdown", Value::Null);
+    server.error(json!(7), -32600);
     server.notify("exit", Value::Null);
     server.finish(Some(0));
 }
 
 #[test]
-fn stdio_exit_without_shutdown_is_failure() {
-    let mut server = Server::spawn();
-    server.initialize(1);
+fn raw_invalid_envelopes_receive_null_id_errors_then_recover() {
+    let mut server = Server::spawn(Transport::Stdio);
+    assert!(server.outstanding.insert("null".into()));
+    server.write_raw(b"Content-Length: 1\r\n\r\n{");
+    server.error(Value::Null, -32700);
+    assert!(server.outstanding.insert("null".into()));
+    server.send(json!({"jsonrpc": "2.0", "id": false, "method": "initialize"}));
+    server.error(Value::Null, -32600);
+    server.initialize(json!("ready"));
+    server.shutdown(json!("done"));
     server.notify("exit", Value::Null);
-    // The non-graceful exit also has to terminate with the input pipe still open.
+    server.finish(Some(0));
+}
+
+#[test]
+fn unordered_exit_and_tcp_disconnect_fail() {
+    let mut server = Server::spawn(Transport::Stdio);
+    server.initialize(json!(1));
+    server.notify("exit", Value::Null);
     server.finish(Some(1));
+
+    let mut server = Server::spawn(Transport::TcpConnect);
+    server.initialize(json!(1));
+    server
+        .socket
+        .as_ref()
+        .unwrap()
+        .shutdown(Shutdown::Both)
+        .unwrap();
+    drop(server.input.take());
+    server.finish(None);
 }
 
 #[test]
-fn stdio_unexpected_eof_and_malformed_framing_are_failures() {
-    let mut server = Server::spawn();
-    server.initialize(1);
-    drop(server.stdin.take());
+fn truncated_input_and_malformed_headers_are_fatal() {
+    let mut server = Server::spawn(Transport::Stdio);
+    server.initialize(json!(1));
+    drop(server.input.take());
     server.finish(None);
 
-    let mut server = Server::spawn();
+    let mut server = Server::spawn(Transport::Stdio);
     server.write_raw(b"Content-Length: not-a-number\r\n\r\n");
     server.finish(None);
+}
+
+#[test]
+fn stalled_stdout_expires_write_deadline_with_stdin_still_open() {
+    let mut server = Server::spawn(Transport::Stdio);
+    server.initialize(json!("ready"));
+    // The peer grants reads only through receive(). Keep stdout open but unread
+    // after initialize; 64 escaped IDs generate > 96 KiB, exceeding supported
+    // anonymous-pipe capacities without overflowing the server's 128-slot outbox.
+    let mut bytes = Vec::new();
+    for index in 0..64 {
+        let id = format!("{}-{index}", "\0".repeat(250));
+        let body = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0", "id": id, "method": "kagari/unsupported", "params": {}
+        }))
+        .unwrap();
+        write!(bytes, "Content-Length: {}\r\n\r\n", body.len()).unwrap();
+        bytes.extend_from_slice(&body);
+    }
+    let mut input = server.input.take().unwrap();
+    let (sent, completed) = mpsc::sync_channel(1);
+    let sender = thread::spawn(move || {
+        let result = input.write_all(&bytes).and_then(|()| input.flush());
+        let _ = sent.send((result, input));
+    });
+    let (result, input) = completed
+        .recv_timeout(TIMEOUT)
+        .expect("server must consume bounded input");
+    server.input = Some(input);
+    result.expect("write all requests before server expiry");
+    sender.join().unwrap();
+    let status = wait(&mut server.child, Instant::now() + TIMEOUT);
+    assert_eq!(status.code(), Some(1));
+    let stderr = server.stderr.recv_timeout(TIMEOUT).unwrap().unwrap();
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(
+        stderr.contains("Write deadline expired"),
+        "wrong failure owner: {stderr}"
+    );
+    assert!(
+        server.input.is_some(),
+        "input EOF must not rescue a blocked writer"
+    );
+    drop(server.read_grant.take());
+    for worker in server.threads.drain(..) {
+        worker.join().expect("peer cleanup after stalled output");
+    }
+}
+
+#[test]
+fn version_is_a_bounded_non_protocol_operation() {
+    let mut pending = PendingChild(Some(
+        Command::new(env!("CARGO_BIN_EXE_kagari-analyzer"))
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    ));
+    assert!(wait(pending.0.as_mut().unwrap(), Instant::now() + TIMEOUT).success());
+    let output = pending.0.take().unwrap().wait_with_output().unwrap();
+    let version = String::from_utf8(output.stdout).unwrap();
+    assert!(version.starts_with("kagari-analyzer "), "{version}");
+    assert!(version.len() < 256 && version.ends_with('\n'));
+    assert!(output.stderr.is_empty());
 }

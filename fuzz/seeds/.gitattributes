@@ -1,0 +1,3 @@
+# Wire and action witnesses preserve intentional delimiters and arbitrary bytes.
+lsp_wire/*.bin -text -diff
+lsp_session/*.bin -text -diff

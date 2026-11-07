@@ -62,6 +62,12 @@ impl SourceFile {
         &self.content.text
     }
 
+    /// Returns one physical line without its delimiter, using the position index.
+    /// A trailing LF, CRLF or CR creates an empty final line; an invalid index is `None`.
+    pub fn line(&self, line: usize) -> Option<&str> {
+        self.content.lines.line(&self.content.text, line)
+    }
+
     pub fn id(&self) -> FileId {
         self.id
     }

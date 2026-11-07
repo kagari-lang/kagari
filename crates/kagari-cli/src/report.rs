@@ -232,7 +232,7 @@ fn location(span: FileSpan, source: &SourceFile) -> Option<Location> {
     }
     let start = source.position(span.range.start, PositionEncoding::Utf8)?;
     let end = source.position(span.range.end, PositionEncoding::Utf8)?;
-    let line = source.text().lines().nth(start.line).unwrap_or("");
+    let line = source.line(start.line)?;
     Some(Location {
         path: source.name().replace('\\', "/"),
         revision: span.revision.0,
@@ -341,5 +341,20 @@ mod tests {
             serde_json::to_string(&report.records[1]).unwrap(),
             include_str!("../tests/fixtures/report/unavailable.json")
         );
+
+        // A lone CR is a physical line boundary, without rewriting the source bytes.
+        let source = SourceFile::new("unicode.kgr", "// π\r\tbroken\n");
+        let diagnostic =
+            Diagnostic::error(DiagnosticKind::UnexpectedToken).with_span(Span::new(7, 13));
+        report.source_diagnostic(
+            "app",
+            DiagnosticRecord::from_diagnostic(diagnostic, &source),
+            &source,
+        );
+        let location = report.records[2].location.as_ref().unwrap();
+        assert_eq!(location.start.line, 1);
+        assert_eq!(location.start.column, 1);
+        assert_eq!(location.excerpt, "\tbroken");
+        assert_eq!(human(&report.records[2]), human(&report.records[0]));
     }
 }

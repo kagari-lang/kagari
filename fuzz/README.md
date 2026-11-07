@@ -1,4 +1,4 @@
-# Syntax fuzzing
+# Fuzzing
 
 `syntax` exercises the public `kagari-syntax` parser and AST consumers. The
 workspace library contains the oracle; its optional `fuzzing` feature adds the
@@ -91,3 +91,51 @@ Investigate whether the parser or the oracle violated its documented contract.
 After fixing a confirmed defect, retain a minimized seed or add coverage to its
 existing semantic test owner; avoid duplicate tests of the same boundary. Keep
 generated corpora, coverage and campaign logs out of Git.
+
+## LSP framing and lifecycle targets
+
+The optional `lsp` feature adds the analyzer's narrow `verification` entrypoints.
+It does not replace production protocol checks or require libFuzzer for ordinary
+corpus replay:
+
+```text
+cargo test --locked -p kagari-syntax-fuzz --features lsp --lib lsp_tests
+```
+
+`lsp_wire` accepts raw bytes up to 64 KiB. It compares fragmented and contiguous
+reads through the production codec, checks terminal framing failures and exact
+body-admission lengths, and validates encoded field presence and bounded encoding.
+An independently constructed Content-Length frame must preserve every arbitrary
+body byte, including invalid UTF-8, and the following frame; sampled EOF cuts
+must agree with known boundaries. The raw parser stops after 256 complete frames,
+and fragment schedules use at most 256 chunks. Literal envelope/header unit tests
+remain the independent oracle for specific rejection codes and message shapes.
+This target does not claim to exercise OS writes or actor transport cleanup;
+process tests own partial-write/disconnect behavior.
+
+`lsp_session` drives bounded actions against the actual request and output state
+owners and an independent lifecycle ledger. Its contract is terminal-response
+uniqueness, wire-ID reuse, request retirement and response/output-credit ownership.
+The first byte selects a request capacity of one through eight; subsequent
+three-byte records select an operation, ID/serial and value, up to 128 operations.
+Admission, cancellation, completion, frame grants, valid/forged acknowledgements
+and control-output saturation are followed by a drain proving final credit release.
+It complements real-actor ordering tests; it does not substitute a toy server for
+the production actors or claim semantic-worker coverage before those workers land.
+
+Raw `.bin` wire seeds retain CRLF and invalid-byte witnesses without Git text
+conversion. Curated seeds live under `fuzz/seeds/lsp_wire` and
+`fuzz/seeds/lsp_session`; generated corpora and artifacts stay ignored. Run each
+bounded ASan campaign after preparing the corresponding directory under
+`target/fuzz-corpus`:
+
+```text
+cargo +nightly fuzz run lsp_wire --features fuzzing,lsp target/fuzz-corpus/lsp_wire fuzz/seeds/lsp_wire -- -max_total_time=60 -max_len=65536 -timeout=10 -rss_limit_mb=2048
+cargo +nightly fuzz run lsp_session --features fuzzing,lsp target/fuzz-corpus/lsp_session fuzz/seeds/lsp_session -- -max_total_time=60 -max_len=65536 -timeout=10 -rss_limit_mb=2048
+```
+
+The CI LSP matrix uses these commands. Compilation time is separate from the
+60-second campaign, and the existing Windows sanitizer-runtime setup applies.
+No panic recovery, validation bypass or timing-based success oracle is used.
+Retain each confirmed finding at its lowest affected owner and replay its actual
+transport/actor sequence when the defect involves those integration boundaries.

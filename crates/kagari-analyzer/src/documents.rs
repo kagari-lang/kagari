@@ -1,5 +1,6 @@
 //! Open-document protocol metadata over source-owned identities, text and snapshots.
-use crate::protocol::source_name;
+use crate::{protocol::source_name, server::options::SessionLimits};
+use kagari_common::identity::ModuleIdentity;
 use kagari_source::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
@@ -13,18 +14,24 @@ struct OpenDocument {
     uri: Uri,
     language_id: String,
     version: i32,
+    bytes: usize,
+    available: bool,
 }
 
 pub(crate) struct Documents {
     source: SourceDatabase,
     open: HashMap<FileId, OpenDocument>,
+    limits: SessionLimits,
+    bytes: usize,
 }
 
 impl Documents {
-    pub(crate) fn new(source: SourceDatabase) -> Self {
+    pub(crate) fn new(source: SourceDatabase, limits: SessionLimits) -> Self {
         Self {
             source,
             open: HashMap::new(),
+            limits,
+            bytes: 0,
         }
     }
 
@@ -44,16 +51,32 @@ impl Documents {
                 item.language_id
             ));
         }
-        let id = self.source.set(&name, item.text, SourceLayer::Overlay)?;
+        let length = item.text.len();
+        let available = length <= self.limits.open_file_bytes
+            && length <= self.limits.open_total_bytes.saturating_sub(self.bytes);
+        let id = if available {
+            self.source.set(&name, item.text, SourceLayer::Overlay)?
+        } else {
+            self.source
+                .bind_module(&name, ModuleIdentity::single_file(name.clone()))?
+        };
+        let bytes = if available { length } else { 0 };
+        self.bytes += bytes;
         self.open.insert(
             id,
             OpenDocument {
                 uri: item.uri,
                 language_id: item.language_id,
                 version: item.version,
+                bytes,
+                available,
             },
         );
-        Ok(())
+        if available {
+            Ok(())
+        } else {
+            Err("document synchronization unavailable: source byte limit exceeded".into())
+        }
     }
 
     pub(crate) fn change(&mut self, params: DidChangeTextDocumentParams) -> Result<(), String> {
@@ -76,7 +99,24 @@ impl Documents {
         // Validate the whole notification first. With full replacements only the last
         // text survives; no intermediate source state needs publication.
         if let Some(change) = params.content_changes.into_iter().last() {
+            let remaining = self.bytes - document.bytes;
+            let length = change.text.len();
+            if length > self.limits.open_file_bytes
+                || length > self.limits.open_total_bytes.saturating_sub(remaining)
+            {
+                self.source.close_overlay(&name)?;
+                self.bytes = remaining;
+                document.bytes = 0;
+                document.available = false;
+                document.version = params.text_document.version;
+                return Err(
+                    "document synchronization unavailable: source byte limit exceeded".into(),
+                );
+            }
             self.source.set(&name, change.text, SourceLayer::Overlay)?;
+            self.bytes = remaining + length;
+            document.bytes = length;
+            document.available = true;
         }
         document.version = params.text_document.version;
         Ok(())
@@ -86,7 +126,9 @@ impl Documents {
         let name = source_name(&params.text_document.uri)?;
         let id = self.open_id(&name)?;
         self.source.close_overlay(&name)?;
-        self.open.remove(&id);
+        if let Some(document) = self.open.remove(&id) {
+            self.bytes -= document.bytes;
+        }
         Ok(())
     }
 
@@ -108,7 +150,10 @@ mod tests {
     };
 
     fn documents() -> Documents {
-        Documents::new(SourceDatabase::new("c:/project").unwrap())
+        Documents::new(
+            SourceDatabase::new("c:/project").unwrap(),
+            SessionLimits::default(),
+        )
     }
 
     fn open(uri: &str, version: i32, text: &str) -> DidOpenTextDocumentParams {
@@ -145,6 +190,30 @@ mod tests {
         DidCloseTextDocumentParams {
             text_document: TextDocumentIdentifier::new(uri.parse().unwrap()),
         }
+    }
+
+    #[test]
+    fn oversized_sync_releases_text_and_recovers_with_a_later_full_change() {
+        let mut docs = documents();
+        docs.limits.open_file_bytes = 4;
+        docs.limits.open_total_bytes = 6;
+        let uri = "untitled:large.kgr";
+        docs.open(open(uri, 1, "1234")).unwrap();
+        let retained = docs.source.snapshot();
+        let id = docs.source.file_id(uri).unwrap();
+        assert!(docs.change(change(uri, 2, vec![full("12345")])).is_err());
+        assert!(!docs.open[&id].available);
+        assert!(docs.source.snapshot().file(id).is_none());
+        assert_eq!(docs.bytes, 0);
+        assert_eq!(retained.file(id).unwrap().text(), "1234");
+        docs.change(change(uri, 3, vec![full("ok")])).unwrap();
+        assert!(docs.open[&id].available);
+        assert_eq!(docs.source.snapshot().file(id).unwrap().text(), "ok");
+        docs.open(open("untitled:other.kgr", 1, "1234")).unwrap();
+        assert!(docs.change(change(uri, 4, vec![full("123")])).is_err());
+        assert_eq!(docs.bytes, 4);
+        docs.close(close(uri)).unwrap();
+        assert_eq!(docs.bytes, 4);
     }
 
     #[test]

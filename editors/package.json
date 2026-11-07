@@ -19,7 +19,8 @@
     "build:zed": "node scripts/test-zed-build.mjs",
     "test:zed-host": "node scripts/test-zed-host.mjs",
     "test:vscode-host": "node scripts/test-vscode-host.mjs",
-    "package:vscode": "node scripts/package-vscode.mjs"
+    "package:vscode": "node scripts/package-vscode.mjs",
+    "test:lsp": "node --test tests/lsp.test.mjs"
   },
   "devDependencies": {
     "@vscode/test-electron": "3.1.0",
@@ -30,6 +31,7 @@
     "smol-toml": "1.9.1",
     "tree-sitter": "0.25.1",
     "tree-sitter-cli": "0.25.10",
+    "vscode-languageserver-protocol": "3.18.5",
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2"
   }

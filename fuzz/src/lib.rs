@@ -6,6 +6,9 @@ mod traversal;
 #[cfg(test)]
 mod tests;
 
+#[cfg(all(test, feature = "lsp"))]
+mod lsp_tests;
+
 /// Checks bounded UTF-8 source through parsing, recovery, traversal and destruction.
 ///
 /// Inputs over 128 KiB or containing invalid UTF-8 are skipped: SourceFile accepts
