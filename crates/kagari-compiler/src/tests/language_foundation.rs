@@ -5,9 +5,6 @@ use kagari_stdlib::catalog as foundation_catalog;
 use rstest::rstest;
 
 #[rstest]
-#[case::scalar_language_program_compiles_without_optional_modules(include_str!(
-    "../../tests/fixtures/language_foundation/scalar-language.kgr"
-))]
 #[case::default_list_native_calls_compile_without_optional_modules(include_str!(
     "../../tests/fixtures/language_foundation/default-list-native.kgr"
 ))]
@@ -29,13 +26,5 @@ fn compile_success(#[case] text: &str) {
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let bytecode = lower_program_to_bytecode(&mir, &Default::default())
-        .map(|program| program.into_unverified())
-        .unwrap();
-    kagari_bytecode::program::verify_program(
-        bytecode.records(),
-        bytecode.definitions(),
-        &Default::default(),
-    )
-    .unwrap();
+    lower_program_to_bytecode(&mir, &Default::default()).unwrap();
 }

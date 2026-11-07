@@ -1719,6 +1719,11 @@ callback or executable lease lives in the capsule. SDK publication associations 
 reserved by exact `PublicationToken` before initial-load/reload/update commit and
 rolled back on failure. A low-level publication without a matching capsule cannot
 fall back to old inputs; later source update reports `MissingCompilationContext`.
+Verified native MIR is immutable and shared by `Arc` between the prepared program
+and its exact publication attachment, rather than deep-cloned on load or when
+recovering current preparation. The last owner releases it; this does not retain
+the prepared program's local code cache, backend or executable lease. Artifact
+validation and generation matching still precede adoption and use.
 
 Source text has a separate owner: bytecode verifies an optional source package
 against executable source-manifest anchors, then runtime `source` supplies exact

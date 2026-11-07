@@ -95,6 +95,10 @@ One independently discovered `<case>.kgr` pairs with the same-stem
 `<case>.diagnostics.json`; the expectation is not discovered by a second glob.
 Owner inventory checks reject missing, malformed or orphaned expectations and
 unexpected files. Logical source names stay independent of physical fixture paths.
+Parser delimiter fixtures check their count, severity and typed diagnostic kind
+on the same parse used for the full JSON comparison. Their owner requires an
+explicit typed expectation for each discovered parser UI fixture; do not silently
+skip a typed assertion when adding or renaming an input.
 
 The JSON root is an **ordered array** of full producer records:
 

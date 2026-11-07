@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, fs, path::PathBuf};
 
 use kagari_common::span::Span;
 use kagari_source::{
-    diagnostic::{Diagnostic, DiagnosticKind},
+    diagnostic::{Diagnostic, DiagnosticKind, Severity},
     presentation::DiagnosticRecord,
     source::SourceFile,
 };
@@ -22,6 +22,23 @@ fn diagnostic_fixtures(#[files("tests/fixtures/ui/parser/*.kgr")] path: PathBuf)
     let source = common::source(&input);
     let parsed = parse(&source, ParseOptions::default(), &Default::default())
         .expect("fresh cancellation token");
+    let kind = match path.file_stem().and_then(|stem| stem.to_str()) {
+        Some("reports_missing_closing_paren") => DiagnosticKind::ExpectedFunctionParameterListEnd,
+        Some("reports_missing_block_end") => DiagnosticKind::ExpectedBlockEnd,
+        _ => panic!(
+            "parser UI fixture needs a typed expectation: {}",
+            path.display()
+        ),
+    };
+    let diagnostics = parsed.diagnostics();
+    assert_eq!(diagnostics.len(), 1, "{}", path.display());
+    assert_eq!(
+        diagnostics[0].severity,
+        Severity::Error,
+        "{}",
+        path.display()
+    );
+    assert_eq!(diagnostics[0].kind, kind, "{}", path.display());
     let records = parser_records(parsed.diagnostics(), &source).expect("valid parser spans");
     let expected_path = path.with_extension("diagnostics.json");
     let text = fs::read_to_string(&expected_path)

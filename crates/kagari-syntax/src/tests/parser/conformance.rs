@@ -174,12 +174,13 @@ where T: Display + Clone
 #[test]
 fn invalid_syntax_diagnostics_reject_non_spec_forms() {
     let parse = common::parse("fn main() { let mut value = 1; }");
-    assert!(
+    assert_eq!(
         parse
             .diagnostics()
-            .iter()
-            .any(|diagnostic| diagnostic.severity == Severity::Error),
-        "expected an error for non-spec binding form, got {:?}",
+            .first()
+            .map(|diagnostic| diagnostic.severity),
+        Some(Severity::Error),
+        "expected the first diagnostic for non-spec binding form to be an error, got {:?}",
         parse.diagnostics()
     );
 

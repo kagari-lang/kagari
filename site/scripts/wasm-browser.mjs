@@ -188,7 +188,7 @@ async function browserCase(test) {
     check(/^\d+$/u.test(diagnostic.location.revision), 'Revision must remain lossless');
     evidence = value;
   } else if (test.kind === 'removed') {
-    for (const source of ['fn main() -> usize { 1 }', 'fn main() -> isize { 1 }', 'fn main() { val n = 1usize; }', 'fn main() { val n = 1isize; }']) {
+    for (const source of ['fn main() -> usize { 1 }', 'fn main() { val n = 1isize; }']) {
       step(`reject ${source}`);
       const value = expectStatus(response(session.compile(source), 'removed name/suffix'), 'error', 'removed spelling');
       check(value.diagnostics.some((item) => item.severity === 'error'), 'Missing removed-spelling diagnostic');

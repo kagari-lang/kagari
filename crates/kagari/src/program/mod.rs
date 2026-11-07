@@ -13,7 +13,7 @@ use std::cell::RefCell;
 #[cfg(feature = "native")]
 use std::collections::HashMap;
 use std::rc::Rc;
-#[cfg(feature = "source")]
+#[cfg(any(feature = "source", feature = "native"))]
 use std::sync::Arc;
 
 #[cfg(feature = "source")]
@@ -63,7 +63,7 @@ struct ProgramState {
     #[cfg(feature = "source")]
     compilation: Option<Arc<CompilationInputs>>,
     #[cfg(feature = "native")]
-    mir: Option<VerifiedMirProgram>,
+    mir: Option<Arc<VerifiedMirProgram>>,
     #[cfg(feature = "native")]
     native: RefCell<HashMap<NativeCacheKey, CachedFunction>>,
 }
@@ -146,7 +146,7 @@ impl PreparedProgram {
                 bytecode,
                 compilation: Some(inputs),
                 #[cfg(feature = "native")]
-                mir: options.retain_native_input.then_some(mir),
+                mir: options.retain_native_input.then(|| Arc::new(mir)),
                 #[cfg(feature = "native")]
                 native: RefCell::default(),
             }),
@@ -201,14 +201,14 @@ impl PreparedProgram {
                 #[cfg(feature = "source")]
                 compilation: None,
                 #[cfg(feature = "native")]
-                mir,
+                mir: mir.map(Arc::new),
                 #[cfg(feature = "native")]
                 native: RefCell::default(),
             }),
         })
     }
 
-    /// Detach immutable compiler inputs without retaining this preparation cache.
+    /// Share immutable compiler inputs without retaining this preparation cache.
     #[cfg(any(feature = "source", feature = "native"))]
     pub(crate) fn retained_inputs(&self) -> RetainedPreparation {
         RetainedPreparation {

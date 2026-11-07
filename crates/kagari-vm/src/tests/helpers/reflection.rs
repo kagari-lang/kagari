@@ -1,11 +1,5 @@
 use super::*;
-use crate::{
-    tests::{
-        common,
-        common::{module_program, standard_runtime},
-    },
-    vm::fixtures::FixtureExecution,
-};
+use crate::{tests::common, vm::fixtures::FixtureExecution};
 use kagari_bytecode::instruction::ConstantId;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{module::entry::ProgramEntry, value_semantics::script_equal};
@@ -56,193 +50,68 @@ fn executes_runtime_reflect_type_of_helper() {
 }
 
 #[test]
-fn runtime_reflection_helpers_use_declared_metadata() {
-    let (runtime, loaded) = load_bytecode_module(
-        "reflect_denied.kbc",
-        test_function_module(
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(0),
-                    constant: ConstantId::new(0),
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Slot::new(1)),
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                    args: vec![Slot::new(0)],
-                },
-                BytecodeInstruction::Return(Some(Slot::new(1))),
-            ],
-            ValueType::Str,
-            vec![ValueType::I32, ValueType::Str],
-            vec![ConstantOperand::I32(7)],
-        ),
-    );
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-
-    let vm = Vm::new(runtime);
-    assert!(
-        script_equal(
-            vm.runtime().gc(),
-            &(vm.execute_fixture(&loaded, FunctionRef::new(0))
-                .unwrap()
-                .return_value
-                .value(vm.runtime().gc())
-                .expect("retained execution result")),
-            &(vm.runtime().gc().alloc_string("i32".into()).unwrap())
-        )
-        .unwrap()
-    );
-}
-
-#[test]
-fn declared_reflection_reads_are_available() {
-    let mut metadata_only = standard_runtime(RuntimeConfig {
-        ..RuntimeConfig::default()
-    });
-    let loaded = metadata_only
-        .load_program(
-            "reflect_read_denied.kbc",
-            module_program(common::point_function_module(
-                "main",
-                vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Slot::new(0),
-                        constant: ConstantId::new(0),
-                    },
-                    BytecodeInstruction::MakeStruct {
-                        dst: Slot::new(1),
-                        structure: StructId::new(0),
-                        arguments: vec![],
-                        fields: vec![Slot::new(0)],
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Slot::new(2)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
-                            "x".to_owned(),
-                        )),
-                        args: vec![Slot::new(1)],
-                    },
-                    BytecodeInstruction::Return(Some(Slot::new(2))),
-                ],
-                ValueType::I32,
-                vec![ValueType::I32, ValueType::HeapObject, ValueType::I32],
-                vec![ConstantOperand::I32(1)],
-            )),
-        )
-        .unwrap();
-    let _loaded_program = loaded;
-    let loaded = metadata_only.select_program(&_loaded_program).unwrap();
-    let vm = Vm::new(metadata_only);
-    assert_eq!(
-        vm.execute_fixture(&loaded, FunctionRef::new(0))
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(1)
-    );
-}
-
-#[test]
-fn declared_reflection_writes_are_available() {
-    let mut read_only = standard_runtime(RuntimeConfig {
-        ..RuntimeConfig::default()
-    });
-    let loaded = read_only
-        .load_program(
-            "reflect_write_denied.kbc",
-            module_program(common::point_function_module(
-                "main",
-                vec![
-                    BytecodeInstruction::LoadConst {
-                        dst: Slot::new(0),
-                        constant: ConstantId::new(0),
-                    },
-                    BytecodeInstruction::MakeStruct {
-                        dst: Slot::new(1),
-                        structure: StructId::new(0),
-                        arguments: vec![],
-                        fields: vec![Slot::new(0)],
-                    },
-                    BytecodeInstruction::LoadConst {
-                        dst: Slot::new(2),
-                        constant: ConstantId::new(1),
-                    },
-                    BytecodeInstruction::Call {
-                        dst: Some(Slot::new(3)),
-                        callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
-                            "x".to_owned(),
-                        )),
-                        args: vec![Slot::new(1), Slot::new(2)],
-                    },
-                    BytecodeInstruction::Return(Some(Slot::new(3))),
-                ],
-                ValueType::HeapObject,
-                vec![
-                    ValueType::I32,
-                    ValueType::HeapObject,
-                    ValueType::I32,
-                    ValueType::HeapObject,
-                ],
-                vec![ConstantOperand::I32(1), ConstantOperand::I32(2)],
-            )),
-        )
-        .unwrap();
-    let _loaded_program = loaded;
-    let loaded = read_only.select_program(&_loaded_program).unwrap();
-    let vm = Vm::new(read_only);
-    vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
-}
-
-#[test]
 fn executes_runtime_reflect_get_and_set_field_helpers() {
+    let module = common::point_function_module(
+        "main",
+        vec![
+            BytecodeInstruction::LoadConst {
+                dst: Slot::new(0),
+                constant: ConstantId::new(0),
+            },
+            BytecodeInstruction::MakeStruct {
+                dst: Slot::new(1),
+                structure: StructId::new(0),
+                arguments: vec![],
+                fields: vec![Slot::new(0)],
+            },
+            BytecodeInstruction::Call {
+                dst: Some(Slot::new(5)),
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField("x".to_owned())),
+                args: vec![Slot::new(1)],
+            },
+            BytecodeInstruction::LoadConst {
+                dst: Slot::new(2),
+                constant: ConstantId::new(1),
+            },
+            BytecodeInstruction::Call {
+                dst: Some(Slot::new(3)),
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField("x".to_owned())),
+                args: vec![Slot::new(1), Slot::new(2)],
+            },
+            BytecodeInstruction::Call {
+                dst: Some(Slot::new(4)),
+                callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField("x".to_owned())),
+                args: vec![Slot::new(3)],
+            },
+            BytecodeInstruction::MakeTuple {
+                dst: Slot::new(6),
+                elements: vec![Slot::new(5), Slot::new(4)],
+            },
+            BytecodeInstruction::Return(Some(Slot::new(6))),
+        ],
+        ValueType::HeapObject,
+        vec![
+            ValueType::I32,
+            ValueType::HeapObject,
+            ValueType::I32,
+            ValueType::HeapObject,
+            ValueType::I32,
+            ValueType::I32,
+            ValueType::HeapObject,
+        ],
+        vec![ConstantOperand::I32(1), ConstantOperand::I32(9)],
+    );
+    let (definitions, mut module) = module.into_parts();
+    let result = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); 2]);
+    module.functions[0].metadata.semantic.result = Some(result.clone());
+    module.functions[0]
+        .metadata
+        .semantic
+        .slots
+        .insert(6, result);
     let (runtime, loaded) = load_bytecode_module(
         "reflect_field.kbc",
-        common::point_function_module(
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(0),
-                    constant: ConstantId::new(0),
-                },
-                BytecodeInstruction::MakeStruct {
-                    dst: Slot::new(1),
-                    structure: StructId::new(0),
-                    arguments: vec![],
-                    fields: vec![Slot::new(0)],
-                },
-                BytecodeInstruction::LoadConst {
-                    dst: Slot::new(2),
-                    constant: ConstantId::new(1),
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Slot::new(3)),
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
-                        "x".to_owned(),
-                    )),
-                    args: vec![Slot::new(1), Slot::new(2)],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Slot::new(4)),
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
-                        "x".to_owned(),
-                    )),
-                    args: vec![Slot::new(3)],
-                },
-                BytecodeInstruction::Return(Some(Slot::new(4))),
-            ],
-            ValueType::I32,
-            vec![
-                ValueType::I32,
-                ValueType::HeapObject,
-                ValueType::I32,
-                ValueType::HeapObject,
-                ValueType::I32,
-            ],
-            vec![ConstantOperand::I32(1), ConstantOperand::I32(9)],
-        ),
+        DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap(),
     );
     let program = loaded;
     let loaded = runtime.select_program(&program).unwrap();
@@ -252,12 +121,16 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
         .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
+    let Value::Tuple(values) = report
+        .return_value
+        .value(vm.runtime().gc())
+        .expect("retained execution result")
+    else {
+        panic!("expected initial and updated field values");
+    };
     assert_eq!(
-        report
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(9)
+        &*vm.runtime().gc().tuple(values).unwrap(),
+        &[Value::I32(1), Value::I32(9)]
     );
 }
 

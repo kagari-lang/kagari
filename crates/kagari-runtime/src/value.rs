@@ -456,6 +456,10 @@ mod tests {
 
         assert_eq!(Value::Unit.category(), ValueCategory::Unit);
         assert_eq!(scalar.category(), ValueCategory::Primitive);
+        assert_eq!(
+            heap.alloc_tuple(vec![Value::I32(7)]).unwrap().category(),
+            ValueCategory::ScriptOwned
+        );
         assert_eq!(host_root.category(), ValueCategory::HostHandle);
         assert_eq!(path_view.category(), ValueCategory::HostPathView);
         assert_eq!(host_ref.category(), ValueCategory::Ephemeral);

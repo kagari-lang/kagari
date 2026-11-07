@@ -94,15 +94,6 @@ fn duplicate_impl_method() {
 }
 
 #[test]
-fn applied_impl_trait_preserves_arguments() {
-    run_routes(&Case::new(
-        "applied-impl-trait-preserves-arguments",
-        "trait View<T> {} struct Point {} impl View<i32> for Point {} fn main() {}",
-        Expected::Value(|_| Value::Unit),
-    ));
-}
-
-#[test]
 fn generic_binder_shadows_trait() {
     run_routes(&Case::new(
         "generic-binder-shadows-trait",
@@ -135,15 +126,6 @@ fn standard_namespace_independent_of_value_parameter() {
         "standard-namespace-independent-of-value-parameter",
         "use core::option as api; fn pick(api: i32) -> i32 { val n = match api::Option::Some(1) { Some(x) => x, None => 0 }; n + api } fn main() -> i32 { pick(2) }",
         Expected::Value(|_| Value::I32(3)),
-    ));
-}
-
-#[test]
-fn resolved_language_constructor() {
-    run_routes(&Case::new(
-        "resolved-language-constructor",
-        "use core::option as api; fn main() -> i32 { match api::Option::Some(5) { Some(x) => x, None => 0 } }",
-        Expected::Value(|_| Value::I32(5)),
     ));
 }
 
@@ -323,15 +305,6 @@ fn generic_static_trait() {
     run_routes(&Case::new(
         "generic-static-trait",
         "trait Get { fn get(self) -> i32; } struct P { val n: i32 } impl Get for P { fn get(self) -> i32 { self.n } } fn read<T: Get>(value: T) -> i32 { value.get() } fn wrap<U: Get>(value: U) -> i32 { read(value) } fn main() -> i32 { wrap(P { n: 42 }) }",
-        Expected::Value(|_| Value::I32(42)),
-    ));
-}
-
-#[test]
-fn interface_dynamic_call() {
-    run_routes(&Case::new(
-        "interface-dynamic-call",
-        "trait Get { fn get(self) -> i32; } impl Get for i32 { fn get(self) -> i32 { self + 1 } } fn read(value: Get) -> i32 { value.get() } fn main() -> i32 { read(41) }",
         Expected::Value(|_| Value::I32(42)),
     ));
 }

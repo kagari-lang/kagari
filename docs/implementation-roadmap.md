@@ -852,6 +852,42 @@ products remain separate from the fixed-i32 external collection fixture.
 
 ## Test execution cost
 
+The user authorized [TP14 contract-test pruning](test-preparation-plan.md#contract-test-pruning-tp14)
+on 2026-11-07 and subsequently requested all three audited directions. The
+finite candidate set is implemented: weak/empty duplicates are removed, unique
+assertions share existing scenarios, and historical/spelling/Cartesian matrices
+use explicit representative samples. The plan records every relinquished
+dimension and deliberately retained independent oracles/product boundaries.
+Static Rust registrations decrease by 125; 154 focused Rust tests and selected
+Python/Node/native-corpus checks passed, as did required local structure/format/
+Clippy/diff checks. Exhaustive CI and unrun browser/WASI/editor hosts remain
+pending. This is independent of the layout work below and makes no measured
+speedup claim. A subsequent [slow-test preparation follow-up](test-preparation-plan.md#slow-test-preparation-follow-up)
+reduces SDK interpolation rejection to one owner-propagation sample and reuses
+immutable preparation across the full VM cancellation sweep. Seven focused tests
+and required local checks pass; isolated execution samples are recorded with their
+limits, not as full-suite or concurrent-CI performance guarantees.
+[CPU-utilisation probes](test-preparation-plan.md#cpu-utilisation-investigation)
+confirm intra-binary concurrency (about 20 cores sampled on 24 logical CPUs),
+but expose an SDK low-parallelism teardown interval while multiple cases remain
+active. Subsequent [native stacks and MIR retention](test-preparation-plan.md#native-stack-attribution-and-immutable-mir-retention)
+show Windows heap waits in allocation/release across production metadata owners.
+SDK publication attachments now share immutable verified MIR instead of copying
+it on load. Three alternating 21-case samples show only a small median wall change
+(9.279 to 8.994 s), with heap waits still present; this is not a solved-bottleneck
+or whole-suite speedup claim. Existing native/reload/source-free contracts and
+local checks pass. Next quantify candidate proof-catalog reconstruction after
+verification and distinguish it from retained HIR metadata; do not skip admission
+checks or replace allocators on the strength of these snapshots.
+[Workspace scope and non-SDK samples](test-preparation-plan.md#workspace-scope-and-non-sdk-sampling)
+confirm root `cargo test` selects all 26 members. Historical Linux CI attributes
+90.01% of executable elapsed to SDK/HIR/VM/compiler, not to test count alone.
+Thirty-one current Windows non-SDK cases pass: HIR shows a single long-case tail,
+while the selected compiler/VM groups use their available case concurrency.
+CLI parent CPU omits child work. These distinct mechanisms guide follow-up;
+neither historical CI shares nor filtered samples establish current whole-suite
+CPU utilization or current-branch full CI acceptance.
+
 Deferred directory-readability follow-up, recorded 2026-10-28:
 [TP10-TP13](test-preparation-plan.md#directory-readability-follow-up-tp10-tp13)
 consolidate mixed test files under subsystem-local `tests/` directories, starting

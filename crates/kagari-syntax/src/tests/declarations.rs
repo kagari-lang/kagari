@@ -65,7 +65,7 @@ fn declaration_parsing_observes_cancellation() {
 
 #[test]
 fn declaration_mode_distinguishes_aliases_from_opaque_types() {
-    let text = "#[builtin_type(Array)] pub type List<T>; pub type Items<T> = List<T>; mod nested { type Handle; type Count = i32; }";
+    let text = "/// A native array.\n#[builtin_type(Array)] pub type List<T>; pub type Items<T> = List<T>; mod nested { type Handle; type Count = i32; }";
     let source = SourceFile::new("native.kgr", text);
     let parsed = parse(
         &source,
@@ -93,6 +93,12 @@ fn declaration_mode_distinguishes_aliases_from_opaque_types() {
     let nested = body.items().collect::<Vec<_>>();
     assert!(matches!(nested[0], ItemView::OpaqueTypeDef(_)));
     assert!(matches!(nested[1], ItemView::TypeAlias(_)));
+    assert!(
+        !parse(&source, ParseOptions::default(), &Default::default())
+            .expect("fresh cancellation token")
+            .diagnostics()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -121,40 +127,5 @@ fn declaration_mode_retains_native_alias_attributes_for_validation() {
     assert_eq!(
         item.attributes().next().unwrap().name_text().as_deref(),
         Some("builtin_type")
-    );
-}
-
-#[test]
-fn opaque_native_types_are_restricted_to_declaration_mode() {
-    let source = SourceFile::new(
-        "native.kgr",
-        "/// A native array.\n#[builtin_type(Array)] pub type List<T>;",
-    );
-    let parsed = parse(
-        &source,
-        ParseOptions {
-            mode: ParseMode::Declarations,
-            limits: Default::default(),
-        },
-        &CancellationToken::default(),
-    )
-    .unwrap();
-    assert!(
-        parsed.diagnostics().is_empty(),
-        "{:?}",
-        parsed.diagnostics()
-    );
-    assert_eq!(parsed.module().text().to_owned(), source.text());
-    assert!(
-        parsed
-            .module()
-            .items()
-            .any(|item| matches!(item, ItemView::OpaqueTypeDef(_)))
-    );
-    assert!(
-        !parse(&source, ParseOptions::default(), &Default::default())
-            .expect("fresh cancellation token")
-            .diagnostics()
-            .is_empty()
     );
 }

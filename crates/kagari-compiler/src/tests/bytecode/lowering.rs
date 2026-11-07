@@ -128,6 +128,13 @@ fn lowers_function_metadata_into_bytecode() {
         [ValueType::I32, ValueType::I32, ValueType::I32]
     );
     assert_eq!(function.metadata.slots.len(), function.slot_count as usize);
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::Binary {
+            op: BinaryOp::Add,
+            ..
+        }
+    )));
 }
 
 #[test]
@@ -339,56 +346,6 @@ fn main() -> i32 {
     assert!(main.metadata.effects.calls);
     assert!(main.metadata.effects.touches_runtime);
     assert!(verify_program(&bytecode, &context.snapshot(), &Default::default()).is_ok());
-}
-
-#[test]
-fn lowers_arithmetic_into_real_bytecode_instructions() {
-    let context = DefinitionContext::new().unwrap();
-    let bytecode = common::adopt_bytecode(
-        &context,
-        common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }"),
-    );
-    let function = &bytecode.modules[bytecode.root.index()].functions[0];
-
-    assert!(function.instructions.iter().any(|instruction| matches!(
-        instruction,
-        BytecodeInstruction::Binary {
-            op: BinaryOp::Add,
-            ..
-        }
-    )));
-}
-
-#[test]
-fn flattens_branch_targets_to_instruction_offsets() {
-    let context = DefinitionContext::new().unwrap();
-    let bytecode = common::adopt_bytecode(
-        &context,
-        common::bytecode_ok("fn main() -> i32 { if true { 1 } else { 2 } }"),
-    );
-    let function = &bytecode.modules[bytecode.root.index()].functions[0];
-
-    let targets = function
-        .instructions
-        .iter()
-        .filter_map(|instruction| match instruction {
-            BytecodeInstruction::Branch {
-                then_target,
-                else_target,
-                ..
-            } => Some([then_target.index(), else_target.index()]),
-            BytecodeInstruction::Jump { target } => Some([target.index(), target.index()]),
-            _ => None,
-        })
-        .flatten()
-        .collect::<Vec<_>>();
-
-    assert!(!targets.is_empty());
-    assert!(
-        targets
-            .iter()
-            .all(|target| *target < function.instructions.len())
-    );
 }
 
 #[test]
