@@ -2421,7 +2421,9 @@ open/close/full-text synchronization, not diagnostics, semantic IDE queries,
 formatting or editor server-launch integration. Syntax highlighting is a separate
 editor-grammar concern. The [editor guide](../editors/README.md) owns installation
 and validation scope; the [roadmap](implementation-roadmap.md#toolchain-distribution-and-modes)
-owns deferred IDE features and pending CI.
+owns pending CI. The [language-server design](lsp-design.md) owns the full planned
+feature inventory, workspace inputs and editor launch, with a five-feature pilot
+and architecture/edit gates before broader delivery; implementation is unstarted.
 
 The analyzer depends on source services and protocol/transport libraries, not on
 SDK/runtime execution. `server` drives transport; `session` owns lifecycle and

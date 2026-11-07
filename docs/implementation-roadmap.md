@@ -459,8 +459,9 @@ in [architecture](architecture.md#language-server-foundation), and the
 [editor guide](../editors/README.md) owns installation and selected local validation.
 The complete editor-tooling CI job, full syntax-example inventory, clean Linux
 installation and broader editor/platform matrix remain pending CI. Windows local
-acceptance does not establish those results. Semantic IDE features, editor
-server-launch integration and marketplace publication remain deferred.
+acceptance does not establish those results. Semantic IDE features and editor
+server-launch integration are now scoped by the [language-server design](#language-server),
+with implementation unstarted. Marketplace publication remains deferred.
 
 Before the next actual-editor acceptance, reconcile the pre-existing single-quote
 oracle drift: `editors/tests/vscode-host/index.cjs` expects no apostrophe autoclose,
@@ -503,6 +504,65 @@ proposal; redefinition/reload policy remains open. Reuse ordinary analysis, exec
 cancellation, roots and pinned generations, without a second interpreter or new
 standalone top-level-statement rule. [Debugger tooling](debugger-design.md) owns its
 separately proposed debug/DAP modes.
+
+## Language server
+
+The [LSP design](lsp-design.md) proposes extending the existing stdio analyzer
+through LSP00-LSP08. Design is authorized; implementation is unstarted. Its full
+feature inventory includes definition/declaration/type/implementation navigation,
+references, rename, symbols, completion, diagnostics, source edits, semantic
+presentation and workspace/client lifecycle. The LSP00-LSP04 pilot delivers five
+features: diagnostics, hover, definition, implementation and basic completion,
+with one VS Code client integration. Architecture gate A must pass before broader
+navigation/search in LSP05, semantic editing/formatting/lints and edit gate B in
+LSP06, rich presentation in LSP07 and workspace/Zed support in LSP08. The design
+owns sequencing, concrete input/identity gaps, index coverage, thread/snapshot
+ownership, edit validity, validation selection and performance targets. Benchmarks
+and fuzz targets land with each phase: cold/warm process and query measurements,
+load/cancellation/retention metrics, frozen baselines and regression gates, plus
+wire, lifecycle, document, analysis and edit oracles. Gate A requires pilot
+performance/fuzz evidence; gate B adds semantic edit evidence. Existing HIR
+benchmark and cargo-fuzz infrastructure remain the owners of reusable tooling.
+LSP00 introduces library and executable targets in the same analyzer crate so
+verification consumes production code, with a non-default narrow verification
+surface. No LSP benchmark results or new LSP fuzz campaigns are claimed yet.
+The test architecture places semantic combinations at their source/HIR owners,
+most wire/lifecycle behavior in a real in-process server harness, interoperability
+in selected real-process/headless-client cases, and editor-specific behavior in a
+small automatic VS Code provider/application/installed suite. LSP00 replaces the
+scaffold's next-frame response assumption with demultiplexing and deterministic
+observations; LSP04 adds host case selection and measured feedback budgets. Reuse
+one host per suite and fresh per-case state; ordinary feature regressions must not
+require a new editor launch or a manual acceptance checklist.
+LSP04 also owns bundled installed-extension delivery, explicit analyzer selection
+and bounded crash recovery with unsaved-buffer restoration. After the VS Code
+pilot gate, a minimal Zed launch/sync/diagnostic checkpoint checks interoperability;
+full Zed integration remains LSP08. Opaque resolve/history IDs carry a fresh server
+instance namespace so a restarted process cannot reinterpret stale client items.
+The selected execution design directly reuses `lattice-actor` for typed messages,
+handlers, mailbox dispatch and actor lifecycle. Its ActorRuntime owns the Tokio
+executor used by scoped TCP IO and deadline adapters. Acquisition, HIR analysis
+and blocking stdio retain dedicated threads. Kagari owns framing, JSON-RPC,
+request lifetimes and input/publication policy; LSP00 removes `lsp-server` while
+retaining `lsp-types`. No custom actor/envelope/mailbox implementation or parallel
+session dispatch loop is planned. Output credits, application admission bounds
+and LSP cleanup before framework stop preserve responsiveness and output ownership.
+Stdio and single-connection TCP share one session core; same-process multi-client
+hosting remains deferred. LSP00 includes this foundation and its process tests.
+
+Reuse source/package/HIR semantics without constructing a Kagari execution runtime,
+compiling executables or publishing lockfiles. Physical URI to package-context mapping and
+recoverable tooling acquisition must be established before semantic handlers.
+Generation-bound workspace declaration, implementation and occurrence indexes
+belong to the existing analysis worker; HIR owns semantic relationships and edit
+safety. References/rename require explicit complete search scope and versioned
+edit validation, rather than per-feature name searches. General incremental
+compilation, persistent indexes, DAP and application-specific declaration-bundle
+delivery remain outside this sequence.
+[R8 invalidation](review.md#architecture-findings) and
+[historical body-cache retention](review.md#syntax-and-hir-follow-ups) stay with
+their existing review owners; the LSP plan measures their editing-workload impact
+rather than assuming those issues are already resolved.
 
 ## KBC disassembly
 

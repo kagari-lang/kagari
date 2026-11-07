@@ -150,10 +150,18 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   [embedding contract](spec/embedding-api.md#installed-programs-and-public-paths)
   owns the API and finite generic/layout limits. Remaining preparation/tooling and
   repair linking have separate existing owners.
+- [Language server design](lsp-design.md): proposed overlay-aware workspace inputs,
+  Lattice actors with Tokio IO, stdio/TCP transport, retained analysis,
+  full feature inventory and staged delivery. A five-feature pilot validates the
+  architecture before navigation/search, semantic edits, rich presentation and
+  workspace expansion. Benchmark baselines, regression gates and protocol/state/
+  semantic fuzz contracts accompany each phase. LSP00-LSP08 and both review gates
+  are unstarted. Fast real-server tests carry protocol behavior; a small automated
+  editor suite verifies provider registration, application and installed artifacts.
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
-  complete CI/platform acceptance, semantic IDE features, server-launch integration,
-  marketplace publication and separately authorized old-repository administration.
-  The syntax-adapter implementation and selected local acceptance are complete.
+  complete CI/platform acceptance, marketplace publication and separately
+  authorized old-repository administration. The syntax-adapter implementation
+  and selected local acceptance are complete.
 - [KBC disassembly CI follow-up](implementation-roadmap.md#kbc-disassembly): the
   [offline command and selection contract](spec/toolchain-tools.md#kbc-disassembly)
   is implemented; full workspace and feature/backend/platform acceptance remains
