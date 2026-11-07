@@ -21,7 +21,8 @@ use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, callable::CallableHandle,
-        context::CallContext, declarations::FunctionDecl, module::NativeModule, types::Type,
+        context::CallContext, declarations::FunctionDecl, installation::NativeInstallation,
+        module::NativeModule, types::Type,
     },
     resource::RuntimeLimits,
     value::Value,
@@ -501,20 +502,42 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
     let program = compile_test_bytecode(
         "fn main() -> i32 { boundary::choose(true, || { host::log(\"effect\"); 42 }) } pub fn ready() -> i32 { 7 }",
     );
-    for encoded in [false, true] {
+    let decoded = round_trip_program(program.clone());
+    let mut modules = kagari_stdlib::modules().unwrap();
+    modules.push(module());
+    let installation = NativeInstallation::prepare(&modules).unwrap();
+    let logging_template = ModuleBuilder::from_declaration(
+        logging::declaration().unwrap(),
+        &StandardDeclarations::default().catalog().unwrap(),
+        Default::default(),
+    )
+    .unwrap();
+    let log = logging_template.declared_function("log").unwrap();
+    for program in [&program, &decoded] {
         let mut cancellations = 0;
         for at in 0..80 {
-            let mut runtime = runtime(Default::default());
+            let mut runtime = installation.runtime(RuntimeConfig {
+                gc: GcHeapConfig {
+                    collection_threshold: Some(1),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
-            logging_module(move |_, _| {
-                *sink.lock().unwrap() += 1;
-                Ok(Value::Unit)
-            })
-            .install(&mut runtime)
-            .unwrap();
+            let mut logging = logging_template.clone();
+            logging
+                .bind(
+                    log.clone(),
+                    move |_: &HostCallContext<'_>, _: &[Value]| -> Result<Value, HostError> {
+                        *sink.lock().unwrap() += 1;
+                        Ok(Value::Unit)
+                    },
+                )
+                .unwrap();
+            logging.finish().unwrap().install(&mut runtime).unwrap();
             let loaded = runtime
-                .load_program("native-control", route(&program, encoded))
+                .load_program("native-control", program.clone())
                 .unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
