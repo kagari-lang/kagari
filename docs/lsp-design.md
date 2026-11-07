@@ -1,7 +1,8 @@
 # Kagari language server design
 
 Status: implementation authorized through LSP04 on 2026-11-07, with a commit at
-each accepted phase. LSP00-LSP01 are accepted locally; LSP02-LSP04 follow on the same
+each accepted phase. LSP00-LSP02 have local functional/ownership checkpoints;
+LSP02's diagnostic latency miss remains open for LSP03 and blocks Gate A. LSP03-LSP04 follow on the same
 `feat/lsp` branch. Later phases remain queued. The Lattice transport foundation
 replaces the original synchronous stdio scaffold; semantic features are not yet
 advertised. This document owns the proposed LSP scope,
@@ -283,7 +284,7 @@ crates/kagari-analyzer/
       inputs.rs                     # Ordered document and capture-completion handlers
       requests.rs                   # Incoming/outgoing requests, cancellation, one reply
       scheduler.rs                  # Capture barriers, job metadata, queues and credits
-      publication.rs                # Generation checks and per-URI diagnostic merging
+      publications.rs               # Generation checks and per-URI diagnostic merging
       outbox.rs                     # Reliable responses and replaceable output intents
       timers.rs                     # Replaceable deadlines and due-message construction
       resolve.rs                    # Bounded opaque handles for resolve/hierarchy requests
@@ -364,7 +365,7 @@ make SessionActor internals or HIR arenas public merely for a harness. Ordinary
 module tests can exercise the same oracles under `cfg(test)`. Lattice runs the mailbox loop;
 there is no analyzer `actor/` implementation or `session/drive.rs`. `session.rs`
 owns state and focused operations, rather than collecting all feature handlers.
-`session/requests.rs` owns request completion and `session/publication.rs` owns
+`session/requests.rs` owns request completion and `session/publications.rs` owns
 diagnostic validity. `session/tasks.rs` wires a finite set of application IO and
 worker bridges using Lattice APIs; it is not another actor scheduler.
 
@@ -2646,7 +2647,8 @@ runtime GC and reload ownership are unchanged by the analyzer's Tokio executor.
 
 ## Implementation sequence and acceptance
 
-LSP00-LSP01 are accepted locally. Update this document at each checkpoint; do not create a
+LSP00-LSP02 have local functional/ownership checkpoints; diagnostic performance
+remains below the Gate A target. Update this document at each checkpoint; do not create a
 parallel LSP plan. Each phase must build at its boundary, and only accepted features
 are advertised. No intermediate broken-build allowance is proposed.
 
@@ -2686,6 +2688,100 @@ Reuse passing evidence for unchanged images/contracts. Each row requires its
 listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
+
+LSP02's functional/ownership checkpoint is complete. The analysis worker retains its database and source leases;
+native startup opens the generated-document store on acquisition, renders and
+validates on analysis, then publishes exact bytes on acquisition before semantic
+readiness. Background diagnostics use a 150 ms debounce and separate replaceable
+publication slots, with generation/incarnation checks at writer grant. The pilot
+conservatively invalidates all root contributions on an input change; immediate
+clears of previously granted nonempty sets can cause flicker. More precise dirty
+root selection requires measured justification after correctness is established.
+Publication retention has a separate 16 MiB/1,024 URI/16,384 record budget; it is
+not included in the reliable outbox's 64 MiB cap. Overflow is a visible fault,
+never a silently truncated semantic set.
+
+Integration revealed that `AnalysisDatabase::clone` shares the append-only
+`DefinitionContext` writer. Using a permanent native baseline as the cloning
+source would therefore retain user declarations from retired contexts. Each
+context instead creates its own database and identity writer from the validated
+provider/source batch, then retains that database across jobs. Native preparation
+is repeated once per new context; the baseline remains native-only. This finite
+ownership correction precedes the first semantic timing baseline. Context-native
+text and copied-origin buffers participate in the shared input budget, and an
+explicit retained analysis result owns its own source lease after context retirement.
+
+Concrete LSP03 follow-up from worker integration: HIR's selected-function cache
+can retain older `FunctionAnalysis` and their signature snapshots while declaration
+identities remain present. Before selected-body jobs land, define source revision
+pruning at the HIR cache owner and keep actual retained source allocations charged.
+Full-snapshot LSP02 publication does not populate that selected-function cache;
+its previous input lease remains alive until a successful replacement. This is
+part of the existing retention gate, not an additional caching subsystem.
+The same LSP03 retention work must bound append-only definition metadata within a
+long-lived context under repeated declaration renames; retiring whole contexts
+alone does not address that distinct lifetime. Preserve current identities while
+their explicit snapshots are retained and report cache-reset/reuse costs honestly.
+
+LSP02 local evidence includes generated-store atomic publication/corruption tests,
+the SDK's existing materialized navigation and IO-failure scenarios, real standard
+catalog validation, independent context identity tables and exact retained-source
+accounting. Three analysis-owner scenarios cover typed worker admission/retirement,
+inline diagnostic coordinates, native-view authority, cancellation and capacity
+cleanup. Five publication-owner scenarios cover stale generations/incarnations,
+root merging, saturated reliable output, bounded fairness and atomic budget failure.
+Clean completed contexts emit one-shot empty intents without retaining empty URI
+tombstones. A real-actor T1 holds an actual completed old HIR result, admits an
+edit, releases and observes the old completion, then asserts only current output,
+the exact semantic error code/range and untitled-close clearing. The final affected
+T1 run took 1.58 s. Real-process stdio/connect/listen lifecycle sampling also passes.
+Structure (1,924 Rust files, zero findings), format, workspace all-target Clippy
+and diff checks pass; exhaustive workspace/platform tests remain CI-only.
+
+Expanded FZ02 replay passes. Its Windows ASan campaign completed 27,667 executions
+in 61 s without a finding (seed 2858611154, peak RSS 518 MiB); hashes of all 11
+exercised state-owner/group/options/protocol files matched before and after. The
+nightly/MSVC environment and input/time/RSS limits match the campaigns below;
+instrumented compilation (3m44s plus 1m20s) is excluded. The oracle covers matching
+and forged job IDs, cancellation without credit release, stale/future completion,
+publication stamps, close/reopen and full reliable-queue fairness. It does not
+claim exhaustive native/HIR coverage; FZ04 owns that semantic boundary.
+
+The diagnostic process benchmark requires a fixed unrelated error witness in every
+edit state. The first correctness trial exposed that an immediate invalidation
+clear is not completed analysis; that trial is excluded from timing evidence.
+Corrected stdio/TCP checks require exact nonempty diagnostic sets for body and
+dependency-signature errors and repairs, including a dependent file whose client
+version is unchanged. Frozen scenario/edit/image hashes accompany the samples.
+Interactive B05/B06 measurements and B07's query/history retention campaign move
+to LSP03's first actual query consumers; LSP02 establishes worker-credit and source
+retirement correctness plus B01/B03 diagnostic timing. Gate A still requires all
+pilot rows before LSP04 acceptance; no control-only request is substituted for a
+semantic query measurement.
+
+The first seven-group release diagnostic baseline measured these medians/ranges:
+initialize response 14.1323 ms from spawn (13.4651-26.2842); open to first exact
+diagnostic set 5,735.4579 ms (5,680.2885-6,284.4929); body error 3,098.5779 ms
+(3,050.7383-3,306.6097) and repair 3,104.2235 ms (3,058.2467-3,517.9548);
+dependency-signature error 5,626.8249 ms (5,477.4870-6,037.4814) and repair
+5,623.7181 ms (5,470.0387-6,522.9542). Seven groups establish medians/ranges,
+not p95/p99. These edit latencies clearly miss the 650 ms product target; Gate A
+is not passed. LSP03 must profile declaration/signature preparation, prerequisite
+and body checking, cache reuse and projection at their owners before choosing an
+optimization. Existing retained-result body counters describe construction history
+and cannot be presented as work performed by each warm query. Add operation-scoped
+evidence without replacing semantic checks or measuring an invalidation clear.
+
+Environment: rustc/Cargo 1.99.1, Windows 11 Pro 26300, i9-12900K/24 logical CPUs,
+balanced power plan, release/default features and Cargo parallelism, seven serial
+fresh processes with empty isolated native-document caches, OS caches uncontrolled.
+No build/fuzz work overlapped sampling. Build invocation 53.0941 s is excluded.
+The immutable archive is `target/lsp-benchmark/LSP02-diagnostics-sentinel-release`;
+reproduction and archive verification are in the tracked benchmark guide. Image
+SHA256 is `8fc37b144d30e10b27a03b6d1b00a2175b4690a19ea4a639b205b1fcd052913c`;
+source base is `7643eb99` plus its archived dirty patch. Source, harness, lock,
+workload and edit hashes matched across the run. This is a baseline, not a speedup
+or regression comparison; the lock/cache/scenario change starts a new lineage.
 
 LSP01 adds a dedicated synchronous acquisition worker, one active job/typed result,
 and generation-checked actor publication. Initial workspace folders (with rootUri

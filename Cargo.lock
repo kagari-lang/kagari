@@ -583,8 +583,12 @@ name = "kagari-analyzer"
 version = "0.1.0"
 dependencies = [
  "kagari-common",
+ "kagari-hir",
  "kagari-package",
  "kagari-source",
+ "kagari-stdlib",
+ "kagari-syntax",
+ "kagari-types",
  "lattice-actor",
  "lsp-types",
  "rstest",
@@ -840,6 +844,7 @@ dependencies = [
 name = "kagari-source"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "kagari-common",
  "serde",
 ]

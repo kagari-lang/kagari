@@ -1,0 +1,3 @@
+fn scratch() -> i32 {
+    true
+}

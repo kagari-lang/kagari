@@ -1,4 +1,4 @@
-"""LSP process benchmark; LSP00 measures protocol startup only.
+"""LSP process benchmark with protocol and exact diagnostic suites.
 
 uv run python scripts/benchmark_lsp.py --check --transport stdio
 uv run python scripts/benchmark_lsp.py --check --transport tcp
@@ -23,11 +23,9 @@ import time
 import uuid
 
 from lsp_benchmark_inputs import ROOT, digest, materialize, object_digest
+from lsp_benchmark_diagnostics import APP, API, UNAFFECTED, audit_notifications, exercise, frozen_scenario, variants
 from lsp_benchmark_protocol import Peer
-from lsp_benchmark_results import require, summarize, validate_compatible, validate_report
-
-
-UNAVAILABLE = ["B01.diagnostics", "B02", "B03", "B04", "B05", "B06", "B07", "B08"]
+from lsp_benchmark_results import require, summarize, unavailable, validate_compatible, validate_report
 
 
 def command(args, timeout=120):
@@ -88,8 +86,9 @@ def metadata(args, inputs):
         "platform": platform.platform(), "machine": platform.machine(), "cpu": platform.processor(),
         "logical_cpus": os.cpu_count(), "power_mode": args.power_mode,
         "profile": args.profile, "features": ["default"], "transport": args.transport,
+        "suite": args.suite, "diagnostic_deadline_seconds": 30, "debounce_policy_ms": 150,
         "lock_sha256": digest((ROOT / "Cargo.lock").read_bytes()), "workload_sha256": object_digest(inputs),
-        "protocol_schema": 1, "cache_state": "fresh server process; OS filesystem caches uncontrolled",
+        "protocol_schema": 1, "cache_state": "fresh process and empty isolated generated-document cache; OS filesystem caches uncontrolled",
         "parallelism": "serial benchmark processes; Cargo default build parallelism",
         "lattice_revision": "10df090d7912df233e28fbe2c2ef3f223dafcdbb",
         "harness_sha256": object_digest({path.name: digest(path.read_bytes()) for path in
@@ -107,12 +106,28 @@ def freeze(source, output, name):
     return {"path": destination.name, "sha256": expected, "bytes": destination.stat().st_size}
 
 
-def sample(executable, transport, root, image, group):
-    with Peer(executable, transport, root) as peer:
+def archive_path(directory, name):
+    path = (directory / name).resolve()
+    require(path.is_relative_to(directory.resolve()), "archived path escaped its directory")
+    return path
+
+
+def verify_inputs(directory, inputs, suite):
+    sources = inputs["sources"] if suite == "diagnostics" else inputs
+    for name, expected in sources["file_sha256"].items():
+        require(digest(archive_path(directory / "inputs", name).read_bytes()) == expected, "archived source input hash mismatch")
+    if suite == "diagnostics":
+        require(decode(directory / "edit-inputs.json") == variants(), "archived edit inputs changed")
+
+
+def sample(executable, transport, root, image, group, suite):
+    cache = root.parent / "caches" / f"{group}-{image}"
+    with Peer(executable, transport, root, cache) as peer:
         result, duration, received = peer.request("initialize", "initialize", {
             "processId": os.getpid(), "rootUri": root.as_uri(),
             "workspaceFolders": [{"uri": root.as_uri(), "name": "benchmark"}],
-            "capabilities": {"general": {"positionEncodings": ["utf-16"]}},
+            "capabilities": {"general": {"positionEncodings": ["utf-16"]},
+                             "textDocument": {"publishDiagnostics": {"versionSupport": True}}},
         })
         capabilities = result.get("capabilities", {})
         sync = capabilities.get("textDocumentSync", {})
@@ -122,13 +137,22 @@ def sample(executable, transport, root, image, group):
                     "serverName": server.get("name"), "serverVersion": server.get("version")}
         startup = received - peer.spawn_ns
         peer.notify("initialized", {})
+        metrics, operations = exercise(peer, root) if suite == "diagnostics" else ({}, [])
         shutdown, _, _ = peer.request("shutdown", "shutdown", None)
         evidence["shutdown_is_null"] = shutdown is None
         peer.notify("exit", None)
         peer.finish()
         evidence["exit_code"] = peer.process.returncode
-        return {"image": image, "group": group, "workload": "B01.protocol", "errors": 0, "completed": 2,
-                "spawn_to_initialize_ns": startup, "initialize_round_trip_ns": duration, "evidence": evidence}
+        value = {"image": image, "group": group,
+                 "workload": "B01+B03.diagnostics" if suite == "diagnostics" else "B01.protocol",
+                 "errors": 0, "completed": 2 + len(operations),
+                 "spawn_to_initialize_ns": startup, "initialize_round_trip_ns": duration, "evidence": evidence}
+        if suite == "diagnostics":
+            audit_notifications(peer.notification_history, root, operations[0]["started_ns"])
+            value.update(metrics)
+            value.update(operations=operations, document_uris={name: (root / name).as_uri() for name in (APP, API, UNAFFECTED)},
+                         notification_history=[{"frame": frame, "received_ns": received} for frame, received in peer.notification_history])
+        return value
 
 
 def run(args):
@@ -137,7 +161,8 @@ def run(args):
         validate_report(report)
         require(decode(args.validate / "summary.json") == summarize(report), "saved summary disagrees with raw samples")
         for image in report["images"].values():
-            require(digest((args.validate / image["path"]).read_bytes()) == image["sha256"], "archived image hash mismatch")
+            require(digest(archive_path(args.validate, image["path"]).read_bytes()) == image["sha256"], "archived image hash mismatch")
+        verify_inputs(args.validate, report["inputs"], report["metadata"]["suite"])
         print(f"validated {args.validate}")
         return
     output = args.output or ROOT / "target/lsp-benchmark" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8])
@@ -146,6 +171,10 @@ def run(args):
     require(output.is_relative_to((ROOT / "target").resolve()), "benchmark output must remain under ignored target/")
     output.mkdir(parents=True)
     inputs = materialize(args.workload, output / "inputs")
+    if args.suite == "diagnostics":
+        require(args.workload == "pilot", "diagnostics suite currently requires the frozen pilot")
+        inputs = {"sources": inputs, "diagnostics": frozen_scenario()}
+        save(output / "edit-inputs.json", variants())
     before = source_state()
     candidate, build_ns = (args.candidate.resolve(), None) if args.candidate else build_candidate(args.profile)
     require(candidate.is_file(), "candidate executable does not exist")
@@ -168,7 +197,7 @@ def run(args):
     groups = 1 if args.check else 7
     report = {"schema": 1, "metadata": current, "groups": groups, "check_only": args.check,
               "images": images, "inputs": inputs, "source_before": before,
-              "samples": [], "unavailable_rows": UNAVAILABLE}
+              "samples": [], "unavailable_rows": unavailable(args.suite)}
     save(output / "metadata.json", current)
     save(output / "inputs.json", inputs)
     for group in range(groups):
@@ -176,11 +205,12 @@ def run(args):
         if group % 2:
             order.reverse()
         for name in order:
-            value = sample(output / images[name]["path"], args.transport, output / "inputs", name, group)
+            value = sample(output / images[name]["path"], args.transport, output / "inputs", name, group, args.suite)
             report["samples"].append(value)
             save(output / f"sample-{group}-{name}.json", value)
     report["source_after"] = source_state()
     require(report["source_after"] == before, "source changed during campaign; results are not accepted")
+    verify_inputs(output, inputs, args.suite)
     summary = summarize(report)
     save(output / "report.json", report)
     save(output / "summary.json", summary)
@@ -190,6 +220,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="one process; correctness evidence only")
+    parser.add_argument("--suite", choices=("protocol", "diagnostics"), default="protocol")
     parser.add_argument("--workload", choices=("pilot", "workspace", "churn"), default="pilot")
     parser.add_argument("--transport", choices=("stdio", "tcp"), default="stdio")
     parser.add_argument("--candidate", type=Path)

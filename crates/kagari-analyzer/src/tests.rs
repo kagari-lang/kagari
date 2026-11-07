@@ -1,3 +1,4 @@
+mod diagnostics;
 pub(crate) mod fixture;
 mod peer;
 mod protocol;

@@ -1,0 +1,3 @@
+pub fn benchmark_guard() -> i32 {
+    true
+}

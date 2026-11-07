@@ -1,27 +1,16 @@
-//! Source presentation and filesystem publication belong to the embedding SDK.
+//! Native declaration validation and publication orchestration for the embedding SDK.
 use crate::{engine::builder::KagariEngineBuilder, error::EmbeddingError};
-use blake3::hash as content_hash;
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_hir::{
     analysis::AnalysisDatabase,
-    native::render::{DeclarationSource, declaration_source},
+    native::render::{DeclarationSource, NATIVE_RENDERER_NAMESPACE, declaration_source},
 };
-use kagari_source::source_database::{SourceSnapshot, normalize_source_name};
+use kagari_source::{
+    generated::{GeneratedDocumentError, GeneratedDocuments},
+    source_database::SourceSnapshot,
+};
 use kagari_types::declaration::module::ModuleDecl;
-use std::{
-    collections::BTreeSet,
-    fs::{self, OpenOptions},
-    io::{Error, ErrorKind, Write},
-    path::{Path, PathBuf},
-    process,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
-
-const RENDERER_VERSION: &str = "kgr-native-v1";
-static TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
+use std::{collections::BTreeSet, sync::Arc};
 
 pub(super) fn prepare(
     builder: &KagariEngineBuilder,
@@ -40,9 +29,14 @@ pub(super) fn prepare(
             message: error.to_string(),
         })?;
     // Analyze the final source identity once; publish files only after checking.
+    let mut publications = Vec::new();
     if let Some(root) = &builder.declaration_cache {
+        let documents =
+            GeneratedDocuments::open(root, NATIVE_RENDERER_NAMESPACE).map_err(cache_error)?;
         for source in &mut sources {
-            source.uri = source_name(&cache_path(root, &source.text)?)?;
+            let document = documents.plan(Arc::from(source.text.as_str()));
+            source.uri = document.source_name().into();
+            publications.push(document);
         }
     }
     let mut analysis =
@@ -97,10 +91,8 @@ pub(super) fn prepare(
             });
         }
     }
-    if let Some(root) = &builder.declaration_cache {
-        for source in &mut sources {
-            source.uri = materialize(root, &source.text)?;
-        }
+    for document in publications {
+        document.publish().map_err(cache_error)?;
     }
     Ok((analysis, sources))
 }
@@ -144,94 +136,9 @@ fn source_independent_modules(
     )
 }
 
-fn cache_error(path: &Path, error: Error) -> EmbeddingError {
+fn cache_error(error: GeneratedDocumentError) -> EmbeddingError {
     EmbeddingError::DeclarationCache {
-        path: path.to_owned(),
-        error,
+        path: error.path,
+        error: error.error,
     }
-}
-
-/// Identical text shares one immutable file. A doc-only change gets a new target.
-fn cache_path(root: &Path, text: &str) -> Result<PathBuf, EmbeddingError> {
-    let directory = root.join(RENDERER_VERSION);
-    fs::create_dir_all(&directory).map_err(|error| cache_error(&directory, error))?;
-    let directory = fs::canonicalize(&directory).map_err(|error| cache_error(&directory, error))?;
-    let hash = content_hash(text.as_bytes()).to_hex();
-    Ok(directory.join(format!("{hash}.kgr")))
-}
-
-/// Publishes validated text atomically without replacing an existing snapshot's file.
-fn materialize(root: &Path, text: &str) -> Result<String, EmbeddingError> {
-    let path = cache_path(root, text)?;
-    let directory = path.parent().expect("declaration cache directory");
-    match fs::read(&path) {
-        Ok(bytes) => {
-            if bytes != text.as_bytes() {
-                return Err(cache_error(
-                    &path,
-                    Error::new(
-                        ErrorKind::InvalidData,
-                        "declaration cache content differs from its identity",
-                    ),
-                ));
-            }
-            return source_name(&path);
-        }
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => return Err(cache_error(&path, error)),
-    }
-    let temporary = directory.join(format!(
-        ".{}-{}.tmp",
-        process::id(),
-        TEMPORARY_ID.fetch_add(1, Ordering::Relaxed)
-    ));
-    let publish = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        file.write_all(text.as_bytes())?;
-        // A hard link atomically publishes complete content without replacing an
-        // existing target that a concurrent or older snapshot may already own.
-        match fs::hard_link(&temporary, &path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                if fs::read(&path)? == text.as_bytes() {
-                    Ok(())
-                } else {
-                    Err(Error::new(
-                        ErrorKind::InvalidData,
-                        "declaration cache collision",
-                    ))
-                }
-            }
-            Err(error) => Err(error),
-        }
-    })();
-    let _ = fs::remove_file(&temporary);
-    publish.map_err(|error| cache_error(&path, error))?;
-    source_name(&path)
-}
-
-fn source_name(path: &Path) -> Result<String, EmbeddingError> {
-    // SourceDatabase uses normalized absolute paths for physical files. Keep the
-    // published view and the analyzed source name identical; LSP adapters can
-    // encode this path as a file URI at their protocol boundary.
-    let name = path.to_str().ok_or_else(|| {
-        cache_error(
-            path,
-            Error::new(
-                ErrorKind::InvalidInput,
-                "declaration cache path is not UTF-8",
-            ),
-        )
-    })?;
-    // Windows canonicalization adds a verbatim disk prefix. Publish an ordinary
-    // drive path before lexical source normalization replaces its separators.
-    let name = name
-        .strip_prefix(r"\\?\")
-        .filter(|name| name.as_bytes().get(1) == Some(&b':'))
-        .unwrap_or(name);
-    normalize_source_name(name)
-        .map_err(|message| cache_error(path, Error::new(ErrorKind::InvalidInput, message)))
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import deque
 import json
+import os
 from pathlib import Path
 import queue
 import socket
@@ -12,6 +13,7 @@ import time
 
 MAX_HEADER = 8192
 MAX_BODY = 8 * 1024 * 1024
+MAX_NOTIFICATION_HISTORY_BYTES = 16 * 1024 * 1024
 TIMEOUT = 10.0
 
 
@@ -54,12 +56,14 @@ def read_frame(stream):
 
 
 class Peer:
-    def __init__(self, executable: Path, transport: str, root: Path):
+    def __init__(self, executable: Path, transport: str, root: Path, cache_root: Path | None = None):
         self.root = root
         self.frames = queue.Queue(64)
         self.stop = threading.Event()
         self.history = deque(maxlen=32)
         self.notifications = deque(maxlen=128)
+        self.notification_history = []
+        self.notification_bytes = 0
         self.responses = {}
         self.pending = set()
         self.stderr = bytearray()
@@ -69,6 +73,10 @@ class Peer:
         self.stdin = None
         self.reader = None
         self.process = None
+        environment = os.environ.copy()
+        if cache_root is not None:
+            cache_root.mkdir(parents=True, exist_ok=False)
+            environment.update(LOCALAPPDATA=str(cache_root), XDG_CACHE_HOME=str(cache_root))
         listener = None
         args = [str(executable), "--stdio"]
         if transport == "tcp":
@@ -82,7 +90,7 @@ class Peer:
         self.spawn_ns = time.perf_counter_ns()
         try:
             self.process = subprocess.Popen(args, cwd=root, stdin=subprocess.PIPE,
-                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, env=environment)
             self._thread(self._drain, self.process.stderr, self.stderr)
             if listener:
                 self.socket, _ = listener.accept()
@@ -173,7 +181,14 @@ class Peer:
             else:
                 if len(self.notifications) == self.notifications.maxlen:
                     raise ValueError("unconsumed notification budget exceeded")
+                if len(self.notification_history) >= 512:
+                    raise ValueError("notification history budget exceeded")
+                retained = len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
+                if retained > MAX_NOTIFICATION_HISTORY_BYTES - self.notification_bytes:
+                    raise ValueError("notification history byte budget exceeded")
+                self.notification_bytes += retained
                 self.notifications.append((value, received_ns))
+                self.notification_history.append((value, received_ns))
             return
         key = json.dumps(value.get("id"), separators=(",", ":"))
         if key not in self.pending or key in self.responses:
@@ -200,6 +215,22 @@ class Peer:
         if "error" in value:
             raise ValueError(f"request {method} failed: {value['error']!r}")
         return value["result"], received - started, received
+
+    def wait_notification(self, method, predicate, after_ns=0, timeout=TIMEOUT):
+        deadline = time.monotonic() + timeout
+        while True:
+            # A caller-supplied operation barrier retires older pending notices;
+            # the bounded raw history still preserves every received notification.
+            while self.notifications and self.notifications[0][1] < after_ns:
+                self.notifications.popleft()
+            for index, (value, received) in enumerate(self.notifications):
+                if received >= after_ns and value.get("method") == method and predicate(value.get("params")):
+                    del self.notifications[index]
+                    return value["params"], received
+            frame, received = self._receive(deadline)
+            if frame is None:
+                raise ValueError(f"analyzer EOF before expected {method} notification")
+            self._dispatch(frame, received)
 
     def finish(self):
         deadline = time.monotonic() + TIMEOUT

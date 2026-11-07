@@ -142,8 +142,25 @@ The first byte selects a request capacity of one through eight; subsequent
 three-byte records select an operation, ID/serial and value, up to 128 operations.
 Admission, cancellation, completion, frame grants, valid/forged acknowledgements
 and control-output saturation are followed by a drain proving final credit release.
-It complements real-actor ordering tests; it does not substitute a toy server for
-the production actors or claim semantic-worker coverage before those workers land.
+The same bounded records also drive the production `JobCredit`, diagnostic
+publisher and shared writer-credit owner. A separate two-context/two-URI model
+tracks retained job IDs/tokens, current generations, open incarnations/versions,
+root contributions, last-granted sets, replaceable intents and reliable output.
+Its fourteen actions include edit/close/reopen, job admission/cancellation,
+matching/forged completion, fresh/stale contribution replacement, shutdown,
+reliable queue fill, writer grant/acknowledgement and contribution clearing.
+Only a matching completion releases worker credit. Cancelled old work can finish
+successfully, but cannot publish into a newer generation.
+Exact duplicates merge; differing root records retain their provenance; version
+negotiation affects wire output without weakening generation checks. Fairness
+retains its eight-frame debt when a full reliable queue temporarily makes a
+publication ineligible. Final draining proves job/output/publication retirement.
+
+This target exercises the actual synchronous state owners, not a toy server.
+The T1 diagnostic test separately holds a real HIR worker's completed result,
+admits a newer edit through the real codec/actor/acquisition path, releases the
+old completion and verifies current versioned diagnostics, repair and clearing.
+It complements fuzzed owner orders without claiming exhaustive thread schedules.
 
 Raw `.bin` wire seeds retain CRLF and invalid-byte witnesses without Git text
 conversion. Curated seeds live under `fuzz/seeds/lsp_wire` and

@@ -10,6 +10,8 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use serde_json::{Value, json};
 
+mod publications;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct ModelId(u8);
 
@@ -201,6 +203,7 @@ pub(crate) fn check(input: &[u8]) {
     if input.len() > 64 * 1024 {
         return;
     }
+    publications::check(input);
     let capacity = usize::from(input.first().copied().unwrap_or(0) % 8) + 1;
     let limits = SessionLimits {
         requests: capacity,

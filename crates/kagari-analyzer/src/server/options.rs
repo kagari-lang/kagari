@@ -27,6 +27,9 @@ pub(crate) struct SessionLimits {
     pub outbox_count: usize,
     pub outbox_bytes: usize,
     pub result_bytes: usize,
+    pub publication_uris: usize,
+    pub publication_diagnostics: usize,
+    pub publication_bytes: usize,
     pub startup: Duration,
     pub write: Duration,
     pub cleanup: Duration,
@@ -48,6 +51,9 @@ impl Default for SessionLimits {
             outbox_count: 128,
             outbox_bytes: 64 * 1024 * 1024,
             result_bytes: 8 * 1024 * 1024,
+            publication_uris: 1024,
+            publication_diagnostics: 16_384,
+            publication_bytes: 16 * 1024 * 1024,
             startup: Duration::from_secs(10),
             write: Duration::from_secs(5),
             cleanup: Duration::from_secs(2),
@@ -67,6 +73,9 @@ impl SessionLimits {
             || self.document_metadata_bytes < self.document_uri_bytes
             || self.retained_input_bytes == 0
             || self.requests == 0
+            || self.publication_uris == 0
+            || self.publication_diagnostics == 0
+            || self.publication_bytes < self.result_bytes
             || self.outbox_count < self.requests + 8
             || self.outbox_bytes < self.result_bytes + (self.requests + 8) * 4096
             || [self.startup, self.write, self.cleanup, self.exit]

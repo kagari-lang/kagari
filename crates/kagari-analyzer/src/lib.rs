@@ -7,6 +7,7 @@ use crate::protocol::verification as wire_verification;
 use crate::session::verification as session_verification;
 use std::{io, process::ExitCode};
 
+mod analysis;
 mod documents;
 mod logging;
 mod protocol;

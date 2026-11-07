@@ -5,7 +5,7 @@ use crate::{
         ProcessNotice,
         options::{Endpoint, SessionLimits},
     },
-    session::SessionActor,
+    session::{SessionActor, analysis::testing::CompletionGate},
     workspace::WorkspaceCapture,
 };
 use lattice_actor::{
@@ -15,7 +15,7 @@ use lattice_actor::{
 };
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     io,
     sync::{
         Arc, Mutex,
@@ -85,11 +85,17 @@ impl ActorObserver for Observer {
     }
 }
 
+struct Ready {
+    captures: watch::Receiver<Option<Arc<WorkspaceCapture>>>,
+    completed: watch::Receiver<(u64, u64)>,
+}
+
 fn serve(
     endpoint: DuplexStream,
     root: String,
     limits: SessionLimits,
-    ready: SyncSender<watch::Receiver<Option<Arc<WorkspaceCapture>>>>,
+    gate: Option<CompletionGate>,
+    ready: SyncSender<Ready>,
 ) -> Result<u8, String> {
     let (logger, log_thread) = LogSink::start().map_err(|error| error.to_string())?;
     let threads = Arc::new(Mutex::new(vec![log_thread]));
@@ -99,7 +105,7 @@ fn serve(
         observer: ActorObserverHandle::new(Observer(notices.clone())),
         ..Default::default()
     });
-    let actor = SessionActor::new(
+    let mut actor = SessionActor::new(
         Endpoint::Memory(endpoint),
         &root,
         limits.clone(),
@@ -109,8 +115,12 @@ fn serve(
         status.clone(),
     )
     .map_err(|error| error.to_string())?;
+    actor.analysis.gate = gate;
     ready
-        .send(actor.captures.subscribe())
+        .send(Ready {
+            captures: actor.captures.subscribe(),
+            completed: actor.analysis.completed.subscribe(),
+        })
         .map_err(|error| error.to_string())?;
     let handle = runtime
         .spawn_actor(
@@ -149,20 +159,30 @@ fn serve(
 pub(super) struct Peer {
     io: Option<DuplexStream>,
     captures: watch::Receiver<Option<Arc<WorkspaceCapture>>>,
+    completed: watch::Receiver<(u64, u64)>,
     done: Receiver<Result<u8, String>>,
     task: Option<JoinHandle<()>>,
     responses: BTreeMap<i64, Value>,
     pending: BTreeSet<i64>,
-    notifications: usize,
+    notifications: VecDeque<Value>,
+    notification_count: usize,
 }
 
 impl Peer {
     pub fn new(root: String, limits: SessionLimits) -> Self {
+        Self::start(root, limits, None)
+    }
+
+    pub fn with_gate(root: String, limits: SessionLimits, gate: CompletionGate) -> Self {
+        Self::start(root, limits, Some(gate))
+    }
+
+    fn start(root: String, limits: SessionLimits, gate: Option<CompletionGate>) -> Self {
         let (io, endpoint) = duplex(64 * 1024);
         let (ready, capture) = sync_channel(1);
         let (finished, done) = sync_channel(1);
         let task = thread::spawn(move || {
-            let _ = finished.send(serve(endpoint, root, limits, ready));
+            let _ = finished.send(serve(endpoint, root, limits, gate, ready));
         });
         let captures = match capture.recv_timeout(WAIT) {
             Ok(captures) => captures,
@@ -176,12 +196,14 @@ impl Peer {
         };
         Self {
             io: Some(io),
-            captures,
+            captures: captures.captures,
+            completed: captures.completed,
             done,
             task: Some(task),
             responses: BTreeMap::new(),
             pending: BTreeSet::new(),
-            notifications: 0,
+            notifications: VecDeque::new(),
+            notification_count: 0,
         }
     }
 
@@ -206,32 +228,67 @@ impl Peer {
                 return response;
             }
             let message = read(self.io.as_mut().unwrap()).await;
-            assert_eq!(message["jsonrpc"], "2.0");
-            if let Some(id) = message.get("id") {
-                assert!(
-                    message.get("method").is_none(),
-                    "unexpected server request: {message}"
-                );
-                assert!(self.responses.len() < 16);
-                assert!(
-                    self.pending.contains(&id.as_i64().unwrap()),
-                    "unsolicited or duplicate response: {message}"
-                );
-                assert!(
-                    self.responses
-                        .insert(id.as_i64().unwrap(), message)
-                        .is_none(),
-                    "duplicate reply"
-                );
-            } else {
-                assert!(
-                    message.get("method").is_some(),
-                    "invalid notification: {message}"
-                );
-                self.notifications += 1;
-                assert!(self.notifications <= 256);
-            }
+            self.dispatch(message);
         }
+    }
+
+    fn dispatch(&mut self, message: Value) {
+        assert_eq!(message["jsonrpc"], "2.0");
+        if let Some(id) = message.get("id") {
+            assert!(
+                message.get("method").is_none(),
+                "unexpected server request: {message}"
+            );
+            assert!(self.responses.len() < 16);
+            assert!(
+                self.pending.contains(&id.as_i64().unwrap()),
+                "unsolicited or duplicate response: {message}"
+            );
+            assert!(
+                self.responses
+                    .insert(id.as_i64().unwrap(), message)
+                    .is_none(),
+                "duplicate reply"
+            );
+        } else {
+            assert!(
+                message.get("method").is_some(),
+                "invalid notification: {message}"
+            );
+            self.notification_count += 1;
+            assert!(self.notification_count <= 256);
+            self.notifications.push_back(message);
+        }
+    }
+
+    pub async fn notification(&mut self, method: &str) -> Value {
+        loop {
+            if let Some(index) = self
+                .notifications
+                .iter()
+                .position(|message| message["method"] == method)
+            {
+                return self.notifications.remove(index).unwrap()["params"].take();
+            }
+            let message = read(self.io.as_mut().unwrap()).await;
+            self.dispatch(message);
+        }
+    }
+
+    pub async fn handled(&mut self, job: u64) {
+        timeout(WAIT, async {
+            loop {
+                if self.completed.borrow_and_update().0 >= job {
+                    return;
+                }
+                self.completed
+                    .changed()
+                    .await
+                    .expect("diagnostic completion owner stopped");
+            }
+        })
+        .await
+        .expect("matching diagnostic completion deadline");
     }
 
     pub async fn capture(&mut self, generation: u64) -> Arc<WorkspaceCapture> {

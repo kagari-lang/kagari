@@ -22,6 +22,9 @@ use kagari_types::{
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
+/// Filesystem namespace for content-addressed views from this native renderer.
+pub const NATIVE_RENDERER_NAMESPACE: &str = "kgr-native-v1";
+
 /// Byte sites recorded while rendering one canonical declaration into generated Kagari text.
 #[derive(Debug, Clone)]
 pub struct NativeDeclarationSite {

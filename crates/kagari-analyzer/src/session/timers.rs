@@ -16,6 +16,7 @@ pub(crate) enum Deadline {
     Write,
     Exit,
     Cleanup,
+    Diagnostics,
 }
 
 pub(crate) struct Timers {
@@ -104,7 +105,11 @@ impl Handler<DeadlineElapsed> for SessionActor {
         message: DeadlineElapsed,
     ) -> io::Result<()> {
         for deadline in self.timers.take_due() {
-            self.fail(ctx, format!("{deadline:?} deadline expired"));
+            if deadline == Deadline::Diagnostics {
+                self.analysis.due = true;
+            } else {
+                self.fail(ctx, format!("{deadline:?} deadline expired"));
+            }
         }
         let _ = message.0.send(());
         Ok(())

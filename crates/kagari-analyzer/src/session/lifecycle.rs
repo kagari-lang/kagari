@@ -61,6 +61,15 @@ impl Handler<InitializeRequested> for SessionActor {
         if let Err(error) = self.captures.configure(&params) {
             return self.reject(serial, ErrorCode::InvalidParams, &error);
         }
+        self.publications.set_version_support(
+            params
+                .capabilities
+                .text_document
+                .as_ref()
+                .and_then(|capabilities| capabilities.publish_diagnostics.as_ref())
+                .and_then(|capabilities| capabilities.version_support)
+                .unwrap_or(false),
+        );
         self.state = Lifecycle::AwaitInitialized;
         self.finish(serial, Ok(to_value(capabilities()).map_err(Error::other)?))
     }
@@ -78,6 +87,7 @@ impl Handler<Initialized> for SessionActor {
             self.state = Lifecycle::Running;
             self.timers.remove(Deadline::Initialize);
             self.start_acquisition(ctx)?;
+            self.start_analysis(ctx)?;
         }
         Ok(())
     }
@@ -105,6 +115,9 @@ impl Handler<ShutdownRequested> for SessionActor {
         }
         self.state = Lifecycle::ShuttingDown;
         self.captures.shutdown();
+        self.analysis.shutdown();
+        self.publications.shutdown();
+        self.timers.remove(Deadline::Diagnostics);
         for pending in self.requests.unresolved() {
             if pending != serial {
                 if let Some(token) = self.requests.token(pending) {

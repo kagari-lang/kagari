@@ -2418,8 +2418,9 @@ Ordinary reflection stays within declared metadata and member adapters.
 `--stdio`; `--tcp-connect ADDRESS` and `--tcp-listen ADDRESS` support a numeric
 loopback address and one session per process. `--version` reports its build. Stdout contains
 only LSP frames; logs/errors use stderr. It advertises UTF-16 positions and
-open/close/full-text synchronization and save/reload input triggers, not diagnostics, semantic IDE queries,
-formatting or editor server-launch integration. Syntax highlighting is a separate
+open/close/full-text synchronization and save/reload input triggers. Source and HIR
+diagnostics publish through versioned, replaceable document updates. Semantic IDE
+queries and editor server-launch integration follow in LSP03-LSP04. Syntax highlighting is a separate
 editor-grammar concern. The [editor guide](../editors/README.md) owns installation
 and validation scope; the [roadmap](implementation-roadmap.md#toolchain-distribution-and-modes)
 owns pending CI. The [language-server design](lsp-design.md) owns the full planned
@@ -2427,8 +2428,8 @@ feature inventory, workspace inputs and editor launch, with a five-feature pilot
 and architecture/edit gates before broader delivery; LSP00 establishes the
 transport foundation and later phases add semantic/editor behavior.
 
-The analyzer depends on source services and protocol/transport libraries, not on
-SDK/runtime execution. `server` owns one Lattice ActorRuntime and bounded process
+The analyzer shares source, package and HIR services and uses the standard library's
+declaration catalog as its native environment. `server` owns one Lattice ActorRuntime and bounded process
 cleanup. Its Tokio executor runs the typed SessionActor, TCP and deadline adapters;
 blocking stdio/logging use dedicated process-owned threads. `session` owns lifecycle,
 request serials, output credits and capabilities; `protocol` validates JSON-RPC,
@@ -2457,7 +2458,10 @@ installed before reads. Initial workspace folders select isolated root contexts;
 non-file buffers use standalone inputs. Recovering tooling projections retain
 available files and errors while strict compilation still requires complete input.
 Structurally complete module declarations remain discoverable beside malformed
-bodies. Background semantic analysis follows in LSP02.
+bodies. A separate synchronous analysis worker performs background semantic analysis
+after a 150 ms debounce. Each context owns its database and definition identity
+writer; jobs reuse that database until context retirement. Baseline native validation
+remains separate, so retired user contexts cannot leave names in its identity table.
 
 Captured sources and open buffers share immutable source-owned text and line indexes.
 An opaque content identity lets input leases charge each live allocation once,
@@ -2466,6 +2470,26 @@ retain those leases. The actor bounds open metadata as well as text, coalesces
 background acquisition and rejects stale generations; it neither reads disk nor
 executes package discovery. There is no second VFS, coordinate converter or IDE
 semantic implementation.
+
+Standard declarations follow an explicit bootstrap chain: acquisition opens the
+generated-document store; analysis renders final-path views and validates their
+registered correspondence and semantic diagnostics; acquisition atomically publishes
+the exact bytes; the actor then admits semantic work. The shared
+`kagari-source::generated` service owns content-addressed paths, byte verification
+and atomic publication for both SDK and analyzer. It does not own rendering or HIR
+validation. Modified generated buffers withhold dependent semantics until restored
+or closed, and failed file publication leaves syntax-only recovery available.
+
+The actor owns one credit per worker, concrete completion messages and diagnostic
+publication policy. Cancellation signals the worker but releases credit only at
+its matching completion. Stale background results release resources without
+publishing. Per-root diagnostic contributions merge by physical URI, deduplicate
+exact records and preserve differing context provenance. Replaceable URI intents
+are validated at the final writer grant, including document version/incarnation.
+Reliable output and diagnostics share the same single writer credit; eligible
+diagnostics receive a turn after eight reliable frames. Clean completed contexts
+emit an empty result without retaining empty URI tombstones. Publication storage
+has its own finite budget, separate from reliable output and source input leases.
 
 ### Editor syntax adapters
 

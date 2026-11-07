@@ -1,9 +1,12 @@
 //! Single owner of protocol state; Lattice dispatches concrete feature messages.
 use std::io::Error;
+pub(crate) mod analysis;
 pub(crate) mod capture;
 pub(crate) mod inputs;
+pub(crate) mod jobs;
 pub(crate) mod lifecycle;
 pub(crate) mod outbox;
+pub(crate) mod publications;
 pub(crate) mod requests;
 pub(crate) mod requests_messages;
 pub(crate) mod tasks;
@@ -20,8 +23,10 @@ use crate::{
         options::{Endpoint, SessionLimits},
     },
     session::{
+        analysis::AnalysisHost,
         capture::CaptureState,
         outbox::{Outbox, WriteFrame},
+        publications::Publications,
         requests::{AdmissionError, Requests},
         timers::{Deadline, Timers},
     },
@@ -60,6 +65,8 @@ pub(crate) struct SessionActor {
     pub state: Lifecycle,
     pub documents: Documents,
     pub captures: CaptureState,
+    pub analysis: AnalysisHost,
+    pub publications: Publications,
     pub limits: SessionLimits,
     pub requests: Requests,
     pub outbox: Outbox,
@@ -101,6 +108,8 @@ impl SessionActor {
             state: Lifecycle::AwaitInitialize,
             documents,
             captures: CaptureState::new(root.to_owned(), limits.retained_input_bytes),
+            analysis: AnalysisHost::new(),
+            publications: Publications::new(&limits),
             requests: Requests::new(limits.requests),
             outbox: Outbox::new(limits.clone()),
             budget: IngressBudget::new(&limits),
@@ -212,6 +221,8 @@ impl SessionActor {
         self.budget.close();
         self.stop.send_replace(true);
         self.captures.shutdown();
+        self.analysis.shutdown();
+        self.publications.shutdown();
         for serial in self.requests.unresolved() {
             if let Some(token) = self.requests.token(serial) {
                 token.cancel();
@@ -233,19 +244,36 @@ impl SessionActor {
             return Ok(());
         }
         self.schedule_capture(ctx)?;
-        if self.writer_ready
-            && let Some(frame) = self.outbox.grant()
-        {
-            self.timers
-                .set(Deadline::Write, Instant::now() + self.limits.write);
-            self.writer
-                .try_send(frame)
-                .map_err(|_| Error::other("writer credit invariant violated"))?;
+        self.schedule_analysis(ctx)?;
+        if self.writer_ready && self.outbox.active.is_none() {
+            let frame = if self.outbox.can_grant_publication()
+                && let Some(publication) = self.publications.next(self.outbox.has_queued())?
+            {
+                Some(self.outbox.grant_publication(
+                    publication.notification.into(),
+                    publication.charge,
+                    publication.publication_serial,
+                )?)
+            } else {
+                let frame = self.outbox.grant();
+                if frame.is_some() {
+                    self.publications.reliable_granted();
+                }
+                frame
+            };
+            if let Some(frame) = frame {
+                self.timers
+                    .set(Deadline::Write, Instant::now() + self.limits.write);
+                self.writer
+                    .try_send(frame)
+                    .map_err(|_| Error::other("writer credit invariant violated"))?;
+            }
         }
         if self.exit_received
             && self.shutdown_written
             && self.outbox.is_empty()
             && self.captures.is_idle()
+            && self.analysis.credit.is_idle()
         {
             self.status.store(0, Ordering::Release);
             self.stop(ctx);

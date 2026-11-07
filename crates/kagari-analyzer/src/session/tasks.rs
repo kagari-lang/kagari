@@ -126,9 +126,15 @@ impl Handler<EncodeRejected> for SessionActor {
         _: &mut HandlerContext<'_, Self>,
         message: EncodeRejected,
     ) -> io::Result<()> {
+        let publication = self.outbox.active_publication;
         let serial = self.outbox.acknowledge(message.sequence)?;
         self.timers.remove(Deadline::Write);
         self.logger.write(message.reason);
+        if publication.is_some() {
+            return Err(Error::other(
+                "diagnostic publication exceeded its encoding budget",
+            ));
+        }
         if serial.is_none() {
             return Err(Error::other("control response cannot fit encoding budget"));
         }

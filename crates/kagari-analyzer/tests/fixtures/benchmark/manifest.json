@@ -1,4 +1,5 @@
 {
+  "diagnostic_scenario_sha256": "99fba2a8ef333434895f8d2a9eee670978449a65d192924e6691945a1879fcb0",
   "hash": "sha256 canonical JSON, sorted keys, compact separators",
   "schema": 1,
   "workloads": {

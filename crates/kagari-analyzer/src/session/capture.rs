@@ -1,7 +1,7 @@
 //! Input generation barriers and the single acquisition-worker credit.
 use crate::{
     protocol::{Notification, source_name},
-    session::{Lifecycle, SessionActor},
+    session::{Lifecycle, SessionActor, jobs::JobCredit},
     workspace::{
         CaptureFailure, CaptureRequest, WorkspaceCapture,
         acquisition::{self, AcquisitionPort},
@@ -25,13 +25,14 @@ use tokio::sync::watch;
 use tokio::sync::{oneshot, oneshot::error::RecvError};
 
 pub(crate) struct CaptureState {
-    normalization_root: String,
-    budget: InputBudget,
+    pub normalization_root: String,
+    pub budget: InputBudget,
     pub roots: Vec<Uri>,
     pub generation: u64,
     pending: Option<CaptureRequest>,
     active: Option<(u64, CancellationToken)>,
-    port: Option<AcquisitionPort>,
+    pub port: Option<AcquisitionPort>,
+    pub credit: JobCredit,
     pub latest: Option<Arc<WorkspaceCapture>>,
     #[cfg(test)]
     observed: watch::Sender<Option<Arc<WorkspaceCapture>>>,
@@ -47,6 +48,7 @@ impl CaptureState {
             pending: None,
             active: None,
             port: None,
+            credit: JobCredit::default(),
             latest: None,
             #[cfg(test)]
             observed: watch::channel(None).0,
@@ -92,6 +94,7 @@ impl CaptureState {
     pub fn shutdown(&mut self) {
         self.pending = None;
         self.latest = None;
+        self.credit.cancel();
         if let Some((_, cancel)) = &self.active {
             cancel.cancel();
         }
@@ -99,7 +102,7 @@ impl CaptureState {
     }
 
     pub fn is_idle(&self) -> bool {
-        self.active.is_none()
+        self.credit.is_idle()
     }
 
     #[cfg(test)]
@@ -109,6 +112,7 @@ impl CaptureState {
 }
 
 pub(crate) struct CaptureFinished {
+    job: u64,
     generation: u64,
     result: Result<Result<WorkspaceCapture, CaptureFailure>, RecvError>,
 }
@@ -142,6 +146,7 @@ impl SessionActor {
             .checked_add(1)
             .ok_or_else(|| Error::other("input generation exhausted"))?;
         self.captures.latest = None;
+        self.invalidate_analysis()?;
         if let Some((_, cancel)) = &self.captures.active {
             cancel.cancel();
         }
@@ -153,13 +158,16 @@ impl SessionActor {
             &self.captures.budget,
         ) {
             Ok(request) => self.captures.pending = Some(request),
-            Err(error) => self.report_capture_failure(error.to_string())?,
+            Err(error) => self.report_problem(error.to_string())?,
         }
         Ok(())
     }
 
     pub fn schedule_capture(&mut self, ctx: &mut ActorContext<Self>) -> io::Result<()> {
-        if self.state != Lifecycle::Running || self.captures.active.is_some() {
+        if self.state != Lifecycle::Running || !self.captures.credit.is_idle() {
+            return Ok(());
+        }
+        if self.schedule_environment_acquisition(ctx)? {
             return Ok(());
         }
         let Some(request) = self.captures.pending.take() else {
@@ -167,9 +175,11 @@ impl SessionActor {
         };
         let generation = request.generation;
         let cancel = CancellationToken::default();
+        let job = self.captures.credit.reserve(cancel.clone())?;
         let (reply, receiver) = oneshot::channel();
         // Reserve deferred completion before handing a job to the worker.
         ctx.pipe_to_self(receiver, move |result| CaptureFinished {
+            job,
             generation,
             result,
         })
@@ -184,9 +194,9 @@ impl SessionActor {
         Ok(())
     }
 
-    fn report_capture_failure(&mut self, message: String) -> io::Result<()> {
+    pub(super) fn report_problem(&mut self, message: String) -> io::Result<()> {
         self.logger.write(message.clone());
-        // Input errors remain visible before diagnostics are implemented in LSP02.
+        // Unlocated input/environment failures remain visible in the client log.
         let text: String = message.chars().take(512).collect();
         let params = to_value(LogMessageParams {
             typ: MessageType::ERROR,
@@ -246,6 +256,7 @@ impl Handler<CaptureFinished> for SessionActor {
         ctx: &mut HandlerContext<'_, Self>,
         message: CaptureFinished,
     ) -> io::Result<()> {
+        self.captures.credit.complete(message.job)?;
         let Some((generation, _)) = self.captures.active.take() else {
             return Err(Error::other("capture completion without worker credit"));
         };
@@ -280,18 +291,12 @@ impl Handler<CaptureFinished> for SessionActor {
                         capture.contexts.len(), capture.retained_bytes(),
                     ));
                     let capture = Arc::new(capture);
-                    let issues = capture
-                        .errors
-                        .iter()
-                        .chain(capture.contexts.iter().flat_map(|context| &context.errors));
-                    for issue in issues.take(8) {
-                        self.report_capture_failure(issue.to_string())?;
-                    }
                     self.captures.latest = Some(capture.clone());
+                    self.accept_analysis_capture(capture.clone());
                     #[cfg(test)]
                     self.captures.observed.send_replace(Some(capture));
                 }
-                Err(error) => self.report_capture_failure(error.to_string())?,
+                Err(error) => self.report_problem(error.to_string())?,
             }
         }
         Ok(())

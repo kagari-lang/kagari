@@ -1,0 +1,4 @@
+/// Original documentation.
+pub fn answer() -> i32 {
+    42
+}

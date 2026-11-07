@@ -6,8 +6,12 @@ license.workspace = true
 
 [dependencies]
 kagari-common.workspace = true
+kagari-hir.workspace = true
 kagari-package.workspace = true
 kagari-source.workspace = true
+kagari-stdlib.workspace = true
+kagari-syntax.workspace = true
+kagari-types.workspace = true
 lattice-actor = { git = "https://github.com/realm-labs/lattice", rev = "10df090d7912df233e28fbe2c2ef3f223dafcdbb" }
 lsp-types = "0.97.0"
 serde.workspace = true

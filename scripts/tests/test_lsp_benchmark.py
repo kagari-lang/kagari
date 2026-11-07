@@ -1,17 +1,22 @@
 """Offline archive/peer contracts; incorrect runs must never become speed evidence."""
 from copy import deepcopy
+from collections import deque
 from io import BytesIO
 from pathlib import Path
 import sys
+import queue
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import lsp_benchmark_inputs as inputs
 import lsp_benchmark_protocol as protocol
 import lsp_benchmark_results as results
+import lsp_benchmark_diagnostics as diagnostics
+import benchmark_lsp as driver
 
 
-def report(paired=False, check=False):
+def report(paired=False, check=False, suite="protocol"):
     groups = 1 if check else 7
     images = {"candidate": {"path": "candidate.exe", "sha256": "a" * 64}}
     if paired:
@@ -28,10 +33,34 @@ def report(paired=False, check=False):
                                          "shutdown_is_null": True, "exit_code": 0}})
     source = {"files": {}, "source_sha256": inputs.object_digest({})}
     metadata = {key: "test-only" for key in results.MATCH_METADATA}
-    metadata.update(workload_sha256=inputs.object_digest({}), source=source)
-    return {"schema": 1, "metadata": metadata, "inputs": {}, "source_before": source, "source_after": source,
+    workload = {} if suite == "protocol" else {"sources": inputs.frozen("pilot"), "diagnostics": diagnostics.frozen_scenario()}
+    metadata.update(workload_sha256=inputs.object_digest(workload), source=source, suite=suite)
+    if suite == "diagnostics":
+        for sample in samples:
+            diagnostic_sample(sample)
+    return {"schema": 1, "metadata": metadata, "inputs": workload, "source_before": source, "source_after": source,
             "groups": groups, "check_only": check, "images": images, "samples": samples,
-            "unavailable_rows": ["B01.diagnostics", "B02", "B03", "B04", "B05", "B06", "B07", "B08"]}
+            "unavailable_rows": results.unavailable(suite)}
+
+
+def diagnostic_sample(sample):
+    sample.update(workload="B01+B03.diagnostics", completed=8, operations=[], notification_history=[],
+                  document_uris={path: "file:///benchmark/" + path for path in (diagnostics.APP, diagnostics.API, diagnostics.UNAFFECTED)})
+    for number, step in enumerate(diagnostics.frozen_scenario()["steps"]):
+        started = 100_000_000 * (number + 1)
+        observations = {}
+        for index, (path, expected) in enumerate(step["expected"].items()):
+            received = started + 10_000_000 + index
+            params = {"uri": sample["document_uris"][path], **deepcopy(expected)}
+            observations[path] = {"received_ns": received, "params": params}
+            sample["notification_history"].append({"received_ns": received,
+                "frame": {"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": deepcopy(params)}})
+        ended = observations[diagnostics.APP]["received_ns"] if step["name"] == "open" else max(item["received_ns"] for item in observations.values())
+        duration = ended - started
+        if step["metric"]:
+            sample[step["metric"]] = duration
+        sample["operations"].append({"name": step["name"], "started_ns": started, "completed_ns": ended,
+                                    "duration_ns": duration, "changes": deepcopy(step["changes"]), "observations": observations})
 
 
 class ArchiveContracts(unittest.TestCase):
@@ -78,13 +107,75 @@ class ArchiveContracts(unittest.TestCase):
     def test_changed_inputs_environment_or_lock_refuse_comparison(self):
         metadata = report()["metadata"]
         results.validate_compatible(metadata, deepcopy(metadata))
-        for key in ("workload_sha256", "lock_sha256", "rustc", "transport", "power_mode"):
+        for key in ("workload_sha256", "lock_sha256", "rustc", "transport", "power_mode", "suite", "cache_state"):
             changed = {**metadata, key: "different"}
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
                 results.validate_compatible(metadata, changed)
 
+    def test_diagnostics_require_exact_versioned_witnesses_and_complete_history(self):
+        original = report(check=True, suite="diagnostics")
+        results.validate_report(original)
+        summary = results.summarize(original)
+        self.assertEqual(summary["rows"]["open_to_first_diagnostics"]["status"], "correctness-only")
+        self.assertIn("B03.queries", summary["unavailable_rows"])
+        for kind in ("missing", "empty_startup", "empty_repair", "wrong_version", "wrong_range", "wrong_message", "missing_history", "unaffected", "clock"):
+            broken = deepcopy(original)
+            sample = broken["samples"][0]
+            observation = sample["operations"][0]["observations"][diagnostics.APP]
+            if kind == "missing":
+                sample["operations"].pop()
+            elif kind == "empty_startup":
+                observation["params"]["diagnostics"] = []
+            elif kind == "empty_repair":
+                sample["operations"][3]["observations"][diagnostics.APP]["params"]["diagnostics"] = []
+            elif kind == "wrong_version":
+                observation["params"]["version"] = 2
+            elif kind == "wrong_range":
+                observation["params"]["diagnostics"][0]["range"]["start"]["character"] = 1
+            elif kind == "wrong_message":
+                observation["params"]["diagnostics"][0]["message"] = "another error"
+            elif kind == "missing_history":
+                sample["notification_history"].pop(0)
+            elif kind == "unaffected":
+                sample["notification_history"][2]["frame"]["params"]["diagnostics"] = [deepcopy(diagnostics.ERROR)]
+            else:
+                sample["signature_error_ns"] += 1
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                results.validate_report(broken)
+
 
 class PeerContracts(unittest.TestCase):
+    def test_notification_waits_reject_empty_readiness_and_missing_versions(self):
+        peer = protocol.Peer.__new__(protocol.Peer)
+        peer.frames = queue.Queue(64)
+        peer.history = deque(maxlen=32)
+        peer.notifications = deque(maxlen=128)
+        peer.notification_history = []
+        peer.notification_bytes = 0
+        uri = "file:///benchmark/src/lib.kgr"
+        expected = {"version": 1, "diagnostics": [deepcopy(diagnostics.ERROR)]}
+        for received, params in [(10, {"version": 0, "diagnostics": [deepcopy(diagnostics.ERROR)]}),
+                                 (20, {"version": 1, "diagnostics": []}), (30, expected)]:
+            peer.frames.put(({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": {"uri": uri, **params}}, received))
+        value, received = peer.wait_notification("textDocument/publishDiagnostics", lambda params: diagnostics.matches(params, uri, expected))
+        self.assertEqual(received, 30)
+        self.assertEqual(value["diagnostics"], [diagnostics.ERROR])
+        self.assertEqual(len(peer.notification_history), 3)
+        repaired = {"uri": uri, "version": 2, "diagnostics": [deepcopy(diagnostics.SENTINEL)]}
+        for received in (40, 50):
+            peer.frames.put(({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": repaired}, received))
+        _, received = peer.wait_notification("textDocument/publishDiagnostics",
+            lambda params: diagnostics.matches(params, uri, repaired), after_ns=45)
+        self.assertEqual(received, 50, "same-version historical witnesses cannot satisfy a new edit")
+        peer.frames.put((None, 60))
+        with self.assertRaisesRegex(ValueError, "EOF before expected"):
+            peer.wait_notification("textDocument/publishDiagnostics", lambda params: diagnostics.matches(params, uri, {"version": 3, "diagnostics": []}))
+        with self.assertRaisesRegex(ValueError, "protocol timeout"):
+            peer.wait_notification("missing", lambda _: True, timeout=0)
+        peer.notification_bytes = protocol.MAX_NOTIFICATION_HISTORY_BYTES
+        with self.assertRaisesRegex(ValueError, "history byte budget"):
+            peer._dispatch({"jsonrpc": "2.0", "method": "window/logMessage", "params": {}}, 50)
+
     def test_literal_frames_keep_unicode_lengths_and_coalesced_tails(self):
         reader = BytesIO(b'Content-Length: 40\r\n\r\n{"jsonrpc":"2.0","id":1,"result":"\xf0\x9f\x98\x80"}'
                          b'Content-Length: 38\r\n\r\n{"jsonrpc":"2.0","id":2,"result":null}')
@@ -100,6 +191,24 @@ class PeerContracts(unittest.TestCase):
 
 
 class WorkloadContracts(unittest.TestCase):
+    def test_archived_source_and_edit_bytes_must_match_the_frozen_manifest(self):
+        target = inputs.ROOT / "target"
+        target.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="lsp-benchmark-test-", dir=target) as directory:
+            root = Path(directory)
+            manifest = {"sources": inputs.materialize("pilot", root / "inputs"), "diagnostics": diagnostics.frozen_scenario()}
+            driver.save(root / "edit-inputs.json", diagnostics.variants())
+            driver.verify_inputs(root, manifest, "diagnostics")
+            source = root / "inputs" / diagnostics.APP
+            original = source.read_bytes()
+            source.write_bytes(b"changed")
+            with self.assertRaisesRegex(ValueError, "source input hash mismatch"):
+                driver.verify_inputs(root, manifest, "diagnostics")
+            source.write_bytes(original)
+            (root / "edit-inputs.json").write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "edit inputs changed"):
+                driver.verify_inputs(root, manifest, "diagnostics")
+
     def test_frozen_shapes_have_semantic_scale_and_bounded_churn(self):
         pilot = inputs.frozen("pilot")
         workspace = inputs.frozen("workspace")
@@ -112,6 +221,14 @@ class WorkloadContracts(unittest.TestCase):
         self.assertEqual(churn["file_sha256"], pilot["file_sha256"])
         self.assertEqual(churn["schedule"]["retention_checkpoints"], [100, 500, 1000])
         self.assertIn(b"\r\n", inputs.source_files("pilot")["src/scale0.kgr"])
+        scenario = diagnostics.frozen_scenario()
+        variants = diagnostics.variants()
+        self.assertEqual(len(scenario["steps"]), 6)
+        for step in scenario["steps"]:
+            for change in step["changes"]:
+                self.assertEqual(change["sha256"], inputs.digest(variants[change["variant"]].encode()))
+        self.assertIn("    true\n}", variants["body_error"])
+        self.assertIn("pub fn default_value() -> bool", variants["signature_error"])
 
 
 if __name__ == "__main__":
