@@ -143,7 +143,7 @@ impl InputBudget {
         Ok(InputLease { contents })
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "verification"))]
     pub fn retained_bytes(&self) -> usize {
         self.0.registry().bytes
     }

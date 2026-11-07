@@ -13,7 +13,7 @@ use crate::workspace::budget::{InputBudget, InputLease};
 use kagari_common::identity::ModuleIdentity;
 use kagari_source::{identity::FileId, source_database::SourceSnapshot};
 use lsp_types::Uri;
-use std::{collections::BTreeMap, error::Error, fmt, ops::Range};
+use std::{collections::BTreeMap, error::Error, fmt, ops::Range, path::Path};
 
 pub(crate) const MAX_CONTEXTS: usize = 128;
 #[cfg(test)]
@@ -88,6 +88,13 @@ pub(crate) struct Origin {
     pub read_only: bool,
 }
 
+impl Origin {
+    /// Express the retained provider identity in the document-name namespace, without IO.
+    pub fn normalized_key(&self) -> Result<String, String> {
+        origins::native_key(Path::new(&self.provider_key))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ContextCapture {
     pub key: ContextKey,
@@ -95,6 +102,8 @@ pub(crate) struct ContextCapture {
     pub sources: SourceSnapshot,
     pub origins: BTreeMap<FileId, Origin>,
     pub complete: bool,
+    /// Every declared module was acquired; recovered body syntax may still be invalid.
+    pub discovery_complete: bool,
     /// False for unresolved project graphs or conflicting physical overlays.
     /// Available text then supports document-only recovery, not semantic answers.
     pub semantic_available: bool,
@@ -116,6 +125,10 @@ pub(crate) struct WorkspaceCapture {
     pub contexts: Vec<ContextCapture>,
     /// Keys use the session document owner's normalized source name.
     pub document_contexts: BTreeMap<String, DocumentContext>,
+    /// Canonical physical identities captured before root reads, including buffers
+    /// that cannot receive a semantic binding due to conflicting/unavailable text.
+    /// Keys use normalized admitted document names; values use normalized provider keys.
+    pub document_origins: BTreeMap<String, String>,
     pub errors: Vec<CaptureIssue>,
     _lease: InputLease,
 }

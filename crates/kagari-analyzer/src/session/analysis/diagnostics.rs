@@ -1,7 +1,11 @@
 //! Debounced context work returns owned diagnostics through one typed completion.
 use crate::{
     analysis::{AnalysisFailure, diagnostics::DiagnosticsResult},
-    session::{Lifecycle, SessionActor, analysis::Environment, publications::ContributionOwner},
+    session::{
+        Lifecycle, SessionActor,
+        analysis::{DiagnosticTask, Environment},
+        publications::ContributionOwner,
+    },
     workspace::ContextKey,
 };
 use kagari_common::cancellation::CancellationToken;
@@ -9,10 +13,7 @@ use lattice_actor::{
     context::{ActorContext, HandlerContext},
     traits::{Handler, Message},
 };
-use std::{
-    collections::BTreeSet,
-    io::{self, Error},
-};
+use std::io::{self, Error};
 use tokio::sync::{oneshot, oneshot::error::RecvError};
 
 struct DiagnosticsFinished {
@@ -21,6 +22,7 @@ struct DiagnosticsFinished {
     generation: u64,
     context: Option<ContextKey>,
     label: String,
+    retry: DiagnosticTask,
     result: Result<Result<DiagnosticsResult, AnalysisFailure>, RecvError>,
 }
 
@@ -37,8 +39,16 @@ impl SessionActor {
         if !matches!(
             self.analysis.environment,
             Environment::Ready | Environment::Failed
-        ) || !self.analysis.due
-        {
+        ) {
+            return Ok(());
+        }
+        if self.schedule_feature(ctx)? {
+            return Ok(());
+        }
+        if self.schedule_maintenance(ctx)? {
+            return Ok(());
+        }
+        if !self.analysis.due {
             return Ok(());
         }
         let Some(task) = self.analysis.pending.pop_front() else {
@@ -70,15 +80,28 @@ impl SessionActor {
             .map(|uri| uri.as_str().to_owned())
             .unwrap_or_else(|| "workspace inputs".into());
         let (sender, receiver) = oneshot::channel();
+        let retry = task.clone();
         ctx.pipe_to_self(receiver, move |result| DiagnosticsFinished {
             job,
             epoch,
             generation,
             context,
             label,
+            retry,
             result,
         })
         .map_err(Error::other)?;
+        let live_serials = self.requests.unresolved().into_iter().collect();
+        let input_generation = self.captures.generation;
+        let mut retained = self.features.retained_contexts();
+        retained.extend(self.analysis.live_contexts.iter().cloned());
+        self.analysis.maintenance = false;
+        retained.extend(
+            task.capture
+                .contexts
+                .iter()
+                .map(|context| context.key.clone()),
+        );
         self.analysis
             .port
             .as_ref()
@@ -88,13 +111,9 @@ impl SessionActor {
                     if !semantic_ready {
                         state.discard_environment();
                     }
-                    let retained: BTreeSet<_> = task
-                        .capture
-                        .contexts
-                        .iter()
-                        .map(|context| context.key.clone())
-                        .collect();
                     state.retain_contexts(&retained);
+                    state.retain_requests(&live_serials);
+                    state.retain_input_generation(input_generation);
                     let result = state.diagnostics(
                         &task.capture,
                         task.context.as_ref(),
@@ -161,6 +180,7 @@ impl Handler<DiagnosticsFinished> for SessionActor {
                     self.report_problem(issue)?;
                 }
             }
+            Err(AnalysisFailure::Cancelled) => self.analysis.pending.push_front(message.retry),
             Err(AnalysisFailure::Capacity(message)) => return Err(Error::other(message)),
             Err(error) => self.report_problem(format!("diagnostic analysis failed: {error}"))?,
         }

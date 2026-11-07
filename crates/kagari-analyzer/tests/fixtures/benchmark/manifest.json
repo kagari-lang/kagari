@@ -1,6 +1,8 @@
 {
   "diagnostic_scenario_sha256": "99fba2a8ef333434895f8d2a9eee670978449a65d192924e6691945a1879fcb0",
+  "diagnostic_tail_scenario_sha256": "93488986afd5ddfc96be81d56e10ef808bae1b28dad75b5011cdaba7aab38aa3",
   "hash": "sha256 canonical JSON, sorted keys, compact separators",
+  "query_scenario_sha256": "bf1d909eb09b8132f4f47cde8a7e255f0cb8b9c3c0b13d817eee258dab348b44",
   "schema": 1,
   "workloads": {
     "churn": {

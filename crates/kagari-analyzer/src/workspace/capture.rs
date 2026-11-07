@@ -24,6 +24,7 @@ use kagari_source::source_database::SourceDatabase;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
+    path::Path,
     rc::Rc,
 };
 
@@ -100,6 +101,10 @@ impl CaptureState {
         self.previous_generation = Some(request.generation);
         check(cancel)?;
         let cache = Rc::new(RefCell::new(ReadCache::new(self.budget.clone())));
+        cache
+            .borrow_mut()
+            .register_documents(&request.documents, cancel)
+            .map_err(package_failure)?;
         let mut inputs = Vec::new();
         let mut errors = Vec::new();
         let mut canonical_roots = BTreeSet::new();
@@ -142,15 +147,22 @@ impl CaptureState {
                 context
                     .origins
                     .values()
-                    .any(|origin| document_matches(document, origin, &inputs))
+                    .any(|origin| document_matches(document, origin, &cache.borrow()))
             }) {
                 continue;
             }
             let selected = inputs
                 .iter()
                 .find(|(_, input)| input.admits_document(&document.source_name));
+            let canonical = cache
+                .borrow()
+                .document_key(&document.source_name)
+                .expect("all admitted document identities are registered");
+            let conflicting = cache.borrow().conflicting(&canonical);
             let context = standalone::stage(
                 document,
+                &canonical,
+                conflicting,
                 selected.map(|(order, input)| (*order, input)),
                 staging.unavailable.contains(&document.source_name),
                 cancel,
@@ -219,6 +231,7 @@ impl CaptureState {
                 sources: snapshot.sources,
                 origins,
                 complete: candidate.inputs.complete(),
+                discovery_complete: candidate.inputs.discovery_complete(),
                 semantic_available: candidate.semantic_available,
                 errors: candidate.errors,
                 _lease: lease,
@@ -230,7 +243,7 @@ impl CaptureState {
             let mut candidates = Vec::new();
             for context in &contexts {
                 for (file, origin) in &context.origins {
-                    if document_matches(document, origin, &inputs) {
+                    if document_matches(document, origin, &cache.borrow()) {
                         let own_package = origin.module.package == context.root.package;
                         candidates.push((!own_package, orders[&context.key], &context.key, *file));
                     }
@@ -264,6 +277,16 @@ impl CaptureState {
             generation: request.generation,
             contexts,
             document_contexts,
+            document_origins: cache
+                .borrow()
+                .document_keys()
+                .iter()
+                .map(|(name, key)| {
+                    native_key(Path::new(key))
+                        .map(|key| (name.clone(), key))
+                        .map_err(CaptureFailure::InvalidInput)
+                })
+                .collect::<Result<_, _>>()?,
             errors: staging.errors,
             _lease: lease,
         })
@@ -396,17 +419,10 @@ fn push_context(staging: &mut Staging, context: StagedContext) -> Result<(), Cap
     Ok(())
 }
 
-fn document_matches(
-    document: &DocumentInput,
-    origin: &Origin,
-    inputs: &[(usize, OverlayInput)],
-) -> bool {
-    origin.provider_key == document.source_name
-        || inputs.iter().any(|(_, input)| {
-            input
-                .document_key(&document.source_name)
-                .is_some_and(|key| key == origin.provider_key)
-        })
+fn document_matches(document: &DocumentInput, origin: &Origin, cache: &ReadCache) -> bool {
+    cache
+        .document_key(&document.source_name)
+        .is_some_and(|key| key == origin.provider_key)
 }
 
 fn mark_unavailable(

@@ -1,0 +1,7 @@
+pub fn number() -> i32 {
+    7
+}
+
+pub fn unused() -> i32 {
+    2
+}

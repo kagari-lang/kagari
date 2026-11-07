@@ -1,6 +1,9 @@
 //! Signature queries stop before body analysis; body environments additionally
 //! prepare checked constant prerequisites before projecting imported values.
 
+#[cfg(any(test, feature = "work-metrics"))]
+use crate::analysis::work::{self, Phase};
+
 use crate::{
     AnalysisResult, DiagnosticBuffer, PreparedAnalysis,
     aggregates::AggregateCatalog,
@@ -46,11 +49,13 @@ use kagari_source::{
 };
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 #[cfg(test)]
 mod tests;
+
+pub mod relations;
 
 /// One file's declaration snapshot plus checked signature facts and accumulated diagnostics.
 #[derive(Debug, Clone)]
@@ -113,6 +118,8 @@ impl FileSignatures {
     }
 }
 
+type BodyEnvironmentCache = OnceLock<(ConstLimits, Arc<HashMap<FileId, BodyEnvironment>>)>;
+
 /// Checked signatures for all declaration files, before function-body checking.
 ///
 /// Retains a [`DeclarationSnapshot`], a `FileId -> Arc<FileSignatures>` map and a
@@ -125,9 +132,16 @@ pub struct SignatureSnapshot {
     pub(super) files: Arc<BTreeMap<FileId, Arc<FileSignatures>>>,
     aggregates: Arc<AggregateCatalog>,
     definitions: DefinitionTable,
+    /// Immutable prerequisite projection, valid only for its captured constant limits.
+    environments: Arc<BodyEnvironmentCache>,
 }
 
 impl SignatureSnapshot {
+    /// Scoped identity table owning these signatures and aggregate relations.
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+
     /// Shared parser/name/signature validity, before body diagnostic presentation.
     pub(super) fn shared_inputs_valid(&self) -> bool {
         self.files.values().all(|file| {
@@ -143,8 +157,15 @@ impl SignatureSnapshot {
         &self,
         const_limits: ConstLimits,
         cancel: &CancellationToken,
-    ) -> Result<HashMap<FileId, BodyEnvironment>, AnalysisError> {
+    ) -> Result<Arc<HashMap<FileId, BodyEnvironment>>, AnalysisError> {
+        #[cfg(any(test, feature = "work-metrics"))]
+        let _phase = work::phase(Phase::BodyEnvironments);
         cancel.check()?;
+        if let Some((limits, environments)) = self.environments.get()
+            && *limits == const_limits
+        {
+            return Ok(environments.clone());
+        }
         let catalog = FunctionCatalog::new(self.files.values().map(|file| &file.prepared));
         let modules = self
             .files
@@ -237,6 +258,9 @@ impl SignatureSnapshot {
             )?;
             environment.constants = Some(checked[id].clone());
         }
+        let result = Arc::new(result);
+        cancel.check()?;
+        let _ = self.environments.set((const_limits, result.clone()));
         Ok(result)
     }
 
@@ -317,7 +341,16 @@ impl AnalysisDatabase {
         source: SourceSnapshot,
         cancel: &CancellationToken,
     ) -> Result<SignatureSnapshot, AnalysisError> {
+        #[cfg(any(test, feature = "work-metrics"))]
+        let _phase = work::phase(Phase::PrepareSignatures);
         let declarations = self.prepare_declarations(source, cancel)?;
+        if let Some(previous) = &self.signature_cache
+            && Arc::ptr_eq(&previous.declarations.files, &declarations.files)
+            && Arc::ptr_eq(&previous.declarations.graph, &declarations.graph)
+        {
+            return Ok(previous.clone());
+        }
+
         let catalog = TypeCatalog::new(declarations.files.values().map(|file| &file.declared));
         let mut imported_types = HashMap::new();
         for (id, file) in declarations.files.iter() {
@@ -409,6 +442,7 @@ impl AnalysisDatabase {
             files: Arc::new(files),
             aggregates: Arc::new(aggregates),
             definitions: self.definitions.snapshot(),
+            environments: Arc::new(OnceLock::new()),
         })
     }
 }

@@ -1,0 +1,38 @@
+use alloc::vec::Vec::new as create;
+
+trait Read {
+    fn inherited(self) -> i32 { 7 }
+    fn read(self) -> i32;
+}
+
+struct Packet {
+    val value: i32,
+}
+
+impl Read for Packet {
+    /// Reads the packet.
+    fn read(self) -> i32 { self.value }
+}
+
+impl Packet {
+    fn size(self) -> i32 { 1 }
+}
+
+fn selected(packet: Packet) -> i32 {
+    val prior = packet.value;
+    { val prior = true; prior; };
+    packet.read()
+}
+
+fn native() {
+    val values: Vec<i32> = create();
+    values.len();
+}
+
+fn unrelated() -> i32 { true }
+
+mod inner {
+    fn nested() -> i32 { 42 }
+}
+
+fn incomplete(packet: Packet) { packet. }

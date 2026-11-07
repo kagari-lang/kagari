@@ -386,11 +386,10 @@ impl DeclaredAnalysis {
                             cancel,
                         )
                         .map_err(|_| DefinitionMappingError::Cancelled)?
-                    && old.declarations.imported_types.same_reuse_inputs(
-                        &self.declarations.imported_types,
-                        old.names.facts.items.unit.as_ref(),
-                        self.names.facts.items.unit.as_ref(),
-                    ))
+                    && old
+                        .declarations
+                        .imported_types
+                        .same_reuse_inputs(&self.declarations.imported_types))
                 {
                     return Ok(None);
                 }

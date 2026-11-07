@@ -413,7 +413,8 @@ fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
     let candidates = snapshot
         .file(file)
         .unwrap()
-        .method_completions(source.rfind("text. }").unwrap() + 5);
+        .method_completions(source.rfind("text. }").unwrap() + 5, &Default::default())
+        .unwrap();
     for name in [
         "len",
         "is_empty",

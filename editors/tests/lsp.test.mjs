@@ -5,6 +5,7 @@ import { access } from "node:fs/promises";
 import { createServer } from "node:net";
 import { isAbsolute } from "node:path";
 import test from "node:test";
+import { createSemanticFixture, semanticRoundtrip } from "./lsp/semantic.mjs";
 import {
   createProtocolConnection,
   InitializeRequest,
@@ -50,6 +51,7 @@ for (const transport of ["stdio", "tcp"]) {
     let tcpStdout = "";
     const failures = [];
     const notifications = [];
+    const fixture = transport === "stdio" ? await createSemanticFixture() : undefined;
     try {
       let incoming;
       let args = ["--stdio"];
@@ -89,8 +91,10 @@ for (const transport of ["stdio", "tcp"]) {
       connection.listen();
       const initialized = await bounded(connection.sendRequest(InitializeRequest.type, {
         processId: process.pid,
-        rootUri: null,
-        capabilities: { general: { positionEncodings: ["utf-8", "utf-16"] } },
+        rootUri: fixture?.uri ?? null,
+        workspaceFolders: fixture ? [{ uri: fixture.uri, name: "headless-semantic" }] : null,
+        capabilities: { general: { positionEncodings: ["utf-8", "utf-16"] },
+          textDocument: { publishDiagnostics: { versionSupport: true } } },
       }), "initialize");
       assert.equal(initialized.capabilities.positionEncoding, "utf-16");
       assert.equal(initialized.capabilities.textDocumentSync.openClose, true);
@@ -98,6 +102,13 @@ for (const transport of ["stdio", "tcp"]) {
       assert.equal(initialized.serverInfo.name, "kagari-analyzer");
       assert(initialized.serverInfo.version.length > 0);
       await connection.sendNotification(InitializedNotification.type, {});
+      let semantic;
+      if (fixture) {
+        for (const provider of ["hoverProvider", "definitionProvider", "implementationProvider", "completionProvider"]) {
+          assert.ok(initialized.capabilities[provider], `missing ${provider}`);
+        }
+        semantic = await semanticRoundtrip(connection, fixture, bounded);
+      }
       const uri = "untitled:Node%20独立-client.kgr";
       await connection.sendNotification(DidOpenTextDocumentNotification.type, {
         textDocument: { uri, languageId: "kagari", version: 1, text: 'val text = "😀";\r\n' },
@@ -118,7 +129,8 @@ for (const transport of ["stdio", "tcp"]) {
       assert.equal(tcpStdout, "", "TCP server must not emit protocol bytes on stdout");
       assert.deepEqual(failures, []);
       context.diagnostic(JSON.stringify({ transport, durationMs: performance.now() - started,
-        notifications: notifications.length, serverVersion: initialized.serverInfo.version }));
+        notifications: notifications.length + (semantic?.diagnosticNotifications ?? 0),
+        serverVersion: initialized.serverInfo.version, semantic }));
     } finally {
       connection?.dispose();
       socket?.destroy();
@@ -130,6 +142,7 @@ for (const transport of ["stdio", "tcp"]) {
       child?.stdin.destroy();
       child?.stdout.destroy();
       child?.stderr.destroy();
+      await fixture?.cleanup();
     }
   });
 }

@@ -33,3 +33,8 @@ fn replay_lsp_session_seeds() {
 fn replay_lsp_documents_seeds() {
     replay("lsp_documents", kagari_analyzer::verify_documents);
 }
+
+#[test]
+fn replay_lsp_analysis_seeds() {
+    replay("lsp_analysis", kagari_analyzer::verify_analysis);
+}

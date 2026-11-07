@@ -4,10 +4,20 @@
 `--suite protocol` measures **B01.protocol**: fresh process spawn to the fully decoded initialize reply,
 and initialize write to that reply. It validates UTF-16/full-sync negotiation,
 server identity, null shutdown result and successful exit before retaining a
-sample. Initialization is not project readiness. `--suite diagnostics` adds the
-pilot's first exact versioned diagnostic and body/signature invalidation evidence
-for B01/B03. Query latency, interactive query load, cancellation, indexing and
-memory acceptance remain explicitly unavailable; no RSS estimate is reported.
+sample. Initialization is not project readiness. The implemented suites are:
+
+| Runner/suite | Evidence |
+| --- | --- |
+| `benchmark_lsp.py --suite protocol` (default) | B01 protocol startup and lifecycle |
+| `benchmark_lsp.py --suite diagnostics` | B01 first exact versioned diagnostic; B03 body/signature error and repair latency |
+| `benchmark_lsp.py --suite diagnostic-tails` | The same diagnostic contract, with 20 edits per route and per-process nearest-rank p50/p95 |
+| `benchmark_lsp.py --suite queries` | B02 warm hover/definition/implementation/completion; B03 affected/unaffected edit queries; B04 cold/warm complete implementation search; B05 fixed offered load and a bounded slow reader |
+| `lsp_benchmark_memory.py` | Separate B07 acquisition/analysis component allocation, retained-source/index and externally sampled resident-memory evidence |
+
+These are measurement methods, not claims that performance targets have passed.
+The process runner marks rows outside its selected suite unavailable. B06
+controlled cancellation uses the separate verification test described in the
+[LSP design](../../../../../docs/lsp-design.md); it is not a process-suite metric.
 
 From the repository root:
 
@@ -17,6 +27,8 @@ uv run python scripts/benchmark_lsp.py --check --workload pilot --transport stdi
 uv run python scripts/benchmark_lsp.py --check --workload pilot --transport tcp
 uv run python scripts/benchmark_lsp.py --suite diagnostics --check --workload pilot --transport stdio
 uv run python scripts/benchmark_lsp.py --suite diagnostics --check --workload pilot --transport tcp
+uv run python scripts/benchmark_lsp.py --suite diagnostic-tails --check --workload pilot --transport stdio
+uv run python scripts/benchmark_lsp.py --suite queries --check --workload pilot --transport stdio
 uv run python scripts/benchmark_lsp.py --output target/lsp-benchmark/BASELINE --power-mode balanced
 uv run python scripts/benchmark_lsp.py --baseline target/lsp-benchmark/BASELINE --output target/lsp-benchmark/CANDIDATE --power-mode balanced
 uv run python scripts/benchmark_lsp.py --validate target/lsp-benchmark/CANDIDATE
@@ -42,7 +54,9 @@ images with alternating AB/BA order; it does not compare a fresh image to saved
 historical timings. Summary rows retain group samples, median/range, paired
 absolute/percentage changes and a deterministic process-group bootstrap interval.
 Startup groups do not produce p95/p99. Correctness mode has one process and is
-marked `correctness-only`. An ambiguous interval is `inconclusive`, not a pass.
+marked `correctness-only`; it still executes the selected suite's complete frozen
+schedule. Its recorded durations and percentiles are not formal timing evidence.
+An ambiguous interval is `inconclusive`, not a pass.
 The driver refuses mismatched suites, cache policy, workloads, locks, toolchains, transports or recorded
 environments. A dependency change needs an explicitly reviewed new baseline
 lineage; this runner cannot label it a code-only speedup. Shared-host timing is
@@ -95,6 +109,69 @@ to both baseline and candidate commands. Protocol and diagnostic archives are
 separate lineages. Reports predating explicit suite/cache metadata need a new
 baseline archive; existing files are never rewritten into comparable evidence.
 
+`--suite diagnostic-tails` retains the same startup/error oracles and repeats all
+four error/repair routes twenty times per process. It derives nearest-rank p50/p95
+for each route from those observations, then summarizes the seven process groups
+by median/range. Startup still has only one observation per process. The separate
+`diagnostic_tail_scenario_sha256` freezes this schedule. Choose the same suite for
+both sides of a comparison; a single-cycle diagnostic archive is not a tail-suite
+baseline.
+
+## Query and implementation-index process suite
+
+The query suite also requires `--workload pilot`. Its
+`query_scenario_sha256` freezes semantic sites, expected answers and the operation
+schedule. After exact diagnostic readiness it performs one cold implementation
+search, then twenty warmups and two hundred measured requests for each of hover,
+definition, implementation and completion. Every answer is checked independently:
+types, destination URIs/ranges, complete implementation coverage and plain-text
+completion replacement edits. Per-method p50/p95 use nearest-rank observations
+inside each process, not percentiles of seven group medians.
+
+The offered-load routes each send forty hover/completion requests at 40 ms
+intervals, edit every fourth offer and run an implementation query alongside
+them. The slow route delays the client reader by 40 ms per decoded frame. Raw
+records retain scheduled/written/received times, admitted document versions,
+semantic answers, result hashes and canonical JSON payload sizes. Client pending
+IDs include already-decoded responses; they are not server queue depth. Server
+admission time and internal queue latency are not measured. The final four edit
+routes check affected and unaffected hover results, cross-file definition and
+the exact diagnostic set after body/signature changes and repairs.
+
+For a timing campaign, use `--suite queries` on both baseline and candidate
+commands above, without `--check`. Wire timings establish observable latency and
+answers; selected-body work counters remain separate verification evidence and
+are not inferred from a fast response or a cached snapshot's provenance.
+
+## Memory component runner
+
+From the repository root:
+
+```text
+uv run python scripts/lsp_benchmark_memory.py --output target/lsp-benchmark/MEMORY --power-mode balanced
+```
+
+This separate runner accepts only `--candidate PATH`, required `--output PATH`
+and `--power-mode VALUE`; it has no `--check`, `--baseline`, suite or transport
+option. Without a candidate it builds the release `lsp_memory` bench with the
+`verification` feature and selects Cargo's reported artifact. An explicit
+candidate must be that release/verification bench executable, not the analyzer.
+The output must be a new directory under `target/`. Build time, image hash,
+source/lock identity, machine and cache policy are recorded separately.
+
+One fresh process exercises one thousand edits using the fixed
+`analysis/retention-app.kgr` and `analysis/retention-api.kgr` fixtures, with
+signature changes, provider replacement, close/reopen and retained old snapshots.
+Six owned checkpoints cover the prepared native baseline, edits 100/500/1,000
+and retirement. The allocator reports requested/freed/live layout bytes and peak
+live bytes; source-content leases and compact index rows have distinct counters.
+The external sampler adds Windows working set/OS peak/private commit or Linux
+RSS/high-water measurements. These quantities are not interchangeable, and
+checkpoint sampling is not a continuous resident-memory trace. The probe runs
+acquisition and analysis components without the actor runtime or LSP transport.
+Its pauses and I/O are not latency evidence; one group does not establish a
+paired regression, speedup or performance-target acceptance.
+
 The independent Node transcript uses Microsoft's pinned
 `vscode-languageserver-protocol/node` directly, with no VS Code host or mocked
 `vscode` module. After building the analyzer and installing editor dependencies,
@@ -108,6 +185,8 @@ node --test editors/tests/lsp.test.mjs
 An absent explicit executable fails instead of silently skipping. Both stdio and
 TCP must negotiate full synchronization, process ordered document notifications,
 reject unsupported requests, and exit after shutdown with input still open.
+The stdio route additionally checks semantic queries and versioned diagnostic
+error/repair behavior against the shared editor fixture.
 All waits have deadlines and cleanup owns only the spawned analyzer process.
 
 `app.kgr` and `api.kgr` are fixed semantic cores. The generator in
@@ -125,9 +204,10 @@ The exact byte/line counts and generated call-reference count are in each
 materialized `inputs.json`; the manifest hash also covers expected answers and
 operation schedules. One generated file deliberately uses CRLF; the fixed source
 includes Unicode, aliases, trait overrides/defaults and generic implementations.
-The incomplete member-access witness is reserved for the query phase, not a
-permanently broken initial workspace. B01.protocol does not open/execute semantic
-schedules; the diagnostics suite applies only its frozen error/repair edits.
+The initial workspace is not permanently broken by an incomplete member-access
+witness. B01.protocol does not open/execute semantic schedules; each semantic
+suite applies only its own frozen schedule. The separate memory runner uses its
+smaller retention fixtures, not the generated `churn` shape.
 The generated pilot passed `kg check --manifest-path` when
 introduced, and both fixed files pass `kg fmt --check`.
 

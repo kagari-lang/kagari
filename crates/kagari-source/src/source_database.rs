@@ -53,6 +53,21 @@ impl SourceSnapshot {
         }
     }
 
+    /// Exact immutable input identity, including module/origin wrappers and package bindings.
+    /// Equal revisions alone do not establish that independently supplied snapshots match.
+    pub fn same_inputs(&self, other: &Self) -> bool {
+        self.revision == other.revision
+            && (Arc::ptr_eq(&self.files, &other.files)
+                || (self.files.len() == other.files.len()
+                    && self.files.iter().all(|(id, source)| {
+                        other
+                            .files
+                            .get(id)
+                            .is_some_and(|other| Arc::ptr_eq(source, other))
+                    })))
+            && (Arc::ptr_eq(&self.packages, &other.packages) || self.packages == other.packages)
+    }
+
     pub fn revision(&self) -> Revision {
         self.revision
     }

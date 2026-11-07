@@ -2,6 +2,7 @@
 use std::io::Error;
 pub(crate) mod analysis;
 pub(crate) mod capture;
+pub(crate) mod features;
 pub(crate) mod inputs;
 pub(crate) mod jobs;
 pub(crate) mod lifecycle;
@@ -25,6 +26,7 @@ use crate::{
     session::{
         analysis::AnalysisHost,
         capture::CaptureState,
+        features::FeatureHost,
         outbox::{Outbox, WriteFrame},
         publications::Publications,
         requests::{AdmissionError, Requests},
@@ -65,6 +67,7 @@ pub(crate) struct SessionActor {
     pub state: Lifecycle,
     pub documents: Documents,
     pub captures: CaptureState,
+    pub features: FeatureHost,
     pub analysis: AnalysisHost,
     pub publications: Publications,
     pub limits: SessionLimits,
@@ -109,6 +112,7 @@ impl SessionActor {
             documents,
             captures: CaptureState::new(root.to_owned(), limits.retained_input_bytes),
             analysis: AnalysisHost::new(),
+            features: FeatureHost::default(),
             publications: Publications::new(&limits),
             requests: Requests::new(limits.requests),
             outbox: Outbox::new(limits.clone()),
@@ -167,14 +171,26 @@ impl SessionActor {
     }
 
     pub fn finish(&mut self, serial: u64, outcome: Result<Value, ResponseError>) -> io::Result<()> {
+        self.finish_charged(serial, outcome, 4096)
+    }
+
+    pub fn finish_charged(
+        &mut self,
+        serial: u64,
+        outcome: Result<Value, ResponseError>,
+        charge: usize,
+    ) -> io::Result<()> {
         if let Some(id) = self.requests.terminal(serial) {
+            if let Some(notification) = self.features.progress.end(serial) {
+                self.outbox.push(notification.into(), None, 4096)?;
+            }
             self.outbox.push(
                 WireMessage::Response(Response {
                     id: Some(id),
                     response_result: outcome,
                 }),
                 Some(serial),
-                4096,
+                charge,
             )?;
         }
         Ok(())
@@ -185,7 +201,7 @@ impl SessionActor {
             serial,
             Err(ResponseError {
                 code: code as i32,
-                message: message.into(),
+                message: message.chars().take(512).collect(),
                 data: None,
             }),
         )
@@ -220,6 +236,7 @@ impl SessionActor {
         self.state = Lifecycle::Stopping;
         self.budget.close();
         self.stop.send_replace(true);
+        self.features.shutdown();
         self.captures.shutdown();
         self.analysis.shutdown();
         self.publications.shutdown();
@@ -246,7 +263,19 @@ impl SessionActor {
         self.schedule_capture(ctx)?;
         self.schedule_analysis(ctx)?;
         if self.writer_ready && self.outbox.active.is_none() {
-            let frame = if self.outbox.can_grant_publication()
+            let optional_capacity = self.outbox.can_grant_publication()
+                && self.outbox.can_push_feature(
+                    self.limits.result_bytes,
+                    self.requests.unresolved().len() * 3 * 4096,
+                );
+            let report = if !self.outbox.has_queued() && optional_capacity {
+                self.features.progress.take_report()
+            } else {
+                None
+            };
+            let frame = if let Some((serial, report)) = report {
+                Some(self.outbox.grant_progress(report.into(), serial)?)
+            } else if optional_capacity
                 && let Some(publication) = self.publications.next(self.outbox.has_queued())?
             {
                 Some(self.outbox.grant_publication(

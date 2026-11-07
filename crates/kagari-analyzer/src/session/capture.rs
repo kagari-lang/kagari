@@ -1,7 +1,7 @@
 //! Input generation barriers and the single acquisition-worker credit.
 use crate::{
     protocol::{Notification, source_name},
-    session::{Lifecycle, SessionActor, jobs::JobCredit},
+    session::{Lifecycle, SessionActor, features::FeatureHost, jobs::JobCredit},
     workspace::{
         CaptureFailure, CaptureRequest, WorkspaceCapture,
         acquisition::{self, AcquisitionPort},
@@ -16,7 +16,7 @@ use lattice_actor::{
 use lsp_types::{InitializeParams, LogMessageParams, MessageType, Uri};
 use serde_json::to_value;
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     io::{self, Error},
     sync::Arc,
 };
@@ -30,7 +30,8 @@ pub(crate) struct CaptureState {
     pub roots: Vec<Uri>,
     pub generation: u64,
     pending: Option<CaptureRequest>,
-    active: Option<(u64, CancellationToken)>,
+    active: Option<(CaptureRequest, CancellationToken)>,
+    barriers: VecDeque<CaptureRequest>,
     pub port: Option<AcquisitionPort>,
     pub credit: JobCredit,
     pub latest: Option<Arc<WorkspaceCapture>>,
@@ -47,6 +48,7 @@ impl CaptureState {
             budget: InputBudget::new(retained_input_bytes),
             pending: None,
             active: None,
+            barriers: VecDeque::new(),
             port: None,
             credit: JobCredit::default(),
             latest: None,
@@ -93,12 +95,37 @@ impl CaptureState {
 
     pub fn shutdown(&mut self) {
         self.pending = None;
+        self.barriers.clear();
         self.latest = None;
         self.credit.cancel();
         if let Some((_, cancel)) = &self.active {
             cancel.cancel();
         }
         self.port = None;
+    }
+
+    pub fn cancel_unneeded(&mut self, features: &FeatureHost) {
+        self.barriers
+            .retain(|request| features.waiting_for(request.generation));
+        if let Some((request, cancel)) = &self.active
+            && request.generation != self.generation
+            && !features.waiting_for(request.generation)
+        {
+            cancel.cancel();
+        }
+    }
+
+    pub fn can_capture(&self, generation: u64) -> bool {
+        self.pending
+            .as_ref()
+            .is_some_and(|request| request.generation == generation)
+            || self.active.as_ref().is_some_and(|(request, cancel)| {
+                request.generation == generation && cancel.check().is_ok()
+            })
+            || self
+                .barriers
+                .iter()
+                .any(|request| request.generation == generation)
     }
 
     pub fn is_idle(&self) -> bool {
@@ -147,10 +174,16 @@ impl SessionActor {
             .ok_or_else(|| Error::other("input generation exhausted"))?;
         self.captures.latest = None;
         self.invalidate_analysis()?;
-        if let Some((_, cancel)) = &self.captures.active {
+        if let Some((request, cancel)) = &self.captures.active
+            && !self.features.waiting_for(request.generation)
+        {
             cancel.cancel();
         }
-        self.captures.pending = None;
+        if let Some(request) = self.captures.pending.take()
+            && self.features.waiting_for(request.generation)
+        {
+            self.captures.barriers.push_back(request);
+        }
         match CaptureRequest::new(
             self.captures.generation,
             self.captures.roots.clone(),
@@ -170,7 +203,15 @@ impl SessionActor {
         if self.schedule_environment_acquisition(ctx)? {
             return Ok(());
         }
-        let Some(request) = self.captures.pending.take() else {
+        self.captures
+            .barriers
+            .retain(|request| self.features.waiting_for(request.generation));
+        let Some(request) = self
+            .captures
+            .barriers
+            .pop_front()
+            .or_else(|| self.captures.pending.take())
+        else {
             return Ok(());
         };
         let generation = request.generation;
@@ -188,9 +229,9 @@ impl SessionActor {
             .port
             .as_ref()
             .ok_or_else(|| Error::other("acquisition worker unavailable"))?
-            .submit(request, cancel.clone(), reply)
+            .submit(request.clone(), cancel.clone(), reply)
             .map_err(Error::other)?;
-        self.captures.active = Some((generation, cancel));
+        self.captures.active = Some((request, cancel));
         Ok(())
     }
 
@@ -210,15 +251,19 @@ impl SessionActor {
         )
     }
 
-    fn validate_current_capture(&self, capture: &WorkspaceCapture) -> io::Result<()> {
-        if capture.generation != self.captures.generation
+    fn validate_capture(
+        &self,
+        capture: &WorkspaceCapture,
+        request: &CaptureRequest,
+    ) -> io::Result<()> {
+        if capture.generation != request.generation
             || capture.retained_bytes() > self.limits.retained_input_bytes
         {
             return Err(Error::other(
                 "capture generation or retained-input accounting mismatch",
             ));
         }
-        let documents = self.documents.inputs();
+        let documents = &request.documents;
         for context in &capture.contexts {
             if context
                 .origins
@@ -257,9 +302,10 @@ impl Handler<CaptureFinished> for SessionActor {
         message: CaptureFinished,
     ) -> io::Result<()> {
         self.captures.credit.complete(message.job)?;
-        let Some((generation, _)) = self.captures.active.take() else {
+        let Some((request, _)) = self.captures.active.take() else {
             return Err(Error::other("capture completion without worker credit"));
         };
+        let generation = request.generation;
         if generation != message.generation {
             return Err(Error::other(
                 "capture generation does not own worker credit",
@@ -272,10 +318,10 @@ impl Handler<CaptureFinished> for SessionActor {
                 return Ok(());
             }
         };
-        if self.state == Lifecycle::Running && generation == self.captures.generation {
+        if self.state == Lifecycle::Running {
             match result {
                 Ok(capture) => {
-                    self.validate_current_capture(&capture)?;
+                    self.validate_capture(&capture, &request)?;
                     let complete = capture
                         .contexts
                         .iter()
@@ -291,12 +337,26 @@ impl Handler<CaptureFinished> for SessionActor {
                         capture.contexts.len(), capture.retained_bytes(),
                     ));
                     let capture = Arc::new(capture);
-                    self.captures.latest = Some(capture.clone());
-                    self.accept_analysis_capture(capture.clone());
-                    #[cfg(test)]
-                    self.captures.observed.send_replace(Some(capture));
+                    self.features.accept_capture(&capture);
+                    if generation == self.captures.generation {
+                        self.captures.latest = Some(capture.clone());
+                        self.accept_analysis_capture(capture.clone());
+                        #[cfg(test)]
+                        self.captures.observed.send_replace(Some(capture));
+                    }
                 }
-                Err(error) => self.report_problem(error.to_string())?,
+                Err(error) => {
+                    if generation == self.captures.generation {
+                        self.analysis.live_contexts.clear();
+                        self.analysis.maintenance = true;
+                    }
+                    let relevant = generation == self.captures.generation
+                        || self.features.waiting_for(generation);
+                    self.fail_feature_capture(generation, &error.to_string())?;
+                    if relevant {
+                        self.report_problem(error.to_string())?;
+                    }
+                }
             }
         }
         Ok(())

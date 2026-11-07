@@ -61,9 +61,12 @@ mod tests {
                 .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let analysis = snapshot.file(file).unwrap();
-            let candidates = analysis.method_completions(
-                source.find(receiver).unwrap() + receiver.find('.').unwrap() + 1,
-            );
+            let candidates = analysis
+                .method_completions(
+                    source.find(receiver).unwrap() + receiver.find('.').unwrap() + 1,
+                    &Default::default(),
+                )
+                .unwrap();
             if receiver.starts_with("values") {
                 assert!(
                     !candidates
@@ -147,7 +150,9 @@ mod tests {
                 .is_none()
         );
 
-        let candidates = analysis.method_completions(text.find("values. }").unwrap() + 7);
+        let candidates = analysis
+            .method_completions(text.find("values. }").unwrap() + 7, &Default::default())
+            .unwrap();
         for name in ["next", "iter"] {
             let matches: Vec<_> = candidates.iter().filter(|m| m.name == name).collect();
             assert_eq!(matches.len(), 1, "{name}");
@@ -359,7 +364,11 @@ mod tests {
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let offset = text.find("text. ").unwrap() + 5;
-        let candidates = old.file(file).unwrap().method_completions(offset);
+        let candidates = old
+            .file(file)
+            .unwrap()
+            .method_completions(offset, &Default::default())
+            .unwrap();
         assert!(candidates.iter().any(|item| item.name == "len"));
         sources
             .set(
@@ -372,7 +381,10 @@ mod tests {
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         assert_eq!(
-            old.file(file).unwrap().method_completions(offset),
+            old.file(file)
+                .unwrap()
+                .method_completions(offset, &Default::default())
+                .unwrap(),
             candidates
         );
     }
@@ -594,7 +606,8 @@ mod interpolation_queries {
                 let completions = snapshot
                     .file(file)
                     .unwrap()
-                    .method_completions(text.find(". }").unwrap() + 1);
+                    .method_completions(text.find(". }").unwrap() + 1, &Default::default())
+                    .unwrap();
                 assert_eq!(
                     completions.iter().any(|item| item.name == "text_items"),
                     available || interface_implementations && interface_output_matches,
@@ -792,7 +805,8 @@ mod collection_access_tests {
             let candidates = snapshot
                 .file(id)
                 .unwrap()
-                .method_completions(text.find("values. }").unwrap() + 7);
+                .method_completions(text.find("values. }").unwrap() + 7, &Default::default())
+                .unwrap();
             assert!(candidates.iter().any(|item| item.name == "len"));
             assert_eq!(candidates.iter().any(|item| item.name == write), mutable);
         }
@@ -849,7 +863,8 @@ mod collection_access_tests {
             let items = snapshot
                 .file(id)
                 .unwrap()
-                .method_completions(text.find("values. }").unwrap() + 7);
+                .method_completions(text.find("values. }").unwrap() + 7, &Default::default())
+                .unwrap();
             assert_eq!(items.iter().any(|item| item.name == "ordered"), ordered);
             assert!(items.iter().any(|item| item.name == "comparable"));
         }

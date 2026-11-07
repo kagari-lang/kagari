@@ -3,7 +3,10 @@
 use kagari_common::identity::table::DefinitionTableId;
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_hir::{
-    analysis::AnalysisDatabase,
+    analysis::{
+        AnalysisDatabase, editor::EditorAnalysis, error::AnalysisError,
+        signatures::SignatureSnapshot,
+    },
     native::render::{DeclarationSource, declaration_source},
 };
 use kagari_source::{
@@ -40,6 +43,36 @@ impl PreparedEnvironment {
             .snapshot(SourceSnapshot::default(), &CancellationToken::default())
             .expect("validated native-only baseline");
         (snapshot.definitions().id(), snapshot.definitions().len())
+    }
+
+    pub(super) fn signatures(
+        &mut self,
+        cancel: &CancellationToken,
+    ) -> Result<SignatureSnapshot, AnalysisError> {
+        self._database.signatures(SourceSnapshot::default(), cancel)
+    }
+
+    /// Queries an exact installed presentation view through its validated native-only context.
+    pub(super) fn editor(
+        &mut self,
+        name: &str,
+        offset: usize,
+        cancel: &CancellationToken,
+    ) -> Result<Option<EditorAnalysis>, AnalysisError> {
+        let signatures = self
+            ._database
+            .signatures(SourceSnapshot::default(), cancel)?;
+        let file = signatures
+            .declaration_snapshot()
+            .files()
+            .find(|file| file.source().name() == name)
+            .map(|file| file.source().id());
+        match file {
+            Some(file) => self
+                ._database
+                .editor(SourceSnapshot::default(), file, offset, cancel),
+            None => Ok(None),
+        }
     }
 
     /// Installs validated immutable inputs into a fresh definition context.

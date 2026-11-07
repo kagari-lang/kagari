@@ -1,0 +1,7 @@
+pub trait Read {
+    fn read(self) -> i32;
+}
+
+pub fn scalar() -> i32 {
+    17
+}

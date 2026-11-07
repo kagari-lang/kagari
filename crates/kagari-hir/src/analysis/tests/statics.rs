@@ -1,6 +1,6 @@
 use crate::{
     AnalysisResult, AnalyzedModule,
-    analysis::eligibility::BodyEligibility,
+    analysis::{eligibility::BodyEligibility, work},
     analyze_source,
     declarations::DeclarationId,
     hir::{
@@ -472,21 +472,34 @@ fn imported_static_contract_edits_invalidate_cached_body_facts() {
 
 #[test]
 fn static_initializer_scopes_navigation_and_recovered_method_completion() {
-    let text = r#"
-struct Packet { val value: i32 }
-impl Packet { fn read(self) -> i32 { self.value } }
-static val SEED: i32 = 1;
-static val RESULT: i32 = {
-    val value = SEED;
-    val value = value + 1;
-    val callback = |argument: i32| value + argument;
-    callback(value)
-};
-static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
-"#;
+    let text = include_str!("../../../tests/fixtures/editor/static-positions.kgr");
     let mut sources = SourceDatabase::default();
     let root = insert(&mut sources, "tooling", text);
-    let snapshot = test_analysis()
+    let mut database = test_analysis();
+    let capture_offset = text.find("value + argument").unwrap();
+    let measured = work::measure(|| {
+        database
+            .editor(
+                sources.snapshot(),
+                root,
+                capture_offset,
+                &Default::default(),
+            )
+            .unwrap()
+            .unwrap()
+    })
+    .unwrap();
+    let editor = measured.value;
+    assert_eq!(
+        editor.type_at(capture_offset),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    assert_eq!(
+        measured.work.full_snapshot_calls, 1,
+        "module initializer routing currently uses an explicit full-analysis fallback"
+    );
+    assert_eq!(measured.work.selected_body_calls, 0);
+    let snapshot = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(root).unwrap();
@@ -497,6 +510,58 @@ static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
     );
     let capture_offset = text.find("value + argument").unwrap();
     let inner = file.definition_at(capture_offset).unwrap();
+    assert_eq!(editor.definition_at(capture_offset), Some(inner));
+    let old_location = editor.definition_at(capture_offset).unwrap().location;
+    for name in ["value", "argument"] {
+        assert!(
+            editor
+                .visible_bindings(capture_offset)
+                .iter()
+                .any(|binding| binding.declaration.name == name
+                    && binding.ty == TypeId::Builtin(BuiltinType::I32))
+        );
+    }
+    let member_offset = text.find("packet. }").unwrap() + 7;
+    let initializer = database
+        .editor(sources.snapshot(), root, member_offset, &Default::default())
+        .unwrap()
+        .unwrap();
+    let completions = initializer
+        .completions(member_offset, 128, &Default::default())
+        .unwrap();
+    for name in ["read", "value"] {
+        assert!(
+            completions
+                .candidates
+                .iter()
+                .any(|candidate| candidate.name == name),
+            "{name}: {completions:?}"
+        );
+    }
+    let copied = text.rfind("OFFSET;").unwrap();
+    let constant = work::measure(|| {
+        database
+            .editor(sources.snapshot(), root, copied, &Default::default())
+            .unwrap()
+            .unwrap()
+    })
+    .unwrap();
+    assert_eq!(constant.work.full_snapshot_calls, 1);
+    assert_eq!(constant.work.selected_body_calls, 0);
+    assert_eq!(
+        constant.value.type_at(copied),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    assert_eq!(
+        constant
+            .value
+            .definition_at(copied)
+            .unwrap()
+            .location
+            .range
+            .start,
+        text.find("OFFSET: i32").unwrap()
+    );
     assert_ne!(outer.id, inner.id);
     let visible = file.visible_bindings(capture_offset);
     for name in ["value", "argument"] {
@@ -507,7 +572,9 @@ static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
         file.definition_at(text.find("callback(value)").unwrap() + 9),
         Some(inner)
     );
-    let candidates = file.method_completions(text.find("packet. }").unwrap() + 7);
+    let candidates = file
+        .method_completions(text.find("packet. }").unwrap() + 7, &Default::default())
+        .unwrap();
     let read = candidates
         .iter()
         .find(|candidate| candidate.name == "read")
@@ -536,6 +603,37 @@ static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
     assert_eq!(
         file.static_initializer_eligibility(statics[2].id),
         BodyEligibility::Unavailable
+    );
+    let changed = text.replace("value + 1", "value + 22");
+    sources
+        .set("mem://tooling", changed.clone(), SourceLayer::Overlay)
+        .unwrap();
+    let updated = database
+        .editor(
+            sources.snapshot(),
+            root,
+            changed.find("value + argument").unwrap(),
+            &Default::default(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.source().text(), changed);
+    assert_ne!(
+        updated
+            .definition_at(changed.find("value + argument").unwrap())
+            .unwrap()
+            .location
+            .revision,
+        old_location.revision
+    );
+    assert_eq!(editor.source().text(), text);
+    assert_eq!(
+        editor.definition_at(capture_offset).unwrap().location,
+        old_location
+    );
+    assert_eq!(
+        editor.type_at(capture_offset),
+        Some(TypeId::Builtin(BuiltinType::I32))
     );
 }
 

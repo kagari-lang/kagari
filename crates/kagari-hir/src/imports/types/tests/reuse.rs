@@ -2,7 +2,7 @@ use crate::{imports::tests::insert, tests::test_analysis};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
-fn foreign_inherited_trait_revision_invalidates_nominal_only_reuse() {
+fn foreign_inherited_trait_contracts_reuse_body_edits_and_invalidate_surface_changes() {
     let mut sources = SourceDatabase::default();
     // The descendant facade can name Parent, but root can reach it only through inheritance.
     let parent_text =
@@ -90,16 +90,35 @@ fn foreign_inherited_trait_revision_invalidates_nominal_only_reuse() {
     assert_eq!(old_types.variants, current_types.variants);
     assert_ne!(old_parent.id.unit.revision, current_parent.id.unit.revision);
     assert_ne!(old_parent.id.unit.arena, current_parent.id.unit.arena);
-    assert!(old_parent.same_local_contract(
-        current_parent,
-        &old_parent.id.unit,
-        &current_parent.id.unit,
-    ));
+    assert!(old_parent.same_contract(current_parent));
+    assert_ne!(
+        old_parent.declaration.location.revision,
+        current_parent.declaration.location.revision
+    );
+    assert_eq!(
+        current.declaration(&old_parent.declaration.id),
+        Some(&current_parent.declaration)
+    );
+    assert_eq!(
+        old.declaration(&old_parent.declaration.id),
+        Some(&old_parent.declaration)
+    );
+    assert!(old_types.same_reuse_inputs(current_types));
+    assert!(current_root.reused());
 
-    let old_local = old_root.declarations().names.unit.as_ref().unwrap();
-    let current_local = current_root.declarations().names.unit.as_ref().unwrap();
-    assert_eq!(old_local, current_local);
-    assert_ne!(old_parent.id.unit.module, old_local.module);
-    assert!(!old_types.same_reuse_inputs(current_types, Some(old_local), Some(current_local),));
-    assert!(!current_root.reused());
+    // A newly generic inherited associated family changes the checked surface,
+    // even though the consumer's own source and explicit import remain unchanged.
+    sources
+        .set(
+            "mem://parent",
+            parent_text.replace("type Item;", "type Item<T>;"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let changed = database
+        .signatures(sources.snapshot(), &Default::default())
+        .unwrap();
+    let changed_root = changed.file(root).unwrap();
+    assert!(!current_types.same_reuse_inputs(&changed_root.declarations().imported_types));
+    assert!(!changed_root.reused());
 }

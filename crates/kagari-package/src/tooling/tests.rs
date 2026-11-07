@@ -150,6 +150,10 @@ fn recovering_projection_keeps_exact_sources_scopes_and_atomic_revisions_without
     let inputs = discovery.tooling_inputs("app", &cancel).unwrap();
     assert!(!inputs.complete());
     assert!(
+        !inputs.discovery_complete(),
+        "the declared missing module prevents exhaustive search"
+    );
+    assert!(
         inputs
             .errors()
             .iter()
@@ -285,6 +289,7 @@ fn standalone_module_projection_keeps_the_supplied_family_without_package_import
     let root = ModuleIdentity::single_file("file:///approved/lib.kgr");
     let inputs = ToolingInputs::from_modules(&discovery, root.clone(), &cancel).unwrap();
     assert!(!inputs.complete());
+    assert!(!inputs.discovery_complete());
     assert_eq!(inputs.root(), &root);
     assert!(inputs.environment().scopes().is_empty());
     assert_eq!(inputs.sources().len(), 2);
@@ -295,4 +300,38 @@ fn standalone_module_projection_keeps_the_supplied_family_without_package_import
             .all(|source| source.module.package == root.package)
     );
     assert_eq!(inputs.sources()[1].module.path, ["healthy"]);
+}
+
+#[test]
+fn recovered_body_syntax_does_not_hide_complete_declaration_discovery() {
+    let cancel = CancellationToken::default();
+    let sources = VirtualSources::new(
+        [(
+            "lib.kgr".into(),
+            Arc::from(include_str!(
+                "../../tests/fixtures/tooling/unfinished-expression.kgr"
+            )),
+        )],
+        &cancel,
+    )
+    .unwrap();
+    let discovery =
+        ModuleDiscovery::load(&sources, "lib.kgr", ModuleLimits::default(), &cancel).unwrap();
+    assert!(
+        discovery.clone().into_complete().is_err(),
+        "compile admission still rejects incomplete syntax"
+    );
+    let inputs =
+        ToolingInputs::from_modules(&discovery, ModuleIdentity::single_file("lib.kgr"), &cancel)
+            .unwrap();
+    assert!(!inputs.complete());
+    assert!(
+        inputs.discovery_complete(),
+        "every declared module is present despite an unfinished expression"
+    );
+    assert_eq!(inputs.sources().len(), 1);
+    assert_eq!(
+        inputs.sources()[0].source.text(),
+        include_str!("../../tests/fixtures/tooling/unfinished-expression.kgr")
+    );
 }

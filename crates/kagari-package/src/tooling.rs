@@ -53,6 +53,7 @@ pub struct ToolingInputs {
     sources: Vec<ToolingSource>,
     environment: PackageEnvironment,
     complete: bool,
+    discovery_complete: bool,
     errors: Vec<PackageError>,
 }
 
@@ -76,6 +77,7 @@ impl ToolingInputs {
         let mut scopes = BTreeMap::new();
         let mut sources = Vec::new();
         let mut errors = capture.errors.clone();
+        let mut discovery_complete = errors.is_empty();
         for selection in closure {
             cancel.check()?;
             let package = &project.graph.packages()[&selection];
@@ -87,6 +89,7 @@ impl ToolingInputs {
             let discovery = capture.discoveries.get(&selection).ok_or_else(|| {
                 PackageError::input(member, "resolved closure is missing its discovery result")
             })?;
+            discovery_complete &= discovery.errors().is_empty();
             collect(
                 &mut sources,
                 discovery,
@@ -111,6 +114,7 @@ impl ToolingInputs {
             sources,
             environment,
             complete: capture.program.is_some(),
+            discovery_complete,
             errors,
         })
     }
@@ -133,6 +137,7 @@ impl ToolingInputs {
             sources,
             environment: PackageEnvironment::default(),
             complete: discovery.is_complete(),
+            discovery_complete: discovery.errors().is_empty(),
             errors: discovery.errors().to_vec(),
         })
     }
@@ -152,6 +157,13 @@ impl ToolingInputs {
     /// Complete acquisition is useful for coverage decisions, not compile authority.
     pub fn complete(&self) -> bool {
         self.complete
+    }
+
+    /// Whether every declared module was acquired, independently of body syntax.
+    /// Missing/rejected module paths and malformed module declarations leave gaps;
+    /// a recovered expression inside an otherwise discovered module does not.
+    pub fn discovery_complete(&self) -> bool {
+        self.discovery_complete
     }
 
     pub fn errors(&self) -> &[PackageError] {

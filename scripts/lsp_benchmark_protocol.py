@@ -56,13 +56,14 @@ def read_frame(stream):
 
 
 class Peer:
-    def __init__(self, executable: Path, transport: str, root: Path, cache_root: Path | None = None):
+    def __init__(self, executable: Path, transport: str, root: Path, cache_root: Path | None = None, history_limit=512):
         self.root = root
         self.frames = queue.Queue(64)
         self.stop = threading.Event()
         self.history = deque(maxlen=32)
         self.notifications = deque(maxlen=128)
         self.notification_history = []
+        self.history_limit = history_limit
         self.notification_bytes = 0
         self.responses = {}
         self.pending = set()
@@ -73,6 +74,7 @@ class Peer:
         self.stdin = None
         self.reader = None
         self.process = None
+        self.read_delay_seconds = 0
         environment = os.environ.copy()
         if cache_root is not None:
             cache_root.mkdir(parents=True, exist_ok=False)
@@ -127,6 +129,8 @@ class Peer:
     def _read(self):
         try:
             while not self.stop.is_set():
+                if self.stop.wait(self.read_delay_seconds):
+                    return
                 frame = read_frame(self.reader)
                 self._put((frame, time.perf_counter_ns()))
                 if frame is None:
@@ -181,7 +185,7 @@ class Peer:
             else:
                 if len(self.notifications) == self.notifications.maxlen:
                     raise ValueError("unconsumed notification budget exceeded")
-                if len(self.notification_history) >= 512:
+                if len(self.notification_history) >= self.history_limit:
                     raise ValueError("notification history budget exceeded")
                 retained = len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
                 if retained > MAX_NOTIFICATION_HISTORY_BYTES - self.notification_bytes:
@@ -197,13 +201,19 @@ class Peer:
             raise ValueError("response must have exactly one of result/error")
         self.responses[key] = (value, received_ns)
 
-    def request(self, identifier, method, params):
+    def begin_request(self, identifier, method, params):
         key = json.dumps(identifier, separators=(",", ":"))
         if key in self.pending or len(self.pending) >= 64:
             raise ValueError("duplicate ID or request credit exhausted")
         self.pending.add(key)
         started = time.perf_counter_ns()
         self.send({"jsonrpc": "2.0", "id": identifier, "method": method, "params": params})
+        return started
+
+    def response(self, identifier, started, allow_error=False):
+        key = json.dumps(identifier, separators=(",", ":"))
+        if key not in self.pending:
+            raise ValueError("response wait has no admitted request")
         deadline = time.monotonic() + TIMEOUT
         while key not in self.responses:
             frame, received = self._receive(deadline)
@@ -212,9 +222,13 @@ class Peer:
             self._dispatch(frame, received)
         value, received = self.responses.pop(key)
         self.pending.remove(key)
-        if "error" in value:
-            raise ValueError(f"request {method} failed: {value['error']!r}")
-        return value["result"], received - started, received
+        if "error" in value and not allow_error:
+            raise ValueError(f"request failed: {value['error']!r}")
+        return (value if allow_error else value["result"]), received - started, received
+
+    def request(self, identifier, method, params):
+        started = self.begin_request(identifier, method, params)
+        return self.response(identifier, started)
 
     def wait_notification(self, method, predicate, after_ns=0, timeout=TIMEOUT):
         deadline = time.monotonic() + timeout

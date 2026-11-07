@@ -508,9 +508,9 @@ separately proposed debug/DAP modes.
 ## Language server
 
 The [LSP design](lsp-design.md) owns LSP00-LSP08. Implementation through LSP04 is
-authorized on `feat/lsp`, with phase commits; LSP00-LSP02 have local functional and
-ownership checkpoints. The LSP02 diagnostic baseline misses the latency target;
-HIR work diagnosis and correction remain in LSP03 and block Gate A. Its full
+authorized on `feat/lsp`, with phase commits; LSP00-LSP03 have local functional and
+ownership checkpoints. HIR reuse corrections reduce the LSP02 diagnostic cost,
+but the remaining latency miss is carried to LSP04 and blocks Gate A. Its full
 feature inventory includes definition/declaration/type/implementation navigation,
 references, rename, symbols, completion, diagnostics, source edits, semantic
 presentation and workspace/client lifecycle. The LSP00-LSP04 pilot delivers five

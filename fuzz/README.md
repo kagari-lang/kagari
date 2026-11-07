@@ -102,6 +102,31 @@ corpus replay:
 cargo test --locked -p kagari-syntax-fuzz --features lsp --lib lsp_tests
 ```
 
+`lsp_analysis` exercises real package/source capture and analyzer feature queries
+against independently fresh HIR contexts. Inputs up to 1 KiB select at most three
+two-byte actions over the small `analysis/fuzz-base.kgr` fixture: body values,
+function signatures, implementation overrides/defaults, source provider identity,
+close/reopen epochs, cancellation, unresolved headers and context retirement.
+The fixture deliberately retains `value.` for incomplete-member recovery.
+Each generation compares hover, definition, completion and complete implementation
+results. One older admitted capture is queried again after the edits, and its
+answers must remain unchanged. Unknown signature relations must fail explicitly;
+an empty exhaustive implementation response is not a substitute for coverage.
+All captured/query/index owners are then dropped and the exact charged source
+budget must return to its native baseline. This is source ownership accounting,
+not RSS. Cross-root provider matching has a separate deterministic index-owner test.
+
+The two semantic worlds and their immutable native inputs are initialized once per
+fuzzer thread; ordinary contexts and index views are retired between inputs. The
+fresh world's contexts are additionally replaced before every generation, so it
+cannot inherit the reused world's cached facts. No test method is added to LSP.
+This deeper target uses a 30-second input timeout; run costs and native setup are
+not parser-throughput evidence:
+
+```text
+cargo +nightly fuzz run lsp_analysis --features fuzzing,lsp target/fuzz-corpus/lsp_analysis fuzz/seeds/lsp_analysis -- -max_total_time=60 -max_len=1024 -timeout=30 -rss_limit_mb=2048
+```
+
 `lsp_wire` accepts raw bytes up to 64 KiB. It compares fragmented and contiguous
 reads through the production codec, checks terminal framing failures and exact
 body-admission lengths, and validates encoded field presence and bounded encoding.

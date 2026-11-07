@@ -8,7 +8,7 @@ use crate::{
     declarations::{Declaration, DeclarationId},
     imports::{NamespaceId, ResolvedTarget},
 };
-use kagari_syntax::ast::borrow::AstNode;
+use kagari_syntax::ast::{borrow::AstNode, visit::NodeRef};
 
 use {
     kagari_common::identity::ModuleIdentity,
@@ -105,7 +105,18 @@ impl FileDeclarations {
                 .is_some_and(|name| name.body_span() == local_range)
         })?;
         let documentation = node.documentation();
-        let written_signature = node.text().to_owned();
+        let body_start = match node {
+            NodeRef::FnDef(function) => function.body().map(|body| body.body_span().start),
+            NodeRef::MethodDef(function) => function.body().map(|body| body.body_span().start),
+            _ => None,
+        };
+        let written_signature = body_start
+            .map_or_else(
+                || node.text(),
+                |end| &source.text()[node.body_span().start..end],
+            )
+            .trim_end()
+            .to_owned();
         Some(DeclarationDocumentation {
             declaration: declaration.clone(),
             documentation,

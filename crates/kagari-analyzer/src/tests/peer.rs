@@ -8,6 +8,8 @@ use crate::{
     session::{SessionActor, analysis::testing::CompletionGate},
     workspace::WorkspaceCapture,
 };
+#[cfg(feature = "verification")]
+use kagari_hir::analysis::work::milestone::BodyCheckGate;
 use lattice_actor::{
     mailbox::MailboxConfig,
     observation::{ActorLifecycleEvent, ActorMetadata, ActorObserver, ActorObserverHandle},
@@ -88,13 +90,24 @@ impl ActorObserver for Observer {
 struct Ready {
     captures: watch::Receiver<Option<Arc<WorkspaceCapture>>>,
     completed: watch::Receiver<(u64, u64)>,
+    maintained: watch::Receiver<(u64, usize)>,
+    #[cfg(feature = "verification")]
+    feature_started: watch::Receiver<(u64, u64)>,
+}
+
+#[derive(Default)]
+struct Gates {
+    diagnostics: Option<CompletionGate>,
+    step: Option<CompletionGate>,
+    #[cfg(feature = "verification")]
+    feature: Option<BodyCheckGate>,
 }
 
 fn serve(
     endpoint: DuplexStream,
     root: String,
     limits: SessionLimits,
-    gate: Option<CompletionGate>,
+    gates: Gates,
     ready: SyncSender<Ready>,
 ) -> Result<u8, String> {
     let (logger, log_thread) = LogSink::start().map_err(|error| error.to_string())?;
@@ -115,11 +128,19 @@ fn serve(
         status.clone(),
     )
     .map_err(|error| error.to_string())?;
-    actor.analysis.gate = gate;
+    actor.analysis.gate = gates.diagnostics;
+    actor.features.step_gate = gates.step;
+    #[cfg(feature = "verification")]
+    {
+        actor.features.gate = gates.feature;
+    }
     ready
         .send(Ready {
             captures: actor.captures.subscribe(),
             completed: actor.analysis.completed.subscribe(),
+            maintained: actor.analysis.maintained.subscribe(),
+            #[cfg(feature = "verification")]
+            feature_started: actor.features.started.subscribe(),
         })
         .map_err(|error| error.to_string())?;
     let handle = runtime
@@ -160,6 +181,9 @@ pub(super) struct Peer {
     io: Option<DuplexStream>,
     captures: watch::Receiver<Option<Arc<WorkspaceCapture>>>,
     completed: watch::Receiver<(u64, u64)>,
+    maintained: watch::Receiver<(u64, usize)>,
+    #[cfg(feature = "verification")]
+    feature_started: watch::Receiver<(u64, u64)>,
     done: Receiver<Result<u8, String>>,
     task: Option<JoinHandle<()>>,
     responses: BTreeMap<i64, Value>,
@@ -170,19 +194,57 @@ pub(super) struct Peer {
 
 impl Peer {
     pub fn new(root: String, limits: SessionLimits) -> Self {
-        Self::start(root, limits, None)
+        Self::start(root, limits, Gates::default())
     }
 
     pub fn with_gate(root: String, limits: SessionLimits, gate: CompletionGate) -> Self {
-        Self::start(root, limits, Some(gate))
+        Self::start(
+            root,
+            limits,
+            Gates {
+                diagnostics: Some(gate),
+                step: None,
+                #[cfg(feature = "verification")]
+                feature: None,
+            },
+        )
     }
 
-    fn start(root: String, limits: SessionLimits, gate: Option<CompletionGate>) -> Self {
+    #[cfg(feature = "verification")]
+    pub fn with_feature_gate(
+        root: String,
+        limits: SessionLimits,
+        diagnostics: CompletionGate,
+        feature: BodyCheckGate,
+    ) -> Self {
+        Self::start(
+            root,
+            limits,
+            Gates {
+                diagnostics: Some(diagnostics),
+                step: None,
+                feature: Some(feature),
+            },
+        )
+    }
+
+    pub fn with_step_gate(root: String, limits: SessionLimits, step: CompletionGate) -> Self {
+        Self::start(
+            root,
+            limits,
+            Gates {
+                step: Some(step),
+                ..Gates::default()
+            },
+        )
+    }
+
+    fn start(root: String, limits: SessionLimits, gates: Gates) -> Self {
         let (io, endpoint) = duplex(64 * 1024);
         let (ready, capture) = sync_channel(1);
         let (finished, done) = sync_channel(1);
         let task = thread::spawn(move || {
-            let _ = finished.send(serve(endpoint, root, limits, gate, ready));
+            let _ = finished.send(serve(endpoint, root, limits, gates, ready));
         });
         let captures = match capture.recv_timeout(WAIT) {
             Ok(captures) => captures,
@@ -198,6 +260,9 @@ impl Peer {
             io: Some(io),
             captures: captures.captures,
             completed: captures.completed,
+            maintained: captures.maintained,
+            #[cfg(feature = "verification")]
+            feature_started: captures.feature_started,
             done,
             task: Some(task),
             responses: BTreeMap::new(),
@@ -215,13 +280,21 @@ impl Peer {
         .await;
     }
 
-    pub async fn request(&mut self, id: i64, method: &str, params: Value) -> Value {
+    pub async fn begin_request(&mut self, id: i64, method: &str, params: Value) {
         assert!(self.pending.insert(id));
         send(
             self.io.as_mut().unwrap(),
             json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
         )
         .await;
+    }
+
+    pub async fn request(&mut self, id: i64, method: &str, params: Value) -> Value {
+        self.begin_request(id, method, params).await;
+        self.response(id).await
+    }
+
+    pub async fn response(&mut self, id: i64) -> Value {
         loop {
             if let Some(response) = self.responses.remove(&id) {
                 assert!(self.pending.remove(&id));
@@ -273,6 +346,46 @@ impl Peer {
             let message = read(self.io.as_mut().unwrap()).await;
             self.dispatch(message);
         }
+    }
+
+    #[cfg(feature = "verification")]
+    pub async fn feature_started(&mut self) -> (u64, u64) {
+        timeout(WAIT, async {
+            loop {
+                let current = *self.feature_started.borrow_and_update();
+                if current.0 != 0 {
+                    return current;
+                }
+                self.feature_started
+                    .changed()
+                    .await
+                    .expect("feature owner stopped before admission");
+            }
+        })
+        .await
+        .expect("selected feature admission deadline")
+    }
+
+    #[cfg(feature = "verification")]
+    pub fn completed_job(&self) -> u64 {
+        self.completed.borrow().0
+    }
+
+    pub async fn maintained_after(&mut self, job: u64) -> usize {
+        timeout(WAIT, async {
+            loop {
+                let (completed, cursors) = *self.maintained.borrow_and_update();
+                if completed > job {
+                    return cursors;
+                }
+                self.maintained
+                    .changed()
+                    .await
+                    .expect("maintenance owner stopped");
+            }
+        })
+        .await
+        .expect("idle maintenance completion deadline")
     }
 
     pub async fn handled(&mut self, job: u64) {

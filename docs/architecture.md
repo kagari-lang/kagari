@@ -2419,8 +2419,9 @@ Ordinary reflection stays within declared metadata and member adapters.
 loopback address and one session per process. `--version` reports its build. Stdout contains
 only LSP frames; logs/errors use stderr. It advertises UTF-16 positions and
 open/close/full-text synchronization and save/reload input triggers. Source and HIR
-diagnostics publish through versioned, replaceable document updates. Semantic IDE
-queries and editor server-launch integration follow in LSP03-LSP04. Syntax highlighting is a separate
+diagnostics publish through versioned, replaceable document updates. Hover,
+definition, implementation and basic completion use retained semantic queries.
+Editor server-launch integration is owned by LSP04. Syntax highlighting is a separate
 editor-grammar concern. The [editor guide](../editors/README.md) owns installation
 and validation scope; the [roadmap](implementation-roadmap.md#toolchain-distribution-and-modes)
 owns pending CI. The [language-server design](lsp-design.md) owns the full planned
@@ -2457,6 +2458,15 @@ workspace/dependency graphs through `kagari-package`, with all admitted overlays
 installed before reads. Initial workspace folders select isolated root contexts;
 non-file buffers use standalone inputs. Recovering tooling projections retain
 available files and errors while strict compilation still requires complete input.
+Acquisition resolves every admitted physical document once before any project
+source read. A lexical alias outside a configured root still supplies its overlay
+when its captured canonical target belongs to that root; package traversal keeps
+its approved-root containment checks. The same registry detects conflicting
+aliases and identifies standalone native views. Captures retain normalized
+document-to-physical identities even when unavailable or conflicting text cannot
+receive a semantic binding. Canonical identity metadata has a separate 1 MiB
+aggregate and 8 KiB per-key limit; failure rejects capture instead of reading disk
+under an unrecognized overlay.
 Structurally complete module declarations remain discoverable beside malformed
 bodies. A separate synchronous analysis worker performs background semantic analysis
 after a 150 ms debounce. Each context owns its database and definition identity
@@ -2479,6 +2489,9 @@ the exact bytes; the actor then admits semantic work. The shared
 and atomic publication for both SDK and analyzer. It does not own rendering or HIR
 validation. Modified generated buffers withhold dependent semantics until restored
 or closed, and failed file publication leaves syntax-only recovery available.
+This authority check includes filesystem aliases through captured canonical
+origins. Exact aliases query the validated native baseline and preserve their
+original editor URI; they never allocate another ordinary script database.
 
 The actor owns one credit per worker, concrete completion messages and diagnostic
 publication policy. Cancellation signals the worker but releases credit only at
@@ -2490,6 +2503,26 @@ Reliable output and diagnostics share the same single writer credit; eligible
 diagnostics receive a turn after eight reliable frames. Clean completed contexts
 emit an empty result without retaining empty URI tombstones. Publication storage
 has its own finite budget, separate from reliable output and source input leases.
+
+Semantic requests retain their admitted input generation, original URI, immutable
+capture and source lease. Four concrete typed actor messages dispatch through a
+frozen method router. The analysis worker checks only the selected function when
+possible; module const/static initializer queries use the existing full snapshot.
+Source/HIR own binding, types, completion and declaration relations; the analyzer
+projects those facts to UTF-16 protocol values without another semantic resolver.
+Each root keeps an isolated identity table. Cross-root implementation search joins
+exact physical declaration anchors, tracks complete coverage and returns an
+explicit error for an untranslatable/incomplete scope rather than partial matches.
+One context per search chunk permits other requests and cancellation to run.
+
+Selected-body history, declaration metadata, index rows, input leases and encoded
+results have separate finite owners. Completed indexes belong to the current
+input generation; active cursors alone can pin older scopes. Coalesced idle
+maintenance retires canceled or obsolete state even without a later client query.
+The reliable outbox reserves space for every admitted terminal response and
+progress lifecycle. Canceling work signals its token immediately; worker credit
+is returned only by the matching completion. Work-done progress reports coalesce,
+while begin/end and terminal responses retain reliable delivery.
 
 ### Editor syntax adapters
 

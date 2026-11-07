@@ -1,0 +1,16 @@
+trait Read {
+    fn read(self) -> i32 { 7 }
+}
+
+struct Packet {}
+
+impl Read for Packet {}
+
+fn scalar() -> i32 { 23 }
+
+fn inspect(value: Packet) -> i32 {
+    val local = 31;
+    local + scalar()
+}
+
+fn complete(value: Packet) { value. }

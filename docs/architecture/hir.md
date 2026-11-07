@@ -740,6 +740,10 @@ signatures(source)   -> prepare_signatures
                       -> publish SignatureSnapshot + declarations
 body(source, owner)  -> prepare_signatures -> selected function + constant prerequisites
                       -> publish FunctionAnalysis + signatures
+editor(source, file, offset) -> prepare_signatures -> innermost inline file
+                      -> header facts or selected containing function
+                      -> const/static initializer: complete snapshot fallback
+                      -> retained EditorAnalysis
 snapshot(source)     -> prepare_signatures -> check/reuse ALL file bodies
                       -> publish AnalysisSnapshot + signatures
 
@@ -755,6 +759,42 @@ type annotations and aggregate contracts; bodies add local bindings, expression
 types and selected operations. Syntax errors can still leave useful facts and
 diagnostics. Cancellation is an error, checked before publishing completed results.
 Older requests do not replace newer published revision caches.
+
+[EditorAnalysis](../../crates/kagari-hir/src/analysis/editor.rs) chooses the
+innermost function body, including nested local functions; header positions stop
+at signatures. Positions inside an actual module constant/static initializer
+currently use the existing complete snapshot and retain its matching logical
+`FileAnalysis`. For example, hover on `value` inside a static initializer's closure
+uses that closure's checked binding rather than a signature-only lookup. This
+finite fallback can check unrelated bodies: operation metrics record one full
+snapshot call and no selected-body call. It is not the latency contract for
+ordinary function queries, which still request no full snapshot. No separate
+initializer checker or analyzer-side resolver is introduced; a future selected
+initializer service must preserve these facts before replacing the fallback.
+
+Its type, definition and lexical-binding projections share the
+same read-only [body projection](../../crates/kagari-hir/src/analysis/projection.rs)
+as complete file results, including initializer locals and recovered members.
+Both selected and fallback results retain immutable source and definition owners;
+later edits or database retirement do not change their answers. Completion resolves visible names and `::` paths through
+the retained namespace catalog, and fields/methods through checked receiver and
+implementation facts. Recovery at `receiver.` retains the receiver type. Candidate
+capacity and implementation-search exhaustion return errors; caller cancellation
+reaches method search instead of being replaced with a fresh token. Replacement
+ranges are source byte spans computed by HIR, and protocol coordinate conversion
+stays with the analyzer. Hover source documentation excludes function/method bodies.
+
+Exact unchanged preparation has a cache owner and validity rule. A declaration
+snapshot retains its physical `SourceSnapshot`; `same_inputs` requires the same
+revision, exact file-wrapper owners and equal package bindings. Every provider or
+parse-policy setter clears dependent preparation caches. Signatures share the
+previous complete result only when declaration files and graph are the same
+immutable allocations. A signature snapshot memoizes its complete constant/body
+prerequisite environments in a shared `OnceLock`, keyed by constant limits.
+Cancellation is checked before installing that complete projection; changed limits
+invalidate the database's signature cache. Warm selected-body reads borrow this
+projection rather than cloning all imported callable maps. These caches contain
+checked facts and never executable state.
 
 Internal traversal can still return temporary values while stopping. In
 [block lowering](../../crates/kagari-hir/src/lower/stmt.rs), cancellation stops the
@@ -805,16 +845,18 @@ once per origin/revision and retain each module's semantic errors.
 
 Analysis pairs syntax locators with the exact retained parse; old locators never
 resolve against a newer revision. New physical revisions rebuild child arenas;
-sharing syntax does not weaken source-unit/context-prefix checks. Existing foreign
-namespace revision/arena checks can still force body rechecking after an inline
-edit, even when signature surfaces match. Finer invalidation remains separate.
+sharing syntax does not weaken source-unit/context-prefix checks. Whole-file
+sharing still requires exact qualified sources. Arena-aware body restoration can
+accept equivalent semantic surfaces while fresh name/import preparation supplies
+current foreign addresses and navigation sites; it does not retain an old catalog
+as the current one. Finer invalidation remains separate.
 
 | Change | Actual reuse boundary |
 | --- | --- |
 | Unchanged source and dependencies | A file result can retain its `Arc` when revision/arena, imports, reachable namespaces, imported types/functions and aggregate facts match. Installed native declarations participate through these ordinary facts. |
 | Body-only edit | Changed source is lowered into a new arena. Signature reuse compares the source surface with eligible function bodies removed and remaps local IDs. Other bodies may reuse facts if environment tokens, diagnostics, body contents and source-map correspondence permit it. |
 | Signature/export edit | Imports/namespaces and imported type/callable/aggregate contracts are compared again; failed reuse predicates force checking. This is not guaranteed minimal dependency invalidation. |
-| Registry/policy change | Native registration clears dependent caches; parse policy clears parse-dependent caches; body/constant limits clear body/file caches. Host replacement is checked through registry revisions during later reuse decisions. |
+| Registry/policy change | Native registration clears dependent caches; parse policy clears parse-dependent caches; body/constant limits clear body/file caches, and changed constant limits also retire memoized signature prerequisites. Host replacement is checked through registry revisions during later reuse decisions. |
 
 [File cache predicates](../../crates/kagari-hir/src/analysis/cache.rs),
 [signature remapping](../../crates/kagari-hir/src/typeck/signature_reuse.rs) and
@@ -822,16 +864,41 @@ edit, even when signature surfaces match. Finer invalidation remains separate.
 Retaining an old snapshot remains safe because its IDs still refer to its old
 arena/definition tables; remapped facts must use the new owners.
 
-Imported type inputs also carry this unit's refined trait surfaces, so local alias
-and supertrait resolution observe the same preparation as foreign imports. For
-signature/body remapping, `ImportedTypes::same_reuse_inputs` permits fresh navigation
-revision/ranges only for surfaces belonging to the exact old and new local units,
-with the same module/file, declaration identity and semantic contract. Namespace,
-native representation, associated arities, methods, members, supertraits and alias
-checks remain. Foreign addresses, explicit type/variant resolutions and canonical
-alias templates retain exact comparison; an inherited foreign trait is not local
-merely because its contract is unchanged. Current declarations supply navigation,
-and whole-file/unchanged-query sharing still requires exact revision/arena equality.
+Imported type inputs also carry refined inherited trait surfaces. Signature/body
+restoration compares scoped declaration identity, module/file ownership, native
+representation, associated arities, methods, supertraits and alias contracts;
+source revisions and navigation ranges are supplied by current preparation.
+Canonical variant identities/names remain checked, and aggregate contracts retain
+field/payload, implementation, bound and method checks.
+
+Callable dependencies used for file-body restoration come from the previous
+resolved expression names and checked call targets. Full namespace/import surface
+comparison remains required before this filter: a new binding, ambiguity, access
+change or different receiver implementation cannot be treated as an unchanged
+successful lookup. For example, editing `library::number`'s body while preserving
+its signature allows an unchanged caller body to restore facts into current
+owners. Its definition destination uses the newly moved library declaration.
+Changing an unused foreign function's result does not recheck that caller; changing
+`number`'s result does. This is a file-level dependency filter, not a general query
+graph or a promise of minimal invalidation. Local declaration-token changes,
+constant/static inputs and aggregate changes can still recheck more bodies.
+
+[Retention](../../crates/kagari-hir/src/analysis/retention.rs) exposes every source
+owner kept by published caches, including selected-body history, for the session's
+shared allocation budget. The database keeps at most sixteen selected results in
+least-recently-used order; an explicit returned result remains valid after cache
+eviction and requires its own input lease. The session bounds obsolete identity
+interning relative to the current declaration/module-prefix/implementation-owner
+inventory: the allowance is the greater of 65,536 nodes and four times that
+inventory plus 4,096. Exceeding it replaces the mutable context database; retained
+results keep their old identity tables. This is a node-count policy, not a byte or
+RSS measurement; large live inventories raise the allowance instead of causing
+permanent cold rebuilding.
+
+The optional `work-metrics` feature records actual checker/restore/initializer
+entries and inclusive phase durations for one synchronous operation. Normal
+builds omit it. These counts differ from construction counters retained in cached
+results, and instrumented timings do not replace uninstrumented release benchmarks.
 
 ## Checked handoff and registered inputs
 

@@ -516,7 +516,16 @@ impl AggregateCatalog {
         self.same_trait_contracts(other)
             && self.implementation_constants == other.implementation_constants
             && self.implementations == other.implementations
-            && self.inherent_methods == other.inherent_methods
+            && self.inherent_methods.len() == other.inherent_methods.len()
+            && self.inherent_methods.iter().all(|(id, method)| {
+                other.inherent_methods.get(id).is_some_and(|other| {
+                    method.declaration == other.declaration
+                        && method.receiver_access == other.receiver_access
+                        && method.owner == other.owner
+                        && method.visibility == other.visibility
+                        && method.function == other.function
+                })
+            })
             && self.enumerations.len() == other.enumerations.len()
             && self.enumerations.iter().all(|(id, a)| {
                 other.enumeration(id).is_some_and(|b| {

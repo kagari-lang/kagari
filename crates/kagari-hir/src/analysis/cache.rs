@@ -50,22 +50,27 @@ impl FileAnalysis {
         let names = &prepared.names.facts;
         let compatible = self.parsed.physical().diagnostics().is_empty()
             && self.shared_valid
-            && old.names.imports.same_bindings(&names.imports)
-            && old.names.catalog.same_reuse_namespaces(
+            && old.names.imports.same_signature_bindings(&names.imports)
+            && old.names.catalog.same_signature_namespaces(
                 &names.catalog,
                 &old.names.items,
                 &names.items,
                 cancel,
             )?
-            && previous.imported_functions == environment.imported_functions
+            && previous.imported_functions.same_used_contracts(
+                &environment.imported_functions,
+                &old.lowered,
+                &old.names,
+                &old.typed.type_table,
+                cancel,
+            )?
             && previous.imported_statics == environment.imported_statics
             && previous.imported_constants == environment.imported_constants
             && previous.aggregates.same_contracts(&environment.aggregates)
-            && previous.declarations.imported_types.same_reuse_inputs(
-                &prepared.declarations.imported_types,
-                old.names.items.unit.as_ref(),
-                names.items.unit.as_ref(),
-            )
+            && previous
+                .declarations
+                .imported_types
+                .same_reuse_inputs(&prepared.declarations.imported_types)
             && self.source.module_identity() == prepared.lowered.source.module_identity();
         cancel.check()?;
         Ok(compatible)

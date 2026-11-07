@@ -1,0 +1,15 @@
+pub trait Read {
+    fn read(self) -> i32;
+}
+
+pub struct Reading {}
+
+impl Read for Reading {
+    fn read(self) -> i32 {
+        42
+    }
+}
+
+pub fn value() -> i32 {
+    42
+}

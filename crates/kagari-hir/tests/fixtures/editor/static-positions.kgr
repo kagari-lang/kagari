@@ -1,0 +1,14 @@
+
+struct Packet { val value: i32 }
+impl Packet { fn read(self) -> i32 { self.value } }
+static val SEED: i32 = 1;
+static val RESULT: i32 = {
+    val value = SEED;
+    val value = value + 1;
+    val callback = |argument: i32| value + argument;
+    callback(value)
+};
+static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
+
+const OFFSET: i32 = 7;
+const COPIED: i32 = OFFSET;

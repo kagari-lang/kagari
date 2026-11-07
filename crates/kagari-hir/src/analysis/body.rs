@@ -4,18 +4,22 @@
 #[cfg(test)]
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
+#[cfg(any(test, feature = "work-metrics"))]
+use crate::analysis::work::{self, Event};
+
 use super::signatures::BodyEnvironment;
 use crate::{
     AnalysisResult,
     analysis::{
-        AnalysisDatabase,
+        AnalysisDatabase, BindingInfo,
         declarations::DeclarationSnapshot,
         eligibility::BodyEligibility,
         error::AnalysisError,
         ownership,
+        projection::EditorFacts,
         signatures::{FileSignatures, SignatureSnapshot},
     },
-    declarations::{DeclarationId, Declarations},
+    declarations::{Declaration, DeclarationId, Declarations},
     hir::{
         ids::{BodyOwner, BodySelection, FunctionId},
         item::function::FunctionKind,
@@ -134,6 +138,29 @@ impl FunctionAnalysis {
         Some(ty)
     }
 
+    /// Finds a declaration through the selected body's checked names, calls and members.
+    pub fn definition_at(&self, offset: usize) -> Option<&Declaration> {
+        self.editor_facts().definition_at(offset)
+    }
+
+    /// Collects the lexical bindings checked by this body query.
+    pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {
+        self.editor_facts().visible_bindings(offset)
+    }
+
+    pub(crate) fn editor_facts(&self) -> EditorFacts<'_> {
+        EditorFacts {
+            lowered: self.lowered(),
+            names: self.names(),
+            declarations: self.declarations(),
+            typed: &self.facts.typed.facts,
+            aggregates: &self.facts.environment.aggregates,
+            imported_functions: &self.facts.environment.imported_functions,
+            imported_statics: &self.facts.environment.imported_statics,
+            imported_constants: &self.facts.environment.imported_constants,
+        }
+    }
+
     /// Returns the selected declaration's identity in this result's definition table.
     pub fn owner(&self) -> &DefinitionId {
         &self.facts.owner
@@ -244,6 +271,17 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<Option<Arc<FunctionAnalysis>>, AnalysisError> {
         let signatures = self.prepare_signatures(source, cancel)?;
+        self.body_with_signatures(signatures, owner, cancel)
+    }
+
+    pub(super) fn body_with_signatures(
+        &mut self,
+        signatures: SignatureSnapshot,
+        owner: &DefinitionId,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Arc<FunctionAnalysis>>, AnalysisError> {
+        #[cfg(any(test, feature = "work-metrics"))]
+        work::record(Event::SelectedBody);
         let definitions = self.definitions.snapshot();
         definitions
             .resolve(*owner)
@@ -275,9 +313,9 @@ impl AnalysisDatabase {
             self.publish_signatures(signatures);
             return Ok(None);
         };
-        let environment = signatures
-            .body_environments(self.const_limits, cancel)?
-            .remove(&file.source().id())
+        let environments = signatures.body_environments(self.const_limits, cancel)?;
+        let environment = environments
+            .get(&file.source().id())
             .expect("function environment");
         let previous = self.body_cache.get_id(owner_id);
         let previous_environment = previous.map(|old| &old.facts.environment);
@@ -287,8 +325,10 @@ impl AnalysisDatabase {
                 && *previous_environment
                     .as_ref()
                     .expect("previous body environment")
-                    == &environment
+                    == environment
         }) {
+            #[cfg(any(test, feature = "work-metrics"))]
+            work::record(Event::SharedBody);
             if old.same_signature_snapshot(&signatures, cancel)? {
                 old.clone()
             } else {
@@ -340,11 +380,7 @@ impl AnalysisDatabase {
                             .prepared
                             .declarations
                             .imported_types
-                            .same_reuse_inputs(
-                                &prepared.declarations.imported_types,
-                                old.facts.file.prepared.names.facts.items.unit.as_ref(),
-                                prepared.names.facts.items.unit.as_ref(),
-                            )
+                            .same_reuse_inputs(&prepared.declarations.imported_types)
                         && previous_environment
                             .as_ref()
                             .expect("previous body environment")
@@ -392,7 +428,7 @@ impl AnalysisDatabase {
                 cancel,
             )?;
             let environment =
-                ownership::scope(&environment, &self.definitions, cancel)?.into_records();
+                ownership::scope(environment, &self.definitions, cancel)?.into_records();
             let mut declarations =
                 ownership::scope(&declarations, &self.definitions, cancel)?.into_records();
             let typed = ownership::scope(&typed, &self.definitions, cancel)?.into_records();
@@ -433,10 +469,18 @@ impl AnalysisDatabase {
                     .declaration(&DeclarationId::Definition(id))
                     .is_some()
             });
+            self.body_order
+                .retain(|id| self.body_cache.get_id(*id).is_some());
             if let Some(result) = result {
+                self.body_order.retain(|id| *id != result.facts.owner);
+                self.body_order.push_back(result.facts.owner);
                 self.body_cache
                     .insert_id(result.facts.owner, result)
                     .expect("function cache uses the analysis definition scope");
+                while self.body_order.len() > 16 {
+                    let retired = self.body_order.pop_front().expect("bounded selected cache");
+                    self.body_cache.retain_ids(|id, _| id != retired);
+                }
             }
         }
     }

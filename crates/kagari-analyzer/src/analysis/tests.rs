@@ -1,5 +1,8 @@
 use crate::{
-    analysis::{AnalysisFailure, AnalysisState, diagnostics::ProjectionLimits, worker},
+    analysis::{
+        AnalysisFailure, AnalysisState, diagnostics::ProjectionLimits, features::FeatureInput,
+        worker,
+    },
     documents::DocumentInput,
     protocol::source_name,
     tests::fixture::Fixture,
@@ -172,6 +175,23 @@ fn full_analysis_projects_inline_ranges_reuses_context_and_retains_leases_until_
         "user declarations never enter the permanent native identity writer"
     );
     assert_eq!(state.contexts.len(), 2);
+    let initializer_held = {
+        let text = include_str!("../../../kagari-hir/tests/fixtures/editor/static-positions.kgr");
+        let initializer = document("untitled:initializer-lease".parse().unwrap(), text, 1);
+        let captured = capture(&worker.port, &budget, 4, from_ref(&initializer));
+        let input = FeatureInput {
+            serial: 7,
+            capture: Arc::new(captured),
+            documents: Arc::from([initializer.clone()]),
+            source_name: initializer.source_name,
+            uri: initializer.uri,
+            offset: text.find("value + argument").unwrap(),
+            limit: 8 * 1024 * 1024,
+        };
+        state
+            .editor_for_input(&input, &CancellationToken::default())
+            .unwrap()
+    };
     drop(old);
     drop(current);
     drop(both);
@@ -210,6 +230,19 @@ fn full_analysis_projects_inline_ranges_reuses_context_and_retains_leases_until_
     );
     drop(held);
     drop(other_held);
+    assert!(
+        budget.retained_bytes() > baseline_bytes,
+        "retired full-analysis initializer query retains its own charged source lease"
+    );
+    let initializer_text =
+        include_str!("../../../kagari-hir/tests/fixtures/editor/static-positions.kgr");
+    let offset = initializer_text.find("value + argument").unwrap();
+    assert_eq!(initializer_held.editor.source().text(), initializer_text);
+    assert_eq!(
+        initializer_held.editor.definition_at(offset).unwrap().name,
+        "value"
+    );
+    drop(initializer_held);
     assert_eq!(budget.retained_bytes(), baseline_bytes);
     drop(state);
     assert_eq!(budget.retained_bytes(), 0);
@@ -256,15 +289,47 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
     let publications = state
         .prepare(&store, &CancellationToken::default())
         .unwrap();
-    let generated = &publications[0];
-    let uri = file_uri(generated.source_name()).unwrap();
+    for publication in &*publications {
+        publication.publish().unwrap();
+    }
+    let baseline = state
+        .environment
+        .as_mut()
+        .unwrap()
+        .signatures(&CancellationToken::default())
+        .unwrap();
+    let native_file = baseline
+        .declaration_snapshot()
+        .files()
+        .find(|file| {
+            file.declarations()
+                .iter()
+                .any(|declaration| declaration.location.file == file.source().id())
+        })
+        .unwrap();
+    let cursor = native_file
+        .declarations()
+        .iter()
+        .find(|declaration| declaration.location.file == native_file.source().id())
+        .unwrap()
+        .location
+        .range
+        .start;
+    let generated = publications
+        .iter()
+        .find(|document| document.source_name() == native_file.source().name())
+        .unwrap();
+    let alias_directory = fixture.directory().join("native alias 雪 #");
+    fixture.link_directory(generated.path().parent().unwrap(), &alias_directory);
+    let alias_path = alias_directory.join(generated.path().file_name().unwrap());
+    let uri = file_uri(alias_path.to_str().unwrap()).unwrap();
     let exact = document(uri.clone(), generated.text(), 1);
     let original = capture(&worker.port, &budget, 1, from_ref(&exact));
     let clean = state
         .diagnostics(
             &original,
             Some(&original.contexts[0].key),
-            &[exact],
+            from_ref(&exact),
             &CancellationToken::default(),
         )
         .unwrap();
@@ -275,6 +340,33 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
         state.contexts.is_empty(),
         "generated view does not allocate a script database"
     );
+    assert_ne!(exact.source_name, generated.source_name());
+    assert_eq!(
+        original.document_origins[&exact.source_name],
+        generated.source_name()
+    );
+    let input = FeatureInput {
+        serial: 1,
+        capture: Arc::new(original.clone()),
+        documents: Arc::from([exact.clone()]),
+        source_name: exact.source_name.clone(),
+        uri: uri.clone(),
+        offset: cursor,
+        limit: 8 * 1024 * 1024,
+    };
+    let selected = state
+        .editor_for_input(&input, &CancellationToken::default())
+        .unwrap();
+    assert_eq!(
+        selected.editor.source().name(),
+        generated.source_name(),
+        "alias query uses validated native baseline, not a second script namespace"
+    );
+    let definition = state
+        .definition(&input, &CancellationToken::default())
+        .unwrap();
+    assert_eq!(definition.value["uri"].as_str(), Some(uri.as_str()));
+    assert!(state.contexts.is_empty());
     let modified = document(uri.clone(), &format!("{}\n", generated.text()), 2);
     let dependent = document("untitled:dependent".parse().unwrap(), SOURCE, 1);
     let documents = [modified, dependent];
@@ -315,14 +407,51 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
     assert_eq!(unavailable_result.issues.len(), 1);
     assert!(
         state
-            .check_generated_views(&[document(uri, generated.text(), 3)])
+            .check_generated_views(&changed, &[document(uri.clone(), generated.text(), 3)])
             .is_ok(),
         "restoring exact bytes restores catalog authority"
     );
     assert!(
-        state.check_generated_views(from_ref(&documents[1])).is_ok(),
+        state
+            .check_generated_views(&changed, from_ref(&documents[1]))
+            .is_ok(),
         "closing modified view restores catalog authority"
     );
+    let restored_documents = [
+        document(uri.clone(), generated.text(), 3),
+        documents[1].clone(),
+    ];
+    let restored = capture(&worker.port, &budget, 3, &restored_documents);
+    state
+        .check_generated_views(&restored, &restored_documents)
+        .unwrap();
+    let binding = &restored.document_contexts[&restored_documents[1].source_name];
+    let resumed = state
+        .diagnostics(
+            &restored,
+            Some(&binding.context),
+            &restored_documents,
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    assert!(resumed.issues.is_empty());
+    assert!(
+        resumed.groups.iter().any(|group| group
+            .records()
+            .iter()
+            .any(|record| record.diagnostic().code
+                == Some(NumberOrString::String("KG_RESOLVE_UNKNOWN_NAME".into())))),
+        "restored native alias re-enables real dependent semantic diagnostics"
+    );
+    let changed_input = FeatureInput {
+        capture: Arc::new(changed.clone()),
+        documents: Arc::from(documents.clone()),
+        ..input.clone()
+    };
+    assert!(matches!(
+        state.hover(&changed_input, &CancellationToken::default()),
+        Err(AnalysisFailure::Unavailable(_))
+    ));
     state.discard_environment();
     assert!(state.generated_document(generated.source_name()).is_none());
     let failed = state

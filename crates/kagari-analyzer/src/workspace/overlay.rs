@@ -10,7 +10,7 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_package::{
     error::PackageError,
-    filesystem::FilesystemSources,
+    filesystem::{FilesystemSources, canonical_input_path},
     input::InputTree,
     modules::{SourceInput, SourceText},
 };
@@ -23,6 +23,9 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
+
+const MAX_PHYSICAL_PATH_BYTES: usize = 8 * 1024;
+const MAX_PHYSICAL_IDENTITY_BYTES: usize = 1024 * 1024;
 
 /// One capture keeps the first acquired physical bytes stable across its contexts.
 /// The cache is dropped after staging, and its identity set charges shared buffers.
@@ -45,6 +48,82 @@ impl ReadCache {
             leases: Vec::new(),
             budget,
         }
+    }
+
+    /// Resolve every admitted file buffer before any project read, including
+    /// lexical aliases outside configured roots. Only explicit open documents
+    /// receive this authority; package reads retain their approved-root checks.
+    pub fn register_documents(
+        &mut self,
+        documents: &[DocumentInput],
+        cancel: &CancellationToken,
+    ) -> Result<(), PackageError> {
+        let mut bytes = 0usize;
+        for document in documents {
+            cancel.check()?;
+            let key = if document
+                .uri
+                .scheme()
+                .is_some_and(|scheme| scheme.as_str().eq_ignore_ascii_case("file"))
+            {
+                canonical_input_path(Path::new(&document.source_name))?
+                    .to_str()
+                    .ok_or_else(|| {
+                        input_error(document.uri.as_str(), "physical source path is not UTF-8")
+                    })?
+                    .to_owned()
+            } else {
+                document.source_name.clone()
+            };
+            bytes = bytes
+                .saturating_add(document.source_name.len())
+                .saturating_add(key.len())
+                .saturating_add(256);
+            if key.len() > MAX_PHYSICAL_PATH_BYTES || bytes > MAX_PHYSICAL_IDENTITY_BYTES {
+                return Err(input_error(
+                    document.uri.as_str(),
+                    "physical document identity metadata exceeds its capture limit",
+                ));
+            }
+            self.documents
+                .insert(document.source_name.clone(), key.clone());
+            self.register_overlay(key, document);
+        }
+        Ok(())
+    }
+
+    fn register_overlay(&mut self, key: String, document: &DocumentInput) {
+        if let Some(previous) = self.overlays.get_mut(&key) {
+            if previous.source.as_ref().map(|source| source.text())
+                != document.source.as_ref().map(|source| source.text())
+            {
+                previous.conflict = true;
+                previous.source = None;
+            }
+        } else {
+            self.overlays.insert(
+                key,
+                Overlay {
+                    source: document.source.clone(),
+                    uri: document.uri.clone(),
+                    conflict: false,
+                },
+            );
+        }
+    }
+
+    pub fn document_key(&self, name: &str) -> Option<String> {
+        self.documents.get(name).cloned()
+    }
+
+    pub fn document_keys(&self) -> &BTreeMap<String, String> {
+        &self.documents
+    }
+
+    pub fn conflicting(&self, key: &str) -> bool {
+        self.overlays
+            .get(key)
+            .is_some_and(|overlay| overlay.conflict)
     }
 
     fn retain(&mut self, source: &SourceText) -> Result<(), PackageError> {
@@ -95,43 +174,21 @@ impl OverlayInput {
         };
         for document in documents {
             cancel.check()?;
-            let Some(relative) = result.relative(&document.source_name) else {
-                continue;
-            };
-            let path = match result.filesystem.approved_path(&relative) {
-                Ok(path) => path,
-                Err(error) => {
-                    result.errors.push(error);
-                    continue;
-                }
-            };
-            let key = path
-                .to_str()
-                .ok_or_else(|| input_error(document.uri.as_str(), "source path is not UTF-8"))?
-                .to_owned();
-            result.local_documents.insert(document.source_name.clone());
-            let mut cache = result.cache.borrow_mut();
-            cache
-                .documents
-                .insert(document.source_name.clone(), key.clone());
-            if let Some(previous) = cache.overlays.get_mut(&key) {
-                if previous.source.as_ref().map(|source| source.text())
-                    != document.source.as_ref().map(|source| source.text())
-                {
-                    previous.conflict = true;
-                    previous.source = None;
-                }
-            } else {
-                cache.overlays.insert(
-                    key,
-                    Overlay {
-                        source: document.source.clone(),
-                        uri: document.uri.clone(),
-                        conflict: false,
-                    },
-                );
+            let key = result
+                .cache
+                .borrow()
+                .document_key(&document.source_name)
+                .expect("all document identities are registered before root construction");
+            if Path::new(&key).starts_with(result.filesystem.root()) {
+                result.local_documents.insert(document.source_name.clone());
+            } else if result.relative(&document.source_name).is_some() {
+                result.errors.push(input_error(
+                    document.uri.as_str(),
+                    "symlink escapes the approved input root",
+                ));
             }
         }
+
         Ok(result)
     }
 

@@ -50,3 +50,11 @@ test = false
 doc = false
 bench = false
 required-features = ["fuzzing", "lsp"]
+
+[[bin]]
+name = "lsp_analysis"
+path = "fuzz_targets/lsp_analysis.rs"
+test = false
+doc = false
+bench = false
+required-features = ["fuzzing", "lsp"]

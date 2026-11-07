@@ -30,7 +30,9 @@ fn generic<T: Read>(value: T) { value. }
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();
-    let candidates = file.method_completions(text.find("value. }").unwrap() + 6);
+    let candidates = file
+        .method_completions(text.find("value. }").unwrap() + 6, &Default::default())
+        .unwrap();
     for (name, owner, expected_docs) in [
         ("inherited", DefinitionKind::Trait, "Inherited body."),
         ("read", DefinitionKind::Impl, "Concrete body."),
@@ -74,7 +76,9 @@ fn generic<T: Read>(value: T) { value. }
             expected_docs
         );
     }
-    let generic = file.method_completions(text.rfind("value. }").unwrap() + 6);
+    let generic = file
+        .method_completions(text.rfind("value. }").unwrap() + 6, &Default::default())
+        .unwrap();
     for name in ["inherited", "read"] {
         let method = generic
             .iter()
@@ -124,7 +128,9 @@ fn floats(value: Box<f64>) { value. }
         (text.find("value. }").unwrap() + 6, true),
         (text.rfind("value. }").unwrap() + 6, false),
     ] {
-        let methods = file.method_completions(offset);
+        let methods = file
+            .method_completions(offset, &Default::default())
+            .unwrap();
         assert_eq!(
             methods.iter().any(|method| method.name == "ordered"),
             ordered,

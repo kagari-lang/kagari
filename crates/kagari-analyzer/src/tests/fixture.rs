@@ -1,6 +1,10 @@
 //! Fresh disk copies of the concrete two-root app/api acquisition fixture.
 use crate::workspace::origins::file_uri;
 use lsp_types::Uri;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+#[cfg(windows)]
+use std::process::Command;
 use std::{
     fs,
     io::{self, Error},
@@ -59,6 +63,19 @@ impl Fixture {
         file_uri(path.to_str().unwrap()).unwrap()
     }
 
+    pub(crate) fn link_directory(&self, target: &Path, alias: &Path) {
+        assert!(target.canonicalize().unwrap().starts_with(&self.directory));
+        assert!(
+            alias
+                .parent()
+                .unwrap()
+                .canonicalize()
+                .unwrap()
+                .starts_with(&self.directory)
+        );
+        link_directory(target, alias);
+    }
+
     fn cleanup(&self) -> io::Result<()> {
         let resolved = self.directory.canonicalize()?;
         if !resolved.starts_with(&self.base) || resolved == self.base {
@@ -66,6 +83,36 @@ impl Fixture {
         }
         fs::remove_dir_all(resolved)
     }
+}
+
+#[cfg(windows)]
+fn link_directory(target: &Path, alias: &Path) {
+    let literal = |path: &Path| {
+        path.to_str()
+            .unwrap()
+            .strip_prefix(r"\\?\")
+            .unwrap_or(path.to_str().unwrap())
+            .replace('\'', "''")
+    };
+    let command = format!(
+        "$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null",
+        literal(alias),
+        literal(target)
+    );
+    let result = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[cfg(unix)]
+fn link_directory(target: &Path, alias: &Path) {
+    symlink(target, alias).unwrap();
 }
 
 impl Drop for Fixture {

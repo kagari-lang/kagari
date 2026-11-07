@@ -16,6 +16,7 @@ pub(crate) struct Outbox {
     queue: VecDeque<WriteFrame>,
     pub active: Option<(u64, Option<u64>, usize)>,
     pub active_publication: Option<u64>,
+    pub active_progress: Option<u64>,
     bytes: usize,
     sequence: u64,
     limits: SessionLimits,
@@ -27,6 +28,7 @@ impl Outbox {
             queue: VecDeque::new(),
             active: None,
             active_publication: None,
+            active_progress: None,
             bytes: 0,
             sequence: 0,
             limits,
@@ -51,6 +53,17 @@ impl Outbox {
             charge,
         });
         Ok(())
+    }
+
+    /// Large results preserve the small terminal-response allowance for every request.
+    pub fn can_push_feature(&self, charge: usize, reserved_errors: usize) -> bool {
+        self.queue.len() + usize::from(self.active.is_some()) < self.limits.outbox_count
+            && charge
+                <= self
+                    .limits
+                    .outbox_bytes
+                    .saturating_sub(self.bytes)
+                    .saturating_sub(reserved_errors)
     }
 
     pub fn grant(&mut self) -> Option<WriteFrame> {
@@ -91,6 +104,13 @@ impl Outbox {
         })
     }
 
+    pub fn grant_progress(&mut self, message: Message, serial: u64) -> io::Result<WriteFrame> {
+        let frame = self.grant_publication(message, 4096, serial)?;
+        self.active_publication = None;
+        self.active_progress = Some(serial);
+        Ok(frame)
+    }
+
     pub fn has_queued(&self) -> bool {
         !self.queue.is_empty()
     }
@@ -111,6 +131,7 @@ impl Outbox {
         }
         self.active = None;
         self.active_publication = None;
+        self.active_progress = None;
         self.bytes -= charge;
         Ok(serial)
     }

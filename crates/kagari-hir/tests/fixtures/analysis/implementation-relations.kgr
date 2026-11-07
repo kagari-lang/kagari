@@ -1,0 +1,29 @@
+trait Read {
+    fn inherited(self) -> i32 { 7 }
+    fn read(self) -> i32;
+    type Item;
+}
+
+struct First {}
+struct Second {}
+struct Box<T> { val value: T }
+
+impl Read for First {
+    fn read(self) -> i32 { 11 }
+    type Item = i32;
+}
+
+impl Read for Second {
+    fn inherited(self) -> i32 { 13 }
+    fn read(self) -> i32 { 17 }
+    type Item = bool;
+}
+
+impl<T: Read> Read for Box<T> {
+    fn read(self) -> i32 { 19 }
+    type Item = i32;
+}
+
+impl<T: Read> Box<T> {}
+
+fn inspect(value: First) { value. }

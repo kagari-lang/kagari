@@ -1,0 +1,31 @@
+struct Packet {}
+
+impl api::Read for Packet {
+    fn read(self) -> i32 {
+        23
+    }
+}
+
+fn first() -> i32 {
+    val local = 10101;
+    local
+}
+
+fn second() -> i32 {
+    val local = 20202;
+    local
+}
+
+fn third() -> i32 {
+    val local = 30303;
+    local
+}
+
+fn fourth() -> i32 {
+    val local = 40404;
+    local
+}
+
+fn renamed() -> i32 {
+    api::scalar()
+}

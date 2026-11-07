@@ -14,6 +14,7 @@ import lsp_benchmark_protocol as protocol
 import lsp_benchmark_results as results
 import lsp_benchmark_diagnostics as diagnostics
 import benchmark_lsp as driver
+import lsp_benchmark_queries as queries
 
 
 def report(paired=False, check=False, suite="protocol"):
@@ -151,6 +152,7 @@ class PeerContracts(unittest.TestCase):
         peer.history = deque(maxlen=32)
         peer.notifications = deque(maxlen=128)
         peer.notification_history = []
+        peer.history_limit = 512
         peer.notification_bytes = 0
         uri = "file:///benchmark/src/lib.kgr"
         expected = {"version": 1, "diagnostics": [deepcopy(diagnostics.ERROR)]}
@@ -229,6 +231,51 @@ class WorkloadContracts(unittest.TestCase):
                 self.assertEqual(change["sha256"], inputs.digest(variants[change["variant"]].encode()))
         self.assertIn("    true\n}", variants["body_error"])
         self.assertIn("pub fn default_value() -> bool", variants["signature_error"])
+
+
+class QueryEvidenceContracts(unittest.TestCase):
+    def test_query_oracle_rejects_wrong_type_and_shifted_destination(self):
+        root = inputs.ROOT / "target" / "query-oracle"
+        queries.frozen_scenario()
+        answer = {"contents":[{"language":"kagari","value":"value: i32"}]}
+        queries.assert_answer("hover", answer, root)
+        with self.assertRaisesRegex(ValueError, "checked type"):
+            queries.assert_answer("hover", {"contents":[{"value":"value: bool"}]}, root)
+        start = queries.position(diagnostics.variants()["api"], "fn default_value", len("fn "))
+        destination = {"uri": (root / diagnostics.API).as_uri(), "range": {
+            "start":start, "end":{**start, "character":start["character"] + len("default_value")}}}
+        queries.assert_answer("definition", destination, root)
+        destination["range"]["end"]["character"] += 1
+        with self.assertRaisesRegex(ValueError, "authoritative API name range"):
+            queries.assert_answer("definition", destination, root)
+        with self.assertRaisesRegex(ValueError, "complete frozen coverage"):
+            queries.assert_answer("implementation", [], root)
+
+    def test_diagnostic_tail_schedule_keeps_versions_and_witnesses_monotonic(self):
+        steps = diagnostics.frozen_tail_scenario()["steps"]
+        self.assertEqual(len(steps), 2 + 4 * diagnostics.TAIL_ROUNDS)
+        versions = {}
+        for step in steps:
+            for change in step["changes"]:
+                self.assertGreater(change["version"], versions.get(change["file"], 0))
+                versions[change["file"]] = change["version"]
+            for expected in step["expected"].values():
+                self.assertGreaterEqual(expected["version"], 1)
+            self.assertIn(diagnostics.SENTINEL, step["expected"][diagnostics.APP]["diagnostics"])
+        raw = [{"name": step["name"], "duration_ns": 100 + index} for index, step in enumerate(steps)]
+        metrics = diagnostics.tail_metrics(raw)
+        broken = deepcopy(raw)
+        del broken[-1]
+        with self.assertRaisesRegex(ValueError, "observation count"):
+            diagnostics.tail_metrics(broken)
+        self.assertGreater(metrics["signature_repair_p95_ns"], metrics["signature_repair_p50_ns"])
+
+    def test_query_percentiles_use_retained_within_process_samples(self):
+        samples = list(range(1, 201))
+        self.assertEqual(queries.percentile(samples, .50), 100)
+        self.assertEqual(queries.percentile(samples, .95), 190)
+        with self.assertRaisesRegex(ValueError, "not unique"):
+            queries.position("ambiguous ambiguous", "ambiguous")
 
 
 if __name__ == "__main__":

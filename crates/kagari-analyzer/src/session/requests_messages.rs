@@ -1,6 +1,6 @@
 //! Request policy shared by unsupported methods and client cancellation.
 use crate::{
-    protocol::{ErrorCode, Notification, Request, RequestId, Response},
+    protocol::{ErrorCode, MAX_REQUEST_ID_BYTES, Notification, Request, RequestId, Response},
     session::SessionActor,
 };
 use lattice_actor::{
@@ -79,13 +79,16 @@ impl Handler<CancelRequested> for SessionActor {
                 .as_i64()
                 .and_then(|id| i32::try_from(id).ok())
                 .map(RequestId::Integer),
-            Some(Value::String(value)) => Some(RequestId::String(value.clone())),
+            Some(Value::String(value)) if value.len() <= MAX_REQUEST_ID_BYTES => {
+                Some(RequestId::String(value.clone()))
+            }
             _ => None,
         };
         if let Some(serial) = id.as_ref().and_then(|id| self.requests.cancel(id)) {
             if let Some(method) = self.requests.method(serial) {
                 self.logger.write(format!("cancelled {method}"));
             }
+            self.cancel_feature(serial);
             self.reject(serial, ErrorCode::RequestCancelled, "request cancelled")?;
         }
         Ok(())

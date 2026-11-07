@@ -8,9 +8,10 @@ use lattice_actor::{
     traits::{Handler, Message},
 };
 use lsp_types::{
-    ExecuteCommandOptions, InitializeParams, InitializeResult, InitializedParams,
-    PositionEncodingKind, ServerCapabilities, ServerInfo, TextDocumentSyncKind,
-    TextDocumentSyncOptions,
+    CompletionOptions, ExecuteCommandOptions, HoverProviderCapability,
+    ImplementationProviderCapability, InitializeParams, InitializeResult, InitializedParams, OneOf,
+    PositionEncodingKind, ServerCapabilities, ServerInfo, StaticTextDocumentRegistrationOptions,
+    TextDocumentSyncKind, TextDocumentSyncOptions,
 };
 use serde_json::{Value, from_value, to_value};
 use std::io::{self, Error};
@@ -61,6 +62,12 @@ impl Handler<InitializeRequested> for SessionActor {
         if let Err(error) = self.captures.configure(&params) {
             return self.reject(serial, ErrorCode::InvalidParams, &error);
         }
+        self.features.progress.supported = params
+            .capabilities
+            .window
+            .as_ref()
+            .and_then(|window| window.work_done_progress)
+            .unwrap_or(false);
         self.publications.set_version_support(
             params
                 .capabilities
@@ -71,7 +78,11 @@ impl Handler<InitializeRequested> for SessionActor {
                 .unwrap_or(false),
         );
         self.state = Lifecycle::AwaitInitialized;
-        self.finish(serial, Ok(to_value(capabilities()).map_err(Error::other)?))
+        let mut result = to_value(capabilities()).map_err(Error::other)?;
+        // lsp-types 0.97's implementation capability omits WorkDoneProgressOptions.
+        // Keep its typed registration fields and fill this standard wire field.
+        result["capabilities"]["implementationProvider"]["workDoneProgress"] = Value::Bool(true);
+        self.finish(serial, Ok(result))
     }
 }
 
@@ -114,6 +125,7 @@ impl Handler<ShutdownRequested> for SessionActor {
             );
         }
         self.state = Lifecycle::ShuttingDown;
+        self.features.shutdown();
         self.captures.shutdown();
         self.analysis.shutdown();
         self.publications.shutdown();
@@ -155,6 +167,19 @@ fn capabilities() -> InitializeResult {
     InitializeResult {
         capabilities: ServerCapabilities {
             position_encoding: Some(PositionEncodingKind::UTF16),
+            hover_provider: Some(HoverProviderCapability::Simple(true)),
+            definition_provider: Some(OneOf::Left(true)),
+            implementation_provider: Some(ImplementationProviderCapability::Options(
+                StaticTextDocumentRegistrationOptions {
+                    document_selector: None,
+                    id: None,
+                },
+            )),
+            completion_provider: Some(CompletionOptions {
+                trigger_characters: Some(vec![".".into(), ":".into()]),
+                resolve_provider: Some(false),
+                ..Default::default()
+            }),
             text_document_sync: Some(
                 TextDocumentSyncOptions {
                     open_close: Some(true),

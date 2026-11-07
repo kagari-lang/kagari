@@ -1,4 +1,6 @@
 //! Snapshot-owned, unfiltered namespaces. Targets never carry member tables.
+#[cfg(any(test, feature = "work-metrics"))]
+use crate::analysis::work::{self, Event, Phase};
 #[cfg(test)]
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
@@ -495,6 +497,11 @@ impl NamespaceCatalog {
         names: &NameTable,
         cancel: &CancellationToken,
     ) -> Result<HashSet<SourceDeclRef>, Cancelled> {
+        #[cfg(any(test, feature = "work-metrics"))]
+        let _phase = {
+            work::record(Event::ReachableSources);
+            work::phase(Phase::ReachableSources)
+        };
         let Some(unit) = names.unit.as_ref() else {
             return Ok(HashSet::new());
         };

@@ -13,6 +13,54 @@ use std::{
     sync::Arc,
 };
 
+/// Resolves the physical identity of an explicit absolute input, including an
+/// absent suffix beneath an existing directory. Existing symlinks are resolved;
+/// dangling links and non-directory ancestors remain errors.
+///
+/// This captures an origin and grants no package traversal authority. Rooted
+/// readers must still enforce containment, as [`FilesystemSources::approved_path`]
+/// does. The host-controlled concurrent-filesystem-mutation assumption applies.
+pub fn canonical_input_path(requested: &Path) -> Result<PathBuf, PackageError> {
+    let origin = requested.display().to_string();
+    if !requested.is_absolute() {
+        return Err(PackageError::input(
+            &origin,
+            "explicit input path must be absolute",
+        ));
+    }
+    let mut ancestor = requested;
+    let mut absent = Vec::new();
+    loop {
+        match fs::symlink_metadata(ancestor) {
+            Ok(_) => {
+                let mut canonical = ancestor
+                    .canonicalize()
+                    .map_err(|error| PackageError::input(&origin, error.to_string()))?;
+                if !absent.is_empty() && !canonical.is_dir() {
+                    return Err(PackageError::input(
+                        &origin,
+                        "input ancestor is not a directory",
+                    ));
+                }
+                for component in absent.iter().rev() {
+                    canonical.push(component);
+                }
+                return Ok(canonical);
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                let component = ancestor.file_name().ok_or_else(|| {
+                    PackageError::input(&origin, "approved input root disappeared")
+                })?;
+                absent.push(component);
+                ancestor = ancestor.parent().ok_or_else(|| {
+                    PackageError::input(&origin, "approved input root disappeared")
+                })?;
+            }
+            Err(error) => return Err(PackageError::input(&origin, error.to_string())),
+        }
+    }
+}
+
 /// An explicitly approved filesystem input root, captured independently of cwd.
 ///
 /// Canonicalized paths and symlinks must stay below this root. Internal symlinks
@@ -93,44 +141,14 @@ impl FilesystemSources {
     pub fn approved_path(&self, relative: &str) -> Result<PathBuf, PackageError> {
         let relative = path::join("", relative, relative)?;
         let requested = self.root.join(&relative);
-        let origin = requested.display().to_string();
-        let mut ancestor = requested.as_path();
-        let mut absent = Vec::new();
-        loop {
-            match fs::symlink_metadata(ancestor) {
-                Ok(_) => {
-                    let mut canonical = ancestor
-                        .canonicalize()
-                        .map_err(|error| PackageError::input(&origin, error.to_string()))?;
-                    if !canonical.starts_with(&self.root) {
-                        return Err(PackageError::input(
-                            &origin,
-                            "symlink escapes the approved input root",
-                        ));
-                    }
-                    if !absent.is_empty() && !canonical.is_dir() {
-                        return Err(PackageError::input(
-                            &origin,
-                            "input ancestor is not a directory",
-                        ));
-                    }
-                    for component in absent.iter().rev() {
-                        canonical.push(component);
-                    }
-                    return Ok(canonical);
-                }
-                Err(error) if error.kind() == ErrorKind::NotFound => {
-                    let component = ancestor.file_name().ok_or_else(|| {
-                        PackageError::input(&origin, "approved input root disappeared")
-                    })?;
-                    absent.push(component);
-                    ancestor = ancestor.parent().ok_or_else(|| {
-                        PackageError::input(&origin, "approved input root disappeared")
-                    })?;
-                }
-                Err(error) => return Err(PackageError::input(&origin, error.to_string())),
-            }
+        let canonical = canonical_input_path(&requested)?;
+        if !canonical.starts_with(&self.root) {
+            return Err(PackageError::input(
+                &requested.display().to_string(),
+                "symlink escapes the approved input root",
+            ));
         }
+        Ok(canonical)
     }
 
     /// Resolves one relative path under the approved root, preserving absence.

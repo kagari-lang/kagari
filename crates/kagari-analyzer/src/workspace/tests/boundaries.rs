@@ -7,13 +7,7 @@ use crate::{
     },
 };
 use kagari_common::cancellation::CancellationToken;
-use std::{env, fs, path::Path};
-
-#[cfg(windows)]
-use std::process::Command;
-
-#[cfg(unix)]
-use std::os::unix::fs::symlink;
+use std::{env, fs};
 
 const API: &str = include_str!("../../../tests/fixtures/workspace/api.kgr");
 const OTHER: &str = include_str!("../../../tests/fixtures/workspace/other.kgr");
@@ -108,20 +102,57 @@ fn nested_packages_are_discovered_only_from_open_files_and_never_widen_approved_
 #[test]
 fn conflicting_physical_aliases_withhold_semantics_until_the_buffers_agree() {
     let fixture = Fixture::new();
-    link_directory(
+    fixture.link_directory(
         &fixture.directory().join("first/api"),
-        &fixture.directory().join("first/api_alias"),
+        &fixture.directory().join("outside_api_alias"),
     );
     let budget = InputBudget::new(MAX_INPUT_BYTES);
     let mut state = state(&budget);
     let original = fixture.uri("first/api/src/lib.kgr");
-    let alias = fixture.uri("first/api_alias/src/lib.kgr");
+    let alias = fixture.uri("outside_api_alias/src/lib.kgr");
     let changed = API.replace('1', "2");
     let roots = vec![fixture.uri("first")];
-    let conflicted = state
+    // An admitted buffer remains authoritative when its lexical alias is outside
+    // the configured root but its canonical file is a member of that root.
+    let outside = state
         .capture(
             CaptureRequest::new(
                 1,
+                roots.clone(),
+                vec![document_at(alias.clone(), &changed, 1)],
+                &budget,
+            )
+            .unwrap(),
+            &CancellationToken::default(),
+        )
+        .unwrap();
+    let physical = fixture
+        .directory()
+        .join("first/api/src/lib.kgr")
+        .canonicalize()
+        .unwrap();
+    let physical = physical.to_str().unwrap();
+    let mut projections = 0;
+    for context in &outside.contexts {
+        for (file, origin) in &context.origins {
+            if origin.provider_key == physical {
+                projections += 1;
+                assert_eq!(
+                    context.sources.file(*file).unwrap().text(),
+                    changed,
+                    "every canonical projection must use the admitted outside-alias overlay"
+                );
+            }
+        }
+    }
+    assert!(
+        projections >= 2,
+        "API root and dependent application both contain the source"
+    );
+    let conflicted = state
+        .capture(
+            CaptureRequest::new(
+                2,
                 roots.clone(),
                 vec![
                     document_at(original.clone(), API, 1),
@@ -163,7 +194,7 @@ fn conflicting_physical_aliases_withhold_semantics_until_the_buffers_agree() {
     let resolved = state
         .capture(
             CaptureRequest::new(
-                2,
+                3,
                 roots,
                 vec![
                     document_at(original.clone(), API, 2),
@@ -196,34 +227,4 @@ fn conflicting_physical_aliases_withhold_semantics_until_the_buffers_agree() {
         owner.origins[&first.file].module.package,
         owner.root.package
     );
-}
-
-#[cfg(windows)]
-fn link_directory(target: &Path, alias: &Path) {
-    let literal = |path: &Path| {
-        path.to_str()
-            .unwrap()
-            .strip_prefix(r"\\?\")
-            .unwrap_or(path.to_str().unwrap())
-            .replace('\'', "''")
-    };
-    let command = format!(
-        "$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction -Path '{}' -Target '{}' | Out-Null",
-        literal(alias),
-        literal(target)
-    );
-    let result = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &command])
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-}
-
-#[cfg(unix)]
-fn link_directory(target: &Path, alias: &Path) {
-    symlink(target, alias).unwrap();
 }

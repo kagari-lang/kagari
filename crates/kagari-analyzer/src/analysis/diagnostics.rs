@@ -44,11 +44,12 @@ impl AnalysisState {
     ) -> Result<DiagnosticsResult, AnalysisFailure> {
         cancel.check()?;
         let mut projection = Projection::new(capture, documents, self.projection_limits);
-        let native_views_valid = self.check_generated_views(documents);
+        let native_views_valid = self.check_generated_views(capture, documents);
         match key {
             None => {
                 for document in documents {
-                    if let Some(generated) = self.generated_document(&document.source_name)
+                    if let Some(generated) =
+                        self.generated_document_for(capture, &document.source_name)
                         && document
                             .source
                             .as_ref()
@@ -70,13 +71,7 @@ impl AnalysisState {
                     .ok_or_else(|| {
                         AnalysisFailure::Unavailable("diagnostic context is absent".into())
                     })?;
-                let generated_view = context
-                    .sources
-                    .module(&context.root)
-                    .and_then(|source| context.origins.get(&source.id()))
-                    .and_then(|origin| origin.uri.as_ref())
-                    .and_then(|uri| source_name(uri).ok())
-                    .is_some_and(|name| self.generated_document(&name).is_some());
+                let generated_view = self.generated_context_document(context).is_some();
                 if generated_view {
                     // The environment bootstrap already checked these exact bytes.
                     // Re-parsing a view as script would create a second module owner.
@@ -439,7 +434,7 @@ impl<'a> Projection<'a> {
     }
 }
 
-fn protocol_range(source: &SourceFile, span: Span) -> Option<Range> {
+pub(crate) fn protocol_range(source: &SourceFile, span: Span) -> Option<Range> {
     if span.start > span.end {
         return None;
     }

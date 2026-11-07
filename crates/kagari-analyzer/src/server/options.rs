@@ -48,7 +48,7 @@ impl Default for SessionLimits {
             document_metadata_bytes: 256 * 1024,
             retained_input_bytes: 256 * 1024 * 1024,
             requests: 64,
-            outbox_count: 128,
+            outbox_count: 256,
             outbox_bytes: 64 * 1024 * 1024,
             result_bytes: 8 * 1024 * 1024,
             publication_uris: 1024,
@@ -76,8 +76,8 @@ impl SessionLimits {
             || self.publication_uris == 0
             || self.publication_diagnostics == 0
             || self.publication_bytes < self.result_bytes
-            || self.outbox_count < self.requests + 8
-            || self.outbox_bytes < self.result_bytes + (self.requests + 8) * 4096
+            || self.outbox_count < self.requests.saturating_mul(3).saturating_add(8)
+            || self.outbox_bytes < self.result_bytes + (self.requests * 3 + 8) * 4096
             || [self.startup, self.write, self.cleanup, self.exit]
                 .iter()
                 .any(Duration::is_zero)

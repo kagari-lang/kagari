@@ -24,6 +24,8 @@ import uuid
 
 from lsp_benchmark_inputs import ROOT, digest, materialize, object_digest
 from lsp_benchmark_diagnostics import APP, API, UNAFFECTED, audit_notifications, exercise, frozen_scenario, variants
+import lsp_benchmark_queries as queries
+import lsp_benchmark_diagnostics as diagnostics
 from lsp_benchmark_protocol import Peer
 from lsp_benchmark_results import require, summarize, unavailable, validate_compatible, validate_report
 
@@ -113,16 +115,16 @@ def archive_path(directory, name):
 
 
 def verify_inputs(directory, inputs, suite):
-    sources = inputs["sources"] if suite == "diagnostics" else inputs
+    sources = inputs["sources"] if suite in ("diagnostics", "diagnostic-tails", "queries") else inputs
     for name, expected in sources["file_sha256"].items():
         require(digest(archive_path(directory / "inputs", name).read_bytes()) == expected, "archived source input hash mismatch")
-    if suite == "diagnostics":
+    if suite in ("diagnostics", "diagnostic-tails"):
         require(decode(directory / "edit-inputs.json") == variants(), "archived edit inputs changed")
 
 
 def sample(executable, transport, root, image, group, suite):
     cache = root.parent / "caches" / f"{group}-{image}"
-    with Peer(executable, transport, root, cache) as peer:
+    with Peer(executable, transport, root, cache, history_limit=8192 if suite == "diagnostic-tails" else 512) as peer:
         result, duration, received = peer.request("initialize", "initialize", {
             "processId": os.getpid(), "rootUri": root.as_uri(),
             "workspaceFolders": [{"uri": root.as_uri(), "name": "benchmark"}],
@@ -137,21 +139,31 @@ def sample(executable, transport, root, image, group, suite):
                     "serverName": server.get("name"), "serverVersion": server.get("version")}
         startup = received - peer.spawn_ns
         peer.notify("initialized", {})
-        metrics, operations = exercise(peer, root) if suite == "diagnostics" else ({}, [])
+        if suite == "diagnostics":
+            metrics, operations = exercise(peer, root)
+        elif suite == "diagnostic-tails":
+            metrics, operations = diagnostics.exercise_tails(peer, root)
+        elif suite == "queries":
+            metrics, operations = queries.exercise(peer, root)
+        else:
+            metrics, operations = {}, []
         shutdown, _, _ = peer.request("shutdown", "shutdown", None)
         evidence["shutdown_is_null"] = shutdown is None
         peer.notify("exit", None)
         peer.finish()
         evidence["exit_code"] = peer.process.returncode
         value = {"image": image, "group": group,
-                 "workload": "B01+B03.diagnostics" if suite == "diagnostics" else "B01.protocol",
-                 "errors": 0, "completed": 2 + len(operations),
+                 "workload": {"diagnostics":"B01+B03.diagnostics", "diagnostic-tails":"B01+B03.diagnostic-tails", "queries":"B02+B03+B04+B05.queries", "protocol":"B01.protocol"}[suite],
+                 "errors": 0, "completed": 2 + (queries.COMPLETED_REQUESTS if suite == "queries" else len(operations)),
                  "spawn_to_initialize_ns": startup, "initialize_round_trip_ns": duration, "evidence": evidence}
-        if suite == "diagnostics":
+        if suite in ("diagnostics", "diagnostic-tails"):
             audit_notifications(peer.notification_history, root, operations[0]["started_ns"])
             value.update(metrics)
             value.update(operations=operations, document_uris={name: (root / name).as_uri() for name in (APP, API, UNAFFECTED)},
                          notification_history=[{"frame": frame, "received_ns": received} for frame, received in peer.notification_history])
+        elif suite == "queries":
+            value.update(metrics)
+            value.update(query_operations=operations, input_root=str(root.resolve()))
         return value
 
 
@@ -175,6 +187,13 @@ def run(args):
         require(args.workload == "pilot", "diagnostics suite currently requires the frozen pilot")
         inputs = {"sources": inputs, "diagnostics": frozen_scenario()}
         save(output / "edit-inputs.json", variants())
+    elif args.suite == "diagnostic-tails":
+        require(args.workload == "pilot", "diagnostic tails require the frozen pilot")
+        inputs = {"sources": inputs, "diagnostic-tails": diagnostics.frozen_tail_scenario()}
+        save(output / "edit-inputs.json", variants())
+    elif args.suite == "queries":
+        require(args.workload == "pilot", "query suite requires the frozen pilot")
+        inputs = {"sources": inputs, "queries": queries.frozen_scenario()}
     before = source_state()
     candidate, build_ns = (args.candidate.resolve(), None) if args.candidate else build_candidate(args.profile)
     require(candidate.is_file(), "candidate executable does not exist")
@@ -220,7 +239,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="one process; correctness evidence only")
-    parser.add_argument("--suite", choices=("protocol", "diagnostics"), default="protocol")
+    parser.add_argument("--suite", choices=("protocol", "diagnostics", "diagnostic-tails", "queries"), default="protocol")
     parser.add_argument("--workload", choices=("pilot", "workspace", "churn"), default="pilot")
     parser.add_argument("--transport", choices=("stdio", "tcp"), default="stdio")
     parser.add_argument("--candidate", type=Path)

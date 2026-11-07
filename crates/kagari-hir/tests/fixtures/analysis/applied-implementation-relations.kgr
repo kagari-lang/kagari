@@ -1,0 +1,44 @@
+trait Read {}
+
+trait Take<T> {
+    fn take(self) -> i32;
+}
+
+trait Child<T>: Take<T> {}
+
+struct First {}
+
+struct Second {}
+
+struct Box<T> {
+    val value: T
+}
+
+struct Pair<U, T> {
+    val first: U,
+    val second: T
+}
+
+impl Read for First {}
+
+impl Read for Second {}
+
+impl<T: Read> Take<T> for Box<T> {
+    fn take(self) -> i32 {
+        1
+    }
+}
+
+impl<T: Read> Child<T> for Box<T> {}
+
+impl<U: Read, T: Read> Take<T> for Pair<U, T> {
+    fn take(self) -> i32 {
+        2
+    }
+}
+
+impl Take<Second> for First {
+    fn take(self) -> i32 {
+        3
+    }
+}

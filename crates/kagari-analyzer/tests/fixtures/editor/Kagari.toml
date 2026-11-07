@@ -1,0 +1,7 @@
+[package]
+name = "editor_contracts"
+version = "1.0.0"
+
+[workspace]
+namespace = "tests/editor"
+members = []

@@ -5,8 +5,10 @@ use crate::{
     aggregates::AggregateCatalog,
     declarations::Declaration,
     imports::{SourceDeclRef, SourceItem},
-    resolver::resolved::{DeclarationNames, ResolvedName},
+    lower::LoweredModule,
+    resolver::resolved::{DeclarationNames, ResolvedName, ResolvedNames},
     semantic::signatures::TypedFunction,
+    typeck::table::{CallTarget, TypeTable},
 };
 
 use std::collections::HashMap;
@@ -149,5 +151,50 @@ impl ImportedFunctions {
             ResolvedName::Source(source) => self.functions.get(&source),
             _ => None,
         }
+    }
+}
+
+impl ImportedFunctions {
+    /// Compare callable contracts actually read by prior body facts. Namespace
+    /// equivalence is a separate required guard: additions, ambiguity, access and
+    /// renamed targets cannot be hidden by an absent prior successful call.
+    /// Fresh name resolution and arena-aware body restoration install current
+    /// source addresses; this predicate never authorizes retaining old navigation.
+    pub(crate) fn same_used_contracts(
+        &self,
+        other: &Self,
+        lowered: &LoweredModule,
+        names: &ResolvedNames,
+        table: &TypeTable,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        let current: HashMap<_, _> = other
+            .functions
+            .values()
+            .chain(other.methods.values())
+            .map(|function| (function.declaration, function))
+            .collect();
+        for (id, _) in lowered.module.body.expressions() {
+            cancel.check()?;
+            let resolved = names
+                .expr_resolution(id)
+                .and_then(|target| self.get(target));
+            let called = table.call_resolution(id).and_then(|call| {
+                if let CallTarget::SourceFunction(id) = call.target {
+                    self.target(&id)
+                } else {
+                    None
+                }
+            });
+            for old in resolved.into_iter().chain(called) {
+                let Some(new) = current.get(&old.declaration) else {
+                    return Ok(false);
+                };
+                if old.declaration != new.declaration || old.signature != new.signature {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
     }
 }

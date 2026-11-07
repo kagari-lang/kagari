@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
+import math
 import time
 
 from lsp_benchmark_inputs import FIXTURES, digest, object_digest, source_files
@@ -76,11 +78,11 @@ def frozen_scenario():
     return value
 
 
-def exercise(peer, root):
+def exercise(peer, root, steps=None):
     texts = variants()
     raw = []
     metrics = {}
-    for step in frozen_scenario()["steps"]:
+    for step in frozen_scenario()["steps"] if steps is None else steps:
         started = time.perf_counter_ns()
         for change in step["changes"]:
             document = {"uri": (root / change["file"]).as_uri(), "version": change["version"]}
@@ -111,3 +113,53 @@ def audit_notifications(history, root, after_ns):
         if received >= after_ns and value.get("method") == "textDocument/publishDiagnostics" and value.get("params", {}).get("uri") == uri:
             if not matches(value["params"], uri, {"version": 1, "diagnostics": []}):
                 raise ValueError("unaffected pilot module acquired unexpected diagnostics or version")
+
+
+TAIL_ROUNDS = 20
+TAIL_METRICS = (METRICS[0],) + tuple(f"{name}_{tail}_ns" for name in
+    ("body_error", "body_repair", "signature_error", "signature_repair") for tail in ("p50", "p95"))
+
+
+def tail_scenario():
+    base = scenario()
+    steps = deepcopy(base["steps"][:2])
+    for cycle in range(TAIL_ROUNDS):
+        for template in base["steps"][2:]:
+            step = deepcopy(template)
+            step["name"] += f"-{cycle}"
+            for change in step["changes"]:
+                change["version"] += 2 * cycle
+            for expected in step["expected"].values():
+                expected["version"] += 2 * cycle
+            steps.append(step)
+    return {"recipe":"pilot-diagnostic-tails-v1", "rounds":TAIL_ROUNDS,
+            "quantile":"nearest-rank ceil(n*p), per operation and process group",
+            "debounce_policy_ms":150, "steps":steps}
+
+
+def frozen_tail_scenario():
+    value = tail_scenario()
+    frozen = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    if object_digest(value) != frozen.get("diagnostic_tail_scenario_sha256"):
+        raise ValueError("diagnostic tail schedule changed; review/update its frozen manifest deliberately")
+    return value
+
+
+def tail_percentile(values, fraction):
+    return sorted(values)[math.ceil(len(values) * fraction) - 1]
+
+
+def tail_metrics(operations):
+    metrics = {"open_to_first_diagnostics_ns": operations[0]["duration_ns"]}
+    for name in ("body_error", "body_repair", "signature_error", "signature_repair"):
+        values = [operation["duration_ns"] for operation in operations if operation["name"].startswith(name + "-")]
+        if len(values) != TAIL_ROUNDS:
+            raise ValueError("diagnostic tail observation count changed")
+        for tail, fraction in (("p50", .50), ("p95", .95)):
+            metrics[f"{name}_{tail}_ns"] = tail_percentile(values, fraction)
+    return metrics
+
+
+def exercise_tails(peer, root):
+    _, operations = exercise(peer, root, frozen_tail_scenario()["steps"])
+    return tail_metrics(operations), operations

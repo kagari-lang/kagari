@@ -1,0 +1,11 @@
+struct Packet {}
+
+impl api::Read for Packet {
+    fn read(self) -> i32 {
+        23
+    }
+}
+
+pub fn inspect<T: api::Read>(value: T) -> i32 {
+    value.read()
+}

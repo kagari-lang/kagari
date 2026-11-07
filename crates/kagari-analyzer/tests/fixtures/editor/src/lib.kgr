@@ -1,0 +1,13 @@
+mod api;
+
+use alloc::vec::Vec::new as create;
+
+pub fn run() -> i32 {
+    val answer = api::value();
+    answer
+}
+
+pub fn native_values() {
+    val values: Vec<i32> = create();
+    values.len();
+}

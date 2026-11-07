@@ -2,6 +2,9 @@
 //! and constraints; body checking starts from those facts, evaluates constant
 //! prerequisites, then checks or restores selected functions into a new type table.
 
+#[cfg(any(test, feature = "work-metrics"))]
+use crate::analysis::work::{self, Event};
+
 use crate::{
     AnalysisResult,
     aggregates::{AggregateCatalog, traits::MethodSignature},
@@ -66,6 +69,8 @@ pub(crate) fn check_signatures(
     cancel: &CancellationToken,
 ) -> Result<AnalysisResult<ModuleSignatures>, Cancelled> {
     cancel.check()?;
+    #[cfg(any(test, feature = "work-metrics"))]
+    work::record(Event::SignatureCheck);
     // Declaration collection already diagnosed an unrepresentable source owner.
     // Keep recovery facts empty instead of inventing IDs for its signatures.
     if !lowered.source.module_identity().within_path_limit() {
@@ -579,6 +584,8 @@ pub(crate) fn check_bodies_controlled(
                 let ty = if let Some(ty) = top_level_index.consts.get(&const_item.id) {
                     ty.clone()
                 } else {
+                    #[cfg(any(test, feature = "work-metrics"))]
+                    work::record(Event::ConstantInitializer);
                     let mut env = BodyTypeEnv::default();
                     let mut checker = BodyChecker::new(
                         lowered,
@@ -602,6 +609,8 @@ pub(crate) fn check_bodies_controlled(
                     ty
                 };
                 if const_item.ty.is_some() {
+                    #[cfg(any(test, feature = "work-metrics"))]
+                    work::record(Event::ConstantInitializer);
                     let mut env = BodyTypeEnv::default();
                     let mut checker = BodyChecker::new(
                         lowered,
@@ -742,10 +751,14 @@ pub(crate) fn check_bodies_controlled(
                     valid_bodies.insert(function.id);
                 }
                 reused_bodies += 1;
+                #[cfg(any(test, feature = "work-metrics"))]
+                work::record(Event::BodyRestore);
                 continue;
             }
             let diagnostic_start = diagnostics.len();
             checked_bodies += 1;
+            #[cfg(any(test, feature = "work-metrics"))]
+            work::record(Event::BodyCheck);
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = body_signatures.function(function.id) {
                 env.generics = function.generic_params.clone();

@@ -426,6 +426,13 @@ impl TypeId {
         self.contains_type(|ty| matches!(ty, Self::Trait(_)))
     }
 
+    /// Whether a semantic type still depends on one of these exact owner-qualified binders.
+    pub(crate) fn contains_parameters(&self, parameters: &[GenericParameterType]) -> bool {
+        self.contains_type(
+            |ty| matches!(ty, Self::Generic(parameter) if parameters.contains(parameter)),
+        )
+    }
+
     /// Reports a reference anywhere in a signature, including callable components.
     pub fn contains_reference(&self) -> bool {
         self.contains_type(|ty| matches!(ty, Self::Reference { .. }))

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{declarations::DeclarationId, tests::test_analysis};
+use crate::{analysis::work::measure, declarations::DeclarationId, tests::test_analysis};
 use kagari_common::identity::{DefinitionPath, ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -107,9 +107,18 @@ fn selected_body_cache_refreshes_shared_signature_context() {
     let original_source = sources.snapshot();
     let mut db = test_analysis();
     let good = owner(&mut db, &sources, root, "good");
-    let original = query(&mut db, &sources, &good);
+    let cold = measure(|| query(&mut db, &sources, &good)).unwrap();
+    assert_eq!(cold.work.full_snapshot_calls, 0);
+    assert_eq!(cold.work.selected_body_calls, 1);
+    assert_eq!(cold.work.body_checks_started, 1);
+    let original = cold.value;
     assert_eq!(original.eligibility(), BodyEligibility::Complete);
-    assert!(Arc::ptr_eq(&original, &query(&mut db, &sources, &good)));
+    let warm = measure(|| query(&mut db, &sources, &good)).unwrap();
+    assert_eq!(warm.work.full_snapshot_calls, 0);
+    assert_eq!(warm.work.body_checks_started, 0);
+    assert_eq!(warm.work.bodies_restored, 0);
+    assert_eq!(warm.work.shared_body_hits, 1);
+    assert!(Arc::ptr_eq(&original, &warm.value));
 
     let mut results = vec![original.clone()];
     for (text, eligibility) in [
@@ -119,7 +128,11 @@ fn selected_body_cache_refreshes_shared_signature_context() {
         sources
             .set("mem://other", text.into(), SourceLayer::Overlay)
             .unwrap();
-        let updated = query(&mut db, &sources, &good);
+        let refresh = measure(|| query(&mut db, &sources, &good)).unwrap();
+        assert_eq!(refresh.work.full_snapshot_calls, 0);
+        assert_eq!(refresh.work.body_checks_started, 0);
+        assert_eq!(refresh.work.shared_body_hits, 1);
+        let updated = refresh.value;
         let fresh = query(&mut test_analysis(), &sources, &good);
         assert_eq!(updated.eligibility(), eligibility);
         assert_eq!(updated.eligibility(), fresh.eligibility());

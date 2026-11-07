@@ -44,12 +44,7 @@ pub struct ImportedType {
 }
 
 impl ImportedType {
-    fn same_local_contract(
-        &self,
-        other: &Self,
-        local: &SourceUnit,
-        other_local: &SourceUnit,
-    ) -> bool {
+    fn same_contract(&self, other: &Self) -> bool {
         // Exhaustive patterns require an explicit reuse decision for added fields.
         let Self {
             native_type,
@@ -66,10 +61,8 @@ impl ImportedType {
             associated_types,
             supertraits,
         } = self;
-        id.unit == *local
-            && other.id.unit == *other_local
-            && local.module == other_local.module
-            && local.file == other_local.file
+        id.unit.module == other.id.unit.module
+            && id.unit.file == other.id.unit.file
             && id.item == other.id.item
             && declaration_id == &other.declaration.id
             && name == &other.declaration.name
@@ -403,32 +396,36 @@ pub mod aliases;
 mod mapping;
 
 impl ImportedTypes {
-    /// Compares reuse inputs while allowing this module's refined trait surfaces
-    /// to acquire fresh navigation sites. Foreign source addresses remain exact;
-    /// the caller must still validate namespaces and remap eligible local facts.
-    pub(crate) fn same_reuse_inputs(
-        &self,
-        other: &Self,
-        local: Option<&SourceUnit>,
-        other_local: Option<&SourceUnit>,
-    ) -> bool {
-        let Self {
-            resolutions,
-            nominal_types,
-            variants,
-            aliases,
-        } = self;
-        resolutions == &other.resolutions
-            && variants == &other.variants
-            && aliases == &other.aliases
-            && nominal_types.len() == other.nominal_types.len()
-            && nominal_types.iter().all(|(id, surface)| {
-                other.nominal_types.get(id).is_some_and(|other| {
-                    surface == other
-                        || local.zip(other_local).is_some_and(|(local, other_local)| {
-                            surface.same_local_contract(other, local, other_local)
-                        })
+    /// Compares checked type surfaces by scoped identity and semantic fields.
+    /// Fresh preparation replaces navigation sites and qualified source addresses;
+    /// namespace equivalence and arena-aware restoration remain required guards.
+    pub(crate) fn same_reuse_inputs(&self, other: &Self) -> bool {
+        let current: HashMap<_, _> = other
+            .resolutions
+            .values()
+            .map(|surface| (surface.declaration.id.clone(), surface))
+            .collect();
+        self.resolutions.len() == other.resolutions.len()
+            && self.resolutions.values().all(|surface| {
+                current
+                    .get(&surface.declaration.id)
+                    .is_some_and(|other| surface.same_contract(other))
+            })
+            && self.variants.len() == other.variants.len()
+            && self.variants.values().all(|variant| {
+                other.variants.values().any(|other| {
+                    variant.id == other.id
+                        && variant.name == other.name
+                        && variant.location.file == other.location.file
                 })
+            })
+            && self.aliases == other.aliases
+            && self.nominal_types.len() == other.nominal_types.len()
+            && self.nominal_types.iter().all(|(id, surface)| {
+                other
+                    .nominal_types
+                    .get(id)
+                    .is_some_and(|other| surface.same_contract(other))
             })
     }
 

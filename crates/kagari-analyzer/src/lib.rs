@@ -1,5 +1,9 @@
 //! Lattice-backed language-server composition and bounded verification entrypoints.
 #[cfg(any(test, feature = "verification"))]
+use crate::analysis::verification as analysis_verification;
+#[cfg(any(test, feature = "verification"))]
+use crate::analysis::verification::retention as retention_verification;
+#[cfg(any(test, feature = "verification"))]
 use crate::documents::verification as document_verification;
 #[cfg(feature = "verification")]
 use crate::protocol::verification as wire_verification;
@@ -48,4 +52,29 @@ pub fn verify_session(input: &[u8]) {
 #[cfg(any(test, feature = "verification"))]
 pub fn verify_documents(input: &[u8]) {
     document_verification::check(input);
+}
+
+/// Compares bounded edited projects through reused and fresh semantic query owners.
+/// Inputs over 1 KiB are skipped; mismatches and retained-input leaks remain panics.
+#[cfg(any(test, feature = "verification"))]
+pub fn verify_analysis(input: &[u8]) {
+    analysis_verification::check(input);
+}
+
+/// Requested source/index ownership observed by the separate retention probe.
+#[cfg(any(test, feature = "verification"))]
+#[derive(Clone, Copy)]
+pub struct RetentionCheckpoint {
+    pub phase: &'static str,
+    pub edits: usize,
+    pub input_bytes: usize,
+    pub index_bytes: usize,
+    pub definition_records: usize,
+    pub contexts: usize,
+}
+
+/// Exercises the real retained-query lifecycle while an external allocation probe samples it.
+#[cfg(any(test, feature = "verification"))]
+pub fn verify_retention(checkpoint: impl FnMut(RetentionCheckpoint)) {
+    retention_verification::run(checkpoint);
 }

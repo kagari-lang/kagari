@@ -374,7 +374,8 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
     let candidates = snapshot
         .file(file)
         .unwrap()
-        .method_completions(text.find("cursor. }").unwrap() + 7);
+        .method_completions(text.find("cursor. }").unwrap() + 7, &Default::default())
+        .unwrap();
     let next = candidates
         .iter()
         .find(|candidate| candidate.name == "next")

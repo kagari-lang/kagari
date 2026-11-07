@@ -1,5 +1,8 @@
 //! Static signatures and ordinary runtime initializer checking, without const evaluation.
 
+#[cfg(any(test, feature = "work-metrics"))]
+use crate::analysis::work::{self, Event};
+
 use crate::{
     DiagnosticBuffer,
     declarations::Declarations,
@@ -69,6 +72,8 @@ pub(super) fn initializers(
     let mut valid = HashSet::new();
     for item in &lowered.module.statics {
         indexes.cancel.check()?;
+        #[cfg(any(test, feature = "work-metrics"))]
+        work::record(Event::StaticInitializer);
         let diagnostic_start = diagnostics.len();
         let expected = indexes
             .signatures

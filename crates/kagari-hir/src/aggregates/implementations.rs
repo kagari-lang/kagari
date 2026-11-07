@@ -14,7 +14,7 @@ use crate::{
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{
-        GenericBounds, ModuleSignatures, associated, check::possibly_overlapping_impls,
+        GenericBounds, ModuleSignatures, associated, check::possibly_overlapping_impls, inference,
         table::match_implementation,
     },
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
@@ -132,6 +132,118 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
+    /// Matches a declared template to a known interface application without inventing
+    /// a concrete receiver. Unfixed impl binders retain their conditional bounds;
+    /// bounds whose subjects became concrete must pass the normal bounded solver.
+    pub(crate) fn implementation_supports_interface(
+        &self,
+        definitions: &DefinitionTable,
+        implementation: &ImplementationSignature,
+        interface: &NominalType,
+        required_receiver: Option<&NominalType>,
+        context: ImplementationSearchContext<'_>,
+    ) -> Result<bool, ImplementationSearchError> {
+        let pattern = self.canonical_interface_application(definitions, &implementation.trait_type);
+        let interface = self.canonical_interface_application(definitions, interface);
+        let mut substitution = TypeSubstitution::default();
+        inference::infer(
+            &TypeId::Trait(pattern.clone()),
+            &TypeId::Trait(interface.clone()),
+            &implementation.generic_params,
+            &mut substitution,
+            context.cancel,
+            None,
+        )
+        .map_err(|_| ImplementationSearchError::Cancelled)?;
+        if !pattern.instantiate(&substitution).satisfies(&interface) {
+            return Ok(false);
+        }
+        let unbound = implementation
+            .generic_params
+            .iter()
+            .filter(|parameter| !substitution.contains_key(*parameter))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut assumptions = context.assumptions.clone();
+        for (subject, requirements) in &implementation.bounds {
+            context
+                .cancel
+                .check()
+                .map_err(|_| ImplementationSearchError::Cancelled)?;
+            let subject = self.normalize_type(definitions, &subject.instantiate(&substitution));
+            if subject.contains_parameters(&unbound) {
+                assumptions.entry(subject).or_default().extend(
+                    requirements
+                        .iter()
+                        .map(|requirement| requirement.instantiate(&substitution)),
+                );
+            }
+        }
+        let receiver = implementation.for_type.instantiate(&substitution);
+        let mut budget = SearchBudget::new(
+            definitions,
+            ImplementationSearchContext {
+                assumptions: &assumptions,
+                ..context
+            },
+        )?;
+        let matched = self.implementation_matches(
+            implementation,
+            &interface,
+            &receiver,
+            &mut HashSet::new(),
+            &mut budget,
+        )?;
+        if matched.is_none() {
+            return Ok(false);
+        }
+        match required_receiver {
+            Some(required) => self
+                .implementation_count_bounded(
+                    definitions,
+                    required,
+                    &receiver,
+                    ImplementationSearchContext {
+                        assumptions: &assumptions,
+                        ..context
+                    },
+                )
+                .map(|count| count == 1),
+            None => Ok(true),
+        }
+    }
+
+    /// Tests one recorded implementation template with the ordinary bound solver.
+    /// Header inference does not authorize conversions or erase caller assumptions.
+    pub(crate) fn implementation_applies(
+        &self,
+        definitions: &DefinitionTable,
+        implementation: &ImplementationSignature,
+        receiver: &TypeId,
+        context: ImplementationSearchContext<'_>,
+    ) -> Result<bool, ImplementationSearchError> {
+        let mut substitution = TypeSubstitution::default();
+        inference::infer(
+            &implementation.for_type,
+            receiver,
+            &implementation.generic_params,
+            &mut substitution,
+            context.cancel,
+            None,
+        )
+        .map_err(|_| ImplementationSearchError::Cancelled)?;
+        let interface = implementation.trait_type.instantiate(&substitution);
+        let mut budget = SearchBudget::new(definitions, context)?;
+        self.implementation_matches(
+            implementation,
+            &interface,
+            receiver,
+            &mut HashSet::new(),
+            &mut budget,
+        )
+        .map(|matched| matched.is_some())
+    }
+
     /// Standard protocol implementations are type-owned, so dependencies and callers
     /// cannot disagree because a downstream module adds a different override.
     pub fn standard_override_error(

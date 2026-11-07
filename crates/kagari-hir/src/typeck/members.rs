@@ -1,7 +1,9 @@
 //! Receiver method surfaces shared by body checking and source tooling.
 
 use crate::{
-    aggregates::{AggregateCatalog, InherentMethodSignature},
+    aggregates::{
+        AggregateCatalog, InherentMethodSignature, implementations::ImplementationSearchError,
+    },
     language::semantics::{self as traits, ProtocolSemantics},
     typeck::{GenericBounds, inference},
     types::{NominalType, TypeId, TypeSubstitution},
@@ -66,9 +68,18 @@ pub(crate) fn interfaces(
     assumptions: &GenericBounds,
     cancel: &CancellationToken,
 ) -> Vec<NominalType> {
-    let mut implemented = aggregates
-        .declared_interfaces(definitions, ty, assumptions, cancel)
-        .unwrap_or_default();
+    try_interfaces(definitions, aggregates, ty, assumptions, cancel).unwrap_or_default()
+}
+
+/// Fallible tooling projection: cancelled or exhausted searches cannot become empty success.
+pub(crate) fn try_interfaces(
+    definitions: &DefinitionTable,
+    aggregates: &AggregateCatalog,
+    ty: &TypeId,
+    assumptions: &GenericBounds,
+    cancel: &CancellationToken,
+) -> Result<Vec<NominalType>, ImplementationSearchError> {
+    let mut implemented = aggregates.declared_interfaces(definitions, ty, assumptions, cancel)?;
     if !matches!(
         ty,
         TypeId::Trait(_) | TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. }
@@ -88,7 +99,7 @@ pub(crate) fn interfaces(
         }
     }
     add_iterator_view(definitions, aggregates, ty, &mut implemented);
-    implemented
+    Ok(implemented)
 }
 
 fn add_iterator_view(

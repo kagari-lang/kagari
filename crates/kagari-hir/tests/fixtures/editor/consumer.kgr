@@ -1,0 +1,5 @@
+use pkg::library::number as alias;
+
+pub fn consume() -> i32 {
+    alias()
+}

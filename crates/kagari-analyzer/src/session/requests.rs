@@ -134,6 +134,19 @@ impl Requests {
         Some(serial)
     }
 
+    /// Progress cancellation addresses an admitted serial instead of a wire ID.
+    pub(crate) fn cancel_serial(&self, serial: RequestSerial) -> bool {
+        let Some(entry) = self
+            .entries
+            .get(&serial)
+            .filter(|entry| entry.state == State::Admitted)
+        else {
+            return false;
+        };
+        entry.token.cancel();
+        true
+    }
+
     pub(crate) fn token(&self, serial: RequestSerial) -> Option<CancellationToken> {
         self.entries.get(&serial).map(|entry| entry.token.clone())
     }

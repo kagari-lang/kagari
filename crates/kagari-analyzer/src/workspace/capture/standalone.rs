@@ -14,8 +14,13 @@ use kagari_package::{
     modules::{ModuleDiscovery, ModuleLimits, SourceInput, SourceText},
     tooling::ToolingInputs,
 };
+use std::path::Path;
 
-struct SingleInput<'a>(&'a DocumentInput);
+struct SingleInput<'a> {
+    document: &'a DocumentInput,
+    key: &'a str,
+    conflicting: bool,
+}
 
 impl SourceInput for SingleInput<'_> {
     fn read(
@@ -28,21 +33,27 @@ impl SourceInput for SingleInput<'_> {
         if path != "buffer.kgr" {
             return Ok(None);
         }
-        let source = self.0.source.as_ref().ok_or_else(|| {
+        if self.conflicting {
+            return Err(input_error(
+                self.key,
+                "open URI aliases have conflicting source text",
+            ));
+        }
+        let source = self.document.source.as_ref().ok_or_else(|| {
             input_error(
-                self.0.uri.as_str(),
+                self.document.uri.as_str(),
                 "document synchronization is unavailable",
             )
         })?;
         if source.text().len() > max_bytes {
             return Err(input_error(
-                self.0.uri.as_str(),
+                self.document.uri.as_str(),
                 "source exceeds byte limit",
             ));
         }
         Ok(Some(SourceText {
-            key: self.0.source_name.clone(),
-            origin: self.0.uri.as_str().into(),
+            key: self.key.into(),
+            origin: self.document.uri.as_str().into(),
             source: source.clone(),
         }))
     }
@@ -50,6 +61,8 @@ impl SourceInput for SingleInput<'_> {
 
 pub(super) fn stage(
     document: &DocumentInput,
+    physical_key: &str,
+    conflicting: bool,
     selected: Option<(usize, &OverlayInput)>,
     unresolved_project: bool,
     cancel: &CancellationToken,
@@ -57,7 +70,7 @@ pub(super) fn stage(
     let (discovery, workspace, root_identity, order) =
         if let Some((order, input)) = selected.filter(|_| !unresolved_project) {
             let relative = input
-                .relative(&document.source_name)
+                .canonical_relative(&document.source_name)
                 .expect("selected root contains document");
             let physical = native_key(&input.approved(&relative).map_err(package_failure)?)
                 .map_err(CaptureFailure::InvalidInput)?;
@@ -71,14 +84,20 @@ pub(super) fn stage(
         } else {
             (
                 ModuleDiscovery::load(
-                    &SingleInput(document),
+                    &SingleInput {
+                        document,
+                        key: physical_key,
+                        conflicting,
+                    },
                     "buffer.kgr",
                     ModuleLimits::default(),
                     cancel,
                 )
                 .map_err(package_failure)?,
-                document.source_name.clone(),
-                ModuleIdentity::single_file(document.source_name.clone()),
+                native_key(Path::new(physical_key)).map_err(CaptureFailure::InvalidInput)?,
+                ModuleIdentity::single_file(
+                    native_key(Path::new(physical_key)).map_err(CaptureFailure::InvalidInput)?,
+                ),
                 usize::MAX,
             )
         };
@@ -116,7 +135,10 @@ pub(super) fn stage(
     Ok(StagedContext {
         workspace,
         origins,
-        semantic_available: !unresolved_project && !document.unavailable && !conflict,
+        semantic_available: !unresolved_project
+            && !document.unavailable
+            && !conflict
+            && !conflicting,
         inputs,
         errors,
         root_order: order,

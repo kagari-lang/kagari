@@ -1,4 +1,7 @@
 //! Declaration queries stop before body name resolution, typing or const evaluation.
+#[cfg(any(test, feature = "work-metrics"))]
+use crate::analysis::work::{self, Phase};
+
 use crate::{
     DeclaredAnalysis, DiagnosticBuffer,
     analysis::{
@@ -78,6 +81,8 @@ impl FileDeclarations {
 /// its declaration sites.
 #[derive(Debug, Clone)]
 pub struct DeclarationSnapshot {
+    /// Exact physical wrappers and package bindings used for preparation.
+    pub(super) source: SourceSnapshot,
     /// Returns the input source snapshot revision.
     revision: Revision,
     pub(super) graph: Arc<ModuleGraph>,
@@ -173,8 +178,20 @@ impl AnalysisDatabase {
         source: SourceSnapshot,
         cancel: &CancellationToken,
     ) -> Result<DeclarationSnapshot, AnalysisError> {
+        #[cfg(any(test, feature = "work-metrics"))]
+        let _phase = work::phase(Phase::PrepareDeclarations);
         cancel.check()?;
         let previous = self.declaration_cache.as_ref();
+        #[cfg(test)]
+        let cache_allowed = self.import_solver_limits.is_none();
+        #[cfg(not(test))]
+        let cache_allowed = true;
+        if cache_allowed
+            && let Some(previous) = previous.filter(|old| old.source.same_inputs(&source))
+        {
+            return Ok(previous.clone());
+        }
+
         let mut lowered_files = BTreeMap::new();
         let native_files = match self.native_files.get() {
             Some(files) => files,
@@ -272,6 +289,7 @@ impl AnalysisDatabase {
         }
         cancel.check()?;
         Ok(DeclarationSnapshot {
+            source: source.clone(),
             revision: source.revision(),
             graph,
             files: Arc::new(files),
