@@ -262,7 +262,11 @@ pub fn lower_module(source: &SourceFile) -> LoweredModule {
     lower_module_controlled(Arc::new(source.clone()), &syntax, &Default::default())
 }
 
-/// Lowers an already parsed AST and supplied source together; callers retain diagnostics and check cancellation.
+/// Lowers a logical AST view and its matching source into a fresh HIR/source-map arena.
+///
+/// The caller must pair the view with its retained source revision and keep parse
+/// diagnostics separately. Cancellation may leave partial structural HIR; callers
+/// must check the shared token before accepting or publishing the returned module.
 pub(crate) fn lower_module_controlled(
     source: Arc<SourceFile>,
     module: &ModuleSyntax,

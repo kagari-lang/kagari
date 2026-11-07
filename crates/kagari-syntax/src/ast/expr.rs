@@ -394,7 +394,9 @@ node!(
     ///
     /// For `{ x: 1, y, ..base }`, `entries` contains two `Field` alternatives and
     /// one `Update`; `open`/`close` hold brace tokens. Entries after an update are
-    /// recovered unexpected content, not additional admitted fields.
+    /// recovered unexpected content, not additional admitted fields. For
+    /// `{ ..base, x: 1 }`, the update has no separator; the rejected comma and
+    /// field belong to `entries` at insertion index 1 with `RecoveryPart::Element`.
     FieldInitList {
         open: Required<Token<tokens::LBrace>>,
         entries: SeparatedList<StructEntry>,
@@ -627,8 +629,10 @@ node!(
     /// close = FormatEnd token
     /// ```
     ///
-    /// Present required slots are abbreviated. Text remains source-backed;
-    /// [`Interpolation`] owns each hole's delimiters and optional debug marker.
+    /// Present required slots are abbreviated. Text remains source-backed, with
+    /// escapes and doubled braces undecoded; [`Interpolation`] owns each hole's
+    /// delimiters and optional debug marker. Raw/byte strings and cooked strings
+    /// without holes instead use [`Literal`].
     InterpolatedString {
         open: Token<tokens::FormatStart>,
         parts: Vec<StringPart>,
@@ -652,6 +656,10 @@ node!(
     /// For `"{name:?}"`, `open`/`close` hold hole delimiter tokens, `expression`
     /// holds `PathExpr(name)`, and `debug` is `Some(DebugMarker)`. The child is a
     /// path expression, not an unrestricted [`Expr`]; an absent marker is `None`.
+    /// The lexer admits only a single non-keyword ASCII name, not a qualified path.
+    /// For `"{a.b}"`, `expression` is missing and `a.b` is unexpected input owned
+    /// by that field. For `"{name"`, the name is present and `close` is missing;
+    /// the quote still belongs to the enclosing string.
     Interpolation {
         open: Token<tokens::FormatOpen>,
         expression: Required<PathExpr>,

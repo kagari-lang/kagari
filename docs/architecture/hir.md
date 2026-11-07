@@ -750,6 +750,19 @@ types and selected operations. Syntax errors can still leave useful facts and
 diagnostics. Cancellation is an error, checked before publishing completed results.
 Older requests do not replace newer published revision caches.
 
+Internal traversal can still return temporary values while stopping. In
+[block lowering](../../crates/kagari-hir/src/lower/stmt.rs), cancellation stops the
+statement loop; the optional tail is lowered afterward, the partial block is
+finalized and the enclosing block restored. `lower_module_controlled` returns
+structural HIR, so its analysis caller must check the shared token before accepting
+it. In [closure inference](../../crates/kagari-hir/src/typeck/body/closures.rs), a
+completion-query error sets the checker's sticky stop flag; its temporary `false`
+is not evidence that the script diverges. Return, async and loop contexts are
+restored before leaving the closure, and `BodyChecker::finish` rejects the stopped
+checker's facts. For `val f = || { return 1; }; 2`, the closure's return belongs to
+its own context and `2` remains the enclosing block's tail; cancelling analysis
+must not publish a partial type for `f` as though divergence had been proved.
+
 Selected-body reuse separates the query context from its body payload. If an
 unrelated signature becomes invalid while the selected file and body environment
 remain unchanged, a new result shares the existing body facts but retains the new

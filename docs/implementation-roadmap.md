@@ -674,6 +674,20 @@ frontend/runtime consumers. Structure, fmt, workspace all-target Clippy and diff
 checks pass; complete workspace, fuzz campaigns and feature/platform matrices remain
 CI-only and are not claimed by this merge.
 
+The readability follow-up makes consuming string scans, list/struct-tail recovery,
+HIR statement cancellation and shared-method eligibility explicit without changing
+language admission or recovery ownership. Source decoding now reports cancellation
+at its own completion boundary, not as malformed input. Syntax/HIR rustdoc and the
+owner guides clarify source-to-node mappings, partial construction, recoverable
+versus checked facts and retained definition scopes. No new test cases were added;
+the existing decoder cancellation scenario now also asserts the typed outer error.
+All 46 selected tests pass across literal decoding, interpolation/recovery, list
+ownership, callable contexts, retained cancellation snapshots and source-free
+operation verification. Source/syntax/HIR doctests and strict private-item rustdoc,
+guide file-link checks, structure, fmt, workspace Clippy and diff checks pass.
+Complete workspace/platform matrices and fuzz campaigns remain CI-only; no
+performance improvement or exhaustive documentation coverage is claimed.
+
 ## Compilation cancellation polling
 
 Coarse syntax checkpoints and the unified `parse(source, options, cancel)` API

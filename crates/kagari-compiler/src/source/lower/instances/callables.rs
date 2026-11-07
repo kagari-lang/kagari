@@ -127,19 +127,10 @@ impl InstancePlanner<'_> {
 
             // A nominal receiver containing binders can still have a selected
             // implementation. Forward only when that table is unavailable.
-            if required.arguments.is_empty()
+            let needs_shared_method_selection = required.arguments.is_empty()
                 && (!required.receiver.is_concrete()
-                    || self
-                        .catalog
-                        .trait_method(&required.member)
-                        .is_some_and(|method| {
-                            self.catalog
-                                .trait_(&required.interface.declaration)
-                                .is_some_and(|contract| {
-                                    method.generic_params.len() > contract.generic_params.len()
-                                })
-                        }))
-            {
+                    || self.method_has_own_generic_parameters(&required));
+            if needs_shared_method_selection {
                 let invalid =
                     || MirLoweringError::MissingBinding("shared constraint method implementation");
                 let implementation = self
@@ -206,6 +197,17 @@ impl InstancePlanner<'_> {
             }
         }
         Ok(operations)
+    }
+
+    /// Distinguishes method-owned parameters from the enclosing trait's parameters.
+    fn method_has_own_generic_parameters(&self, required: &NativeCallableRequirement) -> bool {
+        let Some(method) = self.catalog.trait_method(&required.member) else {
+            return false;
+        };
+        let Some(contract) = self.catalog.trait_(&required.interface.declaration) else {
+            return false;
+        };
+        method.generic_params.len() > contract.generic_params.len()
     }
 
     fn normalize_callable_requirement(

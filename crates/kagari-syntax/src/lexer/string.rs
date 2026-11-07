@@ -134,12 +134,14 @@ fn scan_plain(
     Ok(())
 }
 
-// Escape braces cannot become holes. Invalid escapes are still diagnosed by the
-// shared decoder; a quote always ends recovery for a malformed Unicode escape.
+/// Enters just after `\` and consumes the escape discriminator, if present.
+/// For `u{`, also consumes through `}` or EOF, leaving a recovery quote unread.
+/// Otherwise only the discriminator is consumed, including an escaped quote.
+/// This keeps escape braces out of interpolation; the shared decoder diagnoses
+/// invalid escapes. All reads use the caller's cancellation-aware iterator.
 fn skip_escape(chars: &mut Peekable<impl Iterator<Item = (usize, char)>>) {
-    if chars.next().is_some_and(|(_, ch)| ch == 'u')
-        && chars.peek().is_some_and(|(_, ch)| *ch == '{')
-    {
+    let discriminator = chars.next();
+    if matches!(discriminator, Some((_, 'u'))) && chars.peek().is_some_and(|(_, ch)| *ch == '{') {
         chars.next();
         while let Some((_, ch)) = chars.peek().copied() {
             if ch == '"' {
@@ -173,6 +175,11 @@ fn push_text(
     Ok(())
 }
 
+/// Enters just after `{`, with `start` at the first content byte. Consumes a
+/// closing `}`, but leaves a quote unread for the enclosing string scanner.
+/// A valid name and optional `:?` become separate tokens; nonempty invalid
+/// content becomes one `Unknown` token. Empty content emits no name token.
+/// Cancellation returns an error rather than classifying the name as invalid.
 fn scan_hole(
     input: &str,
     start: usize,
@@ -189,17 +196,16 @@ fn scan_hole(
     let end = chars.peek().map_or(input.len(), |(index, _)| *index);
     cancel.check()?;
     let content = &input[start..end];
-    let name = content.strip_suffix(":?").unwrap_or(content);
-    let valid = name.starts_with(|ch: char| ch == '_' || ch.is_ascii_alphabetic())
-        && name.bytes().enumerate().all(|(offset, ch)| {
-            (!offset.is_multiple_of(CANCELLATION_CHECK_BYTES) || cancel.check().is_ok())
-                && (ch == b'_' || ch.is_ascii_alphanumeric())
-        })
-        && identifier_kind(name) == TokenKind::Ident;
+    let (name, debug) = match content.strip_suffix(":?") {
+        Some(name) => (name, true),
+        None => (content, false),
+    };
+    let valid = is_hole_name(name, cancel);
+    // Preserve the boundary check even when validation observed cancellation.
     cancel.check()?;
-    if valid {
+    if valid? {
         tokens.push(token(TokenKind::Ident, start, start + name.len()));
-        if name.len() != content.len() {
+        if debug {
             tokens.push(token(TokenKind::Colon, end - 2, end - 1));
             tokens.push(token(TokenKind::Question, end - 1, end));
         }
@@ -211,4 +217,21 @@ fn scan_hole(
         tokens.push(token(TokenKind::FormatClose, end, end + 1));
     }
     Ok(())
+}
+
+/// Checks one untrimmed name, excluding keywords. Polls before validating each
+/// byte at the existing chunk boundary; invalid input stops the scan immediately.
+fn is_hole_name(name: &str, cancel: &CancellationToken) -> Result<bool, Cancelled> {
+    if !name.starts_with(|ch: char| ch == '_' || ch.is_ascii_alphabetic()) {
+        return Ok(false);
+    }
+    for (offset, ch) in name.bytes().enumerate() {
+        if offset.is_multiple_of(CANCELLATION_CHECK_BYTES) {
+            cancel.check()?;
+        }
+        if ch != b'_' && !ch.is_ascii_alphanumeric() {
+            return Ok(false);
+        }
+    }
+    Ok(identifier_kind(name) == TokenKind::Ident)
 }

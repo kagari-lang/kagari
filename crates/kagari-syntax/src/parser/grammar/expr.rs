@@ -983,38 +983,7 @@ impl Parser<'_> {
                     self.rejected(Self::parse_expr);
                 }
             }
-            while self.continue_parsing() {
-                self.position(1, entries.len());
-                let comma = self.at(TokenKind::Comma);
-                if comma {
-                    self.error_here(DiagnosticKind::UnexpectedToken);
-                    self.bump_as_error();
-                }
-                if self.at(TokenKind::Ident)
-                    && (comma
-                        || matches!(
-                            self.nth_nontrivia_kind(1),
-                            Some(TokenKind::Colon | TokenKind::Comma | TokenKind::RBrace)
-                        ))
-                {
-                    if !comma {
-                        self.error_here(DiagnosticKind::UnexpectedToken);
-                    }
-                    self.rejected(Self::parse_struct_entry);
-                } else if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
-                    self.error_here(DiagnosticKind::UnexpectedToken);
-                    if self.at(TokenKind::DotDot) {
-                        self.rejected(Self::parse_struct_entry);
-                    } else {
-                        self.bump_as_error();
-                        if self.expr_starts() {
-                            self.rejected(Self::parse_expr);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
+            self.reject_struct_update_tail(entries.len());
         }
 
         let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
@@ -1028,5 +997,44 @@ impl Parser<'_> {
             },
             self.completed_depth,
         )
+    }
+
+    /// Rejects fields, extra updates and commas after the attempted final update.
+    /// The open `FieldInitList` frame owns this input at `entries[entry]`, just
+    /// after its retained entries; rejected nodes never enter that typed list.
+    /// Stops before the closing brace or an unrecognized tail for the caller.
+    fn reject_struct_update_tail(&mut self, entry: usize) {
+        while self.continue_parsing() {
+            self.position(1, entry);
+            let comma = self.at(TokenKind::Comma);
+            if comma {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+                self.bump_as_error();
+            }
+            if self.at(TokenKind::Ident)
+                && (comma
+                    || matches!(
+                        self.nth_nontrivia_kind(1),
+                        Some(TokenKind::Colon | TokenKind::Comma | TokenKind::RBrace)
+                    ))
+            {
+                if !comma {
+                    self.error_here(DiagnosticKind::UnexpectedToken);
+                }
+                self.rejected(Self::parse_struct_entry);
+            } else if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+                if self.at(TokenKind::DotDot) {
+                    self.rejected(Self::parse_struct_entry);
+                } else {
+                    self.bump_as_error();
+                    if self.expr_starts() {
+                        self.rejected(Self::parse_expr);
+                    }
+                }
+            } else {
+                break;
+            }
+        }
     }
 }

@@ -247,6 +247,8 @@ impl<'a> Parser<'a> {
 
     /// Parses one rejected grammatical entry for delimiter recovery, then retains
     /// only its physical coverage at the enclosing owner's insertion position.
+    /// Diagnostics survive, but the typed result and its nested recovery records
+    /// do not. Coverage excludes trailing trivia even though the cursor skips it.
     pub(crate) fn rejected<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) {
         let first = self.cursor;
         let recoveries = self.recoveries.len();
@@ -487,7 +489,9 @@ impl<'a> Parser<'a> {
 
     /// One list implementation preserves missing entries and punctuation. The
     /// caller supplies grammar admission and owns the sparse recovery field slots.
-    /// `start_index` counts entries already parsed into the owning list.
+    /// `start_index` counts entries already parsed into the owning list, including
+    /// missing slots. The closing delimiter remains unread. Separator recovery
+    /// belongs to the same entry, and the progress guard runs only when continuing.
     pub(crate) fn list<T, S>(
         &mut self,
         end: TokenKind,
@@ -505,19 +509,7 @@ impl<'a> Parser<'a> {
             let value = parse(self);
             depth = depth.max(value.depth);
             self.position(field, index);
-            self.frames.last_mut().expect("list owner").part = RecoveryPart::Separator;
-            while self.at(TokenKind::Unknown) && self.continue_parsing() {
-                self.error_here(DiagnosticKind::UnexpectedToken);
-                self.bump_as_error();
-            }
-            let separator = if let Some(comma) = self.eat(TokenKind::Comma) {
-                Some(Required::Present(comma))
-            } else if !self.at(end.clone()) && starts(self) {
-                self.error_here(DiagnosticKind::UnexpectedToken);
-                Some(Required::Missing { at: self.anchor() })
-            } else {
-                None
-            };
+            let separator = self.recover_list_separator(end.clone(), starts);
             let continue_list = separator.is_some();
             result.push(ListEntry {
                 element: value.node,
@@ -532,5 +524,29 @@ impl<'a> Parser<'a> {
         }
 
         (result.into(), depth)
+    }
+
+    /// Uses the caller's current field/entry, assigning unknown tokens to its
+    /// separator position. A missing comma is anchored before the next element;
+    /// that element and the closing delimiter remain unread. Leaves the recovery
+    /// position on the separator so the caller's progress guard keeps its owner.
+    fn recover_list_separator<S>(
+        &mut self,
+        end: TokenKind,
+        starts: fn(&Self) -> bool,
+    ) -> Option<Required<Token<S>>> {
+        self.frames.last_mut().expect("list owner").part = RecoveryPart::Separator;
+        while self.at(TokenKind::Unknown) && self.continue_parsing() {
+            self.error_here(DiagnosticKind::UnexpectedToken);
+            self.bump_as_error();
+        }
+        if let Some(comma) = self.eat(TokenKind::Comma) {
+            Some(Required::Present(comma))
+        } else if !self.at(end) && starts(self) {
+            self.error_here(DiagnosticKind::UnexpectedToken);
+            Some(Required::Missing { at: self.anchor() })
+        } else {
+            None
+        }
     }
 }

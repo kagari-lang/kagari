@@ -129,6 +129,19 @@ before those tokens are consumed. In that case the slot is missing and the token
 stays exclusively in the unparsed suffix, rather than appearing in both places.
 When grammar parses a first entry separately, continuation parsing records
 recovery positions relative to the complete owning list, including that entry.
+The core list loop owns element parsing and its progress guard; separator recovery
+assigns unknown tokens to that same entry's separator position before consuming a
+comma or recording a missing one. For `f(a @@@,b)`, `@@@` belongs to entry 0's
+separator recovery and the written comma remains present. For `f(a b)`, entry 0
+has a missing comma anchored at `b`, which remains available as the next element.
+Neither path consumes the closing delimiter.
+
+Struct-update tail recovery stays with expression grammar, not the generic list
+loop. After `Point { ..base, x: 1 }`, only the update is a typed entry; the rejected
+comma and field belong to `FieldInitList.entries` at the insertion index after it.
+Rejected fields are parsed to recover their internal delimiters and diagnostics,
+then discarded as typed nodes. Their unexpected coverage excludes trailing trivia;
+the enclosing list still owns its closing brace and following layout.
 
 Typed convenience list accessors filter out missing elements. For `f(a,,b,)`,
 `args()` yields `a, b`, while `data().arguments.entries` retains all three slots
@@ -167,6 +180,36 @@ case does not establish linear work for every possible source shape.
 Local functions reuse `FnDef` through `Stmt::FnDef`. Async blocks have a distinct
 keyword wrapper and required block body; they do not fabricate closure parameters.
 Postfix construction wraps the whole preceding expression exactly once.
+
+### String boundaries and the HIR handoff
+
+The [string scanner](../../crates/kagari-syntax/src/lexer/string.rs) recognizes
+holes in cooked ordinary strings before expression parsing. For `"hi {name:?}"`,
+it emits quote/text/open-brace/name/colon/question-mark/close-brace/quote tokens.
+The parser builds an `InterpolatedString` with a text token and an `Interpolation`
+node whose required expression is a plain `PathExpr(name)` and whose debug marker
+owns `:` and `?`. Text remains the original spelling, not a decoded value.
+Raw strings, byte strings and cooked strings without holes remain literal tokens.
+
+A hole admits only one non-keyword ASCII identifier, with an optional exact `:?`
+suffix and no whitespace. For `"{value.field}"`, the whole nonempty hole content
+is one `Unknown` token: the parser records it as unexpected input at the hole's
+`expression` field and leaves that required expression missing. Empty holes have
+no name token. Hole scanning consumes `}` when present but leaves a quote for the
+outer string scanner, so `"{name"` retains its name and a missing hole close without
+losing the string's closing quote. Escape scanning starts after `\` and consumes
+its discriminator separately; `\u{...}` braces cannot become interpolation holes.
+Malformed Unicode escapes stop before a recovery quote. Literal validation and
+its error reasons remain owned by the shared source decoder.
+
+[HIR expression lowering](../../crates/kagari-hir/src/lower/expr.rs) decodes each
+valid text fragment through that source decoder and creates ordered String-literal
+and `FormatPart` expressions. Each hole's name retains its own source site, while
+the format part covers the hole and carries the debug flag. Lowering does not
+resolve the name or establish formatting-protocol eligibility; later HIR analysis
+owns those checks. Missing recovered paths become missing HIR expressions, not
+valid names. The [HIR architecture](hir.md) owns semantic IDs, source maps and
+checked publication; the AST's parse-local token coordinates are not HIR IDs.
 
 ## Source storage, spans and traversal
 
@@ -321,7 +364,13 @@ through their ordinary missing-child/EOF paths, and the outer entrypoint returns
 
 Long character scans check about every 4 KiB of source progress. Nested string,
 comment and escape scanners share the lexer's checked iterator; independent
-literal-decoding passes own their own cadence. Long lexical/lookahead/trivia passes
+literal-decoding and hole-name validation passes own their own cadence.
+Hole-name validation returns cancellation separately from an invalid-name result.
+The [source decoder](../../crates/kagari-source/src/literal.rs) likewise owns the
+completion check around its shared text/escape iterator: exhaustion caused by
+cancellation cannot escape as EOF, malformed syntax or successful decoding.
+Its private output callback can receive a prefix, but public decoders publish a
+value only after successful completion. Long lexical/lookahead/trivia passes
 check about every 1024 physical records. These are implementation choices, not
 public tuning knobs or hard latency bounds. Buffer conversion, validation, recovery
 scope closure and destruction can still delay return after a request. Cancellation

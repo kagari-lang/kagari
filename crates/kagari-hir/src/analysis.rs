@@ -74,8 +74,9 @@ mod type_targets;
 
 /// One file's parsed source and completed semantic analysis, retained by a snapshot.
 ///
-/// `result` owns checked facts plus diagnostics and their definition table. Local HIR
-/// IDs index `result().facts().lowered`; scoped definition IDs resolve through
+/// `result` owns recoverable semantic facts, diagnostics and their definition table;
+/// completed analysis does not imply error-free source or compilation eligibility.
+/// Local HIR IDs index `result().facts().lowered`; scoped definition IDs resolve through
 /// [`Self::definitions`]. Position queries read these facts without rechecking bodies.
 /// Offsets are UTF-8 byte offsets in [`Self::source`]; missing or inapplicable facts
 /// return `None`. Type queries return IDs resolved by this result's retained definition table.
