@@ -7,6 +7,8 @@ and standard documentation loops. The user authorized TP05-TP09 on 2026-10-15;
 source-owned test organization and focused local acceptance are complete. The
 [TP10-TP13 directory readability follow-up](#directory-readability-follow-up-tp10-tp13)
 was recorded on 2026-10-28; its direction is agreed, but implementation is deferred.
+The user authorized [TP14 contract-test pruning](#contract-test-pruning-tp14) on
+2026-11-07, independently of the deferred layout and measurement work.
 Native collection migration and compiler pipeline redesign remain outside scope.
 
 ## Contract
@@ -41,6 +43,8 @@ Native collection migration and compiler pipeline redesign remain outside scope.
 - [x] TP04: prepare invariant compiler ABI input and cancellation providers once
   per scenario; reuse native-only analysis for independent documentation examples.
 - [x] TP04 validation: focused existing contracts and structural checks.
+- [x] TP14: remove evidenced duplicate contract tests and redundant preparation;
+  validate retained owners without changing production behavior or test harnesses.
 - [ ] Final measurement: matched timing and retained-memory comparison, deferred
   until optimization is complete and machine load permits a meaningful comparison.
   Consolidate measured results and retire this plan when complete.
@@ -170,6 +174,243 @@ cargo test -p kagari-compiler --lib tests::bytecode::artifacts::rejects_
 cargo test -p kagari-stdlib --test documentation
 cargo clippy -p kagari --test standard_traits --test instantiation --test associated_types --test conversion_traits --test collection_interfaces --test collection_access --test native_provider_reset --test syntax_examples --test default_methods -- -D warnings
 ```
+
+## Contract-test pruning (TP14)
+
+### Scope and preservation
+
+The 2026-11-07 audit found duplicate smoke tests, upper-layer repetitions of
+lower-layer rules, historical/multiplicative matrices and unused preparation.
+The user first authorized a new branch and a conservative implementation batch,
+then explicitly requested completion of all three audited pruning directions:
+remove evidenced weak/empty copies, migrate unique assertions to existing
+scenarios, and reduce history/spelling/Cartesian matrices with explicit losses.
+Earlier case-preservation requirements govern relocation, not this explicitly
+authorized removal of redundant cases. Distinct assertions and execution
+boundaries remain mandatory; lower test counts are not an acceptance target.
+
+The initial batch owns:
+
+- Parser duplicate rejection cases, an empty grammar-gap test and its unused
+  payload model; inventory checks still reject undeclared gap IDs.
+- Four HIR rebinding conformance copies already owned by typed diagnostic tests,
+  and three malformed `let` inputs that could pass on syntax errors instead of
+  their claimed annotation/type errors. Retain valid call/index admission cases
+  and the existing valid-syntax annotation recovery owners.
+- VM duplicate reflection, debugger-construction and DynamicCall rejection
+  smoke tests, plus a runtime registry lookup copy. Retain initial field reads,
+  reflection mutation/debugger control, host paths and publication rejection.
+- Two SDK language smoke cases, and consolidation of runtime/helper ABI
+  preparation rejection using one compiled artifact. Preserve both error codes
+  and variants; actual reload failure/old-version assertions keep their owner.
+- Compiler identical-input arithmetic/metadata preparation, a scalar foundation
+  case already covered by the codec contract, and immediate revalidation of
+  unchanged verified bytecode. Keep explicit Add selection assertions.
+
+The authorized completion also owns the finite audit candidates below. It is
+not a requirement to remove every similar-looking test: independent oracles,
+public/dependency/product boundaries and lifecycle assertions remain protected.
+Production code, dependency/feature/API/ABI changes, test layout moves, global
+caches and new harnesses remain out of scope. Test-only support and browser/editor
+test runners may change. No timing or memory improvement is claimed without
+matched measurements.
+
+### Acceptance and ledger
+
+- [x] Inspect retained counterparts and record the finite deletion scope.
+- [x] Implement the selected duplicate removals and assertion-preserving merges.
+- [x] Run selected retained-owner tests and directly adjacent boundary regressions.
+- [x] Complete structure, formatting, workspace Clippy and diff checks.
+- [x] Reconcile local results, pending CI and any carried errors.
+
+Local tests select the retained parser rejection/grammar inventories, four HIR
+typed diagnostics plus valid annotation recovery and call/index admission,
+compiler metadata/foundation/codec contracts, VM helper/debugger/publication
+owners, runtime metadata, and SDK ABI preparation/language/real reload owners.
+These representative cases directly establish the removed copies' contracts;
+they are not a package-by-package workspace sweep. CI retains exhaustive
+workspace, source-free, feature/backend/platform and product acceptance.
+
+2026-11-07: completed the bounded implementation and local acceptance on
+`test/prune-redundant-contract-tests`, starting from clean `a82d9c4b`. Static
+registration comparison shows 13 fewer ordinary tests and five fewer named
+parameterized cases (18 net, including the empty gap test). Three malformed
+annotation inputs and one exclusively consumed scalar fixture were removed.
+No production code, test harness, feature or dependency changed.
+
+Independent diff review found no blocking coverage loss. The parser owner now
+retains the deleted copy's first-diagnostic error assertion, not merely an
+any-error check. The deleted combined VM smoke's zero-argument native path is
+also exercised by the retained comparator/Probe lifecycle, separately from the
+two-argument host-call test. The remaining installed-access mutation/debugger
+control scenario is unchanged. Both preparation ABI errors retain their exact
+codes and variants; real reload rejection and old-entry usability remain covered.
+
+Focused local validation passed 36 distinct tests, with the strengthened parser
+case rerun after its assertion was merged:
+
+| Package | Passed | Selected owners |
+| --- | ---: | --- |
+| `kagari-syntax` | 5 | `invalid_syntax_diagnostics_reject_non_spec_forms` and the four `tests::grammar_coverage::` tests |
+| `kagari-hir` | 7 | `ui::typed::{val_local_rebinding, parameter_rebinding, rejects_assignment_to_val_field, rejects_assignment_to_const}`, retained mutation acceptance, `composite_annotations_retain_structure_without_authorizing_codegen`, and `erroneous_calls_and_indices_never_enter_codegen` |
+| `kagari-compiler` | 7 | `lowers_function_metadata_into_bytecode`, three `language_foundation::compile_success` cases, `portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering`, `normalizes_ir_operands_as_typed_values`, and `flattens_branch_targets_to_instruction_offsets` |
+| `kagari-vm` | 10 | Type-of/initial-read/get-set reflection, host helper/path results, live-locals/step-trap debugger, unsupported-call rejection, retained installed-access mutation/control, and `comparator_failure_stops_callbacks_and_preserves_original_elements` |
+| `kagari-runtime` | 1 | `metadata_registry_carries_reload_and_path_validation_records` |
+| `kagari` | 6 | `preparation_rejects_incompatible_runtime_and_helper_abis`, namespace-shadowing, applied-trait argument distinction/marker acceptance, per-execution cancellation, and actual prepared reload failure |
+
+Structure (1,818 Rust files, no findings/exceptions), formatting, workspace
+Clippy with `-D warnings` and diff checks passed. Initial formatting checking
+found two extra blank lines left by deletions; both were corrected. No build,
+test or lint failures remain. Full-workspace tests, exhaustive feature/backend/
+platform and external product checks were not run and remain CI-owned; these
+focused results do not establish complete CI acceptance or measured speedup.
+TP10-TP13 and performance acceptance remain deferred.
+
+### Completion of the three pruning directions
+
+The follow-through removes the remaining audited weak copies in syntax/HIR,
+SDK readonly/identity/Eq checks and basic interface calls, VM scalar native calls
+and repeated missing-entry checks. The HIR mutation smoke and its now-empty
+module are removed; typed-fact mutation owners remain. All decisions below are
+implemented, not a new queue.
+
+Unique assertions now run on existing prepared scenarios:
+
+- Parser delimiter count/severity/typed-kind checks share their original UI
+  fixture parse and full JSON comparison. New parser UI fixtures must declare
+  their typed expectation rather than silently skip it. Both original inputs
+  and JSON expectations are unchanged.
+- Opaque declaration source-mode rejection shares the substantive declaration
+  scenario; documentation/losslessness and top-level/nested distinctions remain.
+- VM field reflection returns the executed initial and updated reads as `(1, 9)`.
+  The weaker installed-access write is removed, but debugger control remains.
+- Tuple `ScriptOwned` classification moves to the value owner. Trait method
+  origin, trait type and path-access records move to metadata registration;
+  the inherent method and a minimal `Runtime::types()` facade check remain.
+- Full artifact-header and root-function-count equality move to the existing
+  associated-interface MIR/KBC roundtrip; its verification remains independent.
+
+Preparation is actually reduced, rather than moving old preparations into loops:
+
+- HIR `lower_ok` lowers its already checked parsed tree. The standard hash/numeric
+  checks also stop discarding a separate lowering for seven analysis inputs.
+- Six SDK runners retain all 41 source scenarios and 123 direct-interpreter,
+  decoded-interpreter and decoded-JIT route executions. Encodes/decodes fall from
+  82 to 41 and artifact preparations from 123 to 82. Each route still creates a
+  fresh context/token/runtime, uses its original GC threshold, drops the result
+  before root checks, and retains the Result/Option collection assertion.
+- TextMate still checks every one of five operands under both EOLs, but tokenizes
+  two complete documents instead of ten isolated fragments. The first fragment
+  starts fresh; the other four per EOL now inherit preceding document state.
+  This relinquishes eight independent fresh-stack starts, not operand assertions.
+
+#### Retained samples and relinquished combinations
+
+| Owner | Before -> after | Explicitly relinquished coverage |
+| --- | --- | --- |
+| Compiler const ABI | 115 historical-format serializations -> 0 | The unrelated const-fixture x old-format combinations; const fingerprints/float bits remain |
+| Runtime ABI rejection | 28 artifact roundtrips / 56 loader checks -> 1 / 2 | Runtime ABI v5-v31 x current/matching-old requirements; v32 retains both requirements and exact error kind |
+| Helper ABI rejection | 2 artifact roundtrips / 4 loader checks -> 1 / 2 | Helper v3 x both requirements; v4 retains both and its exact error kind |
+| KBC wire format | 115 old-version attempts -> 3 representative invalid formats | Exhaustive versions 1-114; wire and in-memory owners now check zero, previous (115) and future (117), relative to current 116; loader retains current and matching-invalid requirements |
+| CLI unrelated options | 23 options x 3 positions = 69 -> 23 | Positions 1 and 2 for each illegal option (46 combinations); position 0 retains every option and escaping assertion; nonempty positive modes still cover all three positions |
+| CLI empty option list | 3 identical argument vectors -> 1 | Only two duplicate executions of the exact default-mode input |
+| Formatter rejection | 39 -> 5 upper-layer cases | Detailed malformed spellings listed below; retain surrogate char, interpolation expression, bad byte hex, unclosed raw bytes and generic malformed input |
+| Formatter literal EOL/mode | 15 x 2 x 3 = 90 -> 60 | LF input with explicit LF and CRLF input with explicit CRLF for each literal (30 combinations); Preserve and opposite-forced EOL retain all literals and idempotence |
+| Formatter CRLF/empty | Two duplicate table rows removed | Width-40 repetitions; exact bytes and second-format idempotence now share width-100 owner preparation; whitespace-only remains |
+| Analyzer multiline edits | 8 edits x 2 EOLs = 16 -> 6 | Debug-format space, member interpolation, incomplete hole, Unicode byte escape and raw-byte hash mismatch under both EOLs; retain delimiter damage, non-BMP insertion, restore, coordinates and old snapshots |
+| Common snapshot capacity | 3 cycle counts x 4 states = 12 -> 4 | Cycle counts 1 and 128 for repeated/distinct x drop/retain (8 combinations); 16 cycles retain all four states and existing COW/prefix/Weak assertions |
+| Python unsigned CSV fields | 79 fields x 8 spellings = 632 -> 79 field checks + 8 grammar checks = 87 | Seven additional spellings per field (553 full-report combinations); all eight spelling classes remain at `_rows`, all 79 suite/field mappings remain on public parsing paths with exact field-error checks |
+| Pages deploy guard | 288 -> 15 contexts | 273 cross-products, chiefly multiple disabled conditions at once; exact YAML conjunction, both normal event kinds, all opt-in classes and each independent failure remain |
+| Native editing grammar | 19 byte corpus cases -> 5 tree goldens | 14 CLI-corpus copies of Node-owned rejection inputs; retained goldens include accepted trees and unterminated raw-byte EOF recovery; refreshed native binding proves retained negative owners |
+| Grammar witness | 3 full-file parses -> 2 | The valid-only copy; alias/static owners retain whole-file validity plus node assertions |
+| Direct WASM old integer spellings | 4 -> 2 compile inputs | Type-name `isize` and suffix `1usize` on the actual WASM product; retain type-name `usize` and suffix `1isize`; native owners still check both spellings in each category |
+| Product recipe source matching | Two source-text assertions removed | Duplicate static checks of command spelling/order; actual command recording and bad-graph early-stop remain, as do top-level wiring and direct graph-negative checks |
+
+The formatter no longer repeats these named character-rejection rows:
+`empty`, `multiple_scalars`, `combining_sequence`, `physical_tab`, `physical_lf`,
+`physical_cr`, `non_ascii_hex_escape`, `leading_underscore_unicode_escape`,
+`overlong_unicode_escape`, `above_unicode_max`.
+Its removed malformed-text rows are:
+`obsolete_f_prefix`, `hole_member`, `hole_trailing_space`, `hole_leading_space`,
+`hole_debug_space`, `hole_debug_comment`, `hole_unknown_format`,
+`unmatched_close_brace`, `string_non_ascii_hex_escape`,
+`string_leading_underscore_unicode`, `string_surrogate`, `cooked_bare_cr`,
+`raw_bare_cr`, `raw_unclosed_hash`, `byte_non_ascii_scalar`, `byte_empty`,
+`byte_multiple`, `byte_physical_tab`, `byte_unicode_escape`,
+`bytes_unicode_escape`, `bytes_non_ascii`, `raw_bytes_non_ascii`,
+`bytes_bare_cr`, `raw_bytes_bare_cr`.
+These are deliberately fewer formatter entrypoint probes, not proof that every
+removed spelling has an equivalent lower-layer test. Lexer/parser/literal owners
+remain unchanged and keep responsibility for detailed language rules.
+The removed analyzer character-only scenario similarly relinquishes its exact
+escape spelling, while lifecycle and Unicode/CRLF snapshot observations remain.
+
+The byte corpus removed pattern rejection for cooked/raw byte strings; direct
+cooked, named raw and nested cooked/raw attribute values; three non-ASCII byte
+forms; byte-char/string Unicode escapes; multi/empty byte chars; and bad byte hex.
+Ten inputs exactly match Node counterparts; four differ only in attribute-to-item
+whitespace. All 14 rejected with identical native error trees after the binding
+refresh; none of the removed `:error` entries asserted that exact recovery tree.
+
+These reductions are representative sampling, not a zero-loss or complete-matrix
+claim. Deliberately retained audit candidates include the typed-operand manual
+oracle (independent checks are not redundant merely because a verifier exists)
+and HIR typed/golden companions (different assertions/environments; eliminating
+preparation would require broader registration machinery or a cache). No such
+machinery was added to make test counts smaller. GC, borrowing, cancellation,
+source-free/real-native, compile-fail and actual-host boundaries are unchanged.
+
+#### Final local acceptance
+
+- [x] Complete the three directions across the finite audited candidate set.
+- [x] Record actual preparation reductions and every sampled-out dimension.
+- [x] Compare retained assertions and independently review Rust/product changes.
+- [x] Execute the affected focused selections below and complete skipped targets.
+- [x] Pass required structure, formatting, workspace Clippy and diff checks.
+
+This completion ran 154 Rust tests across affected owners, all passing:
+
+| Package | Passed | Selection |
+| --- | ---: | --- |
+| `kagari-common` | 6 | Four retained capacity states, backing release and module-prefix ownership |
+| `kagari-hir` | 5 | Lowering, both typed mutation owners and standard hash/numeric analysis |
+| `kagari-syntax` | 11 | Dedicated rejection and declaration owners, remaining conformance rows, both merged typed/golden delimiter cases, inventory and partial recovery |
+| `kagari-format` | 22 | Retained rejection samples, literal byte/EOL preservation, idempotence and exact CRLF/empty output |
+| `kagari-cli` | 54 | `args::tests::disassembly_` on the `kg` binary target |
+| `kagari-analyzer` | 5 | `documents::tests::` on the analyzer binary target |
+| `kagari-bytecode` | 2 | Independent wire and in-memory format admission |
+| `kagari-compiler` | 9 | ABI/const samples, artifact assertion migration, stronger control flow, Add selection and independent typed operands |
+| `kagari-runtime` | 5 | Value classification/payload, metadata records/duplicates and runtime facade |
+| `kagari-vm` | 7 | Merged field lifecycle, debugger control, entry/trap recovery, checked scalar native and slot/JIT routes |
+| `kagari` | 28 | Two source fixtures per migrated runner, LF/CRLF for both text runners, retained readonly/identity/Eq/provider/interface/declaration owners |
+
+The initial multi-package `--lib` tooling selection executed only formatter;
+CLI/analyzer binary selections were subsequently run explicitly. Three ignored
+formatter full-inventory entries matched the broad literal filter and remain
+CI-only, not passed. Five long SDK fixture names were truncated by harness
+registration; shorter unique filters subsequently ran all five intended cases.
+No selected local target remains unexecuted. Earlier passing evidence remains
+valid for unchanged first-batch owners; it is not an unrun CI claim.
+
+Additional focused validation passed four Python unittest methods (87 negative
+subchecks plus positive schema/warmup checks); 27 site Node tests, with the Unix
+process-group test skipped on Windows; two TextMate Node tests; five refreshed
+native grammar Node tests; and five CLI corpus golden cases. Browser/Worker/UI,
+WASI/actual editor hosts, full inventories and the feature/backend/platform matrix
+were not run. The WASM runner syntax check passed, not actual WASM acceptance.
+
+Native binding refresh initially failed Python discovery; retry with installed
+Python succeeded and rebuilt committed parser/scanner sources without grammar
+regeneration. Structure checked 1,817 Rust files with no findings/exceptions;
+`cargo fmt --all -- --check`, workspace/all-target Clippy with `-D warnings`,
+link/content and diff checks passed. There are no carried build/test/lint errors.
+
+Against `a82d9c4b`, static registrations decrease by 125 Rust cases: 21 fewer
+ordinary tests, 56 fewer explicit case rows and 48 additional eliminated
+Cartesian repetitions. This excludes function-internal loops and backend routes;
+Node/corpus/Python counts are separate. No speed or memory reduction was measured.
+TP14's authorized implementation/local acceptance is complete; CI acceptance,
+TP10-TP13 layout work and the independent measurement debt are not marked complete.
 
 ## Directory readability follow-up (TP10-TP13)
 

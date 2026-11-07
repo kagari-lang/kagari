@@ -124,17 +124,6 @@ fn readonly_interfaces_expose_reads_and_hide_mutators_without_native_access_flag
     execute(
         "fn main() -> i32 { val a = [20, 22]; val view: [i32] = a; if view.len() == 2u64 { view[0u64] + view[1u64] } else { 0 } }",
     );
-    assert!(
-        KagariEngine::default()
-            .compile_to_artifact(
-                SourceFile::new(
-                    "memory://readonly.kgr",
-                    "fn main() { val view: std::collections::List<i32> = Vec::from([1]); view.push(2); }"
-                ),
-                Default::default(),
-            )
-            .is_err()
-    );
 }
 
 #[test]

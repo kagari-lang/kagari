@@ -497,8 +497,21 @@ mod tests {
     use crate::report::MessageFormat;
     use rstest::rstest;
 
+    #[test]
+    fn disassembly_defaults_to_all_functions() {
+        assert_eq!(
+            Cli::parse(["disasm", "file.kbc"].map(str::to_owned)).unwrap(),
+            Cli {
+                command: Command::Disassemble {
+                    artifact: "file.kbc".into(),
+                    mode: DisassemblyMode::All,
+                },
+                jit: false,
+            },
+        );
+    }
+
     #[rstest]
-    #[case::all(&[], DisassemblyMode::All)]
     #[case::list_functions(&["--list-functions"], DisassemblyMode::ListFunctions)]
     #[case::artifact_slot(
                 &["--function", "@0:3"],
@@ -615,12 +628,9 @@ mod tests {
     #[case::allow_unknown(&["-A", "unknown"])]
     #[case::warn_unknown(&["-W", "unknown"])]
     #[case::escaped_unknown_option(&["--unknown\n\u{202e}"])]
-    fn disassembly_rejects_unrelated_options_including_leading_options(
-        #[case] options: &[&str],
-        #[values(0, 1, 2)] position: usize,
-    ) {
+    fn disassembly_rejects_unrelated_options_including_leading_options(#[case] options: &[&str]) {
         let mut args = vec!["disasm", "file.kbc"];
-        args.splice(position..position, options.iter().copied());
+        args.splice(0..0, options.iter().copied());
         let error = Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap_err();
         assert_eq!(error.exit_code(), 2, "{args:?}");
         assert!(!error.to_string().contains('\n'), "{args:?}");

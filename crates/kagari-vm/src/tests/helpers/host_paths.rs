@@ -4,10 +4,7 @@ use crate::{
     error::VmError,
     reentry::reenter,
     tests::{
-        common::{
-            compile_logging_test_bytecode, compile_native_test_bytecode, module_program,
-            round_trip_bytecode,
-        },
+        common::{compile_logging_test_bytecode, module_program, round_trip_bytecode},
         native_fixtures,
     },
     vm::{fixtures::FixtureExecution, native::PreparedNativeEntry},
@@ -20,62 +17,9 @@ use kagari_runtime::{
     host::{HostCallContext, HostPathDescriptorId},
     jit_abi::jit_poll_execution,
     module::entry::ProgramEntry,
-    native::{
-        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
-        declarations::FunctionDecl, types::Type,
-    },
 };
 use kagari_types::{declaration::path::HostIndexSegmentDeclaration, ty::Ty};
 use std::sync::{Arc, Mutex};
-
-#[test]
-fn executes_runtime_host_helper_call() {
-    let mut runtime = standard_runtime(RuntimeConfig::default());
-    logging_module(|_, _| Ok(Value::Unit))
-        .install(&mut runtime)
-        .unwrap();
-    let mut builder = ModuleBuilder::new("fixtures::scalar", &Default::default()).unwrap();
-    let add = builder
-        .define_function(
-            FunctionDecl::new("add_i32")
-                .parameter("lhs", Type::i32())
-                .parameter("rhs", Type::i32())
-                .returns(Type::i32()),
-        )
-        .unwrap();
-    builder
-        .bind(
-            add,
-            |_: &mut CallContext<'_>, lhs: i32, rhs: i32| -> NativeResult<i32> { Ok(lhs + rhs) },
-        )
-        .unwrap();
-    let provider = builder.finish().unwrap();
-    provider.install(&mut runtime).unwrap();
-    let loaded = runtime
-        .load_program(
-            "helper.kbc",
-            compile_native_test_bytecode(
-                "use fixtures::scalar::add_i32; fn main() -> i32 { add_i32(40, 2) }",
-                &[&provider],
-            ),
-        )
-        .expect("helper module should load");
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-
-    let vm = Vm::new(runtime);
-    let report = vm
-        .execute(&loaded, ProgramEntry::Main)
-        .expect("vm should execute");
-
-    assert_eq!(
-        report
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
-}
 
 #[test]
 fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_execution() {

@@ -540,7 +540,8 @@ fn popped(values: Vec<i32>) -> Option<i32> {
 
 #[test]
 fn enforces_standard_hash_key_constraints_for_collections_and_generic_calls() {
-    let lowered = common::lower_ok(
+    let source = SourceFile::new(
+        "test.kg",
         r#"use std::collections::{HashMap, HashSet};
 use std::hash::{Hash};
 
@@ -553,15 +554,16 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
 }
 "#,
     );
-    crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+    crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("hash-key constrained generics should type check");
 
-    let lowered = common::lower_ok(
+    let source = SourceFile::new(
+        "test.kg",
         "use std::collections::{HashMap};\nfn bad(values: HashMap<f64, i32>) -> u64 { values.len() }",
     );
-    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+    let diagnostics = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("f64 map keys should reject");
@@ -573,10 +575,11 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
         )
     }));
 
-    let lowered = common::lower_ok(
+    let source = SourceFile::new(
+        "test.kg",
         "use std::collections::{HashMap};\nfn bad<K, V>(values: HashMap<K, V>) -> u64 { values.len() }",
     );
-    let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+    let diagnostics = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("unconstrained generic map key should reject");
@@ -594,14 +597,14 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
         "struct Store { val keys: HashSet<Key> }",
         "enum Store { Keys(HashSet<Key>) }",
     ] {
-        let lowered = common::lower_ok(&format!(
-            "use std::collections::HashSet; struct Key {{}} {declaration}"
-        ));
-        let diagnostics =
-            crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
-                .expect("installed declaration analysis")
-                .into_checked()
-                .expect_err("nominal keys still require explicit protocols");
+        let source = SourceFile::new(
+            "test.kg",
+            format!("use std::collections::HashSet; struct Key {{}} {declaration}"),
+        );
+        let diagnostics = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+            .expect("installed declaration analysis")
+            .into_checked()
+            .expect_err("nominal keys still require explicit protocols");
         assert!(diagnostics.iter().any(|diagnostic| matches!(
             &diagnostic.kind,
             DiagnosticKind::StandardConstraintNotSatisfied { type_name, constraint, .. }
@@ -612,20 +615,21 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
 
 #[test]
 fn checks_standard_numeric_surface() {
-    let lowered = common::lower_ok(
+    let source = SourceFile::new(
+        "test.kg",
         r#"
 fn signed(value: i16) -> i16 { -value }
 fn unsigned(lhs: u64, rhs: u64) -> u64 { lhs + rhs }
 fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 "#,
     );
-    analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+    analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("standard numeric types should check");
 
-    let lowered = common::lower_ok("fn bad(value: u32) -> u32 { -value }");
-    let diagnostics = analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+    let source = SourceFile::new("test.kg", "fn bad(value: u32) -> u32 { -value }");
+    let diagnostics = analyze_source(&source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("unsigned negation should reject");

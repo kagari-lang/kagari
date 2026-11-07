@@ -505,18 +505,10 @@ fn rl03_probe_snapshot_capacity(cycles: usize, distinct: bool, retain: bool) {
 }
 
 #[rstest]
-#[case::cycles_1_repeated_drop(1, false, false)]
-#[case::cycles_1_repeated_retain(1, false, true)]
-#[case::cycles_1_distinct_drop(1, true, false)]
-#[case::cycles_1_distinct_retain(1, true, true)]
 #[case::cycles_16_repeated_drop(16, false, false)]
 #[case::cycles_16_repeated_retain(16, false, true)]
 #[case::cycles_16_distinct_drop(16, true, false)]
 #[case::cycles_16_distinct_retain(16, true, true)]
-#[case::cycles_128_repeated_drop(128, false, false)]
-#[case::cycles_128_repeated_retain(128, false, true)]
-#[case::cycles_128_distinct_drop(128, true, false)]
-#[case::cycles_128_distinct_retain(128, true, true)]
 fn rl03_snapshot_capacity_matrix(
     #[case] cycles: usize,
     #[case] distinct: bool,

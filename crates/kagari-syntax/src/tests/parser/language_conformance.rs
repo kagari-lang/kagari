@@ -122,21 +122,6 @@ fn syntax_spec_positive_cases(
     "dyn trait object syntax",
     "fn apply(effect: dyn Effect) {}"
 )]
-#[case::ref_parameter(
-    "docs/spec/syntax.md#ordinary-parameter-semantics",
-    "ref parameters",
-    "fn update(ref value: i32) {}"
-)]
-#[case::mut_receiver(
-    "docs/spec/syntax.md#impl-blocks-and-methods",
-    "mut self receivers",
-    "fn update(mut self: Player) {}"
-)]
-#[case::missing_field_binding(
-    "docs/spec/syntax.md#structs-and-enums",
-    "fields without val or var",
-    "struct Player { hp: i32 }"
-)]
 fn syntax_spec_rejects_unrecognized_forms(
     #[case] spec_section: &str,
     #[case] feature: &str,

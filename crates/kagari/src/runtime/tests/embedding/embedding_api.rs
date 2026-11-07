@@ -3,7 +3,7 @@ use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
     error::{EmbeddingError, RuntimeFailureKind},
-    program::{PreparedProgram, ProgramPreparationError},
+    program::PreparedProgram,
     runtime::{LoadOptions, ReloadOptions},
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -209,54 +209,6 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
         Value::I32(42)
     );
     assert!(!runtime.runtime().is_quarantined());
-}
-
-#[test]
-fn failed_reload_validation_does_not_publish_new_epoch() {
-    let engine = KagariEngine::default();
-    let context = ExecutionContext::default();
-    let first = compile_artifact(&engine, "reload.kgr", "fn main() -> i32 { 1 }");
-    let candidate = compile_artifact(&engine, "reload.kgr", "fn main() -> i32 { 2 }");
-    let (definitions, mut candidate) = candidate.into_parts();
-    candidate.header.runtime_abi_version = "wrong-runtime-abi".to_owned();
-    let candidate =
-        DefinitionMetadata::checked(definitions, candidate, &Default::default()).unwrap();
-
-    let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime
-        .load_program(
-            &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
-                .unwrap(),
-            LoadOptions {
-                program_name: Some("reload".to_owned()),
-            },
-        )
-        .expect("module should load");
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
-    let before_count = runtime.runtime().modules().loaded_count();
-    let before_epoch = runtime.runtime().select_program(&loaded).unwrap().epoch;
-
-    let error =
-        PreparedProgram::from_artifact(candidate, &Default::default(), &context.cancellation)
-            .expect_err("invalid artifact should not be prepared for reload");
-    let ProgramPreparationError::Artifact(error) = error else {
-        panic!("expected artifact validation error");
-    };
-    assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_ABI_MISMATCH");
-    assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
-    assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().epoch,
-        before_epoch
-    );
-    assert_eq!(
-        runtime
-            .execute(&loaded, ProgramEntry::Main, &[], &context)
-            .unwrap()
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(1)
-    );
 }
 
 #[test]

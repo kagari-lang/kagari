@@ -1020,15 +1020,23 @@ fn header_metadata_is_covered_and_old_format_cannot_be_opted_into() {
         ),
         Err(ArtifactValidationError::ContentHashMismatch)
     ));
-    artifact.header.format_version = 1;
-    let requirements = ArtifactCompatibility {
-        format_version: 1,
-        ..ArtifactCompatibility::default()
-    };
-    assert!(matches!(
-        artifact.validate_for_loader(&requirements, &context, &Default::default()),
-        Err(ArtifactValidationError::FormatVersionMismatch { .. })
-    ));
+    for version in [
+        0,
+        KBC_ARTIFACT_FORMAT_VERSION - 1,
+        KBC_ARTIFACT_FORMAT_VERSION + 1,
+    ] {
+        artifact.header.format_version = version;
+        for format_version in [KBC_ARTIFACT_FORMAT_VERSION, version] {
+            let requirements = ArtifactCompatibility {
+                format_version,
+                ..Default::default()
+            };
+            assert!(matches!(
+                artifact.validate_for_loader(&requirements, &context, &Default::default()),
+                Err(ArtifactValidationError::FormatVersionMismatch { .. })
+            ));
+        }
+    }
 }
 
 #[test]

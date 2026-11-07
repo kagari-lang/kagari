@@ -1,18 +1,14 @@
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
-    error::RuntimeErrorKind,
     gc::GcHeap,
     host::{
-        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathAdapter, HostPathDescriptorId,
-        HostSchemaEpoch, PreparedHostPathWrite,
+        DynamicPathArguments, HostObjectId, HostPathAdapter, HostPathDescriptorId, HostSchemaEpoch,
+        PreparedHostPathWrite,
     },
-    metadata::{
-        AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
-        ParameterInfo, TraitInfo, TypeId, TypeKind, TypeRegistration,
-    },
+    metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     native::builder::ModuleBuilder,
-    value::{Value, ValueCategory},
+    value::Value,
 };
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{
@@ -115,49 +111,6 @@ fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
     .unwrap()
 }
 
-fn shared_borrow_value(heap: &GcHeap, object_id: u64) -> Value {
-    let table = HostBorrowTable::default();
-    let guard = table.enter_frame().unwrap();
-    heap.alloc_host_ref(
-        guard
-            .borrow_shared(HostObjectId(object_id), TypeId::new(0))
-            .unwrap(),
-    )
-    .unwrap()
-}
-
-#[test]
-fn value_categories_and_storage_boundaries_match_runtime_spec() {
-    let runtime = Runtime::default();
-    let heap = runtime.gc();
-    let host_root = host_root_value(runtime.gc(), 1);
-    let host_path_view = path_view_value(runtime.gc(), 2);
-    let host_borrow = shared_borrow_value(runtime.gc(), 3);
-
-    assert_eq!(Value::Unit.category(), ValueCategory::Unit);
-    assert_eq!(Value::I32(7).category(), ValueCategory::Primitive);
-    assert_eq!(
-        heap.alloc_tuple(vec![Value::I32(7)]).unwrap().category(),
-        ValueCategory::ScriptOwned
-    );
-    assert_eq!(host_root.category(), ValueCategory::HostHandle);
-    assert_eq!(host_path_view.category(), ValueCategory::HostPathView);
-    assert_eq!(host_borrow.category(), ValueCategory::Ephemeral);
-
-    assert!(!host_root.is_storable(heap));
-    assert!(!host_path_view.is_storable(heap));
-    assert!(!host_borrow.is_storable(heap));
-    assert!(
-        !heap
-            .alloc_tuple(vec![host_borrow])
-            .unwrap()
-            .is_storable(heap)
-    );
-
-    assert!(!host_root.is_default_heap_payload(heap));
-    assert!(!host_path_view.is_default_heap_payload(heap));
-}
-
 #[test]
 fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
     let mut runtime = Runtime::default();
@@ -249,75 +202,18 @@ fn same_name_loads_have_independent_installations_and_runtime_instances() {
 }
 
 #[test]
-fn metadata_registry_carries_reload_and_path_validation_records() {
+fn runtime_type_registry_facade_preserves_registered_metadata() {
     let runtime = Runtime::default();
-    let i32_id = runtime
-        .types()
-        .register(TypeRegistration {
-            abi_fingerprint: AbiFingerprint(1),
-            ..TypeRegistration::new("i32", TypeKind::Primitive)
-        })
-        .unwrap();
-    let trait_id = runtime
-        .types()
-        .register(TypeRegistration {
-            abi_fingerprint: AbiFingerprint(2),
-            ..TypeRegistration::new("Damageable", TypeKind::Interface)
-        })
-        .unwrap();
-
     let player_id = runtime
         .types()
         .register(TypeRegistration {
-            fields: vec![FieldInfo {
-                id: FieldMetadataId::new(0),
-                name: "health".to_owned(),
-                ty: i32_id,
-                readable: true,
-                writable: true,
-                visibility: Visibility::Public,
-                path_access: PathAccess::ReadWrite,
-                abi_fingerprint: AbiFingerprint(3),
-            }],
-            methods: vec![MethodInfo {
-                id: MethodMetadataId::new(0),
-                name: "damage".to_owned(),
-                params: vec![ParameterInfo {
-                    name: "amount".to_owned(),
-                    ty: i32_id,
-                }],
-                return_type: i32_id,
-                origin: MethodOrigin::Trait(trait_id),
-
-                abi_fingerprint: AbiFingerprint(4),
-            }],
-            traits: vec![TraitInfo {
-                trait_type: trait_id,
-                name: "Damageable".to_owned(),
-                abi_fingerprint: AbiFingerprint(2),
-            }],
             abi_fingerprint: AbiFingerprint(5),
             ..TypeRegistration::new("Player", TypeKind::Struct)
         })
         .unwrap();
 
-    let player = runtime.types().get(player_id).unwrap();
     assert_eq!(runtime.types().id_by_name("Player"), Some(player_id));
-    assert_eq!(player.fields[0].path_access, PathAccess::ReadWrite);
-    assert_eq!(player.methods[0].origin, MethodOrigin::Trait(trait_id));
-    assert_eq!(player.traits[0].trait_type, trait_id);
-    assert!(
-        runtime
-            .types()
-            .public_abi_fingerprints()
-            .contains(&AbiFingerprint(5))
-    );
-
-    let duplicate = runtime
-        .types()
-        .register(TypeRegistration::new("Player", TypeKind::Struct))
-        .unwrap_err();
-    assert_eq!(duplicate.kind(), RuntimeErrorKind::MetadataConflict);
+    assert_eq!(runtime.types().get(player_id).unwrap().name, "Player");
 }
 
 #[test]

@@ -852,6 +852,18 @@ products remain separate from the fixed-i32 external collection fixture.
 
 ## Test execution cost
 
+The user authorized [TP14 contract-test pruning](test-preparation-plan.md#contract-test-pruning-tp14)
+on 2026-11-07 and subsequently requested all three audited directions. The
+finite candidate set is implemented: weak/empty duplicates are removed, unique
+assertions share existing scenarios, and historical/spelling/Cartesian matrices
+use explicit representative samples. The plan records every relinquished
+dimension and deliberately retained independent oracles/product boundaries.
+Static Rust registrations decrease by 125; 154 focused Rust tests and selected
+Python/Node/native-corpus checks passed, as did required local structure/format/
+Clippy/diff checks. Exhaustive CI and unrun browser/WASI/editor hosts remain
+pending. This is independent of the layout work below and makes no measured
+speedup claim.
+
 Deferred directory-readability follow-up, recorded 2026-10-28:
 [TP10-TP13](test-preparation-plan.md#directory-readability-follow-up-tp10-tp13)
 consolidate mixed test files under subsystem-local `tests/` directories, starting

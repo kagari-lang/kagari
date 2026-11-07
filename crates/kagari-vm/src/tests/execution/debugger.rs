@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     tests::{
-        common::{compile_test_bytecode_with_options, round_trip_bytecode, standard_runtime},
+        common::{compile_test_bytecode_with_options, round_trip_bytecode},
         native_program::ProgramFixture,
     },
     vm::fixtures::FixtureExecution,
@@ -376,9 +376,4 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
             .iter()
             .any(|pause| pause.reason == DebugPauseReason::Trap)
     );
-}
-
-#[test]
-fn debugger_attachment_needs_no_permission_flags() {
-    DebugSession::new(&standard_runtime(Default::default())).unwrap();
 }

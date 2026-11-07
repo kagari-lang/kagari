@@ -1,27 +1,4 @@
-use kagari_source::diagnostic::{DiagnosticKind, Severity};
-use rstest::rstest;
-
 use crate::{ast::views::ItemView, tests::common};
-
-#[rstest]
-#[case::missing_closing_paren(
-    include_str!("../../../tests/fixtures/ui/parser/reports_missing_closing_paren.kgr"),
-    DiagnosticKind::ExpectedFunctionParameterListEnd
-)]
-#[case::missing_block_end(
-    include_str!("../../../tests/fixtures/ui/parser/reports_missing_block_end.kgr"),
-    DiagnosticKind::ExpectedBlockEnd
-)]
-fn reports_missing_delimiter(#[case] input: &str, #[case] kind: DiagnosticKind) {
-    // Full producer text, spans, labels and notes belong to the paired UI test.
-    let context = "missing delimiter (logical source: test.kg)";
-    let parse = common::parse(input);
-
-    let diagnostics = parse.diagnostics();
-    assert_eq!(diagnostics.len(), 1, "{context}");
-    assert_eq!(diagnostics[0].severity, Severity::Error, "{context}");
-    assert_eq!(diagnostics[0].kind, kind, "{context}");
-}
 
 #[test]
 fn keeps_partial_syntax_tree_when_parse_has_errors() {

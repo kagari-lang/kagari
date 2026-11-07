@@ -22,13 +22,7 @@ const QUANTIFIERS: &str = include_str!(concat!(
     "/../../docs/syntax-quantifiers.tsv"
 ));
 
-#[derive(Clone, Copy)]
-struct GapCase {
-    id: &'static str,
-    source: &'static str,
-}
-
-const GAPS: &[GapCase] = &[];
+const GAPS: &[&str] = &[];
 
 fn grammar_rules() -> BTreeSet<String> {
     let mut rules = BTreeSet::new();
@@ -63,7 +57,7 @@ fn grammar_rules() -> BTreeSet<String> {
 fn grammar_rule_inventory_is_complete_and_witnesses_still_parse() {
     let mut inventory = BTreeMap::new();
     let mut sources = BTreeSet::new();
-    let known_gaps = GAPS.iter().map(|case| case.id).collect::<BTreeSet<_>>();
+    let known_gaps = GAPS.iter().copied().collect::<BTreeSet<_>>();
     for line in INVENTORY.lines().skip(1).filter(|line| !line.is_empty()) {
         let columns = line.split('\t').collect::<Vec<_>>();
         assert_eq!(columns.len(), 4, "invalid inventory row: {line}");
@@ -134,7 +128,7 @@ fn grammar_alternatives_are_accounted_for() {
             }
         }
     }
-    let known_gaps = GAPS.iter().map(|case| case.id).collect::<BTreeSet<_>>();
+    let known_gaps = GAPS.iter().copied().collect::<BTreeSet<_>>();
     let mut actual = BTreeMap::new();
     let mut witnesses = BTreeSet::new();
     let mut counts = BTreeMap::<&str, usize>::new();
@@ -212,18 +206,6 @@ fn grammar_optional_and_repeated_forms_are_accounted_for() {
         "EBNF optional/repetition positions inventoried: {}",
         actual.len()
     );
-}
-
-#[test]
-fn known_grammar_gaps_remain_explicit() {
-    for case in GAPS {
-        let parse = common::parse(case.source);
-        assert!(
-            !parse.diagnostics().is_empty(),
-            "{} is now accepted; update grammar coverage and add positive coverage",
-            case.id
-        );
-    }
 }
 
 #[test]

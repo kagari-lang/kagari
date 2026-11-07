@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gc_benchmark_results import EvidenceError, SUITES, parse_run, summarize
+from gc_benchmark_results import EvidenceError, SUITES, _rows, parse_run, summarize
 
 
 HEADERS = {
@@ -202,17 +202,24 @@ class CsvEvidenceTests(unittest.TestCase):
                 with self.subTest(suite=suite), self.assertRaises(EvidenceError):
                     parse_run(suite, broken, 7)
 
+    def test_rows_reject_noncanonical_unsigned_integer_spellings(self):
+        for invalid in (-1, "1.0", "nan", "inf", "", " 1", "+1", "1e3"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                EvidenceError, "^invalid CSV evidence: CSV row 2: invalid unsigned integer count$"
+            ):
+                _rows(f"case,count\nfixture,{invalid}\n", "case,count", {"case"})
+
     def test_numeric_fields_are_unsigned_integers_even_in_warmup(self):
         for suite in SUITES:
             original = fixture(suite)
             for field, value in original[0].items():
                 if not isinstance(value, int):
                     continue
-                for invalid in (-1, "1.0", "nan", "inf", "", " 1", "+1", "1e3"):
-                    rows = copy.deepcopy(original)
-                    rows[0][field] = invalid
-                    with self.subTest(suite=suite, field=field, invalid=invalid), self.assertRaises(EvidenceError):
-                        metrics(suite, rows)
+                rows = [{**original[0], field: -1}, *original[1:]]
+                with self.subTest(suite=suite, field=field), self.assertRaisesRegex(
+                    EvidenceError, f"^invalid CSV evidence: CSV row 2: invalid unsigned integer {field}$"
+                ):
+                    metrics(suite, rows)
 
     def test_sample_ids_cannot_be_replaced_duplicated_or_extended(self):
         for suite in SUITES:

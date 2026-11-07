@@ -249,6 +249,12 @@ mod tests {
                 ..TypeRegistration::new("i32", TypeKind::Primitive)
             })
             .unwrap();
+        let trait_id = registry
+            .register(TypeRegistration {
+                abi_fingerprint: AbiFingerprint(15),
+                ..TypeRegistration::new("Damageable", TypeKind::Interface)
+            })
+            .unwrap();
         let player_id = registry
             .register(TypeRegistration {
                 fields: vec![FieldInfo {
@@ -261,16 +267,34 @@ mod tests {
                     path_access: PathAccess::ReadWrite,
                     abi_fingerprint: AbiFingerprint(12),
                 }],
-                methods: vec![MethodInfo {
-                    id: MethodMetadataId::new(0),
-                    name: "heal".to_owned(),
-                    params: vec![ParameterInfo {
-                        name: "amount".to_owned(),
-                        ty: i32_id,
-                    }],
-                    return_type: i32_id,
-                    origin: MethodOrigin::Inherent,
-                    abi_fingerprint: AbiFingerprint(13),
+                methods: vec![
+                    MethodInfo {
+                        id: MethodMetadataId::new(0),
+                        name: "heal".to_owned(),
+                        params: vec![ParameterInfo {
+                            name: "amount".to_owned(),
+                            ty: i32_id,
+                        }],
+                        return_type: i32_id,
+                        origin: MethodOrigin::Inherent,
+                        abi_fingerprint: AbiFingerprint(13),
+                    },
+                    MethodInfo {
+                        id: MethodMetadataId::new(1),
+                        name: "damage".to_owned(),
+                        params: vec![ParameterInfo {
+                            name: "amount".to_owned(),
+                            ty: i32_id,
+                        }],
+                        return_type: i32_id,
+                        origin: MethodOrigin::Trait(trait_id),
+                        abi_fingerprint: AbiFingerprint(16),
+                    },
+                ],
+                traits: vec![TraitInfo {
+                    trait_type: trait_id,
+                    name: "Damageable".to_owned(),
+                    abi_fingerprint: AbiFingerprint(15),
                 }],
                 abi_fingerprint: AbiFingerprint(14),
                 ..TypeRegistration::new("Player", TypeKind::Struct)
@@ -281,7 +305,10 @@ mod tests {
         let player = registry.get_by_name("Player").unwrap();
         assert_eq!(player.id, player_id);
         assert_eq!(player.fields[0].name, "health");
+        assert_eq!(player.fields[0].path_access, PathAccess::ReadWrite);
         assert_eq!(player.methods[0].name, "heal");
+        assert_eq!(player.methods[1].origin, MethodOrigin::Trait(trait_id));
+        assert_eq!(player.traits[0].trait_type, trait_id);
         assert!(
             registry
                 .public_abi_fingerprints()

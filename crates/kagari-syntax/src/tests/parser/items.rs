@@ -7,7 +7,7 @@ use crate::{
     kind::SyntaxKind,
     tests::common,
 };
-use kagari_source::diagnostic::{DiagnosticKind, Severity};
+use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
 fn parses_module_type_aliases_with_lossless_metadata() {
@@ -162,18 +162,6 @@ fn parses_struct_definition_with_fields() {
     assert_eq!(
         fields[1].ty().and_then(common::type_name).as_deref(),
         Some("string")
-    );
-}
-
-#[test]
-fn rejects_struct_field_without_val_or_var() {
-    let parse = common::parse("struct Player { hp: i32 }");
-
-    assert_eq!(parse.diagnostics().len(), 1);
-    assert_eq!(parse.diagnostics()[0].severity, Severity::Error);
-    assert_eq!(
-        parse.diagnostics()[0].kind,
-        DiagnosticKind::ExpectedFieldBinding
     );
 }
 
