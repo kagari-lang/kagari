@@ -113,6 +113,28 @@ remain the independent oracle for specific rejection codes and message shapes.
 This target does not claim to exercise OS writes or actor transport cleanup;
 process tests own partial-write/disconnect behavior.
 
+`lsp_documents` exercises production full-sync document ownership and source
+coordinates against independent plain strings. Two bytes select per-file and
+total byte limits, followed by at most 96 records: operation, URI selector,
+signed version byte, payload length and UTF-8-lossy text. The three documents
+include a percent-escaped local path and its alias, an untitled URI and an opaque
+URI. Operations cover open/duplicate open, full/multiple/
+empty changes, rejected range/range-length changes, close/reopen and wrong
+language. Source text is capped at 128 bytes per file; larger payloads exercise
+unavailable synchronization without allocating multi-megabyte inputs.
+
+The model checks exact text, protocol versions, globally increasing open
+incarnations, stable identity within an incarnation and fresh identity on reopen,
+independent source revisions, byte accounting and atomic rejection. Closed buffer
+metadata must be forgotten. Unavailable open inputs carry no fabricated source;
+the real actor/acquisition test owns their disk-shadow behavior.
+Up to eight distinct retained source snapshots remain exact after later updates
+and close/reopen. A scalar-walking oracle computes UTF-8/UTF-16 positions and
+lines for LF, CRLF and lone CR, rejects split scalars/CRLF and out-of-bounds
+positions, and checks selected range endpoints. It never uses the production
+line index to derive an expected coordinate. Incremental/ranged synchronization
+remains deferred to LSP08; here ranged changes must be rejected atomically.
+
 `lsp_session` drives bounded actions against the actual request and output state
 owners and an independent lifecycle ledger. Its contract is terminal-response
 uniqueness, wire-ID reuse, request retirement and response/output-credit ownership.
@@ -125,13 +147,15 @@ the production actors or claim semantic-worker coverage before those workers lan
 
 Raw `.bin` wire seeds retain CRLF and invalid-byte witnesses without Git text
 conversion. Curated seeds live under `fuzz/seeds/lsp_wire` and
-`fuzz/seeds/lsp_session`; generated corpora and artifacts stay ignored. Run each
+`fuzz/seeds/lsp_session` and `fuzz/seeds/lsp_documents`; generated corpora and
+artifacts stay ignored. Run each
 bounded ASan campaign after preparing the corresponding directory under
 `target/fuzz-corpus`:
 
 ```text
 cargo +nightly fuzz run lsp_wire --features fuzzing,lsp target/fuzz-corpus/lsp_wire fuzz/seeds/lsp_wire -- -max_total_time=60 -max_len=65536 -timeout=10 -rss_limit_mb=2048
 cargo +nightly fuzz run lsp_session --features fuzzing,lsp target/fuzz-corpus/lsp_session fuzz/seeds/lsp_session -- -max_total_time=60 -max_len=65536 -timeout=10 -rss_limit_mb=2048
+cargo +nightly fuzz run lsp_documents --features fuzzing,lsp target/fuzz-corpus/lsp_documents fuzz/seeds/lsp_documents -- -max_total_time=60 -max_len=65536 -timeout=10 -rss_limit_mb=2048
 ```
 
 The CI LSP matrix uses these commands. Compilation time is separate from the

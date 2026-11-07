@@ -20,17 +20,20 @@ pub enum SourceLayer {
 struct Document {
     id: FileId,
     module: ModuleIdentity,
-    base: Option<String>,
-    overlay: Option<String>,
+    base: Option<Arc<SourceFile>>,
+    overlay: Option<Arc<SourceFile>>,
     display_name: String,
 }
 
-/// One captured document: stable database key, diagnostic origin, module and bytes.
+/// One captured physical document with a database key, display origin and module.
+/// Registration rebinds the source wrapper while sharing immutable text and indexing.
+/// Inline and copied-origin sources are rejected, since their provenance cannot be
+/// replaced by a single physical identity.
 pub struct CapturedSource {
     pub key: String,
     pub display_name: String,
     pub module: ModuleIdentity,
-    pub text: String,
+    pub source: Arc<SourceFile>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -166,6 +169,7 @@ impl SourceDatabase {
             cancel.check().map_err(|_| "source capture cancelled")?;
             let key = self.source_name(&source.key)?;
             validate_module(&source.module)?;
+            source.source.validate_capture()?;
             if !identities.insert(source.module.clone()) || documents.contains_key(&key) {
                 return Err("duplicate captured source key or module identity".into());
             }
@@ -178,27 +182,26 @@ impl SourceDatabase {
                 .files
                 .get(&id)
                 .filter(|file| {
-                    file.text() == source.text
+                    file.text() == source.source.text()
                         && file.module_identity() == &source.module
                         && file.name() == source.display_name
                 })
                 .cloned()
                 .unwrap_or_else(|| {
-                    Arc::new(
-                        SourceFile::new(&source.display_name, &source.text).with_identity(
-                            id,
-                            revision,
-                            source.module.clone(),
-                        ),
-                    )
+                    Arc::new(source.source.captured_as(
+                        &source.display_name,
+                        id,
+                        revision,
+                        source.module.clone(),
+                    ))
                 });
-            files.insert(id, file);
+            files.insert(id, file.clone());
             documents.insert(
                 key,
                 Document {
                     id,
                     module: source.module,
-                    base: Some(source.text),
+                    base: Some(file),
                     overlay: None,
                     display_name: source.display_name,
                 },
@@ -246,9 +249,15 @@ impl SourceDatabase {
                 overlay: None,
                 display_name: name.clone(),
             });
-        match layer {
-            SourceLayer::Base => document.base = Some(text),
-            SourceLayer::Overlay => document.overlay = Some(text),
+        let slot = match layer {
+            SourceLayer::Base => &mut document.base,
+            SourceLayer::Overlay => &mut document.overlay,
+        };
+        if !slot
+            .as_ref()
+            .is_some_and(|previous| previous.text() == text)
+        {
+            *slot = Some(Arc::new(SourceFile::new(&document.display_name, text)));
         }
         let id = document.id;
         self.refresh(&name);
@@ -261,6 +270,25 @@ impl SourceDatabase {
             document.overlay = None;
         }
         self.refresh(&name);
+        Ok(())
+    }
+
+    /// Removes every layer and the current identity without changing retained snapshots.
+    /// Supplying the name again creates a fresh file ID. Missing names are unchanged.
+    pub fn remove(&mut self, name: &str) -> Result<(), String> {
+        let name = self.source_name(name)?;
+        let Some(document) = self.documents.remove(&name) else {
+            return Ok(());
+        };
+        if self.snapshot.files.contains_key(&document.id) {
+            self.snapshot.revision.0 = self
+                .snapshot
+                .revision
+                .0
+                .checked_add(1)
+                .expect("source revision exhausted");
+            Arc::make_mut(&mut self.snapshot.files).remove(&document.id);
+        }
         Ok(())
     }
 
@@ -309,7 +337,7 @@ impl SourceDatabase {
             .files
             .get(&document.id)
             .map(|file| (file.text(), file.module_identity()))
-            == text.map(|text| (text.as_str(), &document.module))
+            == text.map(|source| (source.text(), &document.module))
         {
             return;
         }
@@ -323,7 +351,8 @@ impl SourceDatabase {
         if let Some(text) = text {
             files.insert(
                 document.id,
-                Arc::new(SourceFile::new(&document.display_name, text).with_identity(
+                Arc::new(text.captured_as(
+                    &document.display_name,
                     document.id,
                     self.snapshot.revision,
                     document.module.clone(),
@@ -473,11 +502,12 @@ mod tests {
             .set("retained.kgr", "before".into(), SourceLayer::Base)
             .unwrap();
         let old = db.snapshot();
+        let retained = Arc::new(SourceFile::new("src/lib.kgr", "after"));
         let capture = || CapturedSource {
             key: "mem://new".into(),
             display_name: "src/lib.kgr".into(),
             module: ModuleIdentity::single_file("new"),
-            text: "after".into(),
+            source: retained.clone(),
         };
         assert!(
             db.replace_captured(
@@ -493,6 +523,25 @@ mod tests {
             db.replace_captured(vec![capture()], PackageEnvironment::default(), &cancel)
                 .is_err()
         );
+        let inline =
+            SourceFile::inline_module(&retained, "inline", FileId::fresh(), Span::new(0, 5));
+        let mut copied = SourceFile::new("copy", "after");
+        copied
+            .add_copy(Span::new(0, 5), retained.clone(), Span::new(0, 5))
+            .unwrap();
+        for view in [inline, copied] {
+            let error = db
+                .replace_captured(
+                    vec![CapturedSource {
+                        source: Arc::new(view),
+                        ..capture()
+                    }],
+                    PackageEnvironment::default(),
+                    &CancellationToken::default(),
+                )
+                .unwrap_err();
+            assert!(error.contains("physical text"), "{error}");
+        }
         assert_eq!(db.snapshot().revision(), old.revision());
         assert_eq!(db.file_id("retained.kgr"), Some(id));
         assert!(db.file_id("mem://new").is_none());
@@ -506,6 +555,15 @@ mod tests {
             .unwrap();
         assert!(next.file(id).is_none());
         assert_eq!(next.files().next().unwrap().name(), "src/lib.kgr");
+        assert_eq!(
+            next.files().next().unwrap().content_id(),
+            retained.content_id()
+        );
+        assert_eq!(
+            next.files().next().unwrap().retained_bytes(),
+            retained.retained_bytes()
+        );
+        assert!(retained.retained_bytes() > retained.text().len());
         assert_eq!(old.file(id).unwrap().text(), "before");
         let unchanged = db
             .replace_captured(
@@ -515,6 +573,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(unchanged.revision(), next.revision());
+        let other = SourceDatabase::default()
+            .replace_captured(
+                vec![capture()],
+                PackageEnvironment::default(),
+                &CancellationToken::default(),
+            )
+            .unwrap();
+        let other = other.files().next().unwrap();
+        assert_ne!(other.id(), next.files().next().unwrap().id());
+        assert_eq!(other.content_id(), retained.content_id());
     }
 
     #[test]
@@ -745,6 +813,21 @@ mod tests {
         assert!(!db.snapshot().contains(span));
         db.close_overlay("c:/project/a b.kgr").unwrap();
         assert_eq!(db.snapshot().file(id).unwrap().text(), "changed");
+        let retained = db.snapshot();
+        db.remove("file:///C:/project/a%20b.kgr").unwrap();
+        let removed = db.snapshot();
+        assert!(removed.file(id).is_none());
+        assert!(db.file_id("c:/project/a b.kgr").is_none());
+        assert!(removed.revision() > retained.revision());
+        assert_eq!(retained.file(id).unwrap().text(), "changed");
+        assert_eq!(old.file(id).unwrap().text(), "disk");
+        db.remove("c:/project/a b.kgr").unwrap();
+        assert_eq!(db.snapshot().revision(), removed.revision());
+        let reopened = db
+            .set("c:/project/a b.kgr", "new".into(), SourceLayer::Overlay)
+            .unwrap();
+        assert_ne!(reopened, id);
+        assert_eq!(db.snapshot().file(reopened).unwrap().text(), "new");
     }
 
     #[test]

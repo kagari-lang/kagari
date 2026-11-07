@@ -508,7 +508,7 @@ separately proposed debug/DAP modes.
 ## Language server
 
 The [LSP design](lsp-design.md) owns LSP00-LSP08. Implementation through LSP04 is
-authorized on `feat/lsp`, with phase commits; LSP00 is accepted locally. Its full
+authorized on `feat/lsp`, with phase commits; LSP00-LSP01 are accepted locally. Its full
 feature inventory includes definition/declaration/type/implementation navigation,
 references, rename, symbols, completion, diagnostics, source edits, semantic
 presentation and workspace/client lifecycle. The LSP00-LSP04 pilot delivers five

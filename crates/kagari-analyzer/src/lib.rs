@@ -1,4 +1,6 @@
 //! Lattice-backed language-server composition and bounded verification entrypoints.
+#[cfg(any(test, feature = "verification"))]
+use crate::documents::verification as document_verification;
 #[cfg(feature = "verification")]
 use crate::protocol::verification as wire_verification;
 #[cfg(any(test, feature = "verification"))]
@@ -11,6 +13,7 @@ mod protocol;
 mod server;
 mod session;
 mod transport;
+mod workspace;
 
 #[cfg(test)]
 mod tests;
@@ -37,4 +40,11 @@ pub fn verify_wire(input: &[u8]) {
 #[cfg(any(test, feature = "verification"))]
 pub fn verify_session(input: &[u8]) {
     session_verification::check(input);
+}
+
+/// Replays bounded full-sync documents and coordinates against a plain-string model.
+/// Inputs over 64 KiB are skipped; invariant failures remain visible to replay and fuzzing.
+#[cfg(any(test, feature = "verification"))]
+pub fn verify_documents(input: &[u8]) {
+    document_verification::check(input);
 }

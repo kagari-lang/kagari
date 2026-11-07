@@ -13,8 +13,10 @@ use kagari_contract::{source::ExecutableOrigin, updates::BodyClassification};
 use kagari_hir::{analysis::AnalysisDatabase, program::CheckedProgram};
 use kagari_source::{
     package::{PackageEnvironment, PackageScope},
+    source::SourceFile,
     source_database::{CapturedSource, SourceDatabase, SourceLayer},
 };
+use std::sync::Arc;
 
 fn checked(text: &str) -> CheckedProgram {
     let mut sources = SourceDatabase::default();
@@ -158,19 +160,22 @@ fn equal_display_and_text_keep_distinct_module_origins_and_inline_coordinates() 
                     key: "host://a".into(),
                     display_name: "src/lib.kgr".into(),
                     module: a.clone(),
-                    text: shared.into(),
+                    source: Arc::new(SourceFile::new("src/lib.kgr", shared)),
                 },
                 CapturedSource {
                     key: "host://b".into(),
                     display_name: "src/lib.kgr".into(),
                     module: b.clone(),
-                    text: shared.into(),
+                    source: Arc::new(SourceFile::new("src/lib.kgr", shared)),
                 },
                 CapturedSource {
                     key: "host://root".into(),
                     display_name: "main.kgr".into(),
                     module: root.clone(),
-                    text: "fn main() -> i32 { a::value() + b::value() }".into(),
+                    source: Arc::new(SourceFile::new(
+                        "main.kgr",
+                        "fn main() -> i32 { a::value() + b::value() }",
+                    )),
                 },
             ],
             packages,

@@ -14,7 +14,7 @@ use kagari_package::{
     modules::{ModuleDiscovery, ModuleLimits},
     workspace::{MemberDiscovery, MemberSelection, WorkspaceInputs, WorkspaceLimits},
 };
-use kagari_source::{presentation::DiagnosticRecord, source::SourceFile};
+use kagari_source::presentation::DiagnosticRecord;
 use std::{collections::BTreeSet, env, io::Error, path::Path};
 
 pub(crate) fn run(args: &ProjectArgs, format: &FormatArgs) -> Result<(), CliError> {
@@ -107,11 +107,11 @@ fn project_into(
             }
             let path = input.root().join(relative);
             let result = CapturedFile::read(&path).and_then(|captured| {
-                if captured.text != source.text.as_ref() {
+                if captured.text != source.text() {
                     return Err(Error::other("source changed after module discovery"));
                 }
                 format_captured(
-                    SourceFile::new(&source.origin, source.text.as_ref()),
+                    source.source.as_ref().clone(),
                     Some(captured),
                     format.check,
                     options(format, &config.format),

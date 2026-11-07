@@ -1,0 +1,15 @@
+mod broken;
+
+mod missing;
+
+pub mod healthy;
+
+pub mod inline {
+    pub fn local() -> i32 {
+        2
+    }
+}
+
+pub fn run() -> i32 {
+    api::value() + healthy::value()
+}

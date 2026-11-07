@@ -187,7 +187,7 @@ fn local_body_edits_change_snapshots_without_changing_the_lock_or_retained_input
         .1;
     assert!(
         old_shared.tree().files["shared/src/lib.kgr"]
-            .text
+            .text()
             .contains("{ 1 }")
     );
     let error = graph

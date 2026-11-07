@@ -8,8 +8,9 @@ use lattice_actor::{
     traits::{Handler, Message},
 };
 use lsp_types::{
-    InitializeParams, InitializeResult, InitializedParams, PositionEncodingKind,
-    ServerCapabilities, ServerInfo, TextDocumentSyncKind, TextDocumentSyncOptions,
+    ExecuteCommandOptions, InitializeParams, InitializeResult, InitializedParams,
+    PositionEncodingKind, ServerCapabilities, ServerInfo, TextDocumentSyncKind,
+    TextDocumentSyncOptions,
 };
 use serde_json::{Value, from_value, to_value};
 use std::io::{self, Error};
@@ -47,13 +48,18 @@ impl Handler<InitializeRequested> for SessionActor {
                 "server is already initialized",
             );
         }
-        let params = from_value::<InitializeParams>(request.params);
-        if params.is_err() {
-            return self.reject(
-                serial,
-                ErrorCode::InvalidParams,
-                "invalid initialize parameters",
-            );
+        let params = match from_value::<InitializeParams>(request.params) {
+            Ok(params) => params,
+            Err(_) => {
+                return self.reject(
+                    serial,
+                    ErrorCode::InvalidParams,
+                    "invalid initialize parameters",
+                );
+            }
+        };
+        if let Err(error) = self.captures.configure(&params) {
+            return self.reject(serial, ErrorCode::InvalidParams, &error);
         }
         self.state = Lifecycle::AwaitInitialized;
         self.finish(serial, Ok(to_value(capabilities()).map_err(Error::other)?))
@@ -63,7 +69,7 @@ impl Handler<InitializeRequested> for SessionActor {
 impl Handler<Initialized> for SessionActor {
     async fn handle(
         &mut self,
-        _: &mut HandlerContext<'_, Self>,
+        ctx: &mut HandlerContext<'_, Self>,
         message: Initialized,
     ) -> io::Result<()> {
         if self.state == Lifecycle::AwaitInitialized
@@ -71,6 +77,7 @@ impl Handler<Initialized> for SessionActor {
         {
             self.state = Lifecycle::Running;
             self.timers.remove(Deadline::Initialize);
+            self.start_acquisition(ctx)?;
         }
         Ok(())
     }
@@ -97,6 +104,7 @@ impl Handler<ShutdownRequested> for SessionActor {
             );
         }
         self.state = Lifecycle::ShuttingDown;
+        self.captures.shutdown();
         for pending in self.requests.unresolved() {
             if pending != serial {
                 if let Some(token) = self.requests.token(pending) {
@@ -138,10 +146,15 @@ fn capabilities() -> InitializeResult {
                 TextDocumentSyncOptions {
                     open_close: Some(true),
                     change: Some(TextDocumentSyncKind::FULL),
+                    save: Some(true.into()),
                     ..Default::default()
                 }
                 .into(),
             ),
+            execute_command_provider: Some(ExecuteCommandOptions {
+                commands: vec!["kagari.reloadWorkspace".into()],
+                ..Default::default()
+            }),
             ..Default::default()
         },
         server_info: Some(ServerInfo {

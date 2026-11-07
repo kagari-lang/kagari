@@ -2418,7 +2418,7 @@ Ordinary reflection stays within declared metadata and member adapters.
 `--stdio`; `--tcp-connect ADDRESS` and `--tcp-listen ADDRESS` support a numeric
 loopback address and one session per process. `--version` reports its build. Stdout contains
 only LSP frames; logs/errors use stderr. It advertises UTF-16 positions and
-open/close/full-text synchronization, not diagnostics, semantic IDE queries,
+open/close/full-text synchronization and save/reload input triggers, not diagnostics, semantic IDE queries,
 formatting or editor server-launch integration. Syntax highlighting is a separate
 editor-grammar concern. The [editor guide](../editors/README.md) owns installation
 and validation scope; the [roadmap](implementation-roadmap.md#toolchain-distribution-and-modes)
@@ -2436,9 +2436,11 @@ bounded Content-Length frames and URIs; `documents` tracks original URI, languag
 ID and client version by source-owned FileId. Text, source revisions, overlays and
 retained snapshots remain in `kagari-source`. For example, opening an unsaved
 `untitled:Untitled-1` installs an overlay; a full change replaces its text without
-requiring valid syntax. Closing removes current content, retains the identity for
-reopen and leaves earlier snapshots readable. If a base was already retained,
-closing restores it instead. Document versions are independent of source revisions,
+requiring valid syntax. Closing retires the open document's metadata and identity;
+reopening has a new incarnation. Earlier snapshots remain readable. A dedicated
+acquisition worker owns disk/package inputs and restores current disk content on
+close; its context-local FileIds survive while the corresponding source keys remain
+present. Document versions are independent of source revisions,
 including when a notification leaves text unchanged.
 
 Only `kagari` documents are accepted. Invalid lifecycle requests return protocol
@@ -2449,9 +2451,21 @@ rejected. Non-file URI text is explicitly supplied, never disk-loaded, and retai
 opaque scheme-specific identity; source normalizes only the scheme's case.
 Single-letter prefixes are reserved for Windows drives, so analyzer rejects
 single-letter URI schemes explicitly. Source callers can use `./` to disambiguate
-URI-like relative paths. No project crawling, dependency loading or background
-analysis occurs. There is no second VFS, database, coordinate converter or IDE
-query implementation.
+URI-like relative paths. The acquisition worker discovers declared modules and
+workspace/dependency graphs through `kagari-package`, with all admitted overlays
+installed before reads. Initial workspace folders select isolated root contexts;
+non-file buffers use standalone inputs. Recovering tooling projections retain
+available files and errors while strict compilation still requires complete input.
+Structurally complete module declarations remain discoverable beside malformed
+bodies. Background semantic analysis follows in LSP02.
+
+Captured sources and open buffers share immutable source-owned text and line indexes.
+An opaque content identity lets input leases charge each live allocation once,
+including old captures retained by a consumer. Context and whole-capture clones
+retain those leases. The actor bounds open metadata as well as text, coalesces
+background acquisition and rejects stale generations; it neither reads disk nor
+executes package discovery. There is no second VFS, coordinate converter or IDE
+semantic implementation.
 
 ### Editor syntax adapters
 

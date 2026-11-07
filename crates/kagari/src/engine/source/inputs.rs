@@ -16,6 +16,7 @@ use kagari_hir::analysis::{AnalysisSnapshot, inputs::AnalysisInputs};
 use kagari_mir::passes::PassOptions;
 use kagari_source::{
     identity::FileId,
+    source::SourceFile,
     source_database::{CapturedSource, SourceDatabase, SourceSnapshot},
 };
 use std::{borrow::Cow, collections::BTreeSet, iter, sync::Arc};
@@ -305,7 +306,10 @@ fn capture_documents(
                 key: format!("capsule://document/{index}"),
                 display_name: copy_source_text(&document.name, cancel)?,
                 module: document.module.clone(),
-                text: copy_source_text(document.text, cancel)?,
+                source: Arc::new(SourceFile::new(
+                    document.name.as_ref(),
+                    copy_source_text(document.text, cancel)?,
+                )),
             })
         })
         .collect()
@@ -913,13 +917,19 @@ mod tests {
                         key: "host://app".into(),
                         display_name: "src/lib.kgr".into(),
                         module: root.clone(),
-                        text: "pub fn answer() -> i32 { rules::value() }".into(),
+                        source: Arc::new(SourceFile::new(
+                            "src/lib.kgr",
+                            "pub fn answer() -> i32 { rules::value() }",
+                        )),
                     },
                     CapturedSource {
                         key: "host://rules".into(),
                         display_name: "src/lib.kgr".into(),
                         module: dep,
-                        text: "pub fn value() -> i32 { 42 }".into(),
+                        source: Arc::new(SourceFile::new(
+                            "src/lib.kgr",
+                            "pub fn value() -> i32 { 42 }",
+                        )),
                     },
                 ],
                 packages,

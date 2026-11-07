@@ -214,7 +214,8 @@ impl<T: InputTree> Loader<'_, T> {
                 format!("manifest already loaded through {previous}"),
             ));
         }
-        let manifest = Manifest::parse(&source.origin, &source.text, self.discovery.cancel)?;
+        let manifest =
+            Manifest::parse(&source.origin, source.source.text(), self.discovery.cancel)?;
         let file = ManifestFile {
             origin: source.origin,
             manifest,

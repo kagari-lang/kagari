@@ -5,6 +5,7 @@ use crate::{
     path,
 };
 use kagari_common::cancellation::CancellationToken;
+use kagari_source::source::SourceFile;
 use std::{
     fs::{self, File},
     io::{self, ErrorKind, Read},
@@ -83,6 +84,55 @@ impl FilesystemSources {
         &self.root
     }
 
+    /// Resolves an input path even when its final components do not yet exist.
+    ///
+    /// Existing ancestors must be directories inside the approved root. Existing
+    /// symlinks, including dangling links, are never treated as absent components.
+    /// This validates an unsaved source's origin without creating files; the same
+    /// host-controlled concurrent-mutation assumption as `canonical_path` applies.
+    pub fn approved_path(&self, relative: &str) -> Result<PathBuf, PackageError> {
+        let relative = path::join("", relative, relative)?;
+        let requested = self.root.join(&relative);
+        let origin = requested.display().to_string();
+        let mut ancestor = requested.as_path();
+        let mut absent = Vec::new();
+        loop {
+            match fs::symlink_metadata(ancestor) {
+                Ok(_) => {
+                    let mut canonical = ancestor
+                        .canonicalize()
+                        .map_err(|error| PackageError::input(&origin, error.to_string()))?;
+                    if !canonical.starts_with(&self.root) {
+                        return Err(PackageError::input(
+                            &origin,
+                            "symlink escapes the approved input root",
+                        ));
+                    }
+                    if !absent.is_empty() && !canonical.is_dir() {
+                        return Err(PackageError::input(
+                            &origin,
+                            "input ancestor is not a directory",
+                        ));
+                    }
+                    for component in absent.iter().rev() {
+                        canonical.push(component);
+                    }
+                    return Ok(canonical);
+                }
+                Err(error) if error.kind() == ErrorKind::NotFound => {
+                    let component = ancestor.file_name().ok_or_else(|| {
+                        PackageError::input(&origin, "approved input root disappeared")
+                    })?;
+                    absent.push(component);
+                    ancestor = ancestor.parent().ok_or_else(|| {
+                        PackageError::input(&origin, "approved input root disappeared")
+                    })?;
+                }
+                Err(error) => return Err(PackageError::input(&origin, error.to_string())),
+            }
+        }
+    }
+
     /// Resolves one relative path under the approved root, preserving absence.
     pub fn canonical_path(&self, relative: &str) -> Result<Option<PathBuf>, PackageError> {
         let relative = path::join("", relative, relative)?;
@@ -145,9 +195,9 @@ impl SourceInput for FilesystemSources {
             .map_err(|error| PackageError::input(&origin, error.to_string()))?;
         cancel.check()?;
         Ok(Some(SourceText {
+            source: Arc::new(SourceFile::new(&origin, text)),
             key: origin.clone(),
             origin,
-            text: Arc::from(text),
         }))
     }
 }

@@ -1,0 +1,2 @@
+mod hidden;
+fn broken(

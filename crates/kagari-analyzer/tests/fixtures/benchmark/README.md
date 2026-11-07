@@ -86,3 +86,45 @@ Changing a fixture, recipe or expected answer must deliberately regenerate and
 review the frozen manifest. A mismatch fails before timing. Temporary generated
 inputs, process logs, images and reports stay under `target/`; only reproducible
 methods and interpreted evidence belong in tracked documentation.
+
+## Acquisition component observation
+
+LSP01 adds one ignored Rust measurement using the same frozen pilot, the actual
+bounded acquisition port and its dedicated worker. It measures submit-to-capture
+completion while alternating an unsaved dependency body's literal. Every result
+must contain the expected overlay, two isolated package contexts and twenty
+physical source files. This covers discovery, package scopes, source registration
+and retained origins; it does not measure HIR analysis, diagnostics or protocol
+readiness and does not create a production benchmark RPC.
+
+Prepare a fresh, hash-validated input directory and run from the repository root:
+
+```powershell
+$env:KAGARI_LSP_ACQUISITION_BENCH = Join-Path (Get-Location) ('target/lsp-acquisition-' + [guid]::NewGuid().ToString('N'))
+@'
+from pathlib import Path
+import hashlib, json, os, sys
+sys.path.insert(0, str(Path.cwd() / 'scripts'))
+from lsp_benchmark_inputs import materialize, object_digest
+root = Path(os.environ['KAGARI_LSP_ACQUISITION_BENCH'])
+value = materialize('pilot', root)
+for name, expected in value['file_sha256'].items():
+    assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected
+metadata = {'manifest_sha256': object_digest(value)}
+(root / 'measurement-manifest.json').write_text(json.dumps(metadata), encoding='utf-8')
+'@ | uv run python -
+if ($LASTEXITCODE -ne 0) { throw 'Frozen input preparation failed' }
+cargo test --locked -p kagari-analyzer --lib workspace::tests::benchmark::acquisition_frozen_pilot -- --ignored --nocapture
+```
+
+This command deliberately records the workspace test profile (development
+optimization), with build time excluded. Each of seven sequential groups owns a
+fresh worker/database, performs twenty warmups and reports nearest-rank p50/p95
+from two hundred captures. The OS file cache is warm after materialization; the
+first capture is only cold with respect to the worker's source databases. Report
+machine, toolchain, power policy and overlapping work alongside the JSON output.
+The maximum charged-input byte value samples completed captures, not in-flight
+peak memory, allocator usage or RSS. Worker shutdown must release all charged
+input leases. These initial component observations are not release performance
+gates or evidence of a speedup; later comparisons must keep profile, inputs and
+sampling consistent.

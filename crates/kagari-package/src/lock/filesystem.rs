@@ -25,7 +25,7 @@ impl Lockfile {
         let name = path::join(directory, LOCK_NAME, directory)?;
         input
             .read(&name, MAX_LOCK_BYTES, cancel)?
-            .map(|source| Self::parse(&source.origin, &source.text, cancel))
+            .map(|source| Self::parse(&source.origin, source.text(), cancel))
             .transpose()
     }
 

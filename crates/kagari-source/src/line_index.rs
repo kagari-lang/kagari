@@ -46,6 +46,10 @@ impl LineIndex {
         text.get(*self.starts.get(line)?..*self.ends.get(line)?)
     }
 
+    pub(crate) fn retained_bytes(&self) -> usize {
+        (self.starts.capacity() + self.ends.capacity()) * size_of::<usize>()
+    }
+
     pub fn position(
         &self,
         text: &str,

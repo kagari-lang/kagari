@@ -12,6 +12,7 @@ use kagari_common::{
 use kagari_source::{
     diagnostic::DiagnosticKind,
     package::{PackageEnvironment, PackageScope},
+    source::SourceFile,
     source_database::{CapturedSource, SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
@@ -360,7 +361,7 @@ fn package_visibility_covers_siblings_but_not_other_packages_or_public_reexports
             key: file.name().into(),
             display_name: file.name().into(),
             module: file.module_identity().clone(),
-            text: file.text().into(),
+            source: file.clone(),
         })
         .collect();
     let source = db
@@ -894,7 +895,7 @@ fn declared_source_aliases_cannot_shadow_installed_native_packages() {
             package: PackageId(name.into()),
             path: vec![],
         },
-        text: String::new(),
+        source: Arc::new(SourceFile::new(name, "")),
     });
     let packages = PackageEnvironment::new(
         [

@@ -3,7 +3,7 @@ use crate::{
     protocol::{Message as WireMessage, Notification, Request},
     session::{
         SessionActor,
-        inputs::{Changed, Closed, Opened},
+        inputs::{Changed, Closed, Opened, ReloadRequested, Saved, WatchedFilesChanged},
         lifecycle::{ExitRequested, InitializeRequested, Initialized, ShutdownRequested},
         requests_messages::{CancelRequested, ClientResponse, UnknownNotification, UnknownRequest},
     },
@@ -72,12 +72,15 @@ impl Router {
         };
         router.request("initialize", InitializeRequested);
         router.request("shutdown", ShutdownRequested);
+        router.request("workspace/executeCommand", ReloadRequested);
         router.notification("initialized", Initialized);
         router.notification("exit", ExitRequested);
         router.notification("$/cancelRequest", CancelRequested);
         router.notification("textDocument/didOpen", Opened);
         router.notification("textDocument/didChange", Changed);
         router.notification("textDocument/didClose", Closed);
+        router.notification("textDocument/didSave", Saved);
+        router.notification("workspace/didChangeWatchedFiles", WatchedFilesChanged);
         router
     }
 

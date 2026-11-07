@@ -1,0 +1,3 @@
+[workspace]
+namespace = "analyzer/actor"
+members = ["app", "api"]

@@ -1,5 +1,6 @@
 //! Single owner of protocol state; Lattice dispatches concrete feature messages.
 use std::io::Error;
+pub(crate) mod capture;
 pub(crate) mod inputs;
 pub(crate) mod lifecycle;
 pub(crate) mod outbox;
@@ -19,6 +20,7 @@ use crate::{
         options::{Endpoint, SessionLimits},
     },
     session::{
+        capture::CaptureState,
         outbox::{Outbox, WriteFrame},
         requests::{AdmissionError, Requests},
         timers::{Deadline, Timers},
@@ -57,6 +59,7 @@ pub(crate) struct SessionActor {
     endpoint: Option<Endpoint>,
     pub state: Lifecycle,
     pub documents: Documents,
+    pub captures: CaptureState,
     pub limits: SessionLimits,
     pub requests: Requests,
     pub outbox: Outbox,
@@ -97,6 +100,7 @@ impl SessionActor {
             endpoint: Some(endpoint),
             state: Lifecycle::AwaitInitialize,
             documents,
+            captures: CaptureState::new(root.to_owned(), limits.retained_input_bytes),
             requests: Requests::new(limits.requests),
             outbox: Outbox::new(limits.clone()),
             budget: IngressBudget::new(&limits),
@@ -207,6 +211,7 @@ impl SessionActor {
         self.state = Lifecycle::Stopping;
         self.budget.close();
         self.stop.send_replace(true);
+        self.captures.shutdown();
         for serial in self.requests.unresolved() {
             if let Some(token) = self.requests.token(serial) {
                 token.cancel();
@@ -227,6 +232,7 @@ impl SessionActor {
         if self.state == Lifecycle::Stopping {
             return Ok(());
         }
+        self.schedule_capture(ctx)?;
         if self.writer_ready
             && let Some(frame) = self.outbox.grant()
         {
@@ -236,7 +242,11 @@ impl SessionActor {
                 .try_send(frame)
                 .map_err(|_| Error::other("writer credit invariant violated"))?;
         }
-        if self.exit_received && self.shutdown_written && self.outbox.is_empty() {
+        if self.exit_received
+            && self.shutdown_written
+            && self.outbox.is_empty()
+            && self.captures.is_idle()
+        {
             self.status.store(0, Ordering::Release);
             self.stop(ctx);
         }

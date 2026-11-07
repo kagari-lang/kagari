@@ -3,40 +3,14 @@ use crate::server::{
     options::{Endpoint, SessionLimits},
     run_endpoint,
 };
+use crate::tests::peer::{read, send};
 use serde_json::{Value, json};
 use std::{process::ExitCode, thread, time::Duration};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex},
+    io::{AsyncReadExt, duplex},
     runtime::Builder,
     time::timeout,
 };
-
-async fn send(peer: &mut DuplexStream, message: Value) {
-    let body = serde_json::to_vec(&message).unwrap();
-    peer.write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
-        .await
-        .unwrap();
-    peer.write_all(&body).await.unwrap();
-}
-
-async fn read(peer: &mut DuplexStream) -> Value {
-    let mut header = Vec::new();
-    while !header.ends_with(b"\r\n\r\n") {
-        assert!(header.len() < 1024);
-        header.push(peer.read_u8().await.unwrap());
-    }
-    let header = String::from_utf8(header).unwrap();
-    let length: usize = header
-        .strip_prefix("Content-Length: ")
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
-    assert!(length <= 8192);
-    let mut body = vec![0; length];
-    peer.read_exact(&mut body).await.unwrap();
-    serde_json::from_slice(&body).unwrap()
-}
 
 #[test]
 fn real_actor_drains_pipelined_shutdown_and_exit_without_client_eof() {

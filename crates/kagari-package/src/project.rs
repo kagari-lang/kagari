@@ -9,6 +9,7 @@ use crate::{
     modules::ModuleLimits,
     path,
     snapshot::{ProgramCapture, ProgramInputs},
+    tooling::ToolingInputs,
     workspace::{MemberSelection, WorkspaceInputs},
 };
 use kagari_common::cancellation::CancellationToken;
@@ -51,6 +52,16 @@ pub struct ProjectDiscovery {
 }
 
 impl ProjectDiscovery {
+    /// Projects one captured member for editor analysis without granting compile admission.
+    /// Physical origins and available text remain paired with this resolved graph.
+    pub fn tooling_inputs(
+        &self,
+        member: &str,
+        cancel: &CancellationToken,
+    ) -> Result<ToolingInputs, PackageError> {
+        ToolingInputs::from_project(self, member, cancel)
+    }
+
     pub fn is_complete(&self) -> bool {
         self.roots.values().all(|root| root.program.is_some())
     }

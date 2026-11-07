@@ -1,0 +1,5 @@
+pub mod added;
+
+pub fn value() -> i32 {
+    added::value()
+}

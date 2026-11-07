@@ -19,6 +19,10 @@ pub(crate) struct SessionLimits {
     pub ingress_bytes: usize,
     pub open_file_bytes: usize,
     pub open_total_bytes: usize,
+    pub open_documents: usize,
+    pub document_uri_bytes: usize,
+    pub document_metadata_bytes: usize,
+    pub retained_input_bytes: usize,
     pub requests: usize,
     pub outbox_count: usize,
     pub outbox_bytes: usize,
@@ -36,6 +40,10 @@ impl Default for SessionLimits {
             ingress_bytes: 64 * 1024 * 1024,
             open_file_bytes: 4 * 1024 * 1024,
             open_total_bytes: 64 * 1024 * 1024,
+            open_documents: 1024,
+            document_uri_bytes: 8 * 1024,
+            document_metadata_bytes: 256 * 1024,
+            retained_input_bytes: 256 * 1024 * 1024,
             requests: 64,
             outbox_count: 128,
             outbox_bytes: 64 * 1024 * 1024,
@@ -54,6 +62,10 @@ impl SessionLimits {
             || self.ingress_bytes < 32 * 1024 * 1024
             || self.ingress_bytes > u32::MAX as usize
             || self.open_file_bytes > self.open_total_bytes
+            || self.open_documents == 0
+            || self.document_uri_bytes == 0
+            || self.document_metadata_bytes < self.document_uri_bytes
+            || self.retained_input_bytes == 0
             || self.requests == 0
             || self.outbox_count < self.requests + 8
             || self.outbox_bytes < self.result_bytes + (self.requests + 8) * 4096

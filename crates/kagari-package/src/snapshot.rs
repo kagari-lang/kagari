@@ -1,3 +1,5 @@
+pub(crate) mod registration;
+
 use crate::{
     error::PackageError,
     graph::{PackageSource, ResolvedGraph},
@@ -9,8 +11,8 @@ use crate::{
 use blake3::Hasher;
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use kagari_source::{
-    package::{PackageEnvironment, PackageScope},
-    source_database::{CapturedSource, SourceDatabase, SourceSnapshot},
+    package::PackageEnvironment,
+    source_database::{SourceDatabase, SourceSnapshot},
 };
 use std::collections::BTreeMap;
 
@@ -83,49 +85,28 @@ impl ProgramInputs {
         for (selection, package) in &self.packages {
             cancel.check()?;
             let id = selection.family.package_id();
-            let mut hash = Hasher::new_derive_key("kagari selected package input v1");
-            hash_selection(&mut hash, selection);
             scopes.insert(
                 id.clone(),
-                PackageScope {
-                    dependencies: package
-                        .dependencies
-                        .iter()
-                        .map(|(alias, selection)| (alias.clone(), selection.family.package_id()))
-                        .collect(),
-                    selection: hash.finalize().to_hex().to_string(),
-                },
+                registration::scope(selection, &package.dependencies),
             );
             for (module, location) in &package.tree.modules {
                 cancel.check()?;
                 if location.inline_range.is_some() {
                     continue;
                 }
-                let name = format!("package://{}/{}", id.0, module.join("/"));
-                let name = format!("{name}/source.kgr");
                 let file = &package.tree.files[&location.file];
-                captured.push(CapturedSource {
-                    key: name,
-                    module: ModuleIdentity {
+                captured.push(registration::source(
+                    ModuleIdentity {
                         package: id.clone(),
                         path: module.clone(),
                     },
-                    text: file.text.to_string(),
-                    display_name: file.origin.clone(),
-                });
+                    file,
+                ));
             }
         }
         let environment = PackageEnvironment::new(scopes)
             .map_err(|message| PackageError::input("package environment", message))?;
-        sources
-            .replace_captured(captured, environment, cancel)
-            .map_err(|message| {
-                if cancel.check().is_err() {
-                    PackageError::Cancelled
-                } else {
-                    PackageError::input("package sources", message)
-                }
-            })
+        registration::commit(sources, captured, environment, cancel)
     }
 
     pub fn root(&self) -> &PackageSelection {
@@ -199,7 +180,7 @@ impl ResolvedGraph {
                 discovery
                     .files()
                     .values()
-                    .map(|source| source.text.len())
+                    .map(|source| source.text().len())
                     .sum::<usize>(),
             );
             let tree = discovery.clone().into_complete();
@@ -230,8 +211,8 @@ impl ResolvedGraph {
             for (file, source) in &tree.files {
                 cancel.check()?;
                 hash_field(&mut content, path::relative(directory, file).as_bytes());
-                content.update(&(source.text.len() as u64).to_le_bytes());
-                for chunk in source.text.as_bytes().chunks(64 * 1024) {
+                content.update(&(source.text().len() as u64).to_le_bytes());
+                for chunk in source.text().as_bytes().chunks(64 * 1024) {
                     cancel.check()?;
                     content.update(chunk);
                 }

@@ -4,7 +4,12 @@ use crate::{error::PackageError, path};
 use kagari_common::{cancellation::CancellationToken, identity::MAX_IDENTITY_PATH_SEGMENTS};
 use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
 use kagari_syntax::{
-    ast::{borrow::Ast, item::ModuleDef, views::ItemView},
+    ast::{
+        borrow::Ast,
+        item::{ModuleDef, ModuleForm},
+        site::Required,
+        views::ItemView,
+    },
     parser::{ParseOptions, parse},
 };
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
@@ -16,7 +21,14 @@ pub struct SourceText {
     pub key: String,
     /// Display origin used by diagnostics; not a portable package identity.
     pub origin: String,
-    pub text: Arc<str>,
+    pub source: Arc<SourceFile>,
+}
+
+impl SourceText {
+    /// Source-owned bytes and coordinates are shared across discovery and capture.
+    pub fn text(&self) -> &str {
+        self.source.text()
+    }
 }
 
 /// Reads relative source paths within a caller-approved input root.
@@ -36,7 +48,7 @@ pub trait SourceInput {
 /// Host-owned source collection with canonical, relative, slash-separated keys.
 #[derive(Debug, Clone, Default)]
 pub struct VirtualSources {
-    pub(crate) files: BTreeMap<String, Arc<str>>,
+    pub(crate) files: BTreeMap<String, Arc<SourceFile>>,
 }
 
 impl VirtualSources {
@@ -49,7 +61,11 @@ impl VirtualSources {
         for (name, text) in files {
             cancel.check()?;
             let key = path::join("", &name, &name)?;
-            if key.is_empty() || result.insert(key, text).is_some() {
+            if key.is_empty()
+                || result
+                    .insert(key.clone(), Arc::new(SourceFile::new(&key, text.as_ref())))
+                    .is_some()
+            {
                 return Err(PackageError::input(
                     &name,
                     "empty or duplicate normalized source path",
@@ -73,13 +89,13 @@ impl SourceInput for VirtualSources {
         let Some(text) = self.files.get(&key) else {
             return Ok(None);
         };
-        if text.len() > max_bytes {
+        if text.text().len() > max_bytes {
             return Err(PackageError::input(path, "source exceeds byte limit"));
         }
         Ok(Some(SourceText {
             origin: key.clone(),
             key,
-            text: text.clone(),
+            source: text.clone(),
         }))
     }
 }
@@ -171,7 +187,8 @@ impl ModuleDiscovery {
     }
 
     /// Reads declared modules while retaining independent siblings after local failures.
-    /// Syntax-invalid files retain their text but do not authorize child discovery.
+    /// Syntax-invalid files retain text and structurally complete module declarations.
+    /// Damaged declarations do not authorize reads for guessed children.
     /// Cancellation is returned immediately; no partial result is published for it.
     pub fn load(
         input: &impl SourceInput,
@@ -280,23 +297,22 @@ impl<T: SourceInput> Loader<'_, T> {
             ));
         }
         // Enforce the bounds even when a host provider violates its read contract.
-        if source.text.len() > self.limits.max_file_bytes
-            || source.text.len() > self.limits.max_total_bytes.saturating_sub(self.total_bytes)
+        if source.text().len() > self.limits.max_file_bytes
+            || source.text().len() > self.limits.max_total_bytes.saturating_sub(self.total_bytes)
         {
             return Err(PackageError::input(
                 &source.origin,
                 "source exceeds byte limit",
             ));
         }
-        self.total_bytes += source.text.len();
-        let captured = SourceFile::new(&source.origin, source.text.as_ref());
+        self.total_bytes += source.text().len();
+        let captured = source.source.as_ref().clone();
         self.discovery.tree.files.insert(file.into(), source);
         let parsed = parse(&captured, ParseOptions::default(), self.cancel)?;
         if !parsed.diagnostics().is_empty() {
             self.discovery
                 .diagnostics
                 .push((captured, parsed.diagnostics().to_vec()));
-            return Ok(());
         }
         self.items(parsed.module().items(), &module, file, directory)
     }
@@ -337,6 +353,11 @@ impl<T: SourceInput> Loader<'_, T> {
         file: &str,
         directory: &str,
     ) -> Result<(), PackageError> {
+        if declaration.data().keyword.as_ref().is_none()
+            || declaration.unexpected().next().is_some()
+        {
+            return Err(PackageError::input(file, "incomplete module declaration"));
+        }
         let name = declaration
             .name_text()
             .ok_or_else(|| PackageError::input(file, "module name missing"))?;
@@ -344,6 +365,15 @@ impl<T: SourceInput> Loader<'_, T> {
         module.push(name.clone());
         let child_directory = path::join(directory, &name, file)?;
         if let Some(block) = declaration.body() {
+            let body = block.body();
+            if body.data().open.is_none()
+                || !matches!(body.data().close, Some(Required::Present(_)))
+            {
+                return Err(PackageError::input(
+                    file,
+                    "incomplete inline module delimiters",
+                ));
+            }
             let range = declaration.body_span();
             self.register(
                 module.clone(),
@@ -353,7 +383,7 @@ impl<T: SourceInput> Loader<'_, T> {
                 },
             )?;
             self.items(block.items(), &module, file, &child_directory)?;
-        } else {
+        } else if matches!(declaration.data().form, ModuleForm::External(_)) {
             let flat = format!("{child_directory}.kgr");
             let nested = format!("{child_directory}/mod.kgr");
             match (self.read(&flat)?, self.read(&nested)?) {
@@ -372,6 +402,8 @@ impl<T: SourceInput> Loader<'_, T> {
                     ));
                 }
             }
+        } else {
+            return Err(PackageError::input(file, "incomplete module declaration"));
         }
         Ok(())
     }

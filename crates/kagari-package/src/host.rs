@@ -85,8 +85,8 @@ impl HostPackage {
         for (name, text) in &sources.files {
             cancel.check()?;
             hash_field(&mut hash, name.as_bytes());
-            hash.update(&(text.len() as u64).to_le_bytes());
-            for chunk in text.as_bytes().chunks(64 * 1024) {
+            hash.update(&(text.text().len() as u64).to_le_bytes());
+            for chunk in text.text().as_bytes().chunks(64 * 1024) {
                 cancel.check()?;
                 hash.update(chunk);
             }

@@ -1,7 +1,7 @@
 # Kagari language server design
 
 Status: implementation authorized through LSP04 on 2026-11-07, with a commit at
-each accepted phase. LSP00 is accepted locally; LSP01-LSP04 follow on the same
+each accepted phase. LSP00-LSP01 are accepted locally; LSP02-LSP04 follow on the same
 `feat/lsp` branch. Later phases remain queued. The Lattice transport foundation
 replaces the original synchronous stdio scaffold; semantic features are not yet
 advertised. This document owns the proposed LSP scope,
@@ -2646,7 +2646,7 @@ runtime GC and reload ownership are unchanged by the analyzer's Tokio executor.
 
 ## Implementation sequence and acceptance
 
-LSP00 is accepted locally. Update this document at each checkpoint; do not create a
+LSP00-LSP01 are accepted locally. Update this document at each checkpoint; do not create a
 parallel LSP plan. Each phase must build at its boundary, and only accepted features
 are advertised. No intermediate broken-build allowance is proposed.
 
@@ -2686,6 +2686,68 @@ Reuse passing evidence for unchanged images/contracts. Each row requires its
 listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
+
+LSP01 adds a dedicated synchronous acquisition worker, one active job/typed result,
+and generation-checked actor publication. Initial workspace folders (with rootUri
+fallback), save, watched files and `kagari.reloadWorkspace` trigger capture. The
+reload command acknowledges scheduling; semantic requests acquire retained input
+barriers in the following phases. All open buffers participate before dependency
+and module reads, including newly created unsaved modules. Context keys include
+workspace, selected package root and a retirement epoch. Conflicting physical
+aliases and unavailable project inputs cannot silently fall back to disk semantics.
+
+The input boundary required one coherent source-model refinement: package
+`SourceText` and source `CapturedSource` retain immutable `SourceFile` content rather
+than copying strings and rebuilding line indexes. Source identity rebinding shares
+that content. The bounded input registry charges each live content allocation once;
+request, context and whole-capture leases keep it charged until the last consumer
+releases it. SDK/compiler/HIR/CLI callers use the same registration path. Open
+documents retire their physical identity on close; source snapshots remain valid,
+and acquisition context identities are independent. Limits include 1,024 open
+documents, 8 KiB per URI, 256 KiB total document metadata, 32 initial roots and
+256 MiB retained source input. Exhausted metadata cannot represent a new buffer
+safely, so the session fails explicitly; text overflow remains recoverable on the
+next valid full update.
+
+Tooling recovery now keeps a valid `mod healthy;` beside an unfinished function,
+but never discovers a `mod uncertain` lacking its required terminator/body. Strict
+package compilation still rejects the incomplete root. This is a package/source
+contract correction, not an analyzer parser or alternate resolver.
+
+Selected LSP01 checks cover shared-content transaction rejection and old snapshots,
+overlay removal, package recovery and path boundaries, strict dependency capture,
+HIR package/native identity, compiler inline/physical identity and SDK snapshot
+replay. Real-actor T1 covers two roots, unsaved dependencies/new modules,
+close/create/delete/watch, custom URIs and explicit metadata-exhaustion termination.
+The document owner and FZ03 replay cover independent UTF-16/string models,
+incarnations and bounded recovery. Five acquisition-owner tests include actual
+Windows junction alias conflict/recovery and approved-root escape rejection; the
+alias test exposed and corrected nearest-manifest discovery using a lexical alias
+instead of its approved canonical relative path. The three real-process stdio,
+TCP-connect and TCP-listen lifecycle cases pass in 0.12 s. Structure, format,
+workspace all-target Clippy and diff checks pass; no build failures are carried.
+
+FZ03's Windows ASan campaign completed 42,551 inputs in 61 s without a finding
+(seed 3516736307, reported peak RSS 545 MiB). The three curated seeds plus a fresh
+generated corpus exercise the independent text/UTF-16 model. Toolchain, machine,
+worker/input/time/RSS limits match the LSP00 sanitizer environment below; source
+owner hashes were unchanged before/after. Compilation is excluded and concurrent
+builds prevent throughput comparison. This is bounded evidence, not exhaustive
+state-space coverage.
+
+The B01/B03 acquisition component uses the same frozen pilot: seven fresh worker
+groups, 20 warmups then 200 alternating unsaved-dependency captures each. It asserts
+two contexts, 20 distinct physical files and exact overlay bytes before accepting
+timings. Fresh-worker captures range 21.4242-25.5182 ms (median 22.3515 ms); the
+median group p50 is 22.1111 ms, and group p95 values range 25.0456-36.2929 ms
+(median 25.3362 ms). Maximum charged source bytes sampled at completion are
+448,085, not an in-flight peak or RSS measurement. Every worker releases its
+charges on termination. Environment: Windows 11 Pro 26300, i9-12900K/24 logical
+CPUs, rustc 1.99.1 (58cf8f9c3), workspace test profile with debug assertions,
+default features/build parallelism, one worker per sequential group, warm OS file
+cache, power mode unreported; build cost excluded. This component baseline excludes
+HIR, wire transport and diagnostic readiness and makes no speedup claim. Its
+reproduction commands live in the [benchmark input guide](../crates/kagari-analyzer/tests/fixtures/benchmark/README.md).
 
 LSP00 replaces `lsp-server` with the pinned Lattice runtime, typed method
 registration and concrete handlers, a shared bounded codec, async loopback TCP

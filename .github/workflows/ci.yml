@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [lsp_wire, lsp_session]
+        target: [lsp_wire, lsp_session, lsp_documents]
 
     steps:
       - name: Checkout

@@ -18,6 +18,12 @@ struct SourceContent {
     lines: LineIndex,
 }
 
+/// Identity of one live immutable text/index allocation, for retained-input budgets.
+/// Retain a `SourceFile` lease while using this key: released allocation addresses
+/// may be reused. It is neither a persistent source identity nor a revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SourceContentId(usize);
+
 #[derive(Debug, Clone)]
 pub struct SourceFile {
     id: FileId,
@@ -60,6 +66,17 @@ impl SourceFile {
 
     pub fn text(&self) -> &str {
         &self.content.text
+    }
+
+    pub fn content_id(&self) -> SourceContentId {
+        SourceContentId(Arc::as_ptr(&self.content) as usize)
+    }
+
+    /// Bytes retained by the shared text/index owner, excluding source wrapper metadata.
+    pub fn retained_bytes(&self) -> usize {
+        size_of::<SourceContent>()
+            + self.content.text.capacity()
+            + self.content.lines.retained_bytes()
     }
 
     /// Returns one physical line without its delimiter, using the position index.
@@ -189,17 +206,32 @@ impl SourceFile {
             .offset(&self.content.text, position, encoding)
     }
 
-    pub(crate) fn with_identity(
-        mut self,
-        id: FileId,
-        revision: Revision,
-        module: ModuleIdentity,
-    ) -> Self {
+    fn with_identity(mut self, id: FileId, revision: Revision, module: ModuleIdentity) -> Self {
         self.id = id;
         self.origin = id;
         self.revision = revision;
         self.module = module;
         self
+    }
+
+    /// Captures own physical text; copied and inline views carry different origin rules.
+    pub(crate) fn validate_capture(&self) -> Result<(), &'static str> {
+        if self.id != self.origin || self.inline_range.is_some() || !self.copies.is_empty() {
+            return Err("captured source must be physical text without inline or copied origins");
+        }
+        Ok(())
+    }
+
+    pub(crate) fn captured_as(
+        &self,
+        name: &str,
+        id: FileId,
+        revision: Revision,
+        module: ModuleIdentity,
+    ) -> Self {
+        let mut captured = self.clone().with_identity(id, revision, module);
+        captured.name = name.to_owned();
+        captured
     }
 }
 

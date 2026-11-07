@@ -28,3 +28,8 @@ fn replay_lsp_wire_seeds() {
 fn replay_lsp_session_seeds() {
     replay("lsp_session", kagari_analyzer::verify_session);
 }
+
+#[test]
+fn replay_lsp_documents_seeds() {
+    replay("lsp_documents", kagari_analyzer::verify_documents);
+}

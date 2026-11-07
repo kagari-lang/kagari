@@ -583,6 +583,7 @@ name = "kagari-analyzer"
 version = "0.1.0"
 dependencies = [
  "kagari-common",
+ "kagari-package",
  "kagari-source",
  "lattice-actor",
  "lsp-types",
