@@ -1,12 +1,6 @@
 //! Analyze native declaration views normally, then attach checked registration metadata.
 mod access;
-#[cfg(test)]
-mod tests;
 
-#[cfg(test)]
-mod host_tests;
-#[cfg(test)]
-mod reference_tests;
 use crate::{
     hir::{ids::FunctionId, item::function::FunctionKind, ty::TypeKind},
     lower::{LoweredModule, lower_module_controlled},
@@ -456,3 +450,6 @@ fn attach_dependencies(
         .collect();
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

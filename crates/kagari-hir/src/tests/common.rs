@@ -5,10 +5,11 @@ use crate::{
     hir::ids::BodySelection,
     lower::{LoweredModule, lower_module_controlled},
     resolver::resolved::{DeclarationNames, ResolvedNames},
+    semantic::body::ModuleFacts,
     typeck::{
-        BodyInputs, TypedModule,
+        BodyInputs,
         applications::validate_signatures,
-        check::{check_bodies_controlled, check_signatures},
+        check::{check_bodies_controlled, check_signatures, prepare_body_signatures},
         definition_registration,
         reuse::BodyReuse,
     },
@@ -55,7 +56,7 @@ pub fn check_module(
     lowered: &LoweredModule,
     names: &ResolvedNames,
     reuse: Option<&BodyReuse<'_>>,
-) -> AnalysisResult<TypedModule> {
+) -> AnalysisResult<ModuleFacts> {
     let names = names.clone();
     let mut declarations = Declarations::collect_named(
         &lowered.source,
@@ -70,7 +71,7 @@ pub fn check_module(
     )
     .unwrap()
     .with_bindings(lowered, &names, &Default::default());
-    let mut signatures = check_signatures(lowered, &declarations, &Default::default());
+    let mut signatures = check_signatures(lowered, &declarations, &Default::default()).unwrap();
     let definitions = definition_registration::implementation_members(
         lowered,
         &declarations,
@@ -106,6 +107,13 @@ pub fn check_module(
             const_limits: Default::default(),
             selection: BodySelection::All,
             signatures: &signatures,
+            body_signatures: &prepare_body_signatures(
+                signatures.facts(),
+                &declarations,
+                &aggregates,
+                &Default::default(),
+            )
+            .unwrap(),
             imported_functions: &Default::default(),
             imported_statics: &Default::default(),
             imported_constants: &Default::default(),
@@ -115,6 +123,7 @@ pub fn check_module(
         reuse,
         &Default::default(),
     )
+    .unwrap()
 }
 
 /// Import checked semantic facts into a test-owned comparison scope. Source-local

@@ -3,10 +3,11 @@ use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     aggregates::AggregateCatalog,
     analysis::{
-        error::AnalysisError, signature_queries::BodyEnvironment, source_preparation::ParsedModule,
+        error::AnalysisError, signatures::BodyEnvironment, source_preparation::ParsedModule,
     },
     analyze_parsed, declare_analysis,
     lower::lower_module_controlled,
+    typeck::check::prepare_body_signatures,
 };
 use kagari_syntax::{
     ast::module::ModuleSyntax,
@@ -82,6 +83,12 @@ pub(crate) fn recover_invalid_identity(
             &cancel,
         )
         .expect("uncancelled recovery signatures");
+    let body_signatures = prepare_body_signatures(
+        prepared.signatures.facts(),
+        &prepared.declarations,
+        &aggregates,
+        &cancel,
+    )?;
     Ok(analyze_parsed(
         prepared,
         &ParsedModule::root(parsed),
@@ -90,6 +97,7 @@ pub(crate) fn recover_invalid_identity(
             max_semantic_diagnostics: super::DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
         },
         BodyEnvironment {
+            signatures: body_signatures,
             imported_functions: Default::default(),
             imported_statics: Default::default(),
             imported_constants: Default::default(),
@@ -98,5 +106,5 @@ pub(crate) fn recover_invalid_identity(
         },
         None,
         &cancel,
-    ))
+    )?)
 }

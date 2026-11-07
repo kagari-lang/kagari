@@ -10,7 +10,7 @@ use crate::{
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::{ModuleIdentity, PackageId, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{RuntimeConfig, error::RuntimeErrorKind, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -43,7 +43,11 @@ fn fixture(dependency_source: &str) -> DefinitionMetadata<BytecodeProgram> {
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     lower_program_to_bytecode(&ir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap()

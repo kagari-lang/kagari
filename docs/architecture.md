@@ -76,7 +76,9 @@ configuration and output behavior. Ownership follows the existing source pipelin
 `check` method requires an error-free closure, while optional lint consumes the
 same snapshot, including eligible facts from a partially erroneous program. Neither
 step reparses or type-checks a second time. Changing lint levels does not change
-analysis inputs. Compilation still requires `CheckedModule`/`CheckedProgram`.
+analysis inputs. The SDK retains a checked program; source compilation admits its
+complete dependency closure as `CheckedCompilation`, expands short-lived checked
+bodies, plans instances and builds MIR. See the [HIR handoff](architecture/hir.md#checked-handoff-and-registered-inputs).
 The SDK, HIR and runtime have no production dependency on the lint/format crates.
 
 `ModuleDiscovery` and `ProjectDiscovery` retain acquisition diagnostics and
@@ -490,7 +492,7 @@ shared-application, interface and layout requests, and drains only pending work.
 Single-module lowering uses the same lifecycle; there is no whole-module rebuild
 fallback, process-global cache or separate generic implementation.
 
-[Module lowering](../crates/kagari-compiler/src/source/lower/mod.rs) separates owned
+[Module lowering](../crates/kagari-compiler/src/source/lower.rs) separates owned
 instance/layout/bridge state from short-lived contexts borrowing the shared checked
 catalog, module lookup and bridge identities. Source origin and output placement
 remain distinct. Layout discovery retains visited types, binder scope and input

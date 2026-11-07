@@ -11,6 +11,7 @@ use crate::{
         pattern::PatternKind,
         place::PlaceKind,
         stmt::StmtKind,
+        writeability::Writeability,
     },
     imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog},
     resolver::{
@@ -80,7 +81,7 @@ impl<'a> BodyResolver<'a> {
     pub(crate) fn resolve_function(
         &mut self,
         function: FunctionId,
-        params: impl Iterator<Item = (&'a str, ParamId)>,
+        params: impl Iterator<Item = (&'a str, ParamId, Writeability)>,
         body: BlockId,
     ) {
         assert_eq!(
@@ -94,8 +95,8 @@ impl<'a> BodyResolver<'a> {
             self.source_map.function_span(function),
             BodyOwner::Function(function),
         );
-        for (name, id) in params {
-            self.bind_name(name, ResolvedName::Param(id), span.start);
+        for (name, id, writeability) in params {
+            self.bind_name(name, ResolvedName::Param(id), span.start, writeability);
         }
         self.resolve_block(body);
         self.pop_scope();
@@ -128,6 +129,7 @@ impl<'a> BodyResolver<'a> {
                     &function.name,
                     ResolvedName::Function(id),
                     self.source_map.block_span(block_id).start,
+                    Writeability::Val,
                 );
             }
         }
@@ -153,6 +155,7 @@ impl<'a> BodyResolver<'a> {
             StmtKind::Binding {
                 pattern,
                 initializer,
+                writeability,
                 ..
             } => {
                 self.resolve_expr(*initializer);
@@ -160,7 +163,7 @@ impl<'a> BodyResolver<'a> {
                 let start = self.source_map.stmt_span(stmt_id).end;
                 for (local, name) in self.module.body.pattern_bindings(*pattern) {
                     if !name.is_empty() && name != "<missing>" {
-                        self.bind_name(name, ResolvedName::Local(local), start);
+                        self.bind_name(name, ResolvedName::Local(local), start, *writeability);
                     }
                 }
             }
@@ -363,6 +366,7 @@ impl<'a> BodyResolver<'a> {
                 &param.name,
                 ResolvedName::Local(param.local),
                 self.source_map.expr_span(body).start,
+                Writeability::Val,
             );
         }
         self.resolve_expr(body);
@@ -428,7 +432,7 @@ impl<'a> BodyResolver<'a> {
                 }
                 let name = name.clone();
                 let local = *local;
-                self.bind_name(&name, ResolvedName::Local(local), start);
+                self.bind_name(&name, ResolvedName::Local(local), start, Writeability::Val);
             }
             PatternKind::Tuple(elements) => {
                 let elements = elements.clone();
@@ -528,7 +532,13 @@ impl<'a> BodyResolver<'a> {
     }
 
     /// Records a parameter/local binding and its visibility start, retaining shadowed history.
-    fn bind_name(&mut self, name: &str, resolved: ResolvedName, visible_from: usize) {
+    fn bind_name(
+        &mut self,
+        name: &str,
+        resolved: ResolvedName,
+        visible_from: usize,
+        writeability: Writeability,
+    ) {
         match resolved {
             ResolvedName::Param(id) => self.assert_current_owner(id.owner()),
             ResolvedName::Local(id) => self.assert_current_owner(id.owner()),
@@ -536,13 +546,16 @@ impl<'a> BodyResolver<'a> {
             _ => unreachable!("only lexical declarations enter a body scope"),
         }
         if let Some(scope) = self.scopes.last_mut() {
-            let bindings = &mut self.resolved.scopes[scope.id].bindings;
-            scope.latest.insert(name.to_owned(), bindings.len());
-            bindings.push(ScopeBinding {
-                name: name.to_owned(),
-                resolved,
-                visible_from,
-            });
+            let row = self.resolved.insert_scope_binding(
+                scope.id,
+                ScopeBinding {
+                    name: name.to_owned(),
+                    resolved,
+                    visible_from,
+                    writeability,
+                },
+            );
+            scope.latest.insert(name.to_owned(), row);
         }
     }
 

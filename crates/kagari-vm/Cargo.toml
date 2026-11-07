@@ -1,4 +1,6 @@
 [package]
+# Test helpers use named modules; only the targets below are standalone tests.
+autotests = false
 name = "kagari-vm"
 version.workspace = true
 edition.workspace = true
@@ -23,3 +25,11 @@ kagari-common.workspace = true
 kagari-hir.workspace = true
 kagari-bytecode.workspace = true
 kagari-syntax.workspace = true
+
+[[test]]
+name = "allocation_contracts"
+path = "tests/allocation_contracts/main.rs"
+
+[[test]]
+name = "library_measurements"
+path = "tests/library_measurements.rs"

@@ -13,6 +13,7 @@ use crate::{
     lower::LoweredModule,
     typeck::{
         check::function_type_context,
+        state::TypeCheckState,
         table::{TypeTable, TypeTarget},
         ty,
         ty::{TypeContext, resolve_type_in},
@@ -27,7 +28,7 @@ use smallvec::SmallVec;
 pub(super) fn resolve_constraints(
     lowered: &LoweredModule,
     declarations: &Declarations,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
@@ -128,7 +129,7 @@ pub(super) fn resolve_owner(
     generics: &[GenericParam],
     bounds: &[TraitBound],
     declarations: &Declarations,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
@@ -145,7 +146,7 @@ pub(super) fn resolve_owner_in(
     lowered: &LoweredModule,
     bounds: &[TraitBound],
     context: TypeContext<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
@@ -209,7 +210,7 @@ pub(super) fn resolve_constraint(
     lowered: &LoweredModule,
     reference: &TraitRef,
     context: TypeContext<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
@@ -332,7 +333,7 @@ pub(super) fn function_bounds(
     result
 }
 
-pub(super) fn implementation_bounds(
+pub(crate) fn implementation_bounds(
     implementation: &Impl,
     declarations: &Declarations,
     table: &TypeTable,

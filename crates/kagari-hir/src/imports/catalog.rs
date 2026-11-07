@@ -1,4 +1,7 @@
 //! Snapshot-owned, unfiltered namespaces. Targets never carry member tables.
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use crate::{
     imports::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
@@ -722,6 +725,8 @@ impl NamespaceCatalog {
         }
         let mut seen = HashSet::new();
         while let Some(target) = pending.pop() {
+            #[cfg(test)]
+            checkpoint(Checkpoint::Namespaces);
             cancel.check()?;
             let NamespaceResult::Found(ns) = self.namespace_of(&ctx, &target, cancel)? else {
                 continue;

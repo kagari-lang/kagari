@@ -52,7 +52,7 @@ impl<'a> BodyChecker<'a> {
             self.check_builtin_arity(name, declaration.params.len(), args.len(), callee);
         }
         for (index, parameter) in declaration.params.iter().enumerate() {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return TypeId::Unknown;
             }
             self.check_arg_type(

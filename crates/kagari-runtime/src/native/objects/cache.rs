@@ -244,7 +244,7 @@ mod tests {
     use kagari_compiler::{
         bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir,
     };
-    use kagari_hir::analysis::AnalysisDatabase;
+    use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
     use kagari_types::ty::Ty;
 
@@ -270,7 +270,11 @@ mod tests {
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let checked = snapshot.check_program(root, &Default::default()).unwrap();
-        let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+        let mir = lower_program_to_mir(
+            &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
         let bytecode = lower_program_to_bytecode(&mir, &Default::default())
             .unwrap()
             .into_unverified();

@@ -1,4 +1,5 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::tests::common;
+use crate::tests::common::lower_root;
 use kagari_abi::representation::ValueType;
 use kagari_mir::instruction::{Constant, Instruction, Terminator};
 
@@ -27,7 +28,7 @@ fn ignored_pattern_children_do_not_project_or_skip_initializer_calls() {
              fn main() -> i32 {{ {body} }}"
         );
         let checked = common::program_ok(&source);
-        let mir = lower_to_mir(checked.root(), &Default::default()).unwrap();
+        let mir = lower_root(&checked, &Default::default()).unwrap();
         let function = mir
             .functions
             .iter()
@@ -85,7 +86,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mir = lower_to_mir(checked.root(), &Default::default()).unwrap();
+    let mir = lower_root(&checked, &Default::default()).unwrap();
     let function = mir
         .functions
         .iter()
@@ -129,7 +130,7 @@ fn main() -> i32 {
 }
 "#;
     let checked = common::program_ok(source);
-    let mir = lower_to_mir(checked.root(), &Default::default()).unwrap();
+    let mir = lower_root(&checked, &Default::default()).unwrap();
     let function = mir
         .functions
         .iter()
@@ -206,7 +207,8 @@ fn nested_irrefutable_alternatives_merge_chosen_values_before_capture_allocation
          var (((0, picked) | (picked, _)), _) = ((4, 5), 0); \
          val next = || { picked = picked + 1; picked }; next() }",
     );
-    let mir = lower_to_mir(checked.root(), &Default::default()).unwrap();
+
+    let mir = lower_root(&checked, &Default::default()).unwrap();
     let function = mir
         .functions
         .iter()

@@ -6,13 +6,14 @@ use kagari_common::{
 };
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_hir::{
-    AnalyzedModule, resolver::resolved::ResolvedName, typeck::FunctionImplementation,
+    compile_input::program::CheckedModule, resolver::resolved::ResolvedName,
+    semantic::signatures::FunctionImplementation,
 };
 use kagari_mir::program::{ProgramError, ProgramErrorKind};
 use kagari_types::ty::GenericParam;
 
 pub(super) struct ForeignInterfaces<'a> {
-    pub modules: &'a [AnalyzedModule],
+    pub modules: &'a [CheckedModule<'a>],
     pub root: &'a ModuleIdentity,
     pub definitions: &'a DefinitionTable,
     pub cancel: &'a CancellationToken,
@@ -46,7 +47,7 @@ impl ForeignInterfaces<'_> {
             .modules
             .iter()
             .find(|module| {
-                module.lowered.source.module_identity()
+                module.source().module_identity()
                     == definitions
                         .resolve(*implementation)
                         .expect("checked implementation")
@@ -62,7 +63,8 @@ impl ForeignInterfaces<'_> {
                 ),
             })?;
         let signature = owner
-            .aggregates
+            .environment()
+            .aggregates()
             .implementation_signature(implementation)
             .ok_or_else(|| ProgramError {
                 module: Box::new(root.clone()),
@@ -74,26 +76,36 @@ impl ForeignInterfaces<'_> {
                 ),
             })?;
         for method in owner
-            .aggregates
+            .environment()
+            .aggregates()
             .implementation_methods(definitions, signature)
         {
-            if let Some(ResolvedName::Function(function)) =
-                owner.declarations.definition_target(&method)
-                && owner.typed.functions.iter().any(|typed| {
-                    typed.id == function
-                        && matches!(typed.implementation, FunctionImplementation::Native(_))
-                })
-                && !owner
-                    .lowered
-                    .registered_native_declarations()
+            if let Some(ResolvedName::Function(function)) = owner
+                .environment()
+                .declarations()
+                .definition_target(&method)
+                && owner
+                    .environment()
+                    .signatures()
+                    .functions()
                     .iter()
-                    .any(|declaration| declaration.declaration == method)
+                    .any(|typed| {
+                        typed.id == function
+                            && matches!(typed.implementation, FunctionImplementation::Native(_))
+                    })
+                && !owner.registration().is_some_and(|registration| {
+                    registration
+                        .callables
+                        .iter()
+                        .any(|declaration| declaration.declaration == method)
+                })
             {
                 // Legacy engine/host adapters retain their existing lowering.
                 continue;
             }
             if owner
-                .aggregates
+                .environment()
+                .aggregates()
                 .trait_(&signature.trait_type.declaration)
                 .is_some_and(|contract| {
                     contract.methods.iter().any(|required| {
@@ -117,10 +129,16 @@ impl ForeignInterfaces<'_> {
             // only at a call site. Keep their receiver binders in a shared
             // native entry rather than demanding an uncallable specialization.
             let conditional = owner
-                .declarations
+                .environment()
+                .declarations()
                 .definition_target(&method)
                 .and_then(|target| match target {
-                    ResolvedName::Function(id) => owner.typed.functions.iter().find(|f| f.id == id),
+                    ResolvedName::Function(id) => owner
+                        .environment()
+                        .signatures()
+                        .functions()
+                        .iter()
+                        .find(|f| f.id == id),
                     _ => None,
                 })
                 .is_some_and(|function| {

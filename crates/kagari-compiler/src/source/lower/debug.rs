@@ -40,25 +40,29 @@ pub(super) fn capture_origin(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{source::lower::lower_to_mir, tests::common};
+    use crate::{tests::common, tests::common::lower_root};
     use kagari_common::identity::map::DefinitionContext;
     use kagari_common::span::Span;
 
     #[test]
     fn origin_capture_preserves_unlocatable_crlf_offsets_and_cancellation() {
         let context = DefinitionContext::new().unwrap();
-        let checked = common::analyze_ok("fn main() {}\r\n");
+        let checked = common::program_ok("fn main() {}\r\n");
         let mut raw = common::adopt(
             &context,
-            lower_to_mir(&checked, &Default::default())
+            lower_root(&checked, &Default::default())
                 .unwrap()
                 .into_unverified(),
         );
         let function = &mut raw.functions[0];
-        let offset = checked.lowered.source.text().find('\n').unwrap();
+        let offset = checked.root().lowered.source.text().find('\n').unwrap();
         function.blocks[0].terminator_span = Some(Span::new(offset, offset));
-        let origin =
-            capture_origin(function, &checked.lowered.source, &Default::default()).unwrap();
+        let origin = capture_origin(
+            function,
+            &checked.root().lowered.source,
+            &Default::default(),
+        )
+        .unwrap();
         assert_eq!(
             origin.position(offset),
             Some(&SourcePosition {
@@ -70,7 +74,7 @@ mod tests {
         let cancel = CancellationToken::default();
         cancel.cancel();
         assert!(matches!(
-            capture_origin(function, &checked.lowered.source, &cancel),
+            capture_origin(function, &checked.root().lowered.source, &cancel),
             Err(MirLoweringError::Cancelled)
         ));
         function.debug.source = Some(origin);

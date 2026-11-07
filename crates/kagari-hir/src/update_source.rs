@@ -8,7 +8,7 @@ use crate::{
     declarations::DeclarationId,
     hir::ids::{BodyOwner, HirOwner},
     resolver::resolved::ResolvedName,
-    typeck::FunctionImplementation,
+    semantic::signatures::FunctionImplementation,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -23,7 +23,6 @@ use kagari_types::ty::Ty;
 use std::collections::HashMap;
 
 mod facts;
-mod mapping;
 mod order;
 #[cfg(test)]
 mod tests;
@@ -111,14 +110,27 @@ pub struct SourceInitializer {
 }
 
 /// Complete authored body inventory and static-only comparison roots.
+///
+/// Compilation admission derives these records from each checked module. Definition IDs
+/// keep that analysis's identity scope; collecting evidence does not create or
+/// import a definition table. [`CheckedModule::provenance`](crate::compile_input::program::CheckedModule::provenance)
+/// exposes it to the compiler in the same scope when
+/// constructing independently validated update records.
+///
+/// For `static val N: i32 = helper();`, the initializer records the call to
+/// `helper`, while the helper's own body remains outside the comparison roots.
+/// Comparisons between source revisions require a shared definition context.
+/// This transient projection deliberately has no general identity-remapping API.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SourceEvidence {
+    /// Authored declarations, with local expression evidence only for static initializers.
     pub bodies: Vec<SourceBody>,
+    /// Static declarations whose initializer expressions participate in update checks.
     pub initializers: Vec<SourceInitializer>,
 }
 
 /// One bounded source collection, shared across a publication's modules.
-pub struct SourceBudget<'a> {
+pub(crate) struct SourceBudget<'a> {
     cancel: &'a CancellationToken,
     records: usize,
     bytes: usize,
@@ -277,7 +289,7 @@ fn builder(
 
 /// Collect authored identities and static expressions without following callees.
 /// Missing identities/ranges, cancellation and budget exhaustion fail atomically.
-pub fn collect(
+pub(crate) fn collect(
     module: &CheckedAnalysis,
     budget: &mut SourceBudget<'_>,
 ) -> Result<SourceEvidence, DefinitionMappingError> {
@@ -287,7 +299,8 @@ pub fn collect(
     for function in &hir.functions {
         let typed = module
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|typed| typed.id == function.id)
             .ok_or(DefinitionMappingError::InvalidContract)?;

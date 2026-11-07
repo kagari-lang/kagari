@@ -1,0 +1,15 @@
+mod gameplay;
+
+trait Display {
+    fn show(self) -> String;
+}
+
+struct Player {
+    val name: String,
+}
+
+impl Display for Player {
+    fn show(self) -> String {
+        self.name
+    }
+}

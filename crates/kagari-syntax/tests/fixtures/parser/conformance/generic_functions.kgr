@@ -1,0 +1,3 @@
+fn identity<T: Clone>(value: T) -> T where T: Clone {
+    value
+}

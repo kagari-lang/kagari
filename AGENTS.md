@@ -85,6 +85,9 @@ reviewable, with explicit ownership and the plan's migration/build boundaries.
   fixtures may use documented, bounded exceptions when splitting harms clarity or
   correctness. Review changed responsibilities, record debt in the plan, and avoid
   unrelated refactoring; size alone does not justify a split.
+- Use `foo.rs` with children in `foo/`, never `foo/mod.rs`, including tests/helpers.
+  Keep Cargo entrypoints in their usual form. For helpers directly under `tests/`,
+  set `autotests = false` and declare the actual `[[test]]` targets.
 - Use ordinary modules: no handwritten `include!`; reserve it for generated code.
   Use `#[path]` only for justified test/cross-target sharing.
 - Separate adjacent definitions with a blank line before attached comments/attributes:
@@ -126,7 +129,7 @@ reviewable, with explicit ownership and the plan's migration/build boundaries.
   aliases to shorten paths. Import the owner; keep intentional facades explicit.
 - Every `pub use`, including restricted/test-only declarations, needs an exact file/
   declaration entry in `reexport-whitelist` in `scripts/structure-exceptions.toml`,
-  supported by consumer/ownership evidence. Roots and `mod.rs` are not exempt.
+  supported by consumer/ownership evidence. Roots and module entry files are not exempt.
 
 ### Structural Review at Checkpoints
 
@@ -169,12 +172,14 @@ it.
   completed effects. Readonly views do not prevent mutation through another alias.
 - Keep ownership/generation checks, explicit roots and cleanup on traps, cancellation,
   depth exhaustion and synchronous host reentry.
-- Preserve generation-pinned calls/dependencies across reload. Reflection stays within
-  declared metadata/access; no runtime type mutation or monkey-patching around
-  versioned publication.
-- Keep cooperative cancellation in loops, calls and long native operations. Do not
-  reintroduce execution charging or generic permission matrices; follow the active
-  execution-policy plan's trusted-script boundary.
+- Follow [reload call selection](docs/spec/module-activation.md#live-installations-and-call-selection):
+  ordinary calls select current implementations; created closures/Futures and admitted
+  frames/queued invocations retain selected bodies/providers and type environments.
+  Their ordinary inner calls still select current implementations. Reflection stays
+  within declared metadata/access; no runtime type mutation or publication bypass.
+- Preserve cooperative cancellation in loops, calls and long native operations under
+  the [execution contract](docs/spec/execution.md). Do not reintroduce execution
+  charging or generic permission matrices.
 - Follow plan sequencing/dependency constraints: executable contracts cannot depend
   on source analysis; backends consume checked facts, not re-resolve syntax/types.
 
@@ -206,6 +211,29 @@ it.
 - Preserve distinct backend, source-free, actual-native, ownership/GC, borrowing,
   cancellation, reload and process/platform contracts. Record sampled-out combinations;
   sampling is not zero-loss coverage. Counts/coverage percentages are not targets.
+
+### Test source and fixture layout
+
+Follow [testing.md](docs/testing.md#classify-the-contract-before-choosing-a-format).
+
+- Put complete fixed Kagari test programs in `.kgr` fixtures under the owning crate's
+  `tests/fixtures/`, not large Rust literals or `format!` templates. Keep Rust setup,
+  operations and assertions at their semantic owner. Custom AST/HIR, type, identity
+  or lifecycle assertions are not a reason to embed the entire program in Rust.
+- Keep inline source only for concrete needs: byte/escape-sensitive witnesses,
+  generated scales or compact fragments tied directly to Rust tables/assertions.
+  Use existing `include_str!` or named/file-driven `rstest` patterns; do not invent
+  a fixture template language, universal runner or additional test binary.
+- Format ordinary fixtures with `kg fmt` and verify with `kg fmt --check`: normal
+  indentation, no incidental outer blank lines, and one final newline. Preserve
+  authored bytes for deliberate trivia/CRLF, malformed recovery, golden and
+  diagnostic-range contracts; never weaken assertions or blindly regenerate
+  expectations to make formatting pass. Load fixtures as-is.
+- Inherit `.kgr` LF policy from root `.gitattributes`; do not repeat it per directory.
+  Local rules are for other formats or narrow, justified exceptions. Raw-byte fixtures
+  may need an exact-path `-text` override; existing CRLF alone does not justify one.
+- Keep structural, typed-fact and lifecycle assertions explicit in Rust; successful
+  analysis or matching diagnostics alone cannot establish those contracts.
 
 ### Validation and execution
 

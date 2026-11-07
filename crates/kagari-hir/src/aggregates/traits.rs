@@ -7,7 +7,8 @@ use crate::{
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, GenericBounds, ModuleSignatures},
+    semantic::signatures::FunctionImplementation,
+    typeck::{GenericBounds, ModuleSignatures},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
 use kagari_common::{

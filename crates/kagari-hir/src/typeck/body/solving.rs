@@ -26,6 +26,14 @@ enum InferenceRoot {
 }
 
 impl BodyChecker<'_> {
+    /// Accumulates inference facts and records cancellation in the private stop state.
+    /// Compatibility is diagnosed by the final checking pass, not this constraint pass.
+    pub(super) fn constrain_types(&mut self, left: &TypeId, right: &TypeId) {
+        if !self.stopped {
+            self.stopped = self.solver.constrain(left, right, self.cancel).is_err();
+        }
+    }
+
     pub(super) fn prepare_call_type_arguments(&mut self, site: ExprId, env: &BodyTypeEnv) {
         if env.exprs.contains_key(&site) {
             return;
@@ -143,7 +151,7 @@ impl BodyChecker<'_> {
     pub(super) fn prepare_annotation_holes(&mut self, ty: TypeRefId) {
         let mut pending = vec![ty];
         while let Some(ty) = pending.pop() {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return;
             }
             match &self.lowered.module.type_ref(ty).kind {
@@ -203,10 +211,9 @@ impl BodyChecker<'_> {
             })
             .collect();
         if let [assumed] = assumptions.as_slice() {
-            let _ = self.solver.constrain(
+            self.constrain_types(
                 &TypeId::Trait(assumed.clone()),
                 &TypeId::Trait(interface.clone()),
-                self.cancel,
             );
             return;
         }
@@ -227,7 +234,7 @@ impl BodyChecker<'_> {
             }
             let mut candidates = Vec::new();
             for implementation in self.aggregates.implementations() {
-                if self.cancel.check().is_err() {
+                if self.cancelled() {
                     return;
                 }
                 if implementation.trait_type.declaration != interface.declaration {
@@ -270,10 +277,9 @@ impl BodyChecker<'_> {
             let [(implementation, substitution, declared)] = candidates.as_slice() else {
                 continue;
             };
-            let _ = self.solver.constrain(
+            self.constrain_types(
                 &TypeId::Trait(declared.clone()),
                 &TypeId::Trait(interface.clone()),
-                self.cancel,
             );
             for (target, bounds) in &implementation.bounds {
                 for bound in bounds {
@@ -339,7 +345,7 @@ impl BodyChecker<'_> {
         const MAX_ROUNDS: usize = 128;
         let mut converged = false;
         for _ in 0..MAX_ROUNDS {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return TypeId::Unknown;
             }
             let revision = self.solver.revision;
@@ -348,6 +354,9 @@ impl BodyChecker<'_> {
             self.diagnostics.truncate(diagnostic_start);
             self.propagation_defaults.clear();
             self.infer_root(root, env, expected);
+            if self.cancelled() {
+                return TypeId::Unknown;
+            }
             if self.solver.revision == revision {
                 if self.solver.apply_numeric_defaults() {
                     continue;
@@ -356,7 +365,8 @@ impl BodyChecker<'_> {
                 // constraint on an independently inferred source error.
                 for (source, target) in &self.propagation_defaults {
                     if let TypeId::Inference(_) = self.solver.resolve(source) {
-                        let _ = self.solver.constrain(source, target, self.cancel);
+                        self.stopped = self.stopped
+                            || self.solver.constrain(source, target, self.cancel).is_err();
                     }
                 }
                 if self.solver.revision != revision {
@@ -403,7 +413,7 @@ impl BodyChecker<'_> {
         }
         let variable = self.solver.variable(site, 0);
         if let Some(expected) = expected {
-            let _ = self.solver.constrain(&variable, expected, self.cancel);
+            self.constrain_types(&variable, expected);
             return Some(self.solver.resolve(expected));
         }
         let inferred = self.solver.resolve(&variable);
@@ -431,12 +441,17 @@ impl BodyChecker<'_> {
             site,
             self.cancel,
         )
-        .unwrap_or(false);
+        .unwrap_or_else(|_| {
+            self.stopped = true;
+            false
+        });
         if completes {
             let variable = self.solver.variable(site, 0);
-            let _ = self.solver.constrain(&variable, &ty, self.cancel);
+            self.stopped =
+                self.stopped || self.solver.constrain(&variable, &ty, self.cancel).is_err();
             if let Some(expected) = expected {
-                let _ = self.solver.constrain(expected, &ty, self.cancel);
+                self.stopped =
+                    self.stopped || self.solver.constrain(expected, &ty, self.cancel).is_err();
             }
         }
         let resolved = self.solver.resolve(&ty);

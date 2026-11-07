@@ -9,7 +9,7 @@ use kagari_common::{
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::{PublicItem, TraitContract};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -288,7 +288,11 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     let compiled = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap()
@@ -449,7 +453,11 @@ fn standard_code(text: &str) -> VerifiedProgram {
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     let code = lower_program_to_bytecode(&mir, &Default::default())
         .unwrap()
         .into_unverified();

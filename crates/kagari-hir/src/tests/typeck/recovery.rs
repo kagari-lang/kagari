@@ -80,7 +80,7 @@ fn const_arithmetic_failures_preserve_other_semantic_facts() {
             Some(&ScalarValue::integer(42, IntegerType::I32).unwrap())
         );
         assert_eq!(
-            facts.typed.functions[0].return_type,
+            facts.typed.signatures.functions()[0].return_type,
             TypeId::Builtin(BuiltinType::I32)
         );
         assert!(result.into_codegen().is_err());
@@ -112,7 +112,8 @@ fn invalid_literals_and_patterns_retain_neighbor_types() {
             result
                 .facts()
                 .typed
-                .functions
+                .signatures
+                .functions()
                 .iter()
                 .find(|function| function.name == "good")
                 .unwrap()

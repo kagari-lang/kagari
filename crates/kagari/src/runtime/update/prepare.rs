@@ -385,7 +385,8 @@ fn validate_functions(
     if expected.is_empty() {
         return Ok(());
     }
-    let index = collect_authored_sources(checked.program(), cancel).map_err(|error| {
+    let compilation = checked.compilation_input(cancel)?;
+    let index = collect_authored_sources(&compilation, cancel).map_err(|error| {
         if cancel.check().is_err() {
             EmbeddingError::Cancelled
         } else {

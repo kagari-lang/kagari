@@ -3,6 +3,7 @@
 
 use crate::{
     hir::{
+        body::Body,
         expr::{ExprKind, MatchArm, ops::BinaryOp},
         ids::{BlockId, ExprId, PlaceId, StmtId},
         item::Module,
@@ -53,7 +54,7 @@ pub(super) fn block_can_complete(
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     Ok(Completion {
-        module,
+        nodes: &module.body,
         names,
         types,
         cancel,
@@ -63,7 +64,7 @@ pub(super) fn block_can_complete(
 }
 
 struct Completion<'a> {
-    module: &'a Module,
+    nodes: &'a Body,
     names: &'a ResolvedNames,
     types: &'a TypeTable,
     cancel: &'a CancellationToken,
@@ -78,7 +79,7 @@ pub(super) fn place_can_complete(
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     Ok(Completion {
-        module,
+        nodes: &module.body,
         names,
         types,
         cancel,
@@ -96,13 +97,122 @@ pub(super) fn expr_can_complete(
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     Ok(Completion {
-        module,
+        nodes: &module.body,
         names,
         types,
         cancel,
     }
     .expr(expr)?
     .normal)
+}
+
+/// Returns whether a matched arm's guard and value can produce a normal exit.
+pub(super) fn match_arm_can_complete(
+    module: &Module,
+    names: &ResolvedNames,
+    types: &TypeTable,
+    arm: &MatchArm,
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    CompletionCache::new(&module.body, names, types).query(Node::arm(arm), cancel)
+}
+
+/// Returns whether pattern failure or a normally completing guard can reach another arm.
+pub(super) fn match_arm_can_continue(
+    module: &Module,
+    names: &ResolvedNames,
+    types: &TypeTable,
+    arm: &MatchArm,
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    CompletionCache::new(&module.body, names, types).match_arm_can_continue(arm, cancel)
+}
+
+fn arm_can_continue(
+    nodes: &Body,
+    names: &ResolvedNames,
+    arm: &MatchArm,
+    guard_completes: bool,
+) -> bool {
+    !names.pattern_is_irrefutable(nodes, arm.pattern) || (arm.guard.is_some() && guard_completes)
+}
+
+/// Memoized completion facts for queries against one immutable body input.
+/// It is owned by a short-lived elaboration, not published or shared across revisions.
+pub(crate) struct CompletionCache<'a> {
+    nodes: &'a Body,
+    names: &'a ResolvedNames,
+    types: &'a TypeTable,
+    facts: HashMap<Node, Exits>,
+}
+
+impl<'a> CompletionCache<'a> {
+    pub(crate) fn new(nodes: &'a Body, names: &'a ResolvedNames, types: &'a TypeTable) -> Self {
+        Self {
+            nodes,
+            names,
+            types,
+            facts: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn expression(
+        &mut self,
+        id: ExprId,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        self.query(Node::Expr(id), cancel)
+    }
+
+    pub(crate) fn statement(
+        &mut self,
+        id: StmtId,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        self.query(Node::Stmt(id), cancel)
+    }
+
+    pub(crate) fn place(
+        &mut self,
+        id: PlaceId,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        self.query(Node::Place(id), cancel)
+    }
+
+    pub(crate) fn match_arm_can_continue(
+        &mut self,
+        arm: &MatchArm,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        cancel.check()?;
+        let guard_completes = match arm.guard {
+            Some(guard) => self.expression(guard, cancel)?,
+            None => true,
+        };
+        Ok(arm_can_continue(
+            self.nodes,
+            self.names,
+            arm,
+            guard_completes,
+        ))
+    }
+
+    fn query(&mut self, root: Node, cancel: &CancellationToken) -> Result<bool, Cancelled> {
+        let input = Completion {
+            nodes: self.nodes,
+            names: self.names,
+            types: self.types,
+            cancel,
+        };
+        match input.run_cached(Task::Visit(root), &mut self.facts) {
+            Ok(exits) => Ok(exits.normal),
+            Err(cancelled) => {
+                self.facts.clear();
+                Err(cancelled)
+            }
+        }
+    }
 }
 
 /// HIR node or synthetic control-flow combination used as a traversal-local memoization key.
@@ -118,12 +228,27 @@ enum Node {
     Normal,
 }
 
+impl Node {
+    fn arm(arm: &MatchArm) -> Self {
+        arm.guard
+            .map_or(Self::Expr(arm.expr), |guard| Self::Guarded(guard, arm.expr))
+    }
+}
+
 type Nodes<'a> = Box<dyn Iterator<Item = Node> + 'a>;
 
 /// Explicit traversal continuation; the work stack replaces recursive completion walking.
 enum Task<'a> {
     Record(Node),
     MatchArms(&'a [MatchArm]),
+    MatchArm {
+        arms: &'a [MatchArm],
+        exits: Exits,
+    },
+    MatchArmResume {
+        arms: &'a [MatchArm],
+        exits: Exits,
+    },
     Then(Exits),
     Visit(Node),
     Walk {
@@ -166,10 +291,15 @@ impl<'a> Completion<'a> {
 
     /// Evaluates normal/break exits with a work stack and per-traversal memoized node facts.
     fn run<'b>(&'b self, first: Task<'b>) -> Result<Exits, Cancelled> {
+        self.run_cached(first, &mut HashMap::new())
+    }
+
+    fn run_cached<'b>(
+        &'b self,
+        first: Task<'b>,
+        facts: &mut HashMap<Node, Exits>,
+    ) -> Result<Exits, Cancelled> {
         let mut work = vec![first];
-        // Facts belong to this immutable module traversal only. Cancellation
-        // discards the whole cache; no partial result escapes into another query.
-        let mut facts = HashMap::new();
         let mut value = Exits::NORMAL;
         while let Some(task) = work.pop() {
             self.cancel.check()?;
@@ -250,7 +380,9 @@ impl<'a> Completion<'a> {
                             continue;
                         }
                         Node::Guarded(guard, expr) => {
-                            Box::new([Node::Expr(guard), Node::ShortCircuit(expr)].into_iter())
+                            // A false guard continues matching; it is not a normal exit
+                            // from the match expression itself.
+                            Box::new([Node::Expr(guard), Node::Expr(expr)].into_iter())
                         }
                         Node::Branches(then, otherwise) => {
                             work.push(Task::Walk {
@@ -267,7 +399,7 @@ impl<'a> Completion<'a> {
                             continue;
                         }
                         Node::Block(id) => {
-                            let block = self.module.block(id);
+                            let block = self.nodes.block(id);
                             Box::new(
                                 block
                                     .statements
@@ -277,7 +409,7 @@ impl<'a> Completion<'a> {
                                     .chain(block.tail_expr.iter().copied().map(Node::Expr)),
                             )
                         }
-                        Node::Stmt(id) => match &self.module.stmt(id).kind {
+                        Node::Stmt(id) => match &self.nodes.stmt(id).kind {
                             StmtKind::Function(_) => {
                                 value = Exits::NORMAL;
                                 continue;
@@ -324,7 +456,7 @@ impl<'a> Completion<'a> {
                                 continue;
                             }
                         },
-                        Node::Place(id) => match &self.module.place(id).kind {
+                        Node::Place(id) => match &self.nodes.place(id).kind {
                             PlaceKind::Name(_) => {
                                 value = Exits::NORMAL;
                                 continue;
@@ -341,7 +473,7 @@ impl<'a> Completion<'a> {
                                 Box::new([Node::Place(*base), Node::Expr(*index)].into_iter())
                             }
                         },
-                        Node::Expr(id) => match &self.module.expr(id).kind {
+                        Node::Expr(id) => match &self.nodes.expr(id).kind {
                             ExprKind::Missing
                             | ExprKind::Name { .. }
                             | ExprKind::Literal(_)
@@ -432,22 +564,33 @@ impl<'a> Completion<'a> {
                 Task::MatchArms(arms) => {
                     if value.normal {
                         work.push(Task::Then(value));
-                        let nodes = arms.iter().scan(false, |stopped, arm| {
-                            if *stopped {
-                                return None;
-                            }
-                            *stopped = arm.guard.is_none()
-                                && self.names.pattern_is_irrefutable(self.module, arm.pattern);
-                            Some(match arm.guard {
-                                Some(guard) => Node::Guarded(guard, arm.expr),
-                                None => Node::Expr(arm.expr),
-                            })
-                        });
-                        work.push(Task::Walk {
-                            nodes: Box::new(nodes),
+                        work.push(Task::MatchArm {
+                            arms,
                             exits: Exits::default(),
-                            alternatives: true,
                         });
+                    }
+                }
+                Task::MatchArm { arms, exits } => {
+                    if let Some(arm) = arms.first() {
+                        work.push(Task::MatchArmResume { arms, exits });
+                        work.push(Task::Visit(Node::arm(arm)));
+                    } else {
+                        value = exits;
+                    }
+                }
+                Task::MatchArmResume { arms, exits } => {
+                    let arm = &arms[0];
+                    let exits = exits.either(value);
+                    let guard_completes = arm
+                        .guard
+                        .is_none_or(|guard| facts[&Node::Expr(guard)].normal);
+                    if arm_can_continue(self.nodes, self.names, arm, guard_completes) {
+                        work.push(Task::MatchArm {
+                            arms: &arms[1..],
+                            exits,
+                        });
+                    } else {
+                        value = exits;
                     }
                 }
                 Task::Then(previous) => value = previous.then(value),
@@ -539,7 +682,7 @@ mod tests {
                 Completion {
                     names: &names,
                     types: &TypeTable::default(),
-                    module,
+                    nodes: &module.body,
                     cancel: &token
                 }
                 .run(Task::Visit(Node::Place(place)))
@@ -572,7 +715,7 @@ mod tests {
         let result = Completion {
             names: &names,
             types: &TypeTable::default(),
-            module: &lowered.module,
+            nodes: &lowered.module.body,
             cancel: &token,
         }
         .sequence(Exits::NORMAL, expressions)
@@ -645,7 +788,7 @@ mod tests {
         let exits = Completion {
             names: &names,
             types: &TypeTable::default(),
-            module,
+            nodes: &module.body,
             cancel: &token,
         }
         .run(Task::Walk {
@@ -688,6 +831,13 @@ mod tests {
             expr_can_complete(&lowered.module, &names, &TypeTable::default(), expr, &token),
             Err(Cancelled)
         );
+        // Cached success cannot bypass cancellation on a later immutable-input query.
+        let types = TypeTable::default();
+        let mut cache = CompletionCache::new(&lowered.module.body, &names, &types);
+        let live = CancellationToken::default();
+        assert_eq!(cache.expression(expr, &live), Ok(true));
+        assert_eq!(cache.expression(expr, &token), Err(Cancelled));
+        assert_eq!(cache.expression(expr, &live), Ok(true));
     }
 
     #[test]
@@ -710,7 +860,7 @@ mod tests {
         let result = Completion {
             names: &names,
             types: &TypeTable::default(),
-            module: &lowered.module,
+            nodes: &lowered.module.body,
             cancel: &token,
         }
         .sequence(Exits::NORMAL, expressions);

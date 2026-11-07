@@ -8,10 +8,59 @@ compiler handoff. Detailed contracts and source-to-field diagrams live beside
 the code; [engineering rules](../../AGENTS.md#documentation-maintenance) define
 the documentation conventions.
 
+## Choose an entry point
+
+| Reader's question | Start here |
+| --- | --- |
+| Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then `hir::Body` and `SourceMap`. |
+| How does a source expression acquire a type and a selected call? | [One function through the tables](#one-function-through-the-tables), then `ModuleFacts` and `TypeTable`. |
+| Which work does an editor query trigger or reuse? | [Query work, reuse and publication](#query-work-reuse-and-publication), then `AnalysisDatabase` and `FunctionAnalysis`. |
+| What does the compiler receive? | [Checked handoff](#checked-handoff-and-registered-inputs), then the runnable `CheckedCompilation` rustdoc example. |
+| Why do definition references need visitors? | [Storage and IDs](#storage-and-ids): validation of scoped references and explicit import of reusable facts are different capabilities. |
+
+Build the navigable API guide with
+`cargo doc -p kagari-hir --no-deps --document-private-items`; start at
+`target/doc/kagari_hir/index.html`. The source links below point to the owners of
+each contract. The [performance record](../performance-baseline.md#hir-architecture-and-candidate-filtering-macos-2026-11-06)
+keeps workloads, measurement boundaries and limitations separate from API guarantees.
+
+## Module responsibilities
+
+| Owner | Input and output |
+| --- | --- |
+| `hir`, `lower`, `source_map` | AST becomes owner-qualified structural nodes plus source sites; lowering does not infer types. |
+| `declarations`, `resolver`, `imports` | Declaration identities, lexical bindings and cross-module namespaces. |
+| `aggregates`, `semantic` | Shared nominal/signature contracts and immutable published body facts. |
+| `typeck` | Temporary inference and constraint state produces those facts and positive completion evidence. |
+| `analysis`, `program` | Staged analysis, snapshots, reuse, diagnostics, cancellation publication and complete checked dependency closures. |
+| `queries` | Read-only call, method, namespace, documentation, attribute and usage projections from retained analysis results. |
+| `compile_input` | Admits matching declaration environments, body roots/facts and provenance for the compiler. |
+| `update_source`, `source_inspection` | Authored identities, static-initializer comparison evidence and exact source packaging. |
+| Compiler `source::elaborate` | Expands an admitted source body into temporary semantic operations. |
+| Compiler `source::lower::instances` | Applies generic arguments and selects implementation/ABI recipes. |
+| Compiler `source::lower` emission | Evaluates operands and commits effects in order, building MIR from those operations and recipes. |
+
+The `queries/` directory supplies the context for `calls`, `methods`, `namespaces`,
+`documentation`, `attributes` and `usage`; filenames do not repeat a `_queries`
+suffix. Analysis-producing stages remain `analysis::declarations`,
+`analysis::signatures` and `analysis::body`. `analysis::type_targets` prepares
+navigation provenance during publication. Query methods remain on snapshot/result
+objects. Documentation uses the existing scoped declaration lookup; namespace
+queries borrow only a read-only view of the prepared type-path hits.
+
+Private tests live under their owning module's `tests/` or `tests.rs`, using
+ordinary Rust modules. Public semantic cases remain in the crate's `tests/`
+tree. Production directories no longer mix in flat sibling `*_tests.rs` files;
+this organization preserves access to private contracts without widening APIs.
+
+The body arena is still physically shared at module granularity. Logical body
+views enforce owner boundaries; they do not promise per-function allocation or
+fine-grained incremental invalidation. Those are separate storage/query decisions.
+
 ## Storage and IDs
 
-Start with [LoweredModule](../../crates/kagari-hir/src/lower/mod.rs),
-[Module](../../crates/kagari-hir/src/hir/item/mod.rs),
+Start with [LoweredModule](../../crates/kagari-hir/src/lower.rs),
+[Module](../../crates/kagari-hir/src/hir/item.rs),
 [Body](../../crates/kagari-hir/src/hir/body.rs) and
 [the ID families](../../crates/kagari-hir/src/hir/ids.rs).
 
@@ -192,13 +241,13 @@ The complete mappings are beside their owners:
 
 | Source question | Model and field examples |
 | --- | --- |
-| Which declarations does a file contribute, and where are their payloads? | [Module / Item](../../crates/kagari-hir/src/hir/item/mod.rs): source order, per-kind collections, imports and shared body storage. |
+| Which declarations does a file contribute, and where are their payloads? | [Module / Item](../../crates/kagari-hir/src/hir/item.rs): source order, per-kind collections, imports and shared body storage. |
 | Which function fields come from `pub`, `async`, generics, parameters, `where`, result and body? | [Function / Param / FunctionKind](../../crates/kagari-hir/src/hir/item/function.rs): full signature expansion, omitted annotations/bodies and method links. |
 | How do field/variant declarations differ from constructor values and patterns? | [Struct / Field / Enum / Variant / OpaqueType](../../crates/kagari-hir/src/hir/item/adt.rs): complete declaration payloads, owner/member slots and native-provider surfaces. |
 | What do trait/impl headers, associated items and generic bounds store? | [TraitDef / Impl / associated members / bounds](../../crates/kagari-hir/src/hir/item/behavior.rs): required versus defined members, member input versus output constraints and function/constant links. |
 | Where do constant/static initializers, child module bodies and flattened use leaves go? | [Constants and statics](../../crates/kagari-hir/src/hir/item/storage.rs) and [modules/imports](../../crates/kagari-hir/src/hir/item/module.rs): distinct body owners, compile-time versus runtime declarations, header-only children, alias/glob and leaf/root source ranges. |
 | Is the final expression also a statement, and how is `+=` represented? | [BlockData / StmtKind](../../crates/kagari-hir/src/hir/stmt.rs): all statement payloads, tail absence, place/loop/pattern links. |
-| How does `object.run(41)` differ from calling a named function or closure? | [ExprKind](../../crates/kagari-hir/src/hir/expr/mod.rs): Call-to-Field links, name qualification versus call type arguments, all expression shapes and inline helper records. |
+| How does `object.run(41)` differ from calling a named function or closure? | [ExprKind](../../crates/kagari-hir/src/hir/expr.rs): Call-to-Field links, name qualification versus call type arguments, all expression shapes and inline helper records. |
 | Which parts of `items[next_index()].count` are places and which are expressions? | [PlaceKind](../../crates/kagari-hir/src/hir/place.rs): root and projection expansion, once-only target structure and later validation. |
 | Which names bind in a pattern, and what does shorthand synthesize? | [PatternKind / PatternField / PatternBound](../../crates/kagari-hir/src/hir/pattern.rs): all pattern forms, nested IDs and provisional bindings. |
 | How do generic arguments, associated equalities and projections occupy type fields? | [TypeKind](../../crates/kagari-hir/src/hir/ty.rs): every type form, callable normalization, grouping and invalid argument-order retention. |
@@ -249,7 +298,7 @@ fn add(x: i32) -> i32 {
 
 Read [item lowering](../../crates/kagari-hir/src/lower/item.rs), then
 [statement lowering](../../crates/kagari-hir/src/lower/stmt.rs) and
-[expression lowering](../../crates/kagari-hir/src/lower/expr/mod.rs).
+[expression lowering](../../crates/kagari-hir/src/lower/expr.rs).
 The diagrams below abbreviate complete IDs; positions are illustrative.
 
 ```text
@@ -291,9 +340,149 @@ is valid. Facts can remain useful alongside diagnostics.
 The runnable examples on `lower_module` and `analyze_source` verify storage/source
 ranges and the checked arithmetic type. Declaration metadata lives in
 [Declarations](../../crates/kagari-hir/src/declarations.rs); body checking builds
-on [ModuleSignatures](../../crates/kagari-hir/src/typeck/mod.rs). Missing facts can
+on [ModuleSignatures](../../crates/kagari-hir/src/typeck.rs). Missing facts can
 mean an inapplicable operation, a stage not requested or source recovery; each
 table's accessor contract explains which applies.
+
+Type checking owns a private
+[TypeCheckState](../../crates/kagari-hir/src/typeck/state.rs) while resolving syntax.
+It keeps annotation holes and the active type-resolution stack beside the fact
+table. For `val items: Vec<_> = Vec::new()`, the written `_` temporarily names an
+inference variable; it is not a retained signature fact. Consuming the workspace
+extracts only `TypeTable`, so published results and identity mapping cannot carry
+those temporary collections. The body checker separately owns its solver and
+control-flow stacks. Extracting facts does not grant compilation eligibility:
+diagnostics, cancellation and the checked boundary still govern publication.
+
+Declaration checking retains written-type contracts in `ModuleSignatures`. Once
+the visible aggregate environment is complete, body preparation normalizes their
+parameter, return and static types into
+[BodySignatures](../../crates/kagari-hir/src/semantic/signatures.rs). The environment,
+constant preparation and selected/full body results share that immutable owner
+through `Arc`; the function lookup index stores positions in its declaration-order
+sequence rather than duplicate records. These are distinct stages, not independent
+sources of truth for the same normalized contract. Local function/parameter/static
+IDs still require the matching lowering; sharing does not make IDs portable across
+source revisions. Signature recovery may retain error types and grants no executable
+qualification.
+
+[ModuleFacts](../../crates/kagari-hir/src/semantic/body.rs) publishes the shared
+signatures, constant results and node-keyed facts through read-only accessors.
+Writers are internal to HIR.
+[FunctionAnalysis](../../crates/kagari-hir/src/analysis/body.rs)
+pairs the current query's signature snapshot with shared immutable selected-body
+facts: the function, matching lowering/definition table, environment, bindings,
+diagnostics and result. `eligibility()` uses positive body evidence and the current
+snapshot's shared-input validity, independently of diagnostic display truncation.
+Unrequested/bodyless functions return no selected result, recovery returns facts
+with unavailable completion evidence, and cancellation returns an error before
+publication. A complete selected function is not proof that its entire dependency
+closure is executable.
+
+Cancellation has three owners. Analysis checks requests and cache publication;
+signature/body stages return `Result<_, Cancelled>`; long algorithms retain their
+own internal checkpoints. Cache namespace comparisons propagate cancellation as
+an error rather than treating it as a cache miss. The private body checker shares
+one counter across ordinary statement/expression visits, polling every 64 visits,
+and retains an observed stop flag. Solver cancellation also sets that flag.
+`finish` rejects stopped work before any recovery placeholder can escape as a
+returned fact. Trait candidate/depth limits, inference rounds and constant budgets
+still count every semantic step independently of polling.
+
+Declaration identity forwarding polls at the ID leaf instead of repeating the
+same read in both enclosing records and their branch. Mapping still validates
+every target and rejects duplicate keys; the shared identity API is unchanged.
+Deterministic cancellation tests interrupt ordinary visits, solver constraints,
+trait candidates, constant evaluation, namespace comparison and full/selected
+publication. They require the previous cached result to retain its identity and
+source, and bound ordinary visited nodes after a request. This is a progress
+bound, not a wall-clock latency guarantee; destruction and a concurrent request
+after the final check still follow cooperative cancellation semantics.
+
+[compile_input](../../crates/kagari-hir/src/compile_input.rs) owns the
+HIR-to-compiler handoff. `CheckedCompilation` borrows an already checked complete dependency
+closure and admits each module's environment and body directory. `CheckedEnvironment`
+exposes declaration contracts, while `CheckedBodyInput` ties source nodes, selected
+facts and spans to a `BodyKey { module, arena, owner, closure }`. A nested callable
+retains its allocation owner while its closure/async expression selects a distinct
+root. Foreign-owner/arena node
+lookups return `None`; a missing source body never implies a native implementation.
+Admission also requires positive function/static completion evidence, evaluated
+constants, matched signature parameters and a matching source-map arena.
+
+[Declaration projections](../../crates/kagari-hir/src/compile_input/declarations.rs)
+retain header order, visibility, source extents and implementation kind without a
+body arena. The aggregate catalog remains the owner of field, variant, trait and
+associated-member types. Alias templates stay in the declaration environment;
+local constants expose their checked type and evaluated scalar together. Empty
+inherent impls retain receiver/binder/bound facts independently of method bodies.
+Native defaults require an admitted forwarding application. Its target, type
+arguments and applied signature remain separate from the exact installed callable
+and host policies, which retain their registration definition scope.
+
+Elaboration also queries [normal completion](../../crates/kagari-hir/src/compile_input/body/flow.rs)
+through the checker's existing work-stack algorithm. For `(loop {})?`, only the
+operand executes, so no propagation contract is required. Match continuation uses
+the same owner: a refutable pattern may fail; an irrefutable pattern continues only
+through a guard that can complete normally and return false. For
+`match x { _ if { return 7; } => 1, _ => grow(x) }`, the guard exits the function,
+so neither arm value executes and `grow(x)` creates no concrete instance. Source
+checking still diagnoses both values independently. The checked-body query validates
+the match owner and arm index; elaboration retains only reachable arms, and MIR
+consumes that sequence without independently deciding arm reachability. The
+short-lived memo is tied to one immutable body; it does not publish solver state or
+cross-revision cache entries. Expanded operations retain explicit evaluated
+prefixes, selected calls/conversions and structured branches, rather than a flat
+execution schedule.
+
+The source compiler accepts only this admitted complete closure. Its
+[elaborator](../../crates/kagari-compiler/src/source/elaborate.rs) expands one
+reachable function, initializer or closure into an owned, temporary `CheckedBody`.
+The [instance planner](../../crates/kagari-compiler/src/source/lower/instances.rs)
+substitutes binders and selects method, native/default and interface-construction
+recipes using the same bounded HIR catalog queries. The
+[MIR builder](../../crates/kagari-compiler/src/source/lower/state.rs) consumes these
+operations and recipes; it has no `AnalyzedModule`, `TypeTable` or source resolver.
+Generated adapters and async factories have no authored operation tree. Factories
+prepare only signatures, parameters and captures; their resume bodies expand the
+authored operations when compiled. Each tree is dropped
+with its function builder, while admitted source/environment borrows remain valid
+for the complete compilation.
+
+```mermaid
+flowchart LR
+    Snapshot[CheckedProgram] --> Admission[CheckedCompilation]
+    Admission --> Headers[Declarations and provenance]
+    Admission --> Body[CheckedBodyInput]
+    Body --> Expand[Temporary CheckedBody]
+    Expand --> Plan[Instance recipes]
+    Plan --> Emit[MIR instructions and control flow]
+    Headers --> Plan
+    Emit --> Verify[VerifiedMirProgram]
+    Verify --> Backend[Bytecode or native backend]
+```
+
+For `items[index()] += rhs()`, expansion distinguishes a writable aggregate,
+a checked setter and a host path. MIR prepares the selected receiver and index
+once, evaluates the RHS, then commits through that prepared target. A terminating
+index/RHS retains only the completed prefix and never commits. Host/read-only
+projections retain their earlier read/getter position; writable aggregate bounds
+checks retain their existing commit position. Planning selects callable evidence
+but never evaluates a script operand.
+
+`MethodApplication` retains the receiver, interface, method identity and local type
+arguments. Its `MethodPlan` distinguishes a direct/shared/native/dynamic call,
+primitive operation, callable-tuple unpacking or structural protocol composition.
+`InterfacePlan` separates constructing a selected implementation table from adapting
+its exact associated outputs to the checked view. Neither recipe owns analysis
+state or performs a second type check.
+
+Admission also captures authored owners and static-only provenance once using the
+closure's shared source budget. `CheckedModule::provenance` exposes that evidence;
+the compiler validates it against its declaration inventory. Exact source packaging
+uses the admitted physical sources, including inline/UTF-8/CRLF coordinates. The
+definition allocator is shared with the checked input's original scope, so generated
+identities do not require cloning or remapping an entire analyzed module.
 
 ### Pattern-based declarations
 
@@ -343,7 +532,7 @@ No backend resolves source fields or introduces a special update/default operati
 ## Structured import paths and source sites
 
 [Import](../../crates/kagari-hir/src/hir/item/module.rs) and
-[ImportDirective](../../crates/kagari-hir/src/imports/mod.rs) retain flattened
+[ImportDirective](../../crates/kagari-hir/src/imports.rs) retain flattened
 written paths as `segments: Vec<String>`. For example, inside module `pkg::app`:
 
 ```text
@@ -476,7 +665,7 @@ precedence tiers independently inside each Type/Value slot. Path prefixes select
 Type and terminal lookups explicitly select their use-site category. Navigation
 retains that category; a dual import has two `source_targets_at` results and no
 arbitrary `source_target_at` winner. See
-[import records](../../crates/kagari-hir/src/imports/mod.rs) for the concrete fields.
+[import records](../../crates/kagari-hir/src/imports.rs) for the concrete fields.
 
 The [solver](../../crates/kagari-hir/src/imports/solver.rs) seeds declarations once
 and replaces one module's contributions at a time. Namespace observations include
@@ -534,7 +723,13 @@ entering it does not create another import directive. See
 
 ## Query work, reuse and publication
 
-[AnalysisDatabase](../../crates/kagari-hir/src/analysis/mod.rs) owns mutable caches;
+The [frontend benchmark guide](../frontend-benchmarks.md#hir-workloads-and-query-routes)
+measures these entry points through independent staged, direct, warm, edited and
+selected-body routes, plus snapshot retention/release. It owns commands and
+measurement caveats; [recorded results](../performance-baseline.md) are
+revision-specific evidence, not additional query or reuse guarantees.
+
+[AnalysisDatabase](../../crates/kagari-hir/src/analysis.rs) owns mutable caches;
 returned snapshots retain immutable source and facts through `Arc`. These are the
 actual entrypoint dependencies, not phases repeated by every position query:
 
@@ -552,14 +747,36 @@ snapshot.type_at / definition_at / completion queries -> read prepared facts
 snapshot.check_program(root) -> validate reachable checked source closure
 ```
 
-Read [declaration queries](../../crates/kagari-hir/src/analysis/declaration_queries.rs),
-[signature queries](../../crates/kagari-hir/src/analysis/signature_queries.rs) and
-[selected body queries](../../crates/kagari-hir/src/analysis/body_queries.rs) in that
+Read [declaration queries](../../crates/kagari-hir/src/analysis/declarations.rs),
+[signature queries](../../crates/kagari-hir/src/analysis/signatures.rs) and
+[selected body queries](../../crates/kagari-hir/src/analysis/body.rs) in that
 order. Declarations include parse/lowering and import resolution; signatures check
 type annotations and aggregate contracts; bodies add local bindings, expression
 types and selected operations. Syntax errors can still leave useful facts and
 diagnostics. Cancellation is an error, checked before publishing completed results.
 Older requests do not replace newer published revision caches.
+
+Internal traversal can still return temporary values while stopping. In
+[block lowering](../../crates/kagari-hir/src/lower/stmt.rs), cancellation stops the
+statement loop; the optional tail is lowered afterward, the partial block is
+finalized and the enclosing block restored. `lower_module_controlled` returns
+structural HIR, so its analysis caller must check the shared token before accepting
+it. In [closure inference](../../crates/kagari-hir/src/typeck/body/closures.rs), a
+completion-query error sets the checker's sticky stop flag; its temporary `false`
+is not evidence that the script diverges. Return, async and loop contexts are
+restored before leaving the closure, and `BodyChecker::finish` rejects the stopped
+checker's facts. For `val f = || { return 1; }; 2`, the closure's return belongs to
+its own context and `2` remains the enclosing block's tail; cancelling analysis
+must not publish a partial type for `f` as though divergence had been proved.
+
+Selected-body reuse separates the query context from its body payload. If an
+unrelated signature becomes invalid while the selected file and body environment
+remain unchanged, a new result shares the existing body facts but retains the new
+signature snapshot and reports unavailable eligibility, just like a fresh query.
+Previously returned results keep their original context. Reusing the entire result
+requires the same source revision and identical retained signature files, including
+the complete file set; rebuilding map containers alone does not invalidate it.
+Refreshing context does not rerun body checking or copy its tables.
 
 Inline modules share physical text, line indexing and one retained parse. Each
 logical source keeps a stable synthetic FileId and its own ModuleHandle, revision
@@ -622,14 +839,16 @@ and whole-file/unchanged-query sharing still requires exact revision/arena equal
 single-module boundary. [CheckedProgram](../../crates/kagari-hir/src/program.rs)
 captures the root's reachable import closure from one snapshot, rejects error
 diagnostics and retains each module once, including cycles/diamonds. Its order is
-deterministic, not a topological execution order. These are inputs to the compiler;
-HIR does not generate bytecode, verify MIR or run functions/static initializers.
+deterministic, not a topological execution order. Compilation admission borrows this
+closure to produce `CheckedCompilation`; a checked single module alone is not a
+compiler input. HIR does not generate bytecode, verify MIR or run functions/static
+initializers.
 
 For where non-source declarations enter this flow, follow
 [native declaration import](../../crates/kagari-hir/src/native/api.rs),
 [generated source views](../../crates/kagari-hir/src/native/render.rs),
 [validated language roles](../../crates/kagari-hir/src/language/items.rs) and
-[builtin bridges](../../crates/kagari-hir/src/builtin/mod.rs). The runnable semantic
+[builtin bridges](../../crates/kagari-hir/src/builtin.rs). The runnable semantic
 examples install `kagari_stdlib::catalog::shared()` explicitly, as required by the
 current foundation contract.
 
@@ -644,7 +863,8 @@ Registered native defaults follow an additional checked path:
 NativeDefaultApplication recipe -> generated trait method with a tail call
 FunctionId -> body BlockId -> tail ExprId -> ordinary ResolvedCall
 TypeTable.native_default_call(FunctionId) -> that call after recipe/bound validation
-source compiler -> selected native entry (no extra script frame)
+CheckedModule.native_default_call(FunctionId) -> admitted NativeDefaultCall
+instance planner -> selected native entry (no extra script frame)
 ```
 
 The implementing type receives no synthetic HIR function. Signature queries expose
@@ -662,6 +882,13 @@ across all normally completing arms before choosing a unique most-specific resul
 ambiguous intermediate pairs cannot discard a candidate needed by a later arm.
 
 Method selection and implementation counts use the catalog's shared bounded search.
+The aggregate matcher charges each visited candidate, then rejects a different
+trait identity or argument arity before canonicalizing nested value types. That
+canonicalization cannot change either root property. Matching headers still use
+the shared precise matcher, including generic/blanket constraints, associated
+outputs and ambiguity checks. There is no persistent result cache or receiver
+index; the optimization changes preparation cost, not candidate order or budgets.
+
 `ImplementationSearchContext` carries the caller's generic assumptions, candidate/
 depth limits and cancellation token. Searches check cancellation even when there
 are no candidates, and distinguish no unique match from cancellation or exhaustion.
@@ -697,7 +924,9 @@ evidence for a static initializer. Invalid initializers cannot supply optional
 semantic facts merely because their source nodes were lowered successfully.
 
 `FileAnalysis::binding_usage` walks eligible resolved bindings, expressions, places
-and closure captures once. Shadowed bindings keep distinct declaration identities;
+and resolver-owned captures once, including both closures and async blocks.
+Closure parameters retain their separate parameter classification. Shadowed
+bindings keep distinct declaration identities;
 member/index writes read the receiver without rebinding its slot, while direct and
 compound assignments count slot writes. Rule consumers decide whether those facts
 warrant a diagnostic. HIR does not own rule names, severity or suppressions.

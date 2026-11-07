@@ -1,4 +1,10 @@
-use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use crate::{
+    bytecode::lower_program_to_bytecode,
+    source::{
+        lower::{MirLoweringError, instances::MirLoweringOptions},
+        program::{SourceProgramError, lower_program_to_mir},
+    },
+};
 use kagari_bytecode::program::{BytecodeProgram, identity, updates as bytecode_updates};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, ModuleIdentity,
@@ -8,17 +14,14 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_hir::{
-    CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, program::CheckedProgram,
+    analysis::AnalysisDatabase, compile_input::program::CheckedCompilation, program::CheckedProgram,
 };
 use kagari_mir::{
     function::MirModule,
     program::{VerifiedMirProgram, updates as mir_updates, verify_program},
     verify::{MirVerificationError, VerifiedMirModule, verify_mir},
 };
-use kagari_source::{
-    source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
-};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
@@ -146,17 +149,6 @@ pub fn standard_vec_binding(name: &str) -> DefinitionPath {
     )
 }
 
-pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
-    let source = SourceFile::new("test.kg", text);
-
-    Box::new(
-        analyze_source(&source, foundation_catalog::shared().unwrap())
-            .expect("installed declaration analysis")
-            .into_codegen()
-            .expect("analysis should succeed"),
-    )
-}
-
 pub fn program_ok(text: &str) -> CheckedProgram {
     let mut sources = SourceDatabase::default();
     let root = sources
@@ -170,9 +162,37 @@ pub fn program_ok(text: &str) -> CheckedProgram {
         .expect("program analysis should succeed")
 }
 
+/// Admit exactly the dependency closure analyzed by a test fixture.
+pub fn compilation(program: &CheckedProgram) -> CheckedCompilation<'_> {
+    CheckedCompilation::from_program(program, &Default::default()).unwrap()
+}
+
+/// Extract a verified root for MIR mutation/assertion tests after compiling its closure.
+pub fn lower_root(
+    program: &CheckedProgram,
+    options: &MirLoweringOptions,
+) -> Result<VerifiedMirModule, MirLoweringError> {
+    options
+        .cancel
+        .check()
+        .map_err(|_| MirLoweringError::Cancelled)?;
+    let compiled =
+        lower_program_to_mir(&compilation(program), options).map_err(|error| match error {
+            SourceProgramError::Lowering { error, .. } => error,
+            error => panic!("program verification failed: {error:?}"),
+        })?;
+    Ok(compiled
+        .modules()
+        .iter()
+        .find(|module| &module.identity == compiled.root())
+        .unwrap()
+        .clone())
+}
+
 pub fn mir_ok(text: &str) -> VerifiedMirProgram {
     let checked = program_ok(text);
-    lower_program_to_mir(&checked, &Default::default()).expect("program IR lowering should succeed")
+    lower_program_to_mir(&compilation(&checked), &Default::default())
+        .expect("program IR lowering should succeed")
 }
 
 pub fn bytecode_ok(text: &str) -> DefinitionMetadata<BytecodeProgram> {
@@ -187,7 +207,7 @@ pub fn bytecode_with_edited_root(
     checked: &CheckedProgram,
     edited: &VerifiedMirModule,
 ) -> DefinitionMetadata<BytecodeProgram> {
-    let original = lower_program_to_mir(checked, &Default::default())
+    let original = lower_program_to_mir(&compilation(checked), &Default::default())
         .expect("program MIR lowering should succeed");
     assert_eq!(original.root(), &edited.identity);
     let root = original.root().clone();

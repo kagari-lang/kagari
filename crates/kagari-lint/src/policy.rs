@@ -7,8 +7,9 @@ use kagari_common::{
     span::Span,
 };
 use kagari_hir::{
-    analysis::{FileAnalysis, attributes::AttributeTarget},
+    analysis::FileAnalysis,
     lower::{AttributeFact, AttributeValue},
+    queries::attributes::AttributeTarget,
 };
 use kagari_source::{
     diagnostic::Severity, identity::FileSpan, literal::decode_string_literal,

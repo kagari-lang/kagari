@@ -55,6 +55,26 @@ fn returning_expressions_preserve_control_flow_and_short_circuiting() {
             "match STOP { 1 => tick(count), _ => 7 }; 0",
             52,
         ),
+        (
+            "match_guard_return",
+            "match 1 { _ if STOP => later(count), _ => later(count) }",
+            52,
+        ),
+        (
+            "match_guard_pattern_skip",
+            "match 1 { 0 if STOP => later(count), _ => { tick(count); 7 } }",
+            19,
+        ),
+        (
+            "match_guard_false",
+            "match 1 { _ if { tick(count); false } => later(count), _ => 7 }",
+            19,
+        ),
+        (
+            "match_guard_break",
+            "val result = loop { match 1 { _ if { tick(count); break 40; } => later(count), _ => later(count) }; }; result",
+            52,
+        ),
         ("negation", "-STOP; 0", 52),
         ("not", "!STOP; 0", 52),
         ("binary_left", "STOP + later(count); 0", 52),

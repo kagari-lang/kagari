@@ -2,34 +2,22 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_hir::{
     hir::ids::ExprId,
-    typeck::table::{CallTarget, ResolvedCall},
+    typeck::table::{CallTarget, ResolvedCall, propagation::ResolvedPropagation},
 };
 use kagari_mir::instruction::{MirValue, Terminator};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_propagation(
         &mut self,
-        site: ExprId,
         operand: ExprId,
+        fact: ResolvedPropagation,
     ) -> Result<MirValue, MirLoweringError> {
         let value = self.lower_expr(operand)?;
         if self.current_block_terminated() {
             return Ok(value);
         }
-        let fact = self
-            .analyzed
-            .typed
-            .type_table
-            .propagation(site)
-            .cloned()
-            .ok_or(MirLoweringError::MissingBinding(
-                "checked propagation calls",
-            ))?;
         let receiver = self
-            .analyzed
-            .typed
-            .type_table
-            .expr_type(operand)
+            .expression_type(operand)
             .ok_or(MirLoweringError::MissingExprType(operand))?;
         let branch_type = fact
             .branch

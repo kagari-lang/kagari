@@ -1,0 +1,35 @@
+const LIMIT: i32 = 3;
+
+static var count: i32 = later + seed();
+
+static val later: i32 = LIMIT;
+
+static val object: Box<i32> = Box { value: identity(7) };
+
+static val values: [i32] = {
+    var xs = [];
+    xs = [1];
+    xs
+};
+
+struct Box<T> {
+    var value: T
+}
+
+fn identity<T>(value: T) -> T {
+    value
+}
+
+fn seed() -> i32 {
+    2
+}
+
+fn run() -> i32 {
+    count += 1;
+    object.value = 9;
+    values[0] = 2;
+    val read = || count;
+    val snapshot = count;
+    val capture = || snapshot;
+    read() + capture()
+}

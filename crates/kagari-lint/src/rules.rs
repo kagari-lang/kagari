@@ -2,10 +2,7 @@
 
 use crate::{Finding, registry::LintId};
 use kagari_common::cancellation::{CancellationToken, Cancelled};
-use kagari_hir::{
-    analysis::{FileAnalysis, usage::BindingKind},
-    hir::item::Item,
-};
+use kagari_hir::{analysis::FileAnalysis, hir::item::Item, queries::usage::BindingKind};
 use kagari_source::identity::FileSpan;
 use kagari_syntax::ast::{borrow::Ast, misc::ParamList, visit::NodeRef};
 

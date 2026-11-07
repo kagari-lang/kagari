@@ -20,7 +20,7 @@ impl BodyChecker<'_> {
         self.check_pattern(pattern, expected, env);
         if !self
             .names
-            .pattern_is_irrefutable(&self.lowered.module, pattern)
+            .pattern_is_irrefutable(&self.lowered.module.body, pattern)
         {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PatternTypeMismatch {

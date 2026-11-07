@@ -10,7 +10,7 @@ use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -273,7 +273,11 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
         .unwrap();
     let checked = snapshot.check_program(file, &Default::default()).unwrap();
     let bytecode = lower_program_to_bytecode(
-        &lower_program_to_mir(&checked, &Default::default()).unwrap(),
+        &lower_program_to_mir(
+            &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+            &Default::default(),
+        )
+        .unwrap(),
         &Default::default(),
     )
     .map(|program| program.into_unverified())

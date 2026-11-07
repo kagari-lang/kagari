@@ -12,14 +12,16 @@
 //! source snapshot + installed declarations
 //!   -> analysis preparation: parse/lower, namespaces, declarations, signatures
 //!   -> body resolution + type checking -> facts and diagnostics
-//!   -> checked analysis/program -> compiler source lowering
+//!   -> CheckedProgram -> CheckedCompilation -> compiler elaboration and instance planning
 //! ```
 //!
 //! This is a dependency outline, not a claim that every query scans or checks every
 //! body. [`analysis::AnalysisDatabase`] prepares immutable snapshots; their query
 //! APIs distinguish declaration, signature and body work and reuse retained inputs.
-//! HIR does not execute scripts. [`CheckedAnalysis`] and [`program::CheckedProgram`]
-//! feed compiler lowering; MIR verification and runtime execution have other owners.
+//! HIR does not execute scripts. [`CheckedAnalysis`] validates a single module;
+//! [`program::CheckedProgram`] fixes a complete dependency closure.
+//! [`compile_input::program::CheckedCompilation`] admits that closure for compiler
+//! elaboration; MIR verification and runtime execution have other owners.
 //!
 //! Start with [`lower::lower_module`] for a runnable node/storage example and
 //! [`analyze_source`] for single-source semantic analysis with explicit providers.
@@ -29,7 +31,7 @@
 use crate::analysis::error::AnalysisError;
 use crate::analysis::source_preparation::ParsedModule;
 use crate::{
-    analysis::{ownership::recover_invalid_identity, signature_queries::BodyEnvironment},
+    analysis::{ownership::recover_invalid_identity, signatures::BodyEnvironment},
     hir::ids::BodySelection,
     imports::{
         ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
@@ -41,6 +43,7 @@ use crate::{
         collect::{collect_declarations, resolve_bodies},
         resolved::{DeclarationNames, ResolvedNames},
     },
+    semantic::body::ModuleFacts,
     typeck::{
         applications::validate_signatures,
         check::{check_bodies_controlled, check_signatures},
@@ -75,6 +78,7 @@ pub mod aggregates;
 pub mod analysis;
 pub mod builtin;
 pub mod callable;
+pub mod compile_input;
 pub mod declarations;
 pub mod hir;
 pub mod imports;
@@ -83,7 +87,9 @@ pub mod lower;
 pub mod native;
 
 pub mod program;
+pub mod queries;
 pub mod resolver;
+pub mod semantic;
 pub mod source_inspection;
 pub mod source_map;
 pub mod typeck;
@@ -104,7 +110,7 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 /// +-- names: ResolvedNames       -> ExprId/PlaceId -> bindings, shared namespaces
 /// +-- declarations              -> source declarations and scoped identities
 /// +-- signatures: Arc<AnalysisResult<ModuleSignatures>>
-/// +-- typed: TypedModule      -> per-body types and selected operations
+/// +-- typed: ModuleFacts      -> per-body types and selected operations
 /// +-- aggregates                -> nominal/trait/implementation catalog
 /// `-- imported_functions        -> callable facts for cross-module targets
 /// ```
@@ -129,7 +135,7 @@ pub struct AnalyzedModule {
     /// Declaration/binding metadata and definition identity context.
     pub declarations: declarations::Declarations,
     /// Checked or recovered function/constant facts, including expression types.
-    pub typed: typeck::TypedModule,
+    pub typed: ModuleFacts,
     /// Shared signature-stage facts and their diagnostics.
     pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
     /// Signatures/identities of callable declarations reached through imports.
@@ -183,8 +189,12 @@ impl<T> AnalysisResult<T> {
     }
 }
 
-/// Only this type may cross the code-generation boundary. Its contents cannot
-/// be mutated after validation by external callers.
+/// An immutable single-module analysis whose source and semantic checks succeeded.
+///
+/// This is analysis evidence, not a complete compiler input. Program checking fixes
+/// the dependency closure; [`compile_input::program::CheckedCompilation`] then admits
+/// its declarations, sources and body facts together. External callers cannot mutate
+/// this checked envelope or construct it from an arbitrary diagnostic-free payload.
 #[derive(Debug, Clone)]
 pub struct CheckedAnalysis(DefinitionMetadata<AnalyzedModule>);
 
@@ -358,49 +368,62 @@ impl DeclaredAnalysis {
         self.declarations.imported_types = imported_types;
         self.declarations
             .publish_definitions(self.declarations.context().snapshot());
-        let previous = previous_analysis.and_then(|old| {
-            if !(old
-                .names
-                .facts
-                .imports
-                .same_signature_bindings(&self.names.facts.imports)
-                && old
+        let previous = previous_analysis
+            .map(|old| -> Result<_, DefinitionMappingError> {
+                if !(old
                     .names
                     .facts
-                    .catalog
-                    .same_signature_namespaces(
-                        &self.names.facts.catalog,
-                        &old.names.facts.items,
-                        &self.names.facts.items,
-                        cancel,
-                    )
-                    .unwrap_or(false)
-                && old.declarations.imported_types.same_reuse_inputs(
-                    &self.declarations.imported_types,
-                    old.names.facts.items.unit.as_ref(),
-                    self.names.facts.items.unit.as_ref(),
-                ))
-            {
-                return None;
-            }
-            if old.lowered.source.revision() == self.lowered.source.revision()
-                && old.lowered.source.module_identity() == self.lowered.source.module_identity()
-                && old.lowered.module.body.arena() == self.lowered.module.body.arena()
-            {
-                Some(old.signatures.clone())
-            } else {
-                reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel).map(Arc::new)
-            }
-        });
+                    .imports
+                    .same_signature_bindings(&self.names.facts.imports)
+                    && old
+                        .names
+                        .facts
+                        .catalog
+                        .same_signature_namespaces(
+                            &self.names.facts.catalog,
+                            &old.names.facts.items,
+                            &self.names.facts.items,
+                            cancel,
+                        )
+                        .map_err(|_| DefinitionMappingError::Cancelled)?
+                    && old.declarations.imported_types.same_reuse_inputs(
+                        &self.declarations.imported_types,
+                        old.names.facts.items.unit.as_ref(),
+                        self.names.facts.items.unit.as_ref(),
+                    ))
+                {
+                    return Ok(None);
+                }
+                if old.lowered.source.revision() == self.lowered.source.revision()
+                    && old.lowered.source.module_identity() == self.lowered.source.module_identity()
+                    && old.lowered.module.body.arena() == self.lowered.module.body.arena()
+                {
+                    Ok(Some(old.signatures.clone()))
+                } else {
+                    let reused =
+                        reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel)
+                            .map(Arc::new);
+                    cancel
+                        .check()
+                        .map_err(|_| DefinitionMappingError::Cancelled)?;
+                    Ok(reused)
+                }
+            })
+            .transpose()?
+            .flatten();
         let signatures_reused = previous.is_some();
         let reused_local_diagnostics = previous.as_ref().map(|_| {
             previous_analysis
                 .expect("signature reuse source")
                 .local_signature_diagnostics
         });
-        let signatures = previous.unwrap_or_else(|| {
-            Arc::new(check_signatures(&self.lowered, &self.declarations, cancel))
-        });
+        let signatures = match previous {
+            Some(signatures) => signatures,
+            None => Arc::new(
+                check_signatures(&self.lowered, &self.declarations, cancel)
+                    .map_err(|_| DefinitionMappingError::Cancelled)?,
+            ),
+        };
         let definitions = definition_registration::implementation_members(
             &self.lowered,
             &self.declarations,
@@ -471,8 +494,9 @@ fn analyze_prepared(
     environment: BodyEnvironment,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
-) -> AnalysisResult<AnalyzedModule> {
+) -> Result<AnalysisResult<AnalyzedModule>, Cancelled> {
     let BodyEnvironment {
+        signatures: body_signatures,
         imported_functions,
         imported_statics,
         imported_constants,
@@ -500,6 +524,7 @@ fn analyze_prepared(
             const_limits,
             selection: BodySelection::All,
             signatures: &signatures,
+            body_signatures: &body_signatures,
             imported_functions: &imported_functions,
             imported_statics: &imported_statics,
             imported_constants: &imported_constants,
@@ -508,10 +533,11 @@ fn analyze_prepared(
         },
         reuse,
         cancel,
-    );
+    )?;
     let mut diagnostics = names.diagnostics.clone();
     diagnostics.extend(typed.diagnostics);
-    AnalysisResult {
+    cancel.check()?;
+    Ok(AnalysisResult {
         facts: AnalyzedModule {
             source_diagnostics: Arc::default(),
             aggregates,
@@ -525,7 +551,7 @@ fn analyze_prepared(
             typed: typed.facts,
         },
         diagnostics,
-    }
+    })
 }
 
 /// Analyzes one source with explicitly installed native/foundation providers.
@@ -549,7 +575,7 @@ fn analyze_prepared(
 /// let facts = analysis.facts();
 /// let (sum, _) = facts.lowered.module.body.expressions()
 ///     .find(|(_, expr)| matches!(expr.kind, ExprKind::Binary { .. })).unwrap();
-/// assert_eq!(facts.typed.type_table.expr_type(sum), Some(TypeId::Builtin(BuiltinType::I32)));
+/// assert_eq!(facts.typed.type_table().expr_type(sum), Some(TypeId::Builtin(BuiltinType::I32)));
 /// assert!(analysis.into_codegen().is_ok());
 /// ```
 pub fn analyze_source(
@@ -587,8 +613,8 @@ pub(crate) fn analyze_parsed(
     environment: BodyEnvironment,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
-) -> AnalysisResult<AnalyzedModule> {
-    let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, reuse, cancel);
+) -> Result<AnalysisResult<AnalyzedModule>, Cancelled> {
+    let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, reuse, cancel)?;
 
     analyzed.facts.source_diagnostics = parsed.physical().shared_diagnostics();
     for attribute in &analyzed.facts.lowered.attributes {
@@ -626,7 +652,8 @@ pub(crate) fn analyze_parsed(
             }));
     }
     analyzed.diagnostics.extend(parsed.diagnostics().cloned());
-    analyzed
+    cancel.check()?;
+    Ok(analyzed)
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@ use crate::{
     value::Value,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::sync::Arc;
@@ -122,7 +122,11 @@ fn load_source(source: &str) -> (Runtime, Program, ExecutableModule) {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     let code = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap();

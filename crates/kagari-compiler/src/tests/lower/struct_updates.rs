@@ -1,4 +1,5 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::tests::common;
+use crate::tests::common::lower_root;
 use kagari_abi::representation::ValueType;
 use kagari_mir::instruction::{CallTarget, Instruction, Terminator};
 
@@ -29,7 +30,7 @@ fn make() -> P<i32> {{ P {{ number: 0, flag: false, items: [0], count: 1 }} }}
 fn main() -> P<i32> {{ {expression} }}
 "#
         ));
-        let module = lower_to_mir(checked.root(), &Default::default()).unwrap();
+        let module = lower_root(&checked, &Default::default()).unwrap();
         let function = module.functions.iter().find(|f| f.name == "main").unwrap();
         let mut instructions = Vec::new();
         let mut next = function.entry;

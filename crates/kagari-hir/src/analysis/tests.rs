@@ -223,3 +223,28 @@ fn local_function_navigation_distinguishes_shadowed_blocks_and_moved_sources() {
         );
     }
 }
+
+mod arena;
+mod associated_const;
+mod callable;
+mod completion;
+mod constructor;
+mod gat;
+mod generic_type;
+mod identity;
+mod member;
+mod namespace;
+mod native_facade;
+mod native_path;
+mod owner;
+mod payload;
+mod prelude;
+mod scoped_identity;
+mod signature;
+mod standard_query;
+mod statics;
+mod trait_catalog;
+mod trait_identity;
+mod trait_reference;
+mod type_application;
+mod type_name;

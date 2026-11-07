@@ -18,10 +18,14 @@ use crate::{
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::{ResolvedName, ResolvedNames},
+    semantic::body::ModuleFacts,
+    semantic::signatures::{
+        BodySignatures, FunctionImplementation, TypedFunction, TypedFunctionBuffer, TypedParameter,
+        TypedParameterBuffer,
+    },
     typeck::{
-        BodyInputs, BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex,
-        TypeIndexes, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
-        TypedParameterBuffer, aliases, applications, associated, associated_consts, asynchronous,
+        BodyInputs, BodyTypeEnv, ModuleSignatures, TopLevelTypeIndex, TypeIndexes, aliases,
+        applications, associated, associated_consts, asynchronous,
         body::BodyChecker,
         check::{
             constants::{ConstValidationInputs, validate_const_initializers},
@@ -32,13 +36,13 @@ use crate::{
         const_budget::ConstBudget,
         const_eval, constraints,
         reuse::BodyReuse,
-        table::TypeTable,
+        state::TypeCheckState,
         ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{
-    cancellation::CancellationToken,
+    cancellation::{CancellationToken, Cancelled},
     identity::table::{DefinitionId, DefinitionTable},
     span::Span,
 };
@@ -46,6 +50,7 @@ use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePositi
 use kagari_types::{language::Protocol, scalar::BuiltinType};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 mod constants;
 mod native_defaults;
@@ -53,27 +58,31 @@ mod statics;
 mod trait_surface;
 
 /// Resolves declaration types, generic bounds and associated members into reusable signature facts.
+///
+/// Returns cancellation instead of exposing a partially filled signature table.
 pub(crate) fn check_signatures(
     lowered: &LoweredModule,
     declarations: &Declarations,
     cancel: &CancellationToken,
-) -> AnalysisResult<super::ModuleSignatures> {
+) -> Result<AnalysisResult<ModuleSignatures>, Cancelled> {
+    cancel.check()?;
     // Declaration collection already diagnosed an unrepresentable source owner.
     // Keep recovery facts empty instead of inventing IDs for its signatures.
     if !lowered.source.module_identity().within_path_limit() {
-        return AnalysisResult {
-            facts: super::ModuleSignatures {
+        cancel.check()?;
+        return Ok(AnalysisResult {
+            facts: ModuleSignatures {
                 statics: Default::default(),
                 type_bounds: Default::default(),
                 functions: Default::default(),
                 type_table: Default::default(),
             },
             diagnostics: Default::default(),
-        };
+        });
     }
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
-    let mut type_table = TypeTable::default();
+    let mut type_table = TypeCheckState::default();
     aliases::check_definitions(
         lowered,
         declarations,
@@ -124,9 +133,7 @@ pub(crate) fn check_signatures(
                 .map(|item| (ResolvedName::OpaqueType(item.id), &item.generic_params)),
         )
     {
-        if cancel.check().is_err() {
-            break;
-        }
+        cancel.check()?;
         let id = *declarations.definition(target).expect("type declaration");
         type_bounds.insert(
             id,
@@ -137,9 +144,7 @@ pub(crate) fn check_signatures(
     for structure in &lowered.module.structs {
         let mut field_names = HashSet::new();
         for field in &structure.fields {
-            if cancel.check().is_err() {
-                break;
-            }
+            cancel.check()?;
             if !field_names.insert(&field.name) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::DuplicateField {
@@ -189,9 +194,7 @@ pub(crate) fn check_signatures(
     for enumeration in &lowered.module.enums {
         for variant in &enumeration.variants {
             for payload in &variant.payload {
-                if cancel.check().is_err() {
-                    break;
-                }
+                cancel.check()?;
                 match resolve_type_in(
                     &lowered.module,
                     *payload,
@@ -266,9 +269,7 @@ pub(crate) fn check_signatures(
     }
 
     for function in &lowered.module.functions {
-        if cancel.check().is_err() {
-            break;
-        }
+        cancel.check()?;
         let implementation = match lowered.native_functions.get(&function.id) {
             Some(binding) => FunctionImplementation::Native(binding.clone()),
             None if function.body.is_some() => FunctionImplementation::Script,
@@ -410,15 +411,50 @@ pub(crate) fn check_signatures(
         cancel,
     );
     validate_trait_surface(lowered, declarations, &mut type_table, &mut diagnostics);
-    AnalysisResult {
-        facts: super::ModuleSignatures {
+    cancel.check()?;
+    Ok(AnalysisResult {
+        facts: ModuleSignatures {
             type_bounds,
             statics,
             functions,
-            type_table,
+            type_table: type_table.into_facts(),
         },
         diagnostics,
+    })
+}
+
+/// Normalizes declared callable/static types once for the fixed body environment.
+/// Raw signature facts remain available for source queries and incremental rebasing.
+pub(crate) fn prepare_body_signatures(
+    signatures: &ModuleSignatures,
+    declarations: &Declarations,
+    aggregates: &AggregateCatalog,
+    cancel: &CancellationToken,
+) -> Result<Arc<BodySignatures>, Cancelled> {
+    cancel.check()?;
+    let mut functions = signatures.functions.clone();
+    for function in &mut functions {
+        cancel.check()?;
+        for param in &mut function.params {
+            cancel.check()?;
+            param.ty = aggregates.normalize_type(declarations.definitions(), &param.ty);
+        }
+        function.return_type =
+            aggregates.normalize_type(declarations.definitions(), &function.return_type);
     }
+    let statics = signatures
+        .statics
+        .iter()
+        .map(|(id, ty)| {
+            cancel.check()?;
+            Ok((
+                *id,
+                aggregates.normalize_type(declarations.definitions(), ty),
+            ))
+        })
+        .collect::<Result<_, Cancelled>>()?;
+    cancel.check()?;
+    Ok(Arc::new(BodySignatures::new(functions, statics)))
 }
 
 /// Checks constant prerequisites and selected function bodies using completed signature inputs.
@@ -426,6 +462,8 @@ pub(crate) fn check_signatures(
 /// Copies signature facts into the output table, restores compatible body facts where
 /// possible, and records fresh diagnostics/types for remaining bodies. Caller-owned
 /// cancellation and policy limits apply throughout; publication occurs above this layer.
+/// Cancellation is an explicit error on every exit, including constant-only analysis;
+/// temporary recovery placeholders in a stopped checker never become returned facts.
 pub(crate) fn check_bodies_controlled(
     lowered: &LoweredModule,
     names: &ResolvedNames,
@@ -433,27 +471,29 @@ pub(crate) fn check_bodies_controlled(
     inputs: BodyInputs<'_>,
     reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
-) -> AnalysisResult<TypedModule> {
+) -> Result<AnalysisResult<ModuleFacts>, Cancelled> {
+    cancel.check()?;
     if !lowered.source.module_identity().within_path_limit() {
-        return AnalysisResult {
-            facts: TypedModule {
+        cancel.check()?;
+        return Ok(AnalysisResult {
+            facts: ModuleFacts {
                 valid_bodies: Default::default(),
                 valid_static_initializers: Default::default(),
                 checked_bodies: 0,
                 reused_bodies: 0,
-                functions: Default::default(),
+                signatures: Arc::default(),
                 consts: Default::default(),
-                statics: Default::default(),
                 const_values: Default::default(),
                 type_table: Default::default(),
             },
             diagnostics: Default::default(),
-        };
+        });
     }
     let BodyInputs {
         const_limits,
         selection,
         signatures,
+        body_signatures,
         imported_functions,
         imported_statics,
         imported_constants,
@@ -469,47 +509,23 @@ pub(crate) fn check_bodies_controlled(
     } else {
         Default::default()
     };
-    let mut functions = signatures.facts.functions.clone();
-    for function in &mut functions {
-        for param in &mut function.params {
-            param.ty = aggregates.normalize_type(declarations.definitions(), &param.ty);
-        }
-        function.return_type =
-            aggregates.normalize_type(declarations.definitions(), &function.return_type);
-    }
-    let function_index = FunctionTypeIndex {
-        by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
-    };
     let mut top_level_index = TopLevelTypeIndex {
-        statics: signatures
-            .facts
-            .statics
-            .iter()
-            .map(|(id, ty)| {
-                (
-                    *id,
-                    aggregates.normalize_type(declarations.definitions(), ty),
-                )
-            })
-            .collect(),
         imported_statics: imported_statics.clone(),
         imported_constants: imported_constants.clone(),
         ..Default::default()
     };
-    let mut type_table = signatures.facts.type_table.clone();
+    let mut type_table = TypeCheckState::from_facts(signatures.facts.type_table.clone());
     {
         let const_values = if let Some(constants) = constants {
             top_level_index.consts = constants.types.clone();
-            type_table = constants.table.clone();
+            type_table = TypeCheckState::from_facts(constants.table.clone());
             diagnostics.extend(constants.diagnostics.iter().cloned());
             constants.values.clone()
         } else {
             // Explicit constant declarations are visible throughout the module,
             // independently of initializer evaluation order.
             for const_item in &lowered.module.consts {
-                if cancel.check().is_err() {
-                    break;
-                }
+                cancel.check()?;
                 let Some(ty_ref) = const_item.ty else {
                     continue;
                 };
@@ -559,9 +575,7 @@ pub(crate) fn check_bodies_controlled(
                 top_level_index.consts.insert(const_item.id, ty);
             }
             for const_item in &lowered.module.consts {
-                if cancel.check().is_err() {
-                    break;
-                }
+                cancel.check()?;
                 let ty = if let Some(ty) = top_level_index.consts.get(&const_item.id) {
                     ty.clone()
                 } else {
@@ -574,7 +588,7 @@ pub(crate) fn check_bodies_controlled(
                             imported_functions,
                             declarations,
                             cancel,
-                            function_index: &function_index,
+                            signatures: body_signatures,
                             top_level_index: &top_level_index,
                             const_values: None,
                         },
@@ -583,7 +597,9 @@ pub(crate) fn check_bodies_controlled(
                         "<const>",
                         TypeId::Builtin(BuiltinType::Unit),
                     );
-                    checker.infer_expr_type(const_item.initializer, &mut env)
+                    let ty = checker.infer_expr_type(const_item.initializer, &mut env);
+                    checker.finish()?;
+                    ty
                 };
                 if const_item.ty.is_some() {
                     let mut env = BodyTypeEnv::default();
@@ -595,7 +611,7 @@ pub(crate) fn check_bodies_controlled(
                             imported_functions,
                             declarations,
                             cancel,
-                            function_index: &function_index,
+                            signatures: body_signatures,
                             top_level_index: &top_level_index,
                             const_values: None,
                         },
@@ -609,6 +625,7 @@ pub(crate) fn check_bodies_controlled(
                         &mut env,
                         Some(&ty),
                     );
+                    checker.finish()?;
                 }
                 top_level_index.consts.insert(const_item.id, ty.clone());
             }
@@ -649,20 +666,21 @@ pub(crate) fn check_bodies_controlled(
             &mut diagnostics,
         );
         if matches!(selection, BodySelection::Constants) {
-            return AnalysisResult {
-                facts: TypedModule {
+            cancel.check()?;
+            return Ok(AnalysisResult {
+                facts: ModuleFacts {
                     valid_bodies: Default::default(),
                     valid_static_initializers: Default::default(),
                     checked_bodies: 0,
                     reused_bodies: 0,
-                    functions,
+                    signatures: body_signatures.clone(),
                     consts: top_level_index.consts,
-                    statics: top_level_index.statics,
+
                     const_values,
-                    type_table,
+                    type_table: type_table.into_facts(),
                 },
                 diagnostics,
-            };
+            });
         }
 
         let mut valid_static_initializers = statics::initializers(
@@ -673,13 +691,13 @@ pub(crate) fn check_bodies_controlled(
                 imported_functions,
                 declarations,
                 cancel,
-                function_index: &function_index,
+                signatures: body_signatures,
                 top_level_index: &top_level_index,
                 const_values: Some(&const_values),
             },
             &mut type_table,
             &mut diagnostics,
-        );
+        )?;
 
         aliases::AliasValidation {
             lowered,
@@ -697,9 +715,7 @@ pub(crate) fn check_bodies_controlled(
             .iter()
             .any(|diagnostic| diagnostic.severity == Severity::Error);
         for function in &lowered.module.functions {
-            if cancel.check().is_err() {
-                break;
-            }
+            cancel.check()?;
             let Some(body) = function.body else {
                 continue;
             };
@@ -731,7 +747,7 @@ pub(crate) fn check_bodies_controlled(
             let diagnostic_start = diagnostics.len();
             checked_bodies += 1;
             let mut env = BodyTypeEnv::default();
-            if let Some(typed_function) = function_index.by_id.get(&function.id) {
+            if let Some(typed_function) = body_signatures.function(function.id) {
                 env.generics = function.generic_params.clone();
                 let context = function_type_context(&lowered.module, function, declarations);
                 env.self_type = if let Some(owner) = context.self_type {
@@ -798,7 +814,7 @@ pub(crate) fn check_bodies_controlled(
                         imported_functions,
                         declarations,
                         cancel,
-                        function_index: &function_index,
+                        signatures: body_signatures,
                         top_level_index: &top_level_index,
                         const_values: Some(&const_values),
                     },
@@ -809,6 +825,7 @@ pub(crate) fn check_bodies_controlled(
                 );
                 checker.set_async(function.is_async);
                 let body_ty = checker.solve_body(body, &mut env, Some(&body_output));
+                checker.finish()?;
                 let body_span = lowered.source_map.block_span(body);
                 aliases::AliasValidation {
                     lowered,
@@ -888,7 +905,7 @@ pub(crate) fn check_bodies_controlled(
             else {
                 continue;
             };
-            let Some(signature) = function_index.by_id.get(&function.id) else {
+            let Some(signature) = body_signatures.function(function.id) else {
                 continue;
             };
             if let Some(site) =
@@ -905,20 +922,21 @@ pub(crate) fn check_bodies_controlled(
                 );
             }
         }
-        AnalysisResult {
-            facts: TypedModule {
+        cancel.check()?;
+        Ok(AnalysisResult {
+            facts: ModuleFacts {
                 valid_bodies,
                 valid_static_initializers,
                 checked_bodies,
                 reused_bodies,
-                functions,
+                signatures: body_signatures.clone(),
                 consts: top_level_index.consts,
-                statics: top_level_index.statics,
+
                 const_values,
-                type_table,
+                type_table: type_table.into_facts(),
             },
             diagnostics,
-        }
+        })
     }
 }
 

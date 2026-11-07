@@ -21,7 +21,10 @@ use kagari_syntax::ast::{
 use smallvec::{SmallVec, smallvec};
 
 impl Lowerer {
-    /// Lowers statements in order and the optional tail separately, then allocates their block.
+    /// Reserves a block, lowers statements in order, then lowers its optional tail.
+    ///
+    /// Cancellation stops the statement loop but still finalizes the partial block
+    /// and restores the enclosing block. The analysis caller rejects cancelled work.
     pub(crate) fn lower_block(&mut self, block: &Ast<'_, BlockExpr>) -> BlockId {
         let id = self.alloc_block(
             syntax_span(block),
@@ -31,12 +34,13 @@ impl Lowerer {
             },
         );
         let previous_block = self.current_block.replace(id);
-        let cancel = self.cancel.clone();
-        let statements = block
-            .statements()
-            .take_while(|_| cancel.check().is_ok())
-            .map(|stmt| self.lower_stmt(&stmt))
-            .collect::<SmallVec<[_; 8]>>();
+        let mut statements = SmallVec::<[_; 8]>::new();
+        for stmt in block.statements() {
+            if self.cancel.check().is_err() {
+                break;
+            }
+            statements.push(self.lower_stmt(&stmt));
+        }
         let tail_expr = block.tail_expr().map(|expr| self.lower_expr(&expr));
 
         self.module.body.blocks[id.index()].1 = BlockData {

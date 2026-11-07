@@ -19,3 +19,21 @@ kagari-stdlib.workspace = true
 kagari-contract.workspace = true
 rstest.workspace = true
 serde_json = "1"
+
+[[bench]]
+name = "ast_baseline"
+path = "benches/ast_baseline/main.rs"
+harness = false
+test = false
+
+[[bench]]
+name = "hir_baseline"
+path = "benches/hir_baseline/main.rs"
+harness = false
+test = false
+
+[[bench]]
+name = "hir_memory"
+path = "benches/hir_baseline/memory.rs"
+harness = false
+test = false

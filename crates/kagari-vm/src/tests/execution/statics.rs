@@ -11,7 +11,7 @@ use crate::{
 use kagari_bytecode::{instruction::ModuleSlot, program::BytecodeProgram};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -71,7 +71,11 @@ fn compile_scalar_static_bytecode(text: &str) -> DefinitionMetadata<BytecodeProg
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     lower_program_to_bytecode(&mir, &Default::default())
         .unwrap()
         .into_unverified()

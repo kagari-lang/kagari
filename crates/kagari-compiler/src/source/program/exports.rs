@@ -9,9 +9,9 @@ use kagari_common::{
 };
 use kagari_contract::exports::{ExportNamespace, ProgramExports, TypeExport};
 use kagari_hir::{
-    declarations::DeclarationId,
-    imports::SourceDeclRef,
-    program::{CheckedProgram, exports::TypeExport as SourceTypeExport},
+    compile_input::program::CheckedCompilation,
+    imports::{SourceDeclRef, SourceItem},
+    program::exports::TypeExport as SourceTypeExport,
     resolver::resolved::ResolvedName,
     types::semantic::lower_type,
 };
@@ -22,25 +22,28 @@ use std::{
 };
 
 pub(super) fn lower(
-    program: &CheckedProgram,
+    program: &CheckedCompilation<'_>,
     cancel: &CancellationToken,
 ) -> Result<ProgramExports, DefinitionMappingError> {
     check_cancel(cancel)?;
     let declaration = |source: &SourceDeclRef| -> Result<DefinitionId, DefinitionMappingError> {
         check_cancel(cancel)?;
-        let (module, signature) = program
-            .source_function(source)
+        let module = program
+            .module(source.unit.module)
             .ok_or(DefinitionMappingError::InvalidContract)?;
-        let target = module
-            .declarations
-            .target(ResolvedName::Function(signature.id))
-            .ok_or(DefinitionMappingError::InvalidContract)?;
-        match target.id {
-            DeclarationId::Definition(id) => Ok(id),
-            _ => Err(DefinitionMappingError::InvalidContract),
-        }
+        let SourceItem::Function(id) = source.item else {
+            return Err(DefinitionMappingError::InvalidContract);
+        };
+        module
+            .environment()
+            .definition(ResolvedName::Function(id))
+            .ok_or(DefinitionMappingError::InvalidContract)
     };
-    let definitions = program.root().names.catalog.definitions();
+    let definitions = program
+        .module(program.root())
+        .expect("checked root")
+        .environment()
+        .definitions();
     Ok(ProgramExports {
         namespaces: program
             .exports()

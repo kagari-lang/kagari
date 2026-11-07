@@ -1,12 +1,17 @@
-"""Evidence rejection tests for the AST migration measurement protocol."""
+"""Evidence validation tests for AST characterization and neutral comparisons."""
 from copy import deepcopy
+import json
 import math
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from benchmark_ast import NAMES, VALID, acceptance, aggregate, compare_locks, validate, validate_memory
+from benchmark_ast import (
+    NAMES, ROOT, VALID, aggregate, build_executable, summarize_memory, validate,
+    validate_comparison_metadata, validate_memory,
+)
 
 
 def report(scale=1.0):
@@ -64,34 +69,53 @@ class EvidenceTests(unittest.TestCase):
         for row in aggregate([{"candidate": report()}]):
             self.assertIsNone(row["paired_ratio"])
 
-    def test_acceptance_requires_pairs_memory_budgets_and_noise(self):
-        baseline, candidate = report(), report(0.7)
-        memory = {name: memory_report() for name in ("candidate", "baseline")}
-        runs = [{"candidate": candidate, "baseline": baseline} for _ in range(7)]
-        self.assertTrue(acceptance(runs, memory)["passed"])
-        self.assertFalse(acceptance(runs[:1], memory)["passed"])
-        slow = [{"candidate": report(0.9), "baseline": baseline} for _ in range(7)]
-        self.assertFalse(acceptance(slow, memory)["passed"])
-        noisy = deepcopy(runs)
-        noisy[0]["baseline"] = report(1.3)
-        self.assertFalse(acceptance(noisy, memory)["passed"])
-        inflated = deepcopy(memory)
+    def test_empty_or_partially_paired_runs_are_rejected(self):
+        paired = {"candidate": report(), "baseline": report()}
+        single = {"candidate": report()}
+        for runs in ([], [paired, single], [single, paired]):
+            with self.subTest(groups=[list(run) for run in runs]), self.assertRaises(ValueError):
+                aggregate(runs)
+
+    def test_memory_summary_reports_levels_differences_and_allocation_deltas(self):
+        memory = {image: memory_report() for image in ("candidate", "baseline")}
         for stage in ("parsed", "with_view", "parse_released", "released"):
-            inflated["candidate"]["workloads"][0][stage] = counters(10000, 10000 if stage in ("parsed", "with_view") else 0)
-        self.assertFalse(acceptance(runs, inflated)["passed"])
+            memory["candidate"]["workloads"][0][stage] = counters(
+                10000, 10000 if stage in ("parsed", "with_view") else 0)
+        summary = summarize_memory([{"candidate": report(2), "baseline": report()}], memory)
+        self.assertEqual(set(summary), {"memory", "allocations"})
+        self.assertEqual(summary["memory"][0], {
+            "workload": "small", "stage": "released", "metric": "peak_bytes",
+            "baseline": 100, "candidate": 10000, "difference": 9900, "ratio": 100.0})
+        self.assertEqual(summary["memory"][2]["difference"], 0)
+        self.assertIsNone(summary["memory"][2]["ratio"])
+        self.assertEqual(summary["allocations"][2], {
+            "workload": "small", "image": "candidate", "stage": "parse_released",
+            "requests": 0, "requested_bytes": 0, "frees": 1, "freed_bytes": 10000})
+        standalone = summarize_memory([{"candidate": report()}], {"candidate": memory_report()})
+        for row in standalone["memory"]:
+            self.assertIsNone(row["baseline"])
+            self.assertIsNone(row["difference"])
+            self.assertIsNone(row["ratio"])
+        self.assertEqual({row["image"] for row in standalone["allocations"]}, {"candidate"})
 
-    def test_near_threshold_requires_independent_passing_repeat(self):
-        memory = {name: memory_report() for name in ("candidate", "baseline")}
-        runs = [{"candidate": report(0.79), "baseline": report()} for _ in range(7)]
-        first = acceptance(runs, memory)
-        self.assertFalse(first["passed"])
-        first["failures"] = []
-        self.assertTrue(acceptance(runs, memory, first)["passed"])
-        first["failures"] = ["unresolved noise"]
-        self.assertFalse(acceptance(runs, memory, first)["passed"])
+    def test_memory_images_and_workloads_must_match_timing(self):
+        runs = [{"candidate": report(), "baseline": report()}]
+        for mutation in ("missing_image", "paired_input", "retention_input", "timing_input"):
+            memory = {image: memory_report() for image in ("candidate", "baseline")}
+            if mutation == "missing_image":
+                del memory["baseline"]
+            elif mutation == "paired_input":
+                memory["baseline"]["workloads"][0]["bytes"] += 1
+            elif mutation == "retention_input":
+                memory["baseline"]["workloads"][-1]["blake3"] = "b" * 64
+            else:
+                for image in memory.values():
+                    image["workloads"][0]["blake3"] = "b" * 64
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                summarize_memory(runs, memory)
 
-    def test_unimplemented_leaked_or_missing_memory_cannot_pass(self):
-        for mutation in ("missing", "zero", "leak", "nonfinite", "no_view"):
+    def test_invalid_or_unmeasured_memory_is_rejected(self):
+        for mutation in ("missing", "zero", "leak", "nonfinite", "inconsistent", "nonmonotonic", "no_view"):
             data = memory_report()
             if mutation == "missing":
                 data["workloads"].pop()
@@ -101,6 +125,10 @@ class EvidenceTests(unittest.TestCase):
                 data["workloads"][0]["released"] = counters(100, 10)
             elif mutation == "nonfinite":
                 data["workloads"][0]["parsed"]["peak_bytes"] = math.inf
+            elif mutation == "inconsistent":
+                data["workloads"][0]["parsed"]["live_bytes"] += 1
+            elif mutation == "nonmonotonic":
+                data["workloads"][0]["with_view"] = counters(90, 70)
             else:
                 data["workloads"][-1]["parse_released"] = counters(100, 0)
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
@@ -122,66 +150,50 @@ def memory_report():
         for name in (*NAMES, "inline_retention")]}
 
 
-class DependencyTests(unittest.TestCase):
-    BEFORE = b'''version = 4
-[[package]]
-name = "kagari-syntax"
-version = "0.1.0"
-dependencies = ["rowan", "shared"]
-[[package]]
-name = "kagari-format"
-version = "0.1.0"
-dependencies = ["rowan", "shared"]
-[[package]]
-name = "rowan"
-version = "0.17.0"
-dependencies = ["orphan", "shared"]
-[[package]]
-name = "orphan"
-version = "1.0.0"
-[[package]]
-name = "shared"
-version = "1.0.0"
-checksum = "unchanged"
-'''
-    AFTER = b'''version = 4
-[[package]]
-name = "kagari-syntax"
-version = "0.1.0"
-dependencies = ["shared"]
-[[package]]
-name = "kagari-format"
-version = "0.1.0"
-dependencies = ["shared"]
-[[package]]
-name = "shared"
-version = "1.0.0"
-checksum = "unchanged"
-'''
+class BuildDiscoveryTests(unittest.TestCase):
+    def test_build_requires_one_matching_bench_executable(self):
+        executable = ROOT / "target/release/deps/ast_baseline-0123456789abcdef.exe"
+        artifact = {"reason": "compiler-artifact", "fresh": True,
+                    "target": {"name": "ast_baseline", "kind": ["bench"]},
+                    "executable": str(executable)}
+        ignored = [
+            {"reason": "build-finished", "success": True},
+            {**artifact, "target": {"name": "ast_baseline", "kind": ["example"]}},
+            {**artifact, "target": {"name": "hir_baseline", "kind": ["bench"]}},
+            {**artifact, "executable": None},
+        ]
+        with patch("benchmark_ast.command") as cargo:
+            cargo.return_value = "\n".join(json.dumps(row) for row in [*ignored, artifact])
+            self.assertEqual(build_executable(), executable.resolve())
+            cargo.assert_called_once_with(
+                "cargo", "build", "--release", "--locked", "-p", "kagari-hir",
+                "--bench", "ast_baseline", "--message-format=json-render-diagnostics")
+            for matches in ([], [artifact, artifact]):
+                cargo.return_value = "\n".join(json.dumps(row) for row in [*ignored, *matches])
+                with self.subTest(count=len(matches)), self.assertRaisesRegex(
+                        ValueError, f"expected one ast_baseline bench executable artifact, got {len(matches)}"):
+                    build_executable()
 
-    def test_rowan_and_orphans_can_be_removed(self):
-        self.assertEqual(compare_locks(self.BEFORE, self.AFTER), ["orphan 1.0.0", "rowan 0.17.0"])
 
-    def test_equivalent_dependency_spelling_is_not_an_upgrade(self):
-        before = self.BEFORE.replace(b'"shared"]', b'"shared 1.0.0"]')
-        self.assertEqual(compare_locks(before, self.AFTER), ["orphan 1.0.0", "rowan 0.17.0"])
-
-    def test_retained_dependency_changes_are_rejected(self):
-        for changed in (self.AFTER.replace(b"unchanged", b"changed"),
-                        self.AFTER.replace(b'"1.0.0"', b'"2.0.0"'),
-                        self.AFTER.replace(b'["shared"]', b'[]', 1)):
-            with self.subTest(changed=changed), self.assertRaises(ValueError):
-                compare_locks(self.BEFORE, changed)
-
-    def test_still_referenced_package_cannot_be_removed(self):
-        changed = self.AFTER[:self.AFTER.rfind(b"[[package]]")]
-        with self.assertRaises(ValueError):
-            compare_locks(self.BEFORE, changed)
-
-    def test_unrelated_orphan_removal_is_rejected(self):
-        before = self.BEFORE + b'\n[[package]]\nname = "unrelated"\nversion = "1.0.0"\n'
-        with self.assertRaises(ValueError):
-            compare_locks(before, self.AFTER)
+class ComparisonMetadataTests(unittest.TestCase):
+    def test_frozen_image_dependencies_and_environment_must_match(self):
+        baseline = {
+            "executable_sha256": {"candidate": "a" * 64}, "lock_sha256": "b" * 64,
+            "rustc": "rustc version", "cargo": "cargo version", "platform": "platform",
+            "processor": "processor", "logical_cpus": 8, "profile": "workspace release",
+            "features": "default", "parallelism": "default Cargo; single-thread measurement",
+            "cache": "resident source", "environment": {"RUSTFLAGS": None},
+        }
+        candidate = {**baseline, "executable_sha256": {"candidate": "c" * 64, "baseline": "a" * 64}}
+        validate_comparison_metadata(baseline, candidate)
+        for key in baseline:
+            changed = deepcopy(candidate)
+            if key == "executable_sha256":
+                changed[key]["baseline"] = "d" * 64
+            else:
+                changed[key] = "different"
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "baseline"):
+                validate_comparison_metadata(baseline, changed)
 
 
 if __name__ == "__main__":

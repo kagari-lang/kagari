@@ -644,6 +644,50 @@ frontend work requires a separately authorized scope. Full incremental compilati
 permanent engine reuse, R7/R8 changes, global caches, artifact pruning and AOT
 expansion remain separate.
 
+## HIR ownership and compiler handoff
+
+HIR separates temporary checker state, immutable declaration/body facts and the
+fixed `CheckedCompilation` input. The compiler consumes owner-checked body views,
+expands short-lived semantic operations, plans instantiated calls and constructs
+MIR through one production path. SourceEvidence retains authored/static provenance;
+unused whole-record identity conversion is removed. Private tests are grouped
+under their owning modules, with source-to-data examples and navigable rustdoc.
+The [HIR guide](architecture/hir.md) owns the data flow and read paths; the
+[performance record](performance-baseline.md#hir-architecture-and-candidate-filtering-macos-2026-11-06)
+records workload-specific timing, memory and the single candidate-filter experiment.
+
+Focused boundary tests, HIR doctests, strict rustdoc, rendered documentation,
+structure/fmt and workspace all-target Clippy are locally validated. Full workspace
+and complete feature/backend/platform acceptance remain CI-only and unrun here.
+[R8](review.md#architecture-findings) retains finer semantic versus
+navigation invalidation; physical per-body arenas, union-find, general constraint
+work queues and persistent query frameworks are outside this completed migration.
+No runtime, GC, language or backend ownership change is implied.
+
+Integration with main at `4a9446d7` preserves the checked compilation handoff and
+completed-expression terminator coverage while adopting TP14 test pruning, shared
+verified MIR, syntax recovery repairs and dependency updates. All 25 selected
+Windows tests pass: statement parsing/budgets (18), compiler foundation (3), HIR
+recovery/hash constraints (2), SDK interpolation diagnostics (1) and VM native
+cancellation cleanup (1). This selection covers conflicting tests and representative
+frontend/runtime consumers. Structure, fmt, workspace all-target Clippy and diff
+checks pass; complete workspace, fuzz campaigns and feature/platform matrices remain
+CI-only and are not claimed by this merge.
+
+The readability follow-up makes consuming string scans, list/struct-tail recovery,
+HIR statement cancellation and shared-method eligibility explicit without changing
+language admission or recovery ownership. Source decoding now reports cancellation
+at its own completion boundary, not as malformed input. Syntax/HIR rustdoc and the
+owner guides clarify source-to-node mappings, partial construction, recoverable
+versus checked facts and retained definition scopes. No new test cases were added;
+the existing decoder cancellation scenario now also asserts the typed outer error.
+All 46 selected tests pass across literal decoding, interpolation/recovery, list
+ownership, callable contexts, retained cancellation snapshots and source-free
+operation verification. Source/syntax/HIR doctests and strict private-item rustdoc,
+guide file-link checks, structure, fmt, workspace Clippy and diff checks pass.
+Complete workspace/platform matrices and fuzz campaigns remain CI-only; no
+performance improvement or exhaustive documentation coverage is claimed.
+
 ## Compilation cancellation polling
 
 Coarse syntax checkpoints and the unified `parse(source, options, cancel)` API
@@ -652,6 +696,13 @@ are implemented and locally validated. The
 owns checkpoint placement, cleanup and exact limits; its entrypoint and AST
 documentation covers options, diagnostics, recovery, retention and traversal.
 The completed plan is retired. Shared token/runtime behavior is unchanged.
+
+HIR analysis now propagates cancellation through stage results and cache comparison,
+rejects interrupted work before publication, and batches ordinary statement/expression
+polls while retaining internal checkpoints in long algorithms. Exact semantic
+budgets remain independent of polling. The [HIR ownership guide](architecture/hir.md)
+owns these contracts; shared identity/token APIs, runtime cancellation and executable
+product conversion policy remain unchanged.
 
 The previous compiler-lowering/update-budget integration proposal remains deferred,
 not an automatic follow-up. Full workspace and complete feature/backend/platform
@@ -1443,6 +1494,87 @@ require a concrete task; implemented foundations are not prerequisites to replay
 | [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan) | PG00-PG06 documented, queued and unstarted: close contracts/baseline with NC01; complete generic provider capabilities and early external proof with NC02; replace physical storage; migrate collections through NC03/NC04; integrate incremental graph/barriers; enable sweep/driver interleaving with NC05; finish joint acceptance with NC06. Standard collections and host adapters must use the same public generic protocol as an independent provider, with no retained privileged paths. Preserve precise tracing, checked identities, compact storage, joint object/program reachability and collecting Native callbacks; no retention prepass for callback-bearing algorithms. PG00 must resolve physical layout, scan/publication, scheduling and numerical acceptance before dependent changes. No measured speedup or hard pause bound is claimed. Existing cancellation policy is unchanged; poll redesign, R13 and concurrent/generational collection remain separate. |
 
 ## Open review and documentation work
+
+The [HIR architecture and module review](review.md#hir-architecture-and-module-organization)
+at `75a8b7ee` on `refactor/hir-architecture` is complete. It inventoried all source
+modules and traced representative dependencies, stage/public interfaces, file
+responsibilities and test owners against the final HA0-HA5 design. Two public-API
+characterization probes confirmed P2 findings: protocol adaptation starts fresh
+search budgets/tokens inside a bounded lookup, and declaration attribute errors
+are validated only during full body-analysis aggregation. The review also records
+P3 shared-utility ownership and unused public-surface issues, plus remaining
+facade/query/test placement debt. The focused query-module organization is complete;
+its lasting ownership contract lives in the [HIR architecture](architecture/hir.md#module-responsibilities).
+The remaining findings are open; their repairs are not activated.
+
+The review retains the implemented checked handoff, immutable facts and temporary
+body expansion, and records the primary-source comparison, bounded repair owners
+and validation limits. Full-workspace and backend acceptance remain CI-only.
+General solver changes, physical arenas, cache capacity and R8 remain outside
+this review.
+
+The five authorized syntax/HIR contract repairs from the 2026-11-06 review
+were originally implemented at `e027d2a0` on `fix/syntax-hir-review-contracts`
+and are integrated into `refactor/hir-architecture` at the user's direction.
+The target baseline is `4531b9f7`; its HA0-HA5 HIR migration is the review subject.
+The parser rejects top-level named call type arguments while preserving associated
+equalities inside types,
+restores ordinary struct expressions inside delimited conditions, decides
+statement termination from the completed expression and stops speculative type
+lookahead at invalid type-argument boundaries. Optional HIR binding usage now
+projects async-block captures from the resolver's existing facts. Lasting contracts
+live in the [syntax](architecture/syntax.md#grammar-fields-and-recovered-roles) and
+[HIR](architecture/hir.md#optional-source-tool-facts) architecture.
+
+The lookahead boundary follows the separation of expression/type context and
+angle-argument grammar in the
+[Rust 1.90 parser](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_parse/src/parser/path.rs)
+(`PathStyle`, `parse_angle_args`). Kagari retains its own `Type<T> { ... }` and
+`Type<T>::member` forms rather than importing Rust's expression turbofish policy;
+the same immutable parse owns probing, fields and diagnostics. No persistent cache,
+AST model migration or duplicate semantic type parser is introduced.
+
+Target-branch validation passed 37 selected tests: 16 syntax grammar/resource/
+cancellation, 7 typed-field/traversal, 8 HIR callable/admission/reuse/cancellation/
+trait-search, 3 lint capture and 3 formatter cases. The selected contracts cover
+the five repairs and representative refactored handoff boundaries. Structure,
+formatting, workspace all-target Clippy and diff checks passed. Original main-based
+comparison timings remain [historical workload evidence](performance-baseline.md#independent-comparison-lookahead-2026-11-06),
+not measurements of this HIR branch. The target does not contain main's fuzz crate
+or dependency updates; that initial integration carries only the five review repairs.
+
+Both P2 findings from the subsequent HA0-HA5 review are repaired. Selected-body
+queries refresh the current signature context while sharing unchanged immutable
+body facts; retained old results keep their original context. Whole-result reuse
+compares the revision and complete signature-file set. The
+[query ownership contract](architecture/hir.md#query-work-reuse-and-publication)
+preserves matching source/arena/definition owners, cancellation and older-request
+publication protection without rechecking or copying body tables.
+
+HIR completion owns whether matching can continue beyond an arm. A terminating
+guard on an irrefutable pattern excludes the arm value and later concrete instances;
+pattern failure or a normally completing guard preserves continuation. The same
+iterative completion algorithm governs type joins and the checked-body query used
+by elaboration; MIR consumes the resulting arm sequence. Independent source
+diagnostics remain required. The guard defect predates the migration. Lasting
+rules live in [match completion](spec/syntax.md#blocks-and-statements) and the
+[HIR handoff](architecture/hir.md).
+
+Both failures were reproduced before repair. Focused validation passed 31 HIR
+cache/reuse/cancellation, completion, generic-completion and checked-body admission
+tests, plus 4 compiler tests for match instance budgets and terminating evaluation
+prefixes. One runtime control-flow test passed through source, encoded artifacts
+and JIT, including guard return, pattern failure, false guards and guard breaks
+with once-only side effects. These 36 tests extend existing contract owners;
+syntax/lint/format evidence above remains valid for unaffected code. Structure,
+formatting, workspace all-target Clippy and diff checks passed. Cache capacity and
+general flow/model migrations remain outside this repair.
+
+Full-workspace tests and the complete feature/backend/platform matrix remain
+CI-owned and unrun locally. The remaining
+[syntax/HIR follow-ups](review.md#syntax-and-hir-follow-ups), including historical
+selected-body cache retention and ambiguous comma-separated lookahead costs, and
+SA11 remain outside these repairs.
 
 The authorized R15 -> R11 -> R12 repairs are implemented. The
 [debugger observation contract](spec/debugger.md#safe-debug-points) keeps scalar

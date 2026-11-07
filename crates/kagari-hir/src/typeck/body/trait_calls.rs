@@ -63,7 +63,7 @@ impl BodyChecker<'_> {
         if let Some(expected) = expected
             && !expected.is_never()
         {
-            let _ = self.solver.constrain(&result, expected, self.cancel);
+            self.constrain_types(&result, expected);
         }
         Some(self.solver.resolve(&self_ty))
     }

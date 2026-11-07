@@ -1,6 +1,10 @@
 //! Name/path admission, signature punctuation, generics and trait bounds.
 
 use kagari_source::diagnostic::DiagnosticKind;
+use smallvec::SmallVec;
+
+#[cfg(test)]
+mod tests;
 
 use crate::{
     ast::{
@@ -75,18 +79,38 @@ impl Parser<'_> {
     }
 
     pub(crate) fn skip_angle_group(&self, cursor: &mut usize) -> bool {
-        let mut depth = 1;
+        // This only recognizes a possible type-argument shape; the ordinary type
+        // parser still owns fields and diagnostics. A comparison's `<` must not
+        // search through later statements for a matching `>`.
+        let mut closes = SmallVec::<[TokenKind; 8]>::new();
+        closes.push(TokenKind::Gt);
         while let Some(kind) = self.nth_nontrivia_kind_from(cursor) {
             match kind {
-                TokenKind::Lt => depth += 1,
-                TokenKind::Gt => {
-                    depth -= 1;
-                    if depth == 0 {
+                TokenKind::Lt => closes.push(TokenKind::Gt),
+                TokenKind::LParen => closes.push(TokenKind::RParen),
+                TokenKind::LBracket => closes.push(TokenKind::RBracket),
+                TokenKind::Gt | TokenKind::RParen | TokenKind::RBracket => {
+                    if closes.pop().as_ref() != Some(&kind) {
+                        return false;
+                    }
+                    if closes.is_empty() {
                         return true;
                     }
                 }
-                TokenKind::Eof => return false,
-                _ => {}
+                // Paths, never/function types, qualified projections and
+                // associated-type bindings share these type-grammar tokens.
+                TokenKind::Ident
+                | TokenKind::CrateKw
+                | TokenKind::SelfKw
+                | TokenKind::SuperKw
+                | TokenKind::ColonColon
+                | TokenKind::Comma
+                | TokenKind::Bang
+                | TokenKind::FnKw
+                | TokenKind::Arrow
+                | TokenKind::AsKw
+                | TokenKind::Eq => {}
+                _ => return false,
             }
         }
         false

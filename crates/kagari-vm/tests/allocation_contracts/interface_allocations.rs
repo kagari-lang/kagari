@@ -4,7 +4,7 @@ use super::native_allocations_counter::{measured, verify_counter};
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_common::identity::DefinitionKind;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{Runtime, RuntimeConfig, module::ExecutableModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
@@ -35,7 +35,11 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let checked = snapshot.check_program(root, &Default::default()).unwrap();
-        let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+        let mir = lower_program_to_mir(
+            &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
         let program = lower_program_to_bytecode(&mir, &Default::default())
             .map(|program| program.into_unverified())
             .unwrap();
@@ -297,7 +301,11 @@ fn load(source: &str) -> (Vm, ExecutableModule) {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     let program = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap();

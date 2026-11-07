@@ -70,7 +70,8 @@ impl BodyBuilder {
                 map.param_span(id),
                 module
                     .typed
-                    .functions
+                    .signatures
+                    .functions()
                     .iter()
                     .flat_map(|function| &function.params)
                     .find(|param| param.id == id)

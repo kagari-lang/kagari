@@ -6,7 +6,7 @@ use kagari_bytecode::{
 use kagari_common::identity::map::DefinitionContext;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
@@ -29,7 +29,9 @@ fn main() {
     let checked = snapshot
         .check_program(root, &Default::default())
         .expect("checked applied trait implementation");
-    let ir = lower_program_to_mir(&checked, &Default::default()).expect("verified IR");
+    let input = CheckedCompilation::from_program(&checked, &Default::default())
+        .expect("checked compilation");
+    let ir = lower_program_to_mir(&input, &Default::default()).expect("verified IR");
     let program = lower_program_to_bytecode(&ir, &Default::default()).expect("verified bytecode");
     let bytecode = &program.program().modules[program.program().root.index()];
     let table = bytecode

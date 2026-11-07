@@ -17,17 +17,18 @@ use kagari_contract::{
     statics::StaticDescriptor, types::ConcreteFunctionIdentity, updates::BodyClassification,
 };
 use kagari_hir::{
-    AnalyzedModule,
     aggregates::{
         AggregateCatalog, implementations::ImplementationSearchLimits, traits::MethodDefault,
     },
+    compile_input::program::CheckedModule,
     declarations::DeclarationId,
     hir::{
-        expr::ExprKind,
         ids::{BodyOwner, ExprId, FunctionId, StaticId},
+        item::Item,
     },
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, GenericBounds, TypedFunction, scalar::ScalarValue},
+    semantic::signatures::{FunctionImplementation, TypedFunction},
+    typeck::GenericBounds,
     types::{
         GenericParameterType, NominalType, TypeId, TypeSubstitution,
         semantic::{lower_nominal_type, lower_type},
@@ -52,13 +53,19 @@ mod adapters;
 mod callables;
 mod calls;
 mod coercions;
+mod constants;
 mod constructions;
 mod defaults;
+mod interface_coercions;
 mod locals;
+pub(crate) mod methods;
 mod native;
+mod native_application;
+mod native_methods;
 mod operation_dependencies;
 mod requests;
 mod results;
+pub(crate) mod selection;
 mod shared;
 pub(super) mod state;
 mod statics;
@@ -158,10 +165,14 @@ impl InstanceBody {
         }
     }
 
-    pub fn span(self, module: &AnalyzedModule) -> Span {
+    pub fn span(self, module: &CheckedModule<'_>) -> Span {
         match self {
-            Self::Function(id) => module.lowered.source_map.function_span(id),
-            Self::Static(id) => module.lowered.source_map.static_span(id),
+            Self::Function(id) => module
+                .declaration_span(Item::Function(id))
+                .expect("admitted function span"),
+            Self::Static(id) => module
+                .declaration_span(Item::Static(id))
+                .expect("admitted static span"),
         }
     }
 }
@@ -226,11 +237,11 @@ pub(super) struct InterfaceBridgeRequest {
 }
 
 pub(super) struct InstancePlanner<'a> {
-    module: &'a AnalyzedModule,
+    module: &'a CheckedModule<'a>,
     pub context: &'a DefinitionContext,
     pub bridge_identities: &'a mut BridgeIdentities,
     pub catalog: &'a AggregateCatalog,
-    modules: &'a HashMap<ModuleHandle, &'a AnalyzedModule>,
+    modules: &'a HashMap<ModuleHandle, &'a CheckedModule<'a>>,
     pub options: &'a MirLoweringOptions,
     pub instances: Vec<Instance>,
     pub static_slots: Vec<StaticDescriptor<InstanceId>>,
@@ -280,12 +291,7 @@ impl<'a> InstancePlanner<'a> {
     }
 
     pub fn owner_handle(&self) -> ModuleHandle {
-        self.module
-            .names
-            .catalog
-            .definitions()
-            .lookup_module(self.module.lowered.source.module_identity())
-            .expect("checked source module")
+        self.module.handle()
     }
 
     pub fn enqueue_resume(
@@ -319,7 +325,7 @@ impl<'a> InstancePlanner<'a> {
     }
 
     pub fn new(
-        module: &'a AnalyzedModule,
+        module: &'a CheckedModule<'a>,
         options: &'a MirLoweringOptions,
         inputs: &'a ModuleLoweringInputs<'a>,
         bridge_identities: &'a mut BridgeIdentities,
@@ -372,14 +378,14 @@ impl<'a> InstancePlanner<'a> {
         }
     }
 
-    pub fn origin(&self, instance: &Instance) -> &'a AnalyzedModule {
+    pub fn origin(&self, instance: &Instance) -> &'a CheckedModule<'a> {
         self.modules[&instance.origin]
     }
 
     pub fn aggregate_catalog(&self, declaration: &DefinitionId) -> &'a AggregateCatalog {
         self.modules
             .get(&self.module_handle(*declaration))
-            .map(|module| &module.aggregates)
+            .map(|module| module.environment().aggregates())
             .unwrap_or(self.catalog)
     }
 
@@ -410,15 +416,13 @@ impl<'a> InstancePlanner<'a> {
     ) -> Result<InstanceId, MirLoweringError> {
         let parent = self
             .module
-            .lowered
-            .module
+            .headers()
             .functions
             .first()
             .map(|function| InstanceBody::Function(function.id))
             .or_else(|| {
                 self.module
-                    .lowered
-                    .module
+                    .headers()
                     .statics
                     .first()
                     .map(|item| InstanceBody::Static(item.id))
@@ -470,7 +474,7 @@ impl<'a> InstancePlanner<'a> {
         };
         let root = self
             .context
-            .intern_root(self.module.lowered.source.module_identity())
+            .intern_root(self.module.source().module_identity())
             .map_err(DefinitionMappingError::from)?;
         let declaration = self
             .context
@@ -556,21 +560,22 @@ impl<'a> InstancePlanner<'a> {
 
     pub fn native_function(&self, declaration: &DefinitionId) -> Option<&TypedFunction> {
         let module = self.modules.get(&self.module_handle(*declaration))?;
-        let ResolvedName::Function(id) = module.declarations.definition_target(declaration)? else {
+        let ResolvedName::Function(id) = module
+            .environment()
+            .declarations()
+            .definition_target(declaration)?
+        else {
             return None;
         };
-        module.typed.functions.iter().find(|function| {
-            function.id == id
-                && matches!(function.implementation, FunctionImplementation::Native(_))
-        })
-    }
-
-    pub fn constant(&self, declaration: &DefinitionId) -> Option<ScalarValue> {
-        let module = self.modules.get(&self.module_handle(*declaration))?;
-        let ResolvedName::Const(id) = module.declarations.definition_target(declaration)? else {
-            return None;
-        };
-        module.typed.const_values.get(&id).cloned()
+        module
+            .environment()
+            .signatures()
+            .functions()
+            .iter()
+            .find(|function| {
+                function.id == id
+                    && matches!(function.implementation, FunctionImplementation::Native(_))
+            })
     }
 
     pub fn enqueue_declaration(
@@ -579,8 +584,11 @@ impl<'a> InstancePlanner<'a> {
         arguments: Vec<TypeId>,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
-        if let Some(ResolvedName::Function(function)) =
-            self.module.declarations.definition_target(declaration)
+        if let Some(ResolvedName::Function(function)) = self
+            .module
+            .environment()
+            .declarations()
+            .definition_target(declaration)
         {
             return self.enqueue(function, arguments, span);
         }
@@ -640,8 +648,10 @@ impl<'a> InstancePlanner<'a> {
         let origin = self.modules.get(&self.module_handle(method.id)).ok_or(
             MirLoweringError::MissingBinding("default body source module"),
         )?;
-        let Some(ResolvedName::Function(function)) =
-            origin.declarations.definition_target(&method.id)
+        let Some(ResolvedName::Function(function)) = origin
+            .environment()
+            .declarations()
+            .definition_target(&method.id)
         else {
             return Err(MirLoweringError::MissingBinding(
                 "default body source function",
@@ -696,12 +706,12 @@ impl<'a> InstancePlanner<'a> {
 
         let root = self
             .context
-            .intern_root(self.module.lowered.source.module_identity())
+            .intern_root(self.module.source().module_identity())
             .map_err(DefinitionMappingError::from)?;
         let id = self.bridge_identities.intern(
             self.context,
             root,
-            self.module.lowered.module.impls.len(),
+            self.module.headers().implementations.len(),
             BridgeKey::Intrinsic(receiver.clone(), interface.clone()),
         )?;
         self.interface_bridges.push(InterfaceBridgeRequest {
@@ -914,7 +924,7 @@ impl<'a> InstancePlanner<'a> {
     /// Instantiates a checked script callable from its owning source module.
     fn enqueue_script(
         &mut self,
-        module: &'a AnalyzedModule,
+        module: &'a CheckedModule<'a>,
         function: FunctionId,
         arguments: Vec<TypeId>,
         placement: Option<DefinitionId>,
@@ -922,15 +932,17 @@ impl<'a> InstancePlanner<'a> {
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
         let declaration = module
-            .declarations
+            .environment()
+            .declarations()
             .target(ResolvedName::Function(function))
             .ok_or(MirLoweringError::MissingBinding("function declaration"))?;
         let DeclarationId::Definition(declaration) = &declaration.id else {
             return Err(MirLoweringError::MissingBinding("function identity"));
         };
         let typed = module
-            .typed
-            .functions
+            .environment()
+            .signatures()
+            .functions()
             .iter()
             .find(|typed| typed.id == function)
             .ok_or(MirLoweringError::MissingTypedFunction(function))?;
@@ -1000,6 +1012,7 @@ impl<'a> InstancePlanner<'a> {
         &mut self,
         parent: &Instance,
         closure: ExprId,
+        is_async: bool,
         resume: bool,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
@@ -1033,11 +1046,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         let owner = parent.lower(self.catalog, self.options, &self.definitions(), span)?;
-        let classification = if resume
-            || matches!(
-                self.origin(parent).lowered.module.expr(closure).kind,
-                ExprKind::Closure { is_async: true, .. }
-            ) {
+        let classification = if resume || is_async {
             InstanceClassification::Async(owner)
         } else {
             InstanceClassification::Closure(owner)

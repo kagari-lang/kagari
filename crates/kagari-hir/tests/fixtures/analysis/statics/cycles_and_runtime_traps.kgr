@@ -1,0 +1,13 @@
+static val first: i32 = second;
+
+static val second: i32 = first;
+
+static val self_cycle: i32 = self_cycle;
+
+static val trapped: i32 = 1 / 0;
+
+static val call_cycle: i32 = read();
+
+fn read() -> i32 {
+    call_cycle
+}

@@ -1,12 +1,10 @@
+use crate::source::elaborate::model::{CheckedLocal, CheckedMatchArm, CheckedPatternKind};
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer, support::lower_scalar};
 use kagari_abi::representation::ValueType;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{operations::BinaryOp, representation::semantic_representation};
 use kagari_hir::{
-    hir::{
-        expr::MatchArmBuffer,
-        ids::{ExprId, LocalId as HirLocalId, PatternId},
-        pattern::PatternKind,
-    },
+    hir::ids::{ExprId, PatternId},
     types::{TypeId, semantic::lower_type},
 };
 use kagari_mir::{
@@ -18,8 +16,7 @@ use std::collections::HashMap;
 
 /// A checked leaf value staged outside lexical locals until extraction succeeds.
 pub(crate) struct PatternBinding {
-    local: HirLocalId,
-    name: String,
+    binding: CheckedLocal,
     value: MirValue,
 }
 
@@ -28,7 +25,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         expr_id: ExprId,
         scrutinee: ExprId,
-        arms: MatchArmBuffer,
+        arms: Vec<CheckedMatchArm>,
     ) -> Result<MirValue, MirLoweringError> {
         let scrutinee_temp = self.lower_expr(scrutinee)?;
         if self.current_block_terminated() {
@@ -39,18 +36,11 @@ impl FunctionLowerer<'_, '_> {
         let fail_block = self.new_block();
         let mut decision_block = self.current_block;
         let scrutinee_ty = self
-            .analyzed
-            .typed
-            .type_table
-            .expr_type(scrutinee)
+            .expression_type(scrutinee)
             .ok_or(MirLoweringError::MissingExprType(scrutinee))?;
 
         for arm in arms {
             let outer_scope = self.current_scope;
-            let irrefutable = self
-                .analyzed
-                .names
-                .pattern_is_irrefutable(&self.analyzed.lowered.module, arm.pattern);
             let arm_block = self.new_block();
             let next_decision = self.new_block();
 
@@ -83,7 +73,9 @@ impl FunctionLowerer<'_, '_> {
                 decision_block = next_decision;
                 continue;
             }
-            let arm_value = self.lower_expr(arm.expr)?;
+            let arm_value = self.lower_expr(arm.value.ok_or(
+                MirLoweringError::MissingBinding("reachable match arm value"),
+            )?)?;
             if !self.current_block_terminated() {
                 self.emit(Instruction::Move {
                     dst: result,
@@ -95,9 +87,6 @@ impl FunctionLowerer<'_, '_> {
             self.current_scope = outer_scope;
 
             decision_block = next_decision;
-            if irrefutable && arm.guard.is_none() {
-                break;
-            }
         }
 
         self.switch_to_block(decision_block);
@@ -118,12 +107,7 @@ impl FunctionLowerer<'_, '_> {
         fail: Option<BlockId>,
         bindings: &mut Vec<PatternBinding>,
     ) -> Result<(), MirLoweringError> {
-        if fail.is_none()
-            && !self
-                .analyzed
-                .names
-                .pattern_is_irrefutable(&self.analyzed.lowered.module, pattern)
-        {
+        if fail.is_none() && !self.source_body().patterns[&pattern].irrefutable {
             return Err(MirLoweringError::MissingBinding(
                 "irrefutable pattern without failure continuation",
             ));
@@ -134,34 +118,35 @@ impl FunctionLowerer<'_, '_> {
             .registers
             .entry(value.temp.index())
             .or_insert(semantic);
-        if self
-            .analyzed
-            .typed
-            .type_table
-            .pattern_variant(pattern)
-            .is_some()
-        {
-            let fail = fail.ok_or(MirLoweringError::MissingBinding(
-                "enum pattern failure continuation",
-            ))?;
-            return self.lower_enum_pattern(pattern, value, expected, fail, bindings);
-        }
-        match &self.analyzed.lowered.module.pattern(pattern).kind {
-            PatternKind::Wildcard => {}
-            PatternKind::Or(alternatives) => {
+        match self.source_body().patterns[&pattern].kind.clone() {
+            CheckedPatternKind::Variant {
+                declaration,
+                fields,
+            } => {
+                let fail = fail.ok_or(MirLoweringError::MissingBinding(
+                    "enum pattern failure continuation",
+                ))?;
+                return self.lower_enum_pattern(
+                    declaration,
+                    fields,
+                    value,
+                    expected,
+                    fail,
+                    bindings,
+                );
+            }
+            CheckedPatternKind::Wildcard => {}
+            CheckedPatternKind::Or(alternatives) => {
                 self.lower_or_pattern(alternatives.clone(), value, expected, fail, bindings)?;
             }
-            PatternKind::Range { inclusive, .. } => {
+            CheckedPatternKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 let fail = fail.ok_or(MirLoweringError::MissingBinding(
                     "range pattern failure continuation",
                 ))?;
-                let (start, end) = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .pattern_range(pattern)
-                    .cloned()
-                    .ok_or(MirLoweringError::MissingBinding("checked range pattern"))?;
                 let start_ty = semantic_representation(&lower_type(&start.ty()));
                 let end_ty = semantic_representation(&lower_type(&end.ty()));
                 let start = self.lower_constant(lower_scalar(start), start_ty);
@@ -169,7 +154,7 @@ impl FunctionLowerer<'_, '_> {
                 for (op, bound) in [
                     (BinaryOp::Ge, start),
                     (
-                        if *inclusive {
+                        if inclusive {
                             BinaryOp::Le
                         } else {
                             BinaryOp::Lt
@@ -193,22 +178,13 @@ impl FunctionLowerer<'_, '_> {
                     self.switch_to_block(next);
                 }
             }
-            PatternKind::Name { local, name } => bindings.push(PatternBinding {
-                local: *local,
-                name: name.clone(),
-                value,
-            }),
-            PatternKind::Literal(_) => {
+            CheckedPatternKind::Binding(binding) => {
+                bindings.push(PatternBinding { binding, value })
+            }
+            CheckedPatternKind::Constant(scalar) => {
                 let fail = fail.ok_or(MirLoweringError::MissingBinding(
                     "literal pattern failure continuation",
                 ))?;
-                let scalar = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .pattern_scalar_value(pattern)
-                    .cloned()
-                    .ok_or(MirLoweringError::MissingBinding("checked pattern literal"))?;
                 let semantic = self.semantic_type(&scalar.ty())?;
                 let literal =
                     self.lower_constant(lower_scalar(scalar), semantic_representation(&semantic));
@@ -233,7 +209,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.switch_to_block(next);
             }
-            PatternKind::Tuple(elements) => {
+            CheckedPatternKind::Tuple(elements) => {
                 if elements.is_empty() && *expected == TypeId::Builtin(BuiltinType::Unit) {
                     return Ok(());
                 }
@@ -263,26 +239,13 @@ impl FunctionLowerer<'_, '_> {
                     self.lower_pattern_decision(element, field, ty, fail, bindings)?;
                 }
             }
-            PatternKind::Struct { fields, .. } => {
-                let fields = fields.clone();
-                let resolved = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .pattern_fields(pattern)
-                    .ok_or(MirLoweringError::MissingBinding("checked struct pattern"))?
-                    .to_vec();
-                if fields.len() != resolved.len() {
-                    return Err(MirLoweringError::MissingBinding(
-                        "checked struct pattern fields",
-                    ));
-                }
-                for (field, declaration) in fields.into_iter().zip(resolved.iter()) {
-                    if !self.pattern_requires_value(field.pattern) {
+            CheckedPatternKind::Struct(fields) => {
+                for (declaration, pattern) in fields {
+                    if !self.pattern_requires_value(pattern) {
                         continue;
                     }
-                    let field_ref = self.aggregate_field_ref(declaration, expected)?;
-                    let signature = self.analyzed.aggregates.field(declaration).ok_or(
+                    let field_ref = self.aggregate_field_ref(&declaration, expected)?;
+                    let signature = self.environment.aggregates().field(&declaration).ok_or(
                         MirLoweringError::MissingBinding("struct pattern field signature"),
                     )?;
                     let TypeId::Struct(owner) = expected else {
@@ -308,11 +271,8 @@ impl FunctionLowerer<'_, '_> {
                         base: value,
                         field: field_ref,
                     });
-                    self.lower_pattern_decision(field.pattern, member, &ty, fail, bindings)?;
+                    self.lower_pattern_decision(pattern, member, &ty, fail, bindings)?;
                 }
-            }
-            PatternKind::EnumVariant { .. } => {
-                return Err(MirLoweringError::MissingBinding("checked enum variant"));
             }
         }
         Ok(())
@@ -331,11 +291,9 @@ impl FunctionLowerer<'_, '_> {
                 "checked pattern alternatives",
             ));
         }
-        let irrefutable = alternatives.iter().position(|alternative| {
-            self.analyzed
-                .names
-                .pattern_is_irrefutable(&self.analyzed.lowered.module, *alternative)
-        });
+        let irrefutable = alternatives
+            .iter()
+            .position(|alternative| self.source_body().patterns[alternative].irrefutable);
         if let Some(index) = irrefutable {
             alternatives.truncate(index + 1);
         } else if fail.is_none() {
@@ -361,8 +319,8 @@ impl FunctionLowerer<'_, '_> {
                     "checked alternative bindings",
                 ));
             }
-            for PatternBinding { local, name, value } in branch_bindings {
-                let merged = if let Some(merged) = canonical.get(&name) {
+            for PatternBinding { binding, value } in branch_bindings {
+                let merged = if let Some(merged) = canonical.get(&binding.name) {
                     *merged
                 } else {
                     if index > 0 {
@@ -371,22 +329,15 @@ impl FunctionLowerer<'_, '_> {
                         ));
                     }
 
-                    let ty = self
-                        .analyzed
-                        .typed
-                        .type_table
-                        .local_type(local)
-                        .ok_or(MirLoweringError::MissingLocalType(local))?;
-                    let semantic = self.semantic_type(&ty)?;
+                    let semantic = self.semantic_type(&binding.ty)?;
                     let merged = self.alloc_temp(value.ty);
                     self.function
                         .semantic
                         .registers
                         .insert(merged.temp.index(), semantic);
-                    canonical.insert(name.clone(), merged);
+                    canonical.insert(binding.name.clone(), merged);
                     bindings.push(PatternBinding {
-                        local,
-                        name,
+                        binding,
                         value: merged,
                     });
                     merged
@@ -410,42 +361,29 @@ impl FunctionLowerer<'_, '_> {
     /// Ignored children need no projection, but checked names that denote variants
     /// still require a decision. Static field/access validation remains HIR-owned.
     fn pattern_requires_value(&self, pattern: PatternId) -> bool {
-        if self
-            .analyzed
-            .typed
-            .type_table
-            .pattern_variant(pattern)
-            .is_some()
-        {
-            return true;
-        }
-        match &self.analyzed.lowered.module.pattern(pattern).kind {
-            PatternKind::Wildcard => false,
-            PatternKind::Tuple(elements) => elements
+        match &self.source_body().patterns[&pattern].kind {
+            CheckedPatternKind::Wildcard => false,
+            CheckedPatternKind::Tuple(elements) => elements
                 .iter()
                 .any(|element| self.pattern_requires_value(*element)),
-            PatternKind::Struct { fields, .. } => fields
+            CheckedPatternKind::Struct(fields) => fields
                 .iter()
-                .any(|field| self.pattern_requires_value(field.pattern)),
-            PatternKind::Or(alternatives) => {
+                .any(|(_, pattern)| self.pattern_requires_value(*pattern)),
+            CheckedPatternKind::Or(alternatives) => {
                 for alternative in alternatives {
                     if self.pattern_requires_value(*alternative) {
                         return true;
                     }
-                    if self
-                        .analyzed
-                        .names
-                        .pattern_is_irrefutable(&self.analyzed.lowered.module, *alternative)
-                    {
+                    if self.source_body().patterns[alternative].irrefutable {
                         break;
                     }
                 }
                 false
             }
-            PatternKind::Name { .. }
-            | PatternKind::Literal(_)
-            | PatternKind::Range { .. }
-            | PatternKind::EnumVariant { .. } => true,
+            CheckedPatternKind::Binding(_)
+            | CheckedPatternKind::Constant(_)
+            | CheckedPatternKind::Range { .. }
+            | CheckedPatternKind::Variant { .. } => true,
         }
     }
 
@@ -456,34 +394,44 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<(), MirLoweringError> {
         let mut values = bindings
             .into_iter()
-            .map(|binding| (binding.local, binding.value))
+            .map(|binding| (binding.binding.id, binding.value))
             .collect::<HashMap<_, _>>();
-        let bindings = self
-            .analyzed
-            .lowered
-            .module
-            .body
-            .pattern_bindings(pattern)
-            .into_iter()
-            .map(|(local, name)| {
-                let value = values
-                    .remove(&local)
-                    .ok_or(MirLoweringError::MissingBinding(
-                        "checked declaration binding value",
-                    ))?;
-                Ok(PatternBinding {
-                    local,
-                    name: name.to_owned(),
-                    value,
-                })
-            })
-            .collect::<Result<Vec<_>, MirLoweringError>>()?;
+        let mut ordered = Vec::new();
+        let mut pending = vec![pattern];
+        while let Some(pattern) = pending.pop() {
+            match &self.source_body().patterns[&pattern].kind {
+                CheckedPatternKind::Binding(binding) => {
+                    let value =
+                        values
+                            .remove(&binding.id)
+                            .ok_or(MirLoweringError::MissingBinding(
+                                "checked declaration binding value",
+                            ))?;
+                    ordered.push(PatternBinding {
+                        binding: binding.clone(),
+                        value,
+                    });
+                }
+                CheckedPatternKind::Or(alternatives) => {
+                    pending.extend(alternatives.first().copied())
+                }
+                CheckedPatternKind::Tuple(fields) | CheckedPatternKind::Variant { fields, .. } => {
+                    pending.extend(fields.iter().rev().copied())
+                }
+                CheckedPatternKind::Struct(fields) => {
+                    pending.extend(fields.iter().rev().map(|(_, pattern)| *pattern))
+                }
+                CheckedPatternKind::Wildcard
+                | CheckedPatternKind::Constant(_)
+                | CheckedPatternKind::Range { .. } => {}
+            }
+        }
         if !values.is_empty() {
             return Err(MirLoweringError::MissingBinding(
                 "checked declaration bindings",
             ));
         }
-        self.publish_pattern_bindings(bindings)
+        self.publish_pattern_bindings(ordered)
     }
 
     /// Finish extraction before allocating capture cells or making any new debug
@@ -493,14 +441,9 @@ impl FunctionLowerer<'_, '_> {
         bindings: Vec<PatternBinding>,
     ) -> Result<(), MirLoweringError> {
         let mut staged = Vec::with_capacity(bindings.len());
-        for PatternBinding {
-            local: hir_local,
-            name,
-            value,
-        } in bindings
-        {
-            let local = self.bind_local(hir_local, name)?;
-            let value = if self.cell_locals.contains(&hir_local) {
+        for PatternBinding { binding, value } in bindings {
+            let local = self.bind_local(&binding)?;
+            let value = if self.cell_locals.contains(&binding.id) {
                 let cell = self.alloc_temp(ValueType::HeapObject);
                 self.emit(Instruction::MakeCell { dst: cell, value });
                 cell
@@ -523,27 +466,17 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_enum_pattern(
         &mut self,
-        pattern: PatternId,
+        declaration: DefinitionId,
+        fields: Vec<PatternId>,
         value: MirValue,
         expected: &TypeId,
         fail: BlockId,
         bindings: &mut Vec<PatternBinding>,
     ) -> Result<(), MirLoweringError> {
-        let fields = match &self.analyzed.lowered.module.pattern(pattern).kind {
-            PatternKind::EnumVariant { fields, .. } => fields.clone(),
-            PatternKind::Name { .. } => Vec::new(),
-            _ => return Err(MirLoweringError::MissingBinding("checked enum pattern")),
-        };
-        let variant = self
-            .analyzed
-            .typed
-            .type_table
-            .pattern_variant(pattern)
-            .ok_or(MirLoweringError::MissingBinding("checked enum variant"))?;
         let signature = self
             .planner
             .catalog
-            .variant(variant)
+            .variant(&declaration)
             .ok_or(MirLoweringError::MissingBinding("enum variant signature"))?;
         let enumeration = self
             .planner

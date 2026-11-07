@@ -1,5 +1,6 @@
 //! Public-path evidence survives source-free MIR/KBC decoding and identity adoption.
 
+use crate::tests::common::compilation;
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -105,7 +106,7 @@ fn compiled() -> VerifiedMirProgram {
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
-    lower_program_to_mir(&checked, &Default::default()).unwrap()
+    lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap()
 }
 
 fn function(program: &MirProgram, module: &[&str], name: &str) -> DefinitionId {

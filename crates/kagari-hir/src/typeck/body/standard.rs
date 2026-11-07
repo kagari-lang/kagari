@@ -28,7 +28,7 @@ impl BodyChecker<'_> {
     ) {
         let mut pending = vec![site];
         while let Some(site) = pending.pop() {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return;
             }
             let Some(mut actual) = self.type_table.expr_type(site) else {
@@ -76,7 +76,7 @@ impl BodyChecker<'_> {
         let output = self.inference_variable(site, 2048);
         let residual = self.inference_variable(site, 2049);
         if let Some(expected) = expected {
-            let _ = self.solver.constrain(&output, expected, self.cancel);
+            self.constrain_types(&output, expected);
         }
         let ty = self.infer_expr_type(operand, env);
         if !completion::expr_can_complete(
@@ -86,8 +86,10 @@ impl BodyChecker<'_> {
             operand,
             self.cancel,
         )
-        .unwrap_or(false)
-        {
+        .unwrap_or_else(|_| {
+            self.stopped = true;
+            false
+        }) {
             return TypeId::Unknown;
         }
         let Some(mut requested) = self.aggregates.language_trait(Protocol::Try) else {
@@ -143,7 +145,7 @@ impl BodyChecker<'_> {
                         },
                     )
                 });
-            let _ = self.solver.constrain(&fallback, &value, self.cancel);
+            self.constrain_types(&fallback, &value);
             outputs.push(self.solver.resolve(&value));
         }
         let output = outputs[0].clone();
@@ -273,7 +275,7 @@ impl BodyChecker<'_> {
             .filter(|implementation| implementation.trait_type.declaration == interface.declaration)
             .take(4096)
         {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return;
             }
             let mut substitution = TypeSubstitution::default();

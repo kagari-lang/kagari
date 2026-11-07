@@ -1,5 +1,15 @@
 use super::collect_module_abi;
-use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use crate::tests::common::compilation;
+use crate::{
+    bytecode::lower_program_to_bytecode,
+    source::{
+        elaborate::{
+            elaborate,
+            model::{CheckedExprKind, CheckedPlaceKind},
+        },
+        program::lower_program_to_mir,
+    },
+};
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
     program::verified::VerifiedBytecodeProgram,
@@ -8,7 +18,7 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_contract::types::{PublicItem, verify};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_mir::{
     codec::{decode_program, encode_program},
     program::verify_program as verify_mir_program,
@@ -21,6 +31,7 @@ use kagari_types::{
             HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
         },
         module::ModuleDecl,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
     scalar::BuiltinType,
     ty::Ty,
@@ -60,6 +71,16 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
     let player = module
         .definition(DefinitionKind::Struct, "Player", &context.snapshot())
         .unwrap();
+    let hp = context
+        .snapshot()
+        .lookup_child(player, DefinitionKind::Field, "hp", 0)
+        .unwrap();
+    module.paths.push(HostPathDeclaration {
+        root: player,
+        segments: vec![HostPathSegmentDeclaration::Field(hp)],
+        access: PathAccess::ReadWrite,
+        schema_epoch: 1,
+    });
     module.types[0].fields.push(FieldDef {
         name: "parent".into(),
         ty: Ty::Host(player),
@@ -80,7 +101,7 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
     database.set_native_modules(providers);
     let mut sources = SourceDatabase::default();
     let root = sources
-        .set("external-abi.kgr", "use example::roots::Player; pub fn relay(player: Player) -> Player { player } fn main() {}".into(), SourceLayer::Base)
+        .set("external-abi.kgr", "use example::roots::Player; pub fn relay(player: Player) -> Player { player.hp += 1; val hp = player.hp; player } fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let snapshot = database
         .snapshot(sources.snapshot(), &Default::default())
@@ -96,8 +117,11 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
         "{:?}",
         analyzed.result().diagnostics()
     );
-    let facts = analyzed.to_unverified(&Default::default()).unwrap();
-    let abi = collect_module_abi(facts.records().facts());
+    let program = snapshot
+        .check_program(declared.source().id(), &Default::default())
+        .unwrap();
+    let input = compilation(&program);
+    let abi = collect_module_abi(input.module(input.root()).unwrap());
     let [PublicItem::Type(ty)] = abi.public_items.as_slice() else {
         panic!("external type ABI")
     };
@@ -125,7 +149,46 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
     // This exercises the previously failing recursive external dependency through
     // both portable products and rejects schema copies that disagree with providers.
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+
+    let mir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
+    let compilation = CheckedCompilation::from_program(&checked, &Default::default()).unwrap();
+    let mut expanded_paths = Vec::new();
+    for module in compilation.modules() {
+        for input in module.bodies() {
+            let body = elaborate(input, &Default::default()).unwrap();
+            let definitions = input.environment().definitions();
+            for value in &body.operations {
+                if let CheckedExprKind::HostRead(path) = &value.kind {
+                    assert_eq!(
+                        &module.source().text()[value.span.start..value.span.end],
+                        "player.hp"
+                    );
+                    expanded_paths.push(path.contract.fingerprint(definitions).unwrap());
+                }
+            }
+            for (id, place) in &body.places {
+                if let CheckedPlaceKind::Host(path) = &place.kind {
+                    let span = input.place_span(*id).unwrap();
+                    assert_eq!(&module.source().text()[span.start..span.end], "player.hp");
+                    expanded_paths.push(path.contract.fingerprint(definitions).unwrap());
+                }
+            }
+        }
+    }
+    let mut emitted_paths = mir
+        .modules()
+        .iter()
+        .flat_map(|module| &module.functions)
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .filter_map(|instruction| instruction.path_reference())
+        .map(|path| path.contract_fingerprint)
+        .collect::<Vec<_>>();
+    expanded_paths.sort_unstable();
+    emitted_paths.sort_unstable();
+    assert_eq!(expanded_paths.len(), 2);
+    assert_eq!(expanded_paths, emitted_paths);
+
     let wire = encode_program(&mir, &Default::default()).unwrap();
     let restored = decode_program(&wire, &Default::default()).unwrap();
     assert_eq!(

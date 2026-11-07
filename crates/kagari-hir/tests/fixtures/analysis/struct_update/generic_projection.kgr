@@ -1,0 +1,60 @@
+trait Factory {
+    fn make() -> Self;
+}
+
+struct Player {}
+
+impl Factory for Player {
+    fn make() -> Self {
+        Player {}
+    }
+}
+
+struct Pair<T> {
+    val value: T,
+    val flag: bool
+}
+
+impl<T: Factory> Factory for Pair<T> {
+    fn make() -> Self {
+        Pair { value: T::make(), flag: false }
+    }
+}
+
+fn take(value: Pair<Player>) {}
+
+fn generic<T: Factory>(base: Pair<T>) -> Pair<T> {
+    Pair { value: Factory::make(), ..base }
+}
+
+fn numeric(base: Pair<u8>) -> Pair<u8> {
+    Pair { value: 1, ..base }
+}
+
+trait Pick {
+    type Item;
+}
+
+struct Tag {}
+
+impl Pick for Tag {
+    type Item = i32;
+}
+
+struct Cell<T> {
+    val value: T
+}
+
+impl Factory for Cell<i32> {
+    fn make() -> Self {
+        Cell { value: 42 }
+    }
+}
+
+fn projected(base: Cell<i32>) -> Cell<i32> {
+    Cell<<Tag as Pick>::Item> { ..base }
+}
+
+fn projected_factory() -> Cell<i32> {
+    Cell<<Tag as Pick>::Item> { ..Factory::make() }
+}

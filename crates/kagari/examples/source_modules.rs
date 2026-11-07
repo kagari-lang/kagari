@@ -1,5 +1,6 @@
 //! Query source dependencies, then encode, load and execute their shared program.
 
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::module::entry::ProgramEntry;
 use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
 
@@ -80,7 +81,11 @@ fn main() {
     let checked = snapshot
         .check_program(root.file, &CancellationToken::default())
         .unwrap();
-    let ir = program::lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = program::lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     for module in ir.modules() {
         for function in &module.functions {
             let binding = ir.function(&function.instance).unwrap();

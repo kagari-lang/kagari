@@ -1,3 +1,4 @@
+use crate::tests::common::compilation;
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
 use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
@@ -444,7 +445,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let mut forged = common::adopt(&context, ir.clone().into_unverified());
     let root_ir = forged
         .modules

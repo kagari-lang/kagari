@@ -46,7 +46,7 @@ fn main() {
         .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
     let initial = &first.file(file).unwrap().result().facts().typed;
-    assert_eq!(initial.checked_bodies, 33);
+    assert_eq!(initial.checked_bodies(), 33);
     let edited = source.replacen("fn f0() -> i32 { 0 }", "fn f0() -> i32 { 100 }", 1);
     engine
         .set_source("baseline.kgr", edited, SourceLayer::Overlay)
@@ -57,10 +57,11 @@ fn main() {
         .unwrap();
     let edit_us = start.elapsed().as_micros();
     let changed = &second.file(file).unwrap().result().facts().typed;
-    assert_eq!((changed.checked_bodies, changed.reused_bodies), (1, 32));
+    assert_eq!((changed.checked_bodies(), changed.reused_bodies()), (1, 32));
     println!(
         "edit_analysis_us={edit_us} checked={} reused={}",
-        changed.checked_bodies, changed.reused_bodies
+        changed.checked_bodies(),
+        changed.reused_bodies()
     );
 
     let artifact = engine

@@ -1,4 +1,5 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::tests::common;
+use crate::tests::common::lower_root;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, Slot},
     program::verify_program,
@@ -18,7 +19,7 @@ use kagari_mir::{
 fn never_functions_reject_even_never_typed_return_operands() {
     let context = DefinitionContext::new().unwrap();
     let input = common::program_ok("fn impossible(value: !) -> ! { value }");
-    let mir = lower_to_mir(input.root(), &Default::default()).unwrap();
+    let mir = lower_root(&input, &Default::default()).unwrap();
     let mut bytecode =
         common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &mir));
     let mut raw = common::adopt(&context, mir.into_unverified());
@@ -75,7 +76,7 @@ fn never_calls_terminate_without_emitting_following_effects() {
     let input = common::program_ok(
         "fn fail() -> ! { fail() } fn effect() {} fn main() -> i32 { fail(); effect(); 42 }",
     );
-    let mir = lower_to_mir(input.root(), &Default::default()).unwrap();
+    let mir = lower_root(&input, &Default::default()).unwrap();
     let main = mir.functions.iter().find(|f| f.name == "main").unwrap();
     assert!(
         main.blocks

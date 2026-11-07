@@ -1,7 +1,7 @@
 //! Physical parse retention and logical inline source preparation.
 
 use crate::{
-    analysis::{AnalysisDatabase, declaration_queries::DeclarationSnapshot, error::AnalysisError},
+    analysis::{AnalysisDatabase, declarations::DeclarationSnapshot, error::AnalysisError},
     lower::{LoweredModule, lower_module_controlled},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};

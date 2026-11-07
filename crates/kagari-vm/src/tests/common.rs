@@ -12,7 +12,7 @@ use kagari_compiler::{
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
 };
 use kagari_contract::ids::FunctionRef;
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
@@ -184,7 +184,11 @@ fn compile_native_test_bytecode_with_options(
     let checked = snapshot
         .check_program(root, &Default::default())
         .expect("program analysis should succeed");
-    let ir = lower_program_to_mir(&checked, options).expect("program MIR lowering should succeed");
+    let ir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        options,
+    )
+    .expect("program MIR lowering should succeed");
     lower_program_to_bytecode(&ir, &Default::default())
         .expect("program bytecode lowering should succeed")
 }

@@ -8,11 +8,11 @@ use crate::source::lower::{
     statics::static_contract,
 };
 use kagari_common::{
-    identity::{DefinitionKind, mapping::DefinitionMappingError},
+    identity::{DefinitionKind, mapping::DefinitionMappingError, table::DefinitionId},
     span::Span,
 };
 use kagari_contract::statics::StaticDescriptor;
-use kagari_hir::{AnalyzedModule, imports::SourceItem, resolver::resolved::ResolvedName};
+use kagari_hir::{hir::item::Item, resolver::resolved::ResolvedName};
 use kagari_mir::ids::{InstanceId, ModuleSlotId};
 use kagari_syntax::{lexer::lex_with_cancellation, token::TokenKind};
 use std::collections::hash_map::Entry;
@@ -31,13 +31,12 @@ impl InstancePlanner<'_> {
         };
         self.check()?;
         let source = self.origin(parent);
-        let initializer = source
-            .lowered
-            .source_map
-            .static_initializer_span(id)
-            .ok_or(MirLoweringError::MissingBinding(
-                "static initializer lexical span",
-            ))?;
+        let initializer =
+            source
+                .static_initializer_span(id)
+                .ok_or(MirLoweringError::MissingBinding(
+                    "static initializer lexical span",
+                ))?;
         if site.start < initializer.start || site.end > initializer.end {
             return Err(MirLoweringError::MissingBinding(
                 "static generated body lexical site",
@@ -47,8 +46,7 @@ impl InstancePlanner<'_> {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let text = source
-                    .lowered
-                    .source
+                    .source()
                     .text()
                     .get(initializer.start..initializer.end)
                     .ok_or(MirLoweringError::MissingBinding(
@@ -96,13 +94,15 @@ impl InstancePlanner<'_> {
         let module = self.module;
         let root = self
             .context
-            .intern_root(module.lowered.source.module_identity())
+            .intern_root(module.source().module_identity())
             .map_err(DefinitionMappingError::from)?;
         // This prefix is shared by all importing planners. No layout/adapter work
         // may enqueue a callable until every initializer has its reserved index.
-        for item in &module.lowered.module.statics {
+        for item in module.headers().statics {
             self.check()?;
-            let span = module.lowered.source_map.static_span(item.id);
+            let span = module
+                .declaration_span(Item::Static(item.id))
+                .expect("admitted static span");
             if self.static_slots.len() >= u16::MAX as usize {
                 return Err(MirLoweringError::diagnostic(limit_diagnostic(
                     "module slots",
@@ -144,11 +144,13 @@ impl InstancePlanner<'_> {
                 initializer: id,
             });
         }
-        for item in &module.lowered.module.statics {
+        for item in module.headers().statics {
             self.record_layout_root(
-                &module.typed.statics[&item.id],
+                &module.environment().signatures().statics()[&item.id],
                 &Default::default(),
-                module.lowered.source_map.static_span(item.id),
+                module
+                    .declaration_span(Item::Static(item.id))
+                    .expect("admitted static span"),
             )?;
         }
         Ok(())
@@ -156,47 +158,43 @@ impl InstancePlanner<'_> {
 
     pub(crate) fn static_slot(
         &mut self,
-        source: &AnalyzedModule,
-        resolved: &ResolvedName,
-    ) -> Result<Option<ModuleSlotId>, MirLoweringError> {
+        declaration: DefinitionId,
+    ) -> Result<ModuleSlotId, MirLoweringError> {
         self.check()?;
-        let declaration = match resolved {
-            ResolvedName::Static(id) => static_contract(source, *id).declaration,
-            ResolvedName::Source(reference) if matches!(reference.item, SourceItem::Static(_)) => {
-                source
-                    .imported_statics
-                    .get(reference)
-                    .ok_or(MirLoweringError::MissingBinding("checked imported static"))?
-                    .declaration
-            }
-            _ => return Ok(None),
-        };
         if let Some(index) = self
             .static_slots
             .iter()
             .position(|slot| slot.contract.declaration == declaration)
         {
-            return Ok(Some(ModuleSlotId::new(index)));
+            return Ok(ModuleSlotId::new(index));
         }
         let supplier = *self.modules.get(&self.module_handle(declaration)).ok_or(
             MirLoweringError::MissingBinding("static supplier source module"),
         )?;
-        let Some(ResolvedName::Static(id)) = supplier.declarations.definition_target(&declaration)
+        let Some(ResolvedName::Static(id)) = supplier
+            .environment()
+            .declarations()
+            .definition_target(&declaration)
         else {
             return Err(MirLoweringError::MissingBinding(
                 "static supplier declaration",
             ));
         };
         let initializer = supplier
-            .lowered
-            .module
+            .headers()
             .statics
             .iter()
             .position(|item| item.id == id)
             .ok_or(MirLoweringError::MissingBinding("static initializer index"))?;
         let contract = static_contract(supplier, id);
-        let span = supplier.lowered.source_map.static_span(id);
-        self.record_layout_root(&supplier.typed.statics[&id], &Default::default(), span)?;
+        let span = supplier
+            .declaration_span(Item::Static(id))
+            .expect("admitted static span");
+        self.record_layout_root(
+            &supplier.environment().signatures().statics()[&id],
+            &Default::default(),
+            span,
+        )?;
         if self.static_slots.len() >= u16::MAX as usize {
             return Err(MirLoweringError::diagnostic(limit_diagnostic(
                 "module slots",
@@ -209,6 +207,6 @@ impl InstancePlanner<'_> {
             contract,
             initializer: InstanceId::new(initializer),
         });
-        Ok(Some(slot))
+        Ok(slot)
     }
 }

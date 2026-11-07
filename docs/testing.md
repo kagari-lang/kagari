@@ -45,8 +45,13 @@ stateful cleanup scenarios.
 | Products, processes and deployment | Existing dedicated process/platform runners | Real binaries, feature isolation, actual-native and source-free execution |
 
 Prefer four forms: source plus typed expectations, stable text goldens, structured
-Rust tables, and explicit Rust scenarios. A short inline input remains appropriate
-when separating it from its assertion would make the contract harder to read.
+Rust tables, and explicit Rust scenarios. Complete fixed Kagari programs should
+normally live in crate-owned `.kgr` fixtures, not large Rust strings or `format!`
+templates. Rust retains setup, operations and assertions, including specialized
+AST/HIR checks; needing custom assertions does not require embedding the program.
+Keep inline inputs for concrete reasons: byte/escape-sensitive witnesses, generated
+scales, or compact fragments whose relationship to a Rust assertion/table is the
+contract. Do not introduce a fixture template language just to share declarations.
 Moving source out of Rust does not justify reducing a lifecycle test to its final
 return value, or treating interpreter fallback as proof of native execution.
 
@@ -56,6 +61,15 @@ when sufficient. Keep logical source filenames and byte-sensitive inputs stable.
 Do not normalize whitespace, spans, float bits, effect order or identity distinctions
 that the case is intended to test. Review golden changes as assertions, not output
 to accept automatically; do not snapshot entire private `Debug` representations.
+The repository-root [`.gitattributes`](../.gitattributes) pins ordinary Kagari
+sources with `*.kgr text eol=lf`, including fixtures, examples and benchmarks.
+Do not repeat that rule in each fixture directory. Keep local attributes only for
+other formats or narrowly justified exceptions. A fixture that intentionally
+requires raw CRLF/mixed bytes may use an exact-path `-text` override; ordinary
+inputs do not need one.
+Ordinary fixture loading must not silently trim or normalize text. Source-only
+fixtures stay outside rejection-only UI discovery: successful analysis, selected
+call targets, typed facts and ownership assertions remain at their Rust owner.
 
 Use [`rstest`](https://docs.rs/rstest/0.28.0/rstest/) with descriptive
 `#[case::name(...)]` inputs when independent cases share orchestration and
@@ -174,7 +188,7 @@ Use the existing owners as templates, not a new universal runner:
   rejects malformed fields and validates captured identities/revisions and UTF-8
   ranges before projecting IDs to logical paths. Missing/orphan pairs fail the
   owner inventory; normal comparisons never update expectations.
-- [CLI UI cases](../crates/kagari-cli/tests/ui/mod.rs) run six explicit human/JSON
+- [CLI UI cases](../crates/kagari-cli/tests/ui.rs) run six explicit human/JSON
   modes through the actual `kg` process. Source revisions and coordinates, complete
   records/summary, exact streams and status are asserted. Only reviewed location
   path fields map the owned temp root to `$FIXTURE`; arbitrary message/excerpt text
@@ -239,7 +253,7 @@ dedicated whitespace/CRLF/literal line-rule cases, diagnostic byte/display range
 malformed recovery inputs, and canonical artifact sources. Keep their Rust assertions
 and paired expectations intact rather than updating goldens to hide a layout change.
 A file merely having CRLF or no final newline is not itself a reason to exempt it.
-Fixture-local LF attributes keep ordinary checkout layout stable. Remove inherited
+The repository-wide LF rule keeps ordinary Kagari checkout layout stable. Remove inherited
 trailing-whitespace exceptions when normal formatting makes them unnecessary.
 
 Keep logical source names and evaluation order unchanged. When reload tests construct
@@ -563,6 +577,34 @@ If preparation still dominates, measure native installation, source checking,
 artifact preparation, loading and execution separately before adding another
 cache. Reuse requires an explicit owner, input identity, invalidation rule and
 bounded lifetime. Do not trade validation or state isolation for a timing result.
+
+## Frontend benchmark checks
+
+Use the [frontend benchmark guide](frontend-benchmarks.md) for current AST/HIR
+commands, measurement scopes, archived comparisons and interpretation limits.
+Full timing/allocation campaigns are manual performance work, not routine local
+correctness acceptance or a substitute for owner-level regression tests.
+
+For a small representative HIR check:
+
+```text
+uv run python scripts/benchmark_hir.py --check --workload plain --size 96
+```
+
+The runner builds both release drivers and checks one process per selected mode
+without warmup or a performance summary. Select `generic` or `dependency_edit` only
+when those mechanisms are affected. For direct AST correctness:
+
+```text
+cargo bench --locked -p kagari-hir --bench ast_baseline -- --check
+```
+
+This skips timing batches. All three drivers are explicit `[[bench]]` targets with
+`harness = false` and `test = false`; they accept Cargo's injected `--bench` argument.
+Keep allocation diagnostics and full paired measurements separate,
+and do not interpret correctness-only output as speed evidence. CI checks the three
+size-96 HIR families in both modes and runs the AST/HIR Python tooling tests; it
+does not collect timing campaigns or enforce performance budgets.
 
 ## Source-tool acceptance
 

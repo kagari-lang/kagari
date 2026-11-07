@@ -1,4 +1,5 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::tests::common;
+use crate::tests::common::lower_root;
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_mir::{ids::BlockId, instruction::Instruction};
@@ -10,7 +11,7 @@ fn semantic_origins_survive_selection_and_nonzero_entry_order() {
     let checked = common::program_ok("fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }");
     let mut raw = common::adopt(
         &context,
-        lower_to_mir(checked.root(), &Default::default())
+        lower_root(&checked, &Default::default())
             .unwrap()
             .into_unverified(),
     );

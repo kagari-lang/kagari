@@ -1,4 +1,6 @@
 [package]
+# Test helpers use named modules; only the targets below are standalone tests.
+autotests = false
 name = "kagari-gc"
 version.workspace = true
 edition.workspace = true
@@ -10,3 +12,39 @@ thiserror.workspace = true
 
 [dev-dependencies]
 gc-arena = "=0.7.0"
+
+[[test]]
+name = "dynamic"
+path = "tests/dynamic.rs"
+
+[[test]]
+name = "failures"
+path = "tests/failures.rs"
+
+[[test]]
+name = "graph_model"
+path = "tests/graph_model.rs"
+
+[[test]]
+name = "incremental"
+path = "tests/incremental.rs"
+
+[[test]]
+name = "layouts"
+path = "tests/layouts.rs"
+
+[[test]]
+name = "metadata"
+path = "tests/metadata.rs"
+
+[[test]]
+name = "ownership"
+path = "tests/ownership.rs"
+
+[[test]]
+name = "pacing"
+path = "tests/pacing.rs"
+
+[[test]]
+name = "root_source"
+path = "tests/root_source.rs"

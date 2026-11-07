@@ -3,7 +3,6 @@
 //! Timings include the counting allocator's atomic bookkeeping overhead.
 use kagari_abi::native::NativeLinkDescription;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_stdlib::catalog as foundation_catalog;
 mod memory;
 
 use kagari::{
@@ -15,9 +14,9 @@ use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::map::DefinitionContext;
-use kagari_compiler::source::lower::lower_to_mir;
+use kagari_compiler::source::program::lower_program_to_mir;
 use kagari_contract::native::NativeCompilationProduct;
-use kagari_hir::analyze_source;
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_mir::{ids::InstanceId, verify::verify_mir};
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
@@ -111,14 +110,16 @@ fn main() {
         "cold_engine_source_to_artifact",
         21,
     );
-    let checked = analyze_source(
-        &SourceFile::new("baseline.kgr", SOURCE),
-        foundation_catalog::shared().unwrap(),
-    )
-    .expect("installed declaration analysis")
-    .into_codegen()
-    .unwrap();
-    let mir = lower_to_mir(&checked, &Default::default()).unwrap();
+    let checked = engine
+        .compile_source(SourceFile::new("baseline.kgr", SOURCE))
+        .unwrap();
+    let input = CheckedCompilation::from_program(checked.program(), &Default::default()).unwrap();
+    let program = lower_program_to_mir(&input, &Default::default()).unwrap();
+    let mir = program
+        .modules()
+        .iter()
+        .find(|module| &module.identity == program.root())
+        .unwrap();
     let mut analysis_times = Vec::new();
     for _ in 0..101 {
         let raw = mir.clone().into_unverified();
@@ -178,7 +179,7 @@ fn main() {
         101,
     );
     let links = NativeLinkDescription::scalar();
-    let input = BackendFunctionInput::new(&mir, InstanceId::new(0), &links).unwrap();
+    let input = BackendFunctionInput::new(mir, InstanceId::new(0), &links).unwrap();
     let mut backend = CraneliftBackend::for_host().unwrap();
     // Retain products outside timed calls so page freeing is not compile time.
     let mut products: Vec<NativeCompilationProduct> = Vec::with_capacity(22);

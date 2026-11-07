@@ -41,7 +41,7 @@ into its strict checked-program gate.
 
 ## Grammar fields and recovered roles
 
-[AST declarations](../../crates/kagari-syntax/src/ast/mod.rs) are the structural
+[AST declarations](../../crates/kagari-syntax/src/ast.rs) are the structural
 owner. `Expr`, `Stmt`, `Item`, `Member`, `Pattern` and `TypeSyntax` have explicit
 alternatives. Concrete nodes store typed children and punctuation, rather than
 selecting matching positions from an untyped tree. `ExprView`, `StmtView`,
@@ -86,6 +86,21 @@ the first block as its condition. If a plain block condition has no following
 body block, recovery assigns that lone block to the body and marks the condition
 missing. The same rule applies to `while`.
 
+Condition parsing keeps the outer brace available for the control-flow body.
+Explicit parentheses, argument/index/array delimiters, blocks and match-arm
+braces restore ordinary struct-expression parsing within their contents, then
+restore the enclosing condition policy. For example,
+`if check(Point { x: 1 }) { work(); }` retains the constructor as a call argument
+and the final block as the body. A missing opening delimiter does not establish
+that boundary during recovery; an undelimited closure body inherits its enclosing
+expression policy.
+
+Statement termination follows the completed expression alternative. A standalone
+block or `IfExpr` can omit its semicolon, while a binary/postfix expression built
+around it requires one before the next statement: `{ 1 } + 2; val next = 3;`.
+The first token does not decide this policy. Actual block-tail expressions still
+omit the semicolon regardless of their expression alternative.
+
 `SeparatedList` stores ordered required elements and optional required separators.
 For `f(a,,b,)`, the middle element is missing and the last entry retains a comma.
 Filtered child iterators omit missing entries. Consumers whose semantics depend
@@ -114,6 +129,19 @@ before those tokens are consumed. In that case the slot is missing and the token
 stays exclusively in the unparsed suffix, rather than appearing in both places.
 When grammar parses a first entry separately, continuation parsing records
 recovery positions relative to the complete owning list, including that entry.
+The core list loop owns element parsing and its progress guard; separator recovery
+assigns unknown tokens to that same entry's separator position before consuming a
+comma or recording a missing one. For `f(a @@@,b)`, `@@@` belongs to entry 0's
+separator recovery and the written comma remains present. For `f(a b)`, entry 0
+has a missing comma anchored at `b`, which remains available as the next element.
+Neither path consumes the closing delimiter.
+
+Struct-update tail recovery stays with expression grammar, not the generic list
+loop. After `Point { ..base, x: 1 }`, only the update is a typed entry; the rejected
+comma and field belong to `FieldInitList.entries` at the insertion index after it.
+Rejected fields are parsed to recover their internal delimiters and diagnostics,
+then discarded as typed nodes. Their unexpected coverage excludes trailing trivia;
+the enclosing list still owns its closing brace and following layout.
 
 Typed convenience list accessors filter out missing elements. For `f(a,,b,)`,
 `args()` yields `a, b`, while `data().arguments.entries` retains all three slots
@@ -135,9 +163,53 @@ parts. Attributes belong directly to declarations/members; HIR and lint do not
 search parents to determine their target. Type aliases retain whether a `where`
 clause was written before or after `=`, so traversal preserves either order.
 
+Call generic arguments are positional. The call parser diagnoses a top-level
+associated binding such as `f::<i32, Item = T>(value)` before HIR can project the
+argument list into positional types, retaining the authored shape through ordinary
+recovery. A binding inside a type argument, such as
+`f::<Iterator<Item = i32>>(value)`, remains valid syntax; semantic admission stays
+with HIR.
+
+Angle-bracket lookahead recognizes only a possible type-argument shape. It stops
+at tokens outside the type-argument vocabulary or mismatched delimiters; the
+ordinary type parser still owns grammar fields and diagnostics. In independent
+comparisons such as `val first = x < y; val second = x < y;`, each probe stops at
+its statement boundary instead of scanning subsequent statements. This bounded
+case does not establish linear work for every possible source shape.
+
 Local functions reuse `FnDef` through `Stmt::FnDef`. Async blocks have a distinct
 keyword wrapper and required block body; they do not fabricate closure parameters.
 Postfix construction wraps the whole preceding expression exactly once.
+
+### String boundaries and the HIR handoff
+
+The [string scanner](../../crates/kagari-syntax/src/lexer/string.rs) recognizes
+holes in cooked ordinary strings before expression parsing. For `"hi {name:?}"`,
+it emits quote/text/open-brace/name/colon/question-mark/close-brace/quote tokens.
+The parser builds an `InterpolatedString` with a text token and an `Interpolation`
+node whose required expression is a plain `PathExpr(name)` and whose debug marker
+owns `:` and `?`. Text remains the original spelling, not a decoded value.
+Raw strings, byte strings and cooked strings without holes remain literal tokens.
+
+A hole admits only one non-keyword ASCII identifier, with an optional exact `:?`
+suffix and no whitespace. For `"{value.field}"`, the whole nonempty hole content
+is one `Unknown` token: the parser records it as unexpected input at the hole's
+`expression` field and leaves that required expression missing. Empty holes have
+no name token. Hole scanning consumes `}` when present but leaves a quote for the
+outer string scanner, so `"{name"` retains its name and a missing hole close without
+losing the string's closing quote. Escape scanning starts after `\` and consumes
+its discriminator separately; `\u{...}` braces cannot become interpolation holes.
+Malformed Unicode escapes stop before a recovery quote. Literal validation and
+its error reasons remain owned by the shared source decoder.
+
+[HIR expression lowering](../../crates/kagari-hir/src/lower/expr.rs) decodes each
+valid text fragment through that source decoder and creates ordered String-literal
+and `FormatPart` expressions. Each hole's name retains its own source site, while
+the format part covers the hole and carries the debug flag. Lowering does not
+resolve the name or establish formatting-protocol eligibility; later HIR analysis
+owns those checks. Missing recovered paths become missing HIR expressions, not
+valid names. The [HIR architecture](hir.md) owns semantic IDs, source maps and
+checked publication; the AST's parse-local token coordinates are not HIR IDs.
 
 ## Source storage, spans and traversal
 
@@ -292,7 +364,13 @@ through their ordinary missing-child/EOF paths, and the outer entrypoint returns
 
 Long character scans check about every 4 KiB of source progress. Nested string,
 comment and escape scanners share the lexer's checked iterator; independent
-literal-decoding passes own their own cadence. Long lexical/lookahead/trivia passes
+literal-decoding and hole-name validation passes own their own cadence.
+Hole-name validation returns cancellation separately from an invalid-name result.
+The [source decoder](../../crates/kagari-source/src/literal.rs) likewise owns the
+completion check around its shared text/escape iterator: exhaustion caused by
+cancellation cannot escape as EOF, malformed syntax or successful decoding.
+Its private output callback can receive a prefix, but public decoders publish a
+value only after successful completion. Long lexical/lookahead/trivia passes
 check about every 1024 physical records. These are implementation choices, not
 public tuning knobs or hard latency bounds. Buffer conversion, validation, recovery
 scope closure and destruction can still delay return after a request. Cancellation
@@ -361,10 +439,10 @@ path treats successful parsing as semantic acceptance.
 
 | Contract | Owner |
 | --- | --- |
-| Modes, limits and result | [Parser facade](../../crates/kagari-syntax/src/parser/mod.rs) |
+| Modes, limits and result | [Parser facade](../../crates/kagari-syntax/src/parser.rs) |
 | Cursor, recovery and depth | [Parser core](../../crates/kagari-syntax/src/parser/core.rs) |
 | Lexical backing and trivia | [Lexical table](../../crates/kagari-syntax/src/lexical.rs) |
-| Grammar and field layout | [AST](../../crates/kagari-syntax/src/ast/mod.rs), [grammar](../../crates/kagari-syntax/src/parser/grammar/mod.rs) |
+| Grammar and field layout | [AST](../../crates/kagari-syntax/src/ast.rs), [grammar](../../crates/kagari-syntax/src/parser/grammar.rs) |
 | Borrowed sites and visits | [Borrows](../../crates/kagari-syntax/src/ast/borrow.rs), [visitor](../../crates/kagari-syntax/src/ast/visit.rs) |
 | Physical reuse/projection | [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs) |
 | Recovered roles and lifetimes | [Typed contracts](../../crates/kagari-syntax/tests/typed_fields.rs) |

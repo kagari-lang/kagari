@@ -6,7 +6,7 @@ use crate::{
     declarations::Declaration,
     imports::{SourceDeclRef, SourceItem},
     resolver::resolved::{DeclarationNames, ResolvedName},
-    typeck::TypedFunction,
+    semantic::signatures::TypedFunction,
 };
 
 use std::collections::HashMap;

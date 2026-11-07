@@ -19,6 +19,10 @@ use kagari_types::scalar::BuiltinType;
 use std::mem;
 
 impl BodyChecker<'_> {
+    /// Infers a closure/async block in its own return, loop and async context.
+    ///
+    /// Restores the enclosing context even after cancellation; `finish` rejects
+    /// the stopped checker's temporary facts rather than publishing recovery types.
     pub(super) fn infer_closure(
         &mut self,
         expr_id: ExprId,
@@ -118,14 +122,21 @@ impl BodyChecker<'_> {
         self.closure_returns.push(Vec::new());
         let body_result = self.infer_expr_with_coercion(body, &mut closure_env, expected_result);
         let returns = self.closure_returns.pop().expect("closure return context");
-        let completes = completion::expr_can_complete(
+        let completes = match completion::expr_can_complete(
             &self.lowered.module,
             self.names,
             self.type_table,
             body,
             self.cancel,
-        )
-        .unwrap_or(false);
+        ) {
+            Ok(completes) => completes,
+            Err(_) => {
+                self.stopped = true;
+                // Only a temporary fallback, not evidence of semantic divergence.
+                // Continue through context restoration; `finish` rejects these facts.
+                false
+            }
+        };
         let mut result = if completes {
             body_result
         } else {

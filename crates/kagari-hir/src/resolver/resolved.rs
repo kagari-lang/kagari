@@ -3,12 +3,13 @@
 use crate::{
     builtin::BuiltinFunction,
     hir::{
+        body::Body,
         ids::{
             BodyOwner, ConstId, EnumId, ExprId, FunctionId, HirOwner, LocalId, ModuleId,
             OpaqueTypeId, ParamId, PatternId, PlaceId, StaticId, StructId, TraitId, TypeAliasId,
         },
-        item::Module,
         pattern::PatternKind,
+        writeability::Writeability,
     },
     imports::{
         ModuleImportFacts, NamespaceId, SourceDeclRef,
@@ -33,6 +34,8 @@ pub struct ScopeBinding {
     pub resolved: ResolvedName,
     /// Inclusive byte offset from which the binding is visible within its scope.
     pub visible_from: usize,
+    /// Declared rebinding policy; function names and pattern/closure parameters are immutable.
+    pub writeability: Writeability,
 }
 
 /// A body-owned lexical region and its source-ordered bindings.
@@ -127,6 +130,8 @@ pub struct ResolvedNames {
     /// The module's shared name table; separate from body lexical scopes.
     pub items: Arc<NameTable>,
     pub(crate) scopes: Vec<LexicalScope>,
+    /// Capturable identity -> immutable scope/binding row in this lowering.
+    binding_sites: HashMap<ResolvedName, (usize, usize)>,
     exprs: HashMap<ExprId, ResolvedName>,
     pub(crate) lookup_hits: HashMap<ExprId, LookupHit>,
     pub(crate) path_hits: Vec<(Span, LookupHit)>,
@@ -142,20 +147,20 @@ impl ResolvedNames {
         self.lookup_hits.get(&id)
     }
 
-    /// Classifies pattern structure using resolved bare-name variants; requires the matching module and is not full type validation.
-    pub fn pattern_is_irrefutable(&self, module: &Module, id: PatternId) -> bool {
-        match &module.pattern(id).kind {
+    /// Classifies pattern structure using resolved bare-name variants; requires the matching body arena and is not full type validation.
+    pub fn pattern_is_irrefutable(&self, body: &Body, id: PatternId) -> bool {
+        match &body.pattern(id).kind {
             PatternKind::Wildcard => true,
             PatternKind::Name { .. } => !self.pattern_variants.contains_key(&id),
             PatternKind::Tuple(elements) => elements
                 .iter()
-                .all(|element| self.pattern_is_irrefutable(module, *element)),
+                .all(|element| self.pattern_is_irrefutable(body, *element)),
             PatternKind::Struct { fields, .. } => fields
                 .iter()
-                .all(|field| self.pattern_is_irrefutable(module, field.pattern)),
+                .all(|field| self.pattern_is_irrefutable(body, field.pattern)),
             PatternKind::Or(alternatives) => alternatives
                 .iter()
-                .any(|alternative| self.pattern_is_irrefutable(module, *alternative)),
+                .any(|alternative| self.pattern_is_irrefutable(body, *alternative)),
             PatternKind::Range { .. }
             | PatternKind::Literal(_)
             | PatternKind::EnumVariant { .. } => false,
@@ -172,6 +177,7 @@ impl ResolvedNames {
             catalog,
             items,
             scopes: Vec::new(),
+            binding_sites: HashMap::new(),
             exprs: HashMap::new(),
             lookup_hits: HashMap::new(),
             path_hits: Vec::new(),
@@ -216,6 +222,30 @@ impl ResolvedNames {
 
     pub(crate) fn insert_closure_captures(&mut self, id: ExprId, captures: Vec<ResolvedName>) {
         self.closure_captures.insert(id, captures);
+    }
+
+    /// Borrows the original metadata for a selected local/parameter identity.
+    ///
+    /// The directory is populated alongside scope history, belongs to this
+    /// lowering and retains the first canonical declaration. It does not cache
+    /// visibility queries or resolve a spelling in the caller's current scope.
+    pub fn binding(&self, resolved: &ResolvedName) -> Option<&ScopeBinding> {
+        let (scope, row) = self.binding_sites.get(resolved)?;
+        self.scopes.get(*scope)?.bindings.get(*row)
+    }
+
+    pub(crate) fn insert_scope_binding(&mut self, scope: usize, binding: ScopeBinding) -> usize {
+        let row = self.scopes[scope].bindings.len();
+        if matches!(
+            binding.resolved,
+            ResolvedName::Local(_) | ResolvedName::Param(_)
+        ) {
+            self.binding_sites
+                .entry(binding.resolved.clone())
+                .or_insert((scope, row));
+        }
+        self.scopes[scope].bindings.push(binding);
+        row
     }
 
     /// Borrows all recorded lexical scopes; parent indices refer to this slice.

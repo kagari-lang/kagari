@@ -1,4 +1,6 @@
 [package]
+# Test helpers use named modules; only the targets below are standalone tests.
+autotests = false
 name = "kagari-runtime"
 version.workspace = true
 edition.workspace = true
@@ -32,3 +34,7 @@ kagari-hir.workspace = true
 kagari-source.workspace = true
 kagari-compiler = { workspace = true, features = ["source"] }
 kagari-mir.workspace = true
+
+[[test]]
+name = "native_schema"
+path = "tests/native_schema.rs"

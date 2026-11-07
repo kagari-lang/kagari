@@ -10,6 +10,13 @@ was recorded on 2026-10-28; its direction is agreed, but implementation is defer
 The user authorized [TP14 contract-test pruning](#contract-test-pruning-tp14) on
 2026-11-07, independently of the deferred layout and measurement work.
 Native collection migration and compiler pipeline redesign remain outside scope.
+The user additionally authorized [persistent frontend benchmarks](#persistent-frontend-benchmarks)
+on 2026-11-07: remove completed Rowan-migration tooling first, then establish HIR
+analysis/lifecycle measurements. This adds measurement infrastructure, not a new
+production optimization or acceptance claim for the deferred final comparison.
+The user also authorized the [frontend source-fixture follow-up](#frontend-source-fixture-follow-up)
+on 2026-11-07, starting with fixed syntax/HIR inputs rather than another test
+framework or a production refactor.
 
 ## Contract
 
@@ -48,6 +55,151 @@ Native collection migration and compiler pipeline redesign remain outside scope.
 - [ ] Final measurement: matched timing and retained-memory comparison, deferred
   until optimization is complete and machine load permits a meaningful comparison.
   Consolidate measured results and retire this plan when complete.
+
+## Persistent frontend benchmarks
+
+Scope: retire AST migration-only dependency/acceptance rules and their tests;
+retain workload/environment validation and neutral timing/memory comparisons.
+Then retain a small HIR driver for cold staged/direct analysis, warm queries,
+body/signature edits, selected-body queries and snapshot destruction. Production
+analysis algorithms, visibility, caching and compiler/runtime backends do not change.
+
+- [x] HB0: remove Rowan-only lockfile allowances, TA0 archive recovery and fixed
+  migration speed/memory budgets. Ten focused Python tests pass. AST comparisons
+  now require identical lockfiles and existing environment/toolchain checks.
+- [x] HB1: freeze plain/generic scales (24/96/384 functions) and one dependency-edit
+  workload, with semantic evidence and independent state for each measured route.
+- [x] HB2: implement an uninstrumented timing target and sequential process runner;
+  separate staged queries from fresh direct snapshot/checked-program routes.
+- [x] HB3: add a separate allocation-instrumented target sharing the lifecycle
+  recipe; never reset live allocation accounting across retained snapshots.
+- [x] HB4: validate selected existing contracts and driver evidence, record a
+  current-machine baseline and the limits of unrun CI/platform scope.
+
+Measurement ownership: standard catalog construction and source preparation are
+reported separately or excluded explicitly; a fresh analysis database still pays
+provider analysis. Every cold/edit sample starts from its declared cache state.
+Retained-result body counters describe result construction, not necessarily the
+latest query. Time and allocation instrumentation run separately. Baselines require
+identical workload/protocol/toolchain/environment and lockfile fingerprints; no
+cross-machine or historical Rowan speedup is inferred. Raw samples belong under
+`target/`; durable methods/results belong in the testing/performance guides.
+
+The method follows the existing [HIR phase experiment](performance-baseline.md#hir-architecture-and-candidate-filtering-macos-2026-11-06)
+and [rustc-perf collector](https://github.com/rust-lang/rustc-perf/blob/master/collector/README.md)
+(consulted 2026-11-07): separate full, unchanged and edited work, isolate setup and
+profile separately. Kagari measures in-process source databases and retained `Arc`
+snapshots, not rustc's disk incremental cache. No general benchmark framework or
+production instrumentation is needed. Complete workspace/platform tests remain
+CI-only; ordinary test runs do not execute performance campaigns.
+
+HB0-HB4 are complete. Durable operation/measurement contracts are in the
+[frontend benchmark guide](frontend-benchmarks.md); the
+[current Windows baseline](performance-baseline.md#persistent-hir-baseline-windows-2026-11-07)
+records machine, source/harness identities, methods, results and limitations. The
+older final test-preparation optimization comparison remains deferred, independently
+of this completed infrastructure work.
+
+Local acceptance used the 17 AST/HIR Python tooling tests, all three size-96
+workloads in timing/memory correctness mode, and the existing HIR contracts
+`native_declarations_are_shared_across_user_revisions_and_retained_by_snapshots`,
+`imported_signature_changes_invalidate_a_cached_function_body`, and
+`associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot`.
+These sample provider ownership, dependency invalidation and retained-result
+correctness without replaying the complete language suite. Workspace Clippy,
+formatting, structure (zero findings) and diff checks passed. CI now runs the
+Python tooling tests and the small HIR correctness set, not performance campaigns;
+complete workspace/platform/backend tests remain unrun locally.
+
+The release campaign validates all 24/96/384 timing scales: 49 timing and 21 memory
+samples. Its outer 1,200 s timeout occurred after all timings and 19 memory samples;
+the last two memory processes were completed from the unchanged frozen image after
+source/environment/archive validation. The baseline records this interruption;
+no timing was resumed or substituted. A separate plain/24 same-image pilot passed
+fresh AB/BA and saved-only comparison validation, without a speedup claim. An
+initial release build exposed private `ModuleFacts::type_table` access in the new
+assertion; switching to its public accessor resolved it before measurement. No
+carried build errors remain. Existing AST performance numbers were not rerun.
+
+The subsequent user-authorized layout cleanup moves both frontend drivers from
+`examples/` to `benches/`, with explicit `[[bench]]`, `harness = false` and
+`test = false` targets. Runners discover executable paths from Cargo artifacts;
+AST's explicit `--executable` bypass remains available. Workloads, measurement
+blocks and assertions are unchanged; only Cargo's injected `--bench` argument is
+accepted in addition to driver options. Old HIR archives are not migrated across
+changed target/harness/tooling fingerprints. Recorded results remain pre-relocation
+evidence; collect a new baseline only for the next performance comparison.
+
+Migration validation: 18 focused AST/HIR tooling tests pass, direct Cargo bench
+AST correctness and HIR manifest invocation pass, and the HIR runner's plain/96
+check passes in timing and memory modes. This samples both CLI entry paths and
+both executable types; no production analysis changes require another full
+performance campaign or exhaustive language-test matrix.
+
+The baseline exposes substantial warm-query preparation despite retained body
+results. Current declaration/signature/environment preparation precedes reuse
+checks; no phase-level attribution or production optimization was performed.
+Any follow-up must profile those owners before proposing new caches. This is an
+observation for later diagnosis, not an additional acceptance phase here.
+
+## Frontend source-fixture follow-up
+
+The first bounded batch separates complete test programs from Rust orchestration.
+It does not change semantic owners, test names, discovery, execution routes or
+assertions, and does not reopen TP14's pruning work or TP10-TP13's directory moves.
+The lasting input-placement rule is in [testing](testing.md#classify-the-contract-before-choosing-a-format).
+
+- [x] Externalize eight syntax inputs: six positive language-conformance cases,
+  the combined generic-item parser case and the attribute/trivia program. Keep
+  their named cases, spec references, losslessness and structural assertions.
+- [x] Externalize seven contextual-trait programs, four lowering programs and two
+  static-initializer programs. Keep dispatch/receiver/type facts, recovery,
+  codegen admission, local owners, capture and constant-table assertions in Rust.
+- [x] Externalize the struct-update factory declarations and the fixed generic/
+  projection program. Existing field-order, invalid-base, bound and never/recovery
+  tables retain their Rust orchestration and short varying fragments.
+- [ ] Later batch: diagnostic-focused parser/standard-library cases using existing
+  UI admission and typed checks. The HIR UI owner is rejection-only; do not remove
+  its error guard to accommodate positive fixtures.
+- [ ] Later batch: remaining fixed trait/inference programs and selected long
+  multimodule/revision inputs, after reviewing logical paths and span sensitivity.
+  Preserve incremental/native/cancellation lifecycles; do not build a generic DSL.
+
+The 23 source fixtures live under syntax `tests/fixtures/parser/conformance` and
+`attributes`, and HIR `tests/fixtures/typeck/traits`, `lower`, `analysis/statics`
+and `analysis/struct_update`. All inherit the repository-root LF rule. Initial
+extraction verified 21 original runtime byte matches; the two non-byte-sensitive
+statics programs removed incidental embedding indentation. The user then requested
+normal source formatting: all 22 ordinary inputs now pass `kg fmt` and `fmt --check`,
+without copied leading/trailing blank lines or Rust-string layout. The attribute/
+trivia witness retains its authored delimiter comment and layout. Logical source
+names, Rust assertions and execution routes remain unchanged, including factory
+fragment consumers. The same 11 syntax and 20 HIR tests pass after formatting.
+No load-time normalization, whitespace exceptions, new golden files or production
+visibility changes were introduced.
+
+Selected local validation passes: 11 syntax tests cover all moved inputs plus
+neighboring rejection cases; 20 HIR tests cover all moved inputs, every consumer
+of the extracted factory declaration and adjacent contextual-call rejection paths.
+Before/after library test discovery matches exactly: 141 syntax and 637 HIR
+entries, with unchanged names and multiplicities. Discovery is not execution;
+no full-workspace suite or exhaustive platform/backend matrix was run locally.
+Structure (1,858 Rust files, zero findings), formatting, workspace Clippy and
+`git diff --check` pass, as do new-fixture whitespace and LF-attribute checks.
+Review found no import, visibility, re-export or module-ownership changes. The
+improvement is clearer Rust ownership, not a claim of fewer total repository
+lines or faster compilation.
+
+The user-authorized attribute cleanup consolidates ordinary `.kgr` LF handling in
+root `.gitattributes`, removing 19 redundant local files and the `.kgr` line from
+four mixed-rule files. Other-format rules and the dedicated literal fixture's
+whitespace exception remain local. No source renormalization or index staging is
+part of that cleanup; checkout bytes were preserved at that checkpoint. Verification
+confirmed unchanged bytes for all 543 Kagari files and effective `text=set, eol=lf`
+attributes for each; 89 paths newly inherit the policy. All other effective
+attributes, including whitespace exceptions, are unchanged. `git diff --check`
+passes. This configuration/documentation-only step does not rerun Rust builds or
+tests; the preceding source-fixture validation remains separate evidence.
 
 ## Evidence and validation
 
@@ -797,14 +949,14 @@ harnesses and test setup policies remain unchanged.
 ### Placement rules
 
 1. Prefer one `#[cfg(test)] mod tests;` entry for grouped tests belonging to the
-   same module, with ordinary child declarations in `tests/mod.rs`. Keep relevant
+   same module, with ordinary child declarations in `tests.rs`. Keep relevant
    feature/platform gates. Within this directory, use meaningful names such as
    `arena.rs` or `defaults/` rather than repeating `_tests` on every leaf.
 2. Keep tests at the smallest correct semantic owner. Rust private items are
    accessible from their defining module and descendants, not arbitrary siblings
    ([Rust privacy rules](https://doc.rust-lang.org/reference/visibility-and-privacy.html)).
-   For example, a private `analysis::body_queries` check can stay in
-   `analysis/body_queries/tests/mod.rs`, declared by `body_queries.rs`; it must not
+   For example, a private `analysis::body` check can stay in
+   `analysis/body/tests.rs`, declared by `body.rs`; it must not
    require widening visibility to move under `analysis::tests`.
 3. Preserve existing clear `src/tests/` and subsystem `tests/` trees. A small,
    single-entry `tests.rs` is acceptable; converting every such file to a directory
@@ -822,21 +974,22 @@ harnesses and test setup policies remain unchanged.
 Illustrative HIR destination, not an implemented tree:
 
 ```text
-src/analysis/
-  mod.rs
-  body_queries.rs
-  declaration_queries.rs
-  tests/
-    mod.rs
-    arena.rs
-    callable.rs
-    generic_types/
-      mod.rs
-      ...
-  body_queries/
+src/
+  analysis.rs
+  analysis/
+    body.rs
+    declarations.rs
+    tests.rs
     tests/
-      mod.rs
-      ...
+      arena.rs
+      callable.rs
+      generic_types.rs
+      generic_types/
+        ...
+    body/
+      tests.rs
+      tests/
+        ...
 ```
 
 ### Inspected scope and priority
@@ -1013,7 +1166,7 @@ does not replace the existing `runtime::language_contract` runner or its route
 assertions. Common stateless preparation belongs under `src/test_support/`,
 declared once by the library, with source/native gates on the relevant modules.
 Local tests can stay beside their implementation instead of entering a central
-test directory. Library roots and `mod.rs` contain declarations/orchestration,
+test directory. Library roots and module entry files contain declarations/orchestration,
 not the accumulated test bodies.
 
 Runtime placement is similarly responsibility-based:

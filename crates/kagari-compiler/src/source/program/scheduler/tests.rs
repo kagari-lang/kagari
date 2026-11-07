@@ -4,6 +4,7 @@ use crate::source::{
     lower::{MirLoweringError, instances::MirLoweringOptions},
     program::{lower_program_to_mir, scheduler::Scheduler, update_requests::RequestQueue},
 };
+use crate::tests::common::compilation;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_contract::updates::DemandRequests;
 use kagari_hir::{analysis::AnalysisDatabase, program::CheckedProgram};
@@ -83,33 +84,23 @@ fn shared_tuple_bridge() -> CheckedProgram {
 #[test]
 fn closed_tuple_bridge_does_not_root_caller_private_layout_in_provider() {
     let checked = shared_tuple_bridge();
-    lower_program_to_mir(&checked, &Default::default()).unwrap();
+    lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
 
     let context = checked.root().definition_context();
     let root_identity = checked.root().lowered.source.module_identity();
-    let modules = checked
-        .modules()
-        .iter()
-        .map(|module| {
-            module
-                .to_unverified(&Default::default())
-                .unwrap()
-                .into_records()
-        })
-        .collect::<Vec<_>>();
+    let input = compilation(&checked);
+    let modules = input.modules();
     let root_index = modules
         .iter()
-        .position(|module| module.lowered.source.module_identity() == root_identity)
+        .position(|module| module.source().module_identity() == root_identity)
         .unwrap();
     let provider_index = modules
         .iter()
-        .position(|module| module.lowered.source.module_identity().path == ["provider"])
+        .position(|module| module.source().module_identity().path == ["provider"])
         .unwrap();
-    let catalog = &modules[root_index].aggregates;
     let options = MirLoweringOptions::default();
     let mut scheduler = Scheduler::new(
-        &modules,
-        catalog,
+        &input,
         &context,
         root_identity,
         &options,
@@ -121,7 +112,7 @@ fn closed_tuple_bridge_does_not_root_caller_private_layout_in_provider() {
         .discovery
         .scan(
             &scheduler.states,
-            &modules,
+            modules,
             &context.snapshot(),
             &mut scheduler.requests,
             root_identity,

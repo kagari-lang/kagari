@@ -1,10 +1,11 @@
+use crate::source::elaborate::model::{CheckedPlaceKind, IndexWrite, ValueBinding};
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{numeric::NumericOperation, operations::BinaryOp};
 use kagari_hir::{
-    hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
-    resolver::resolved::ResolvedName,
+    compile_input::body::bindings::BindingId,
+    hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId},
     types::{NominalType, TypeId},
 };
 use kagari_mir::{
@@ -13,6 +14,7 @@ use kagari_mir::{
 };
 use kagari_types::{language::Protocol, ty::Ty};
 use std::ops::ControlFlow;
+use std::slice;
 
 pub(super) struct PreparedPlace {
     host_path: Option<PathRef>,
@@ -52,29 +54,12 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         id: PlaceId,
     ) -> Result<Option<PreparedPlace>, MirLoweringError> {
-        if let Some(checked) = self.analyzed.typed.type_table.host_place_path(id).cloned() {
+        if let CheckedPlaceKind::Host(checked) = self.source_body().places[&id].kind.clone() {
             let Some(prepared) = self.prepare_place_inner(checked.root, true)? else {
                 return Ok(None);
             };
 
-            let mut value = match prepared.root {
-                Root::Static { value, .. } | Root::Value(value) => value,
-                Root::Local { local, ty } => {
-                    let dst = self.alloc_temp(ty);
-                    self.emit(Instruction::LoadLocal { dst, local });
-                    dst
-                }
-                Root::Cell { local, ty } => {
-                    let cell = self.alloc_temp(ValueType::HeapObject);
-                    self.emit(Instruction::LoadLocal { dst: cell, local });
-                    let dst = self.alloc_temp(ty);
-                    self.emit(Instruction::ReadCell { dst, cell });
-                    dst
-                }
-            };
-            for projection in &prepared.projections {
-                value = self.read_projection(value, projection)?;
-            }
+            let value = self.read_prepared_place(&prepared)?;
             let dynamic_args = match self.lower_host_path_arguments(&checked.dynamic_arguments)? {
                 ControlFlow::Break(_) => return Ok(None),
                 ControlFlow::Continue(values) => values,
@@ -105,30 +90,28 @@ impl FunctionLowerer<'_, '_> {
         id: PlaceId,
         projected: bool,
     ) -> Result<Option<PreparedPlace>, MirLoweringError> {
-        let place = self.analyzed.lowered.module.place(id).clone();
+        let place = self.source_body().places[&id].clone();
         match place.kind {
-            PlaceKind::Name(_) => {
-                let resolved = self.place_root_resolution(id)?;
-                if let Some(slot) = self.planner.static_slot(self.analyzed, &resolved)? {
-                    // Initialization is observable even for plain assignment. Preserve
-                    // this old value for compound assignment across RHS side effects.
-                    let value = self.load_static(slot);
-                    return Ok(Some(PreparedPlace {
-                        host_path: None,
-                        dynamic_args: Default::default(),
-                        root: Root::Static { slot, value },
-                        projections: Vec::new(),
-                    }));
-                }
-                let local = self.lookup_binding(resolved)?;
+            CheckedPlaceKind::Binding(binding) => {
+                let binding = match binding {
+                    ValueBinding::Static(declaration) => {
+                        let slot = self.planner.static_slot(declaration)?;
+                        // Initialization occurs before RHS evaluation, even for plain assignment.
+                        let value = self.load_static(slot);
+                        return Ok(Some(PreparedPlace {
+                            host_path: None,
+                            dynamic_args: Default::default(),
+                            root: Root::Static { slot, value },
+                            projections: Vec::new(),
+                        }));
+                    }
+                    ValueBinding::Lexical(binding) => binding,
+                };
+                let local = self.lookup_binding(binding)?;
                 let ty = self.place_type(id)?;
-                let is_cell = matches!(self.place_root_resolution(id)?, ResolvedName::Local(local_id) if self.cell_locals.contains(&local_id));
-                let root_type = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .place_type(id)
-                    .ok_or(MirLoweringError::UnresolvedPlace(id))?;
+                let is_cell =
+                    matches!(binding, BindingId::Local(id) if self.cell_locals.contains(&id));
+                let root_type = place.ty;
                 // Identity semantics belong to the instantiated receiver, including
                 // roots declared as generic parameters or associated projections.
                 let root = if projected
@@ -163,7 +146,7 @@ impl FunctionLowerer<'_, '_> {
                     projections: Vec::new(),
                 }))
             }
-            PlaceKind::Expr(expr) => {
+            CheckedPlaceKind::Value(expr) => {
                 let value = self.lower_expr(expr)?;
                 if self.current_block_terminated() {
                     return Ok(None);
@@ -175,63 +158,42 @@ impl FunctionLowerer<'_, '_> {
                     projections: Vec::new(),
                 }))
             }
-            PlaceKind::Field { base, .. } => {
-                let field = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .place_field(id)
-                    .ok_or(MirLoweringError::MissingBinding("checked field assignment"))?;
+            CheckedPlaceKind::Field { base, field } => {
                 let Some(mut place) = self.prepare_place_inner(base, true)? else {
                     return Ok(None);
                 };
-                let receiver_ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .place_type(base)
-                    .ok_or(MirLoweringError::UnresolvedPlace(base))?;
+                let receiver_ty = self.source_body().places[&base].ty.clone();
                 place.projections.push(Projection {
-                    kind: ProjectionKind::Field(self.aggregate_field_ref(field, &receiver_ty)?),
+                    kind: ProjectionKind::Field(self.aggregate_field_ref(&field, &receiver_ty)?),
                     ty: self.place_type(id)?,
                     tuple_base: false,
                 });
                 Ok(Some(place))
             }
-            PlaceKind::Index { base, index } => {
+            CheckedPlaceKind::Index {
+                base,
+                index,
+                operation,
+            } => {
                 let Some(mut place) = self.prepare_place_inner(base, true)? else {
                     return Ok(None);
                 };
-                let receiver = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .place_type(base)
-                    .ok_or(MirLoweringError::UnresolvedPlace(base))?;
+                let receiver_type = self.source_body().places[&base].ty.clone();
                 let receiver = self
                     .planner
                     .arguments(
-                        &[receiver],
+                        slice::from_ref(&receiver_type),
                         &self.instance.substitution,
                         self.function.debug.source_span,
                     )?
                     .remove(0);
-                if let Some(write) = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .place_index_write(id)
-                    .map(|(interface, method)| (interface.clone(), *method))
+                if let IndexWrite::Method {
+                    read,
+                    write,
+                    setter,
+                } = operation
                 {
-                    let read = self
-                        .analyzed
-                        .typed
-                        .type_table
-                        .place_index(id)
-                        .cloned()
-                        .ok_or(MirLoweringError::MissingBinding(
-                            "indexed assignment read contract",
-                        ))?;
+                    let write = (write, setter);
                     let index = self.lower_expr(index)?;
                     if self.current_block_terminated() {
                         return Ok(None);
@@ -248,31 +210,8 @@ impl FunctionLowerer<'_, '_> {
                     });
                     return Ok(Some(place));
                 }
-                if let Some(interface) = self.analyzed.typed.type_table.place_index(id).cloned() {
-                    let receiver_ty = self
-                        .analyzed
-                        .typed
-                        .type_table
-                        .place_type(base)
-                        .ok_or(MirLoweringError::UnresolvedPlace(base))?;
-                    let mut value = match place.root {
-                        Root::Static { value, .. } | Root::Value(value) => value,
-                        Root::Local { local, ty } => {
-                            let dst = self.alloc_temp(ty);
-                            self.emit(Instruction::LoadLocal { dst, local });
-                            dst
-                        }
-                        Root::Cell { local, ty } => {
-                            let cell = self.alloc_temp(ValueType::HeapObject);
-                            self.emit(Instruction::LoadLocal { dst: cell, local });
-                            let dst = self.alloc_temp(ty);
-                            self.emit(Instruction::ReadCell { dst, cell });
-                            dst
-                        }
-                    };
-                    for projection in &place.projections {
-                        value = self.read_projection(value, projection)?;
-                    }
+                if let IndexWrite::ReadMethod(interface) = operation {
+                    let value = self.read_prepared_place(&place)?;
                     let index = self.lower_expr(index)?;
                     if self.current_block_terminated() {
                         return Ok(None);
@@ -280,7 +219,7 @@ impl FunctionLowerer<'_, '_> {
                     let method = self.protocol_method(Protocol::Index, 0)?;
                     let value = self.lower_applied_operator(
                         interface,
-                        receiver_ty,
+                        receiver_type,
                         &method,
                         &[value, index],
                     )?;
@@ -298,14 +237,71 @@ impl FunctionLowerer<'_, '_> {
                 place.projections.push(Projection {
                     kind: ProjectionKind::Index(index),
                     ty: self.place_type(id)?,
-                    tuple_base: matches!(
-                        self.analyzed.typed.type_table.place_type(base),
-                        Some(TypeId::Tuple(_))
-                    ),
+                    tuple_base: matches!(receiver_type, TypeId::Tuple(_)),
                 });
                 Ok(Some(place))
             }
+            CheckedPlaceKind::Host(_) => self.prepare_place(id),
+            CheckedPlaceKind::Diverging {
+                base,
+                read_base,
+                values,
+            } => {
+                if let Some(base) = base {
+                    let Some(prepared) = self.prepare_place_inner(base, true)? else {
+                        return Ok(None);
+                    };
+                    if read_base {
+                        self.read_prepared_place(&prepared)?;
+                    }
+                }
+                for value in values {
+                    self.lower_expr(value)?;
+                    if self.current_block_terminated() {
+                        return Ok(None);
+                    }
+                }
+                Err(MirLoweringError::MissingBinding(
+                    "diverging place preparation completed",
+                ))
+            }
         }
+    }
+
+    /// Read an already prepared receiver before a host/index getter's operands.
+    /// Deferred writable projections are left untouched until their normal commit path.
+    fn read_prepared_place(&mut self, place: &PreparedPlace) -> Result<MirValue, MirLoweringError> {
+        let mut value = match place.root {
+            Root::Static { value, .. } | Root::Value(value) => value,
+            Root::Local { local, ty } => {
+                let dst = self.alloc_temp(ty);
+                self.emit(Instruction::LoadLocal { dst, local });
+                dst
+            }
+            Root::Cell { local, ty } => {
+                let cell = self.alloc_temp(ValueType::HeapObject);
+                self.emit(Instruction::LoadLocal { dst: cell, local });
+                let dst = self.alloc_temp(ty);
+                self.emit(Instruction::ReadCell { dst, cell });
+                dst
+            }
+        };
+        for projection in &place.projections {
+            value = self.read_projection(value, projection)?;
+        }
+        if let Some(path) = &place.host_path {
+            let mut path = path.clone();
+            path.read_only = true;
+            let dst = self.alloc_temp(path.result_ty);
+            self.emit(Instruction::ReadPath {
+                dst,
+                root_or_view: value,
+                dynamic_args: place.dynamic_args.clone(),
+                path,
+            });
+            value = dst;
+        }
+        Ok(value)
     }
 
     pub(super) fn commit_place(

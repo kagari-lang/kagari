@@ -1,5 +1,8 @@
 //! Body traversal and inference orchestration; specialized operations live in child modules.
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use crate::{
     aggregates::AggregateCatalog,
     builtin::array_bridge,
@@ -11,17 +14,18 @@ use crate::{
     imports::functions::ImportedFunctions,
     lower::LoweredModule,
     resolver::resolved::{ResolvedName, ResolvedNames},
+    semantic::signatures::BodySignatures,
     typeck::{
-        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, applications, completion,
+        BodyTypeEnv, TopLevelTypeIndex, TypeIndexes, applications, completion,
         scalar::ScalarValue,
         solver::Solver,
-        table::TypeTable,
+        state::TypeCheckState,
         ty::{TypeContext, display_type_id, resolve_type_in},
     },
     types,
     types::TypeId,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{language::Protocol, range::RangeKind, scalar::BuiltinType};
 use smallvec::SmallVec;
@@ -75,22 +79,30 @@ struct LoopValue {
 /// Per-function/constant semantic traversal state borrowing prepared catalogs.
 ///
 /// The checker reads lowered nodes and resolved names, updates the body environment,
-/// and writes diagnostics plus `TypeTable` facts. `Solver` holds temporary inference
+/// and writes diagnostics plus semantic facts through `TypeCheckState`. `Solver` holds temporary inference
 /// variables; solving/recheck state must be sealed before publishing the table.
 /// Loop and closure stacks keep expected/result types separate from outer returns.
+/// Ordinary node visits share a 64-visit cancellation batch. Long searches and
+/// solver traversals retain internal checks; resource limits are never sampled.
+/// Once cancellation is observed, `stopped` prevents more inference work. Callers
+/// must consume the checker with `finish` before accepting its temporary facts.
 pub(crate) struct BodyChecker<'a> {
     aggregates: &'a AggregateCatalog,
     imported_functions: &'a ImportedFunctions,
     declarations: &'a Declarations,
     cancel: &'a CancellationToken,
+    /// Sticky stop state; recovery placeholders are discarded at the stage exit.
+    stopped: bool,
+    /// Remaining ordinary node visits before the next shared-token read.
+    visits_until_poll: u8,
     lowered: &'a LoweredModule,
     names: &'a ResolvedNames,
-    function_index: &'a FunctionTypeIndex,
+    signatures: &'a BodySignatures,
     top_level_index: &'a TopLevelTypeIndex,
     const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
     /// Mutable semantic output; node keys belong to `lowered`.
-    type_table: &'a mut TypeTable,
+    type_table: &'a mut TypeCheckState,
     function_name: &'a str,
     /// Result contract of the currently checked callable context.
     expected_return: TypeId,
@@ -115,12 +127,45 @@ pub(crate) struct BodyChecker<'a> {
 }
 
 impl<'a> BodyChecker<'a> {
+    /// Observes cancellation at a root/algorithm boundary and retains the stop state.
+    fn cancelled(&mut self) -> bool {
+        self.stopped = self.stopped || self.cancel.check().is_err();
+        self.stopped
+    }
+
+    /// Ordinary node traversals share one progress counter, including recursion.
+    /// Long algorithms keep their own internal checks and exact resource budgets.
+    fn checkpoint(&mut self) -> bool {
+        #[cfg(test)]
+        checkpoint(Checkpoint::BodyNodes);
+        if self.stopped {
+            return false;
+        }
+        if self.visits_until_poll == 0 {
+            self.visits_until_poll = 63;
+            !self.cancelled()
+        } else {
+            self.visits_until_poll -= 1;
+            true
+        }
+    }
+
+    /// Closes the private checker before any of its facts may leave the phase.
+    /// Temporary placeholders produced while unwinding cancellation are not recovery facts.
+    pub(crate) fn finish(mut self) -> Result<(), Cancelled> {
+        if self.cancelled() {
+            Err(Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+
     pub(crate) fn new(
         lowered: &'a LoweredModule,
         names: &'a ResolvedNames,
         indexes: TypeIndexes<'a>,
         diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
-        type_table: &'a mut TypeTable,
+        type_table: &'a mut TypeCheckState,
         function_name: &'a str,
         expected_return: TypeId,
     ) -> Self {
@@ -129,9 +174,11 @@ impl<'a> BodyChecker<'a> {
             aggregates: indexes.aggregates,
             declarations: indexes.declarations,
             cancel: indexes.cancel,
+            stopped: false,
+            visits_until_poll: 0,
             lowered,
             names,
-            function_index: indexes.function_index,
+            signatures: indexes.signatures,
             top_level_index: indexes.top_level_index,
             const_values: indexes.const_values,
             diagnostics,
@@ -169,10 +216,10 @@ impl<'a> BodyChecker<'a> {
     ) -> TypeId {
         let block = self.lowered.module.block(block_id);
         for stmt in &block.statements {
-            if self.cancel.check().is_err() {
+            self.check_stmt(*stmt, env);
+            if self.stopped {
                 return TypeId::Unknown;
             }
-            self.check_stmt(*stmt, env);
         }
 
         let result = block
@@ -187,8 +234,10 @@ impl<'a> BodyChecker<'a> {
             block_id,
             self.cancel,
         )
-        .unwrap_or(true)
-        {
+        .unwrap_or_else(|_| {
+            self.stopped = true;
+            true
+        }) {
             result
         } else {
             TypeId::Builtin(BuiltinType::Never)
@@ -206,6 +255,9 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> TypeId {
+        if !self.checkpoint() {
+            return TypeId::Unknown;
+        }
         const MAX_INFERENCE_DEPTH: usize = 32;
         if self.inference_depth >= MAX_INFERENCE_DEPTH {
             self.diagnostics.push(
@@ -221,6 +273,10 @@ impl<'a> BodyChecker<'a> {
         let expected = self.expression_context(expr_id, expected);
         self.prepare_call_type_arguments(expr_id, env);
         let result = self.infer_expr_type_expected_inner(expr_id, env, expected.as_ref());
+        if self.stopped {
+            self.inference_depth -= 1;
+            return TypeId::Unknown;
+        }
         self.type_table.insert_expr(expr_id, result.clone());
         let result = if completion::expr_can_complete(
             &self.lowered.module,
@@ -229,8 +285,10 @@ impl<'a> BodyChecker<'a> {
             expr_id,
             self.cancel,
         )
-        .unwrap_or(true)
-        {
+        .unwrap_or_else(|_| {
+            self.stopped = true;
+            true
+        }) {
             result
         } else {
             TypeId::Builtin(BuiltinType::Never)
@@ -257,9 +315,6 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> TypeId {
-        if self.cancel.check().is_err() {
-            return TypeId::Unknown;
-        }
         if let Some(ty) = env.exprs.get(&expr_id).cloned() {
             return ty;
         }
@@ -299,7 +354,7 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Param(id) => env.params.get(&id).cloned(),
                     ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                     ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
-                    ResolvedName::Static(id) => self.top_level_index.statics.get(&id).cloned(),
+                    ResolvedName::Static(id) => self.signatures.static_type(id).cloned(),
                     ResolvedName::Source(source) => {
                         if let Some(item) = self.top_level_index.imported_constants.get(&source) {
                             self.type_table.insert_scalar(expr_id, item.value.clone());
@@ -376,7 +431,10 @@ impl<'a> BodyChecker<'a> {
                     *expr,
                     self.cancel,
                 )
-                .unwrap_or(false);
+                .unwrap_or_else(|_| {
+                    self.stopped = true;
+                    false
+                });
                 if completes
                     && self
                         .aggregates
@@ -424,7 +482,10 @@ impl<'a> BodyChecker<'a> {
                     *expr,
                     self.cancel,
                 )
-                .unwrap_or(false);
+                .unwrap_or_else(|_| {
+                    self.stopped = true;
+                    false
+                });
                 if completes
                     && !matches!(
                         input,
@@ -575,7 +636,7 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     let mut types = Vec::with_capacity(elements.len());
                     for (index, expr) in elements.iter().enumerate() {
-                        if self.cancel.check().is_err() {
+                        if self.cancelled() {
                             return TypeId::Unknown;
                         }
                         let member = match expected {
@@ -594,7 +655,7 @@ impl<'a> BodyChecker<'a> {
                 let element = self.infer_expr_with_coercion(*value, env, member);
                 if !self.solving
                     && !types::supports_array_repetition(&element, |instance| {
-                        if self.cancel.check().is_err() {
+                        if self.cancelled() {
                             return None;
                         }
                         let contract = self.aggregates.enumeration(&instance.declaration)?;
@@ -652,7 +713,7 @@ impl<'a> BodyChecker<'a> {
                 let mut element_ty = intrinsic.clone();
                 let mut reachable = true;
                 for expr in elements {
-                    if self.cancel.check().is_err() {
+                    if self.cancelled() {
                         return TypeId::Unknown;
                     }
                     let ty =

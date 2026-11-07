@@ -1,3 +1,4 @@
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir, tests::common,
 };
@@ -60,7 +61,7 @@ pub(super) fn readable_sources(
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     let original = common::adopt_bytecode(
         context,
         lower_program_to_bytecode(&ir, &Default::default())
@@ -175,7 +176,7 @@ pub(super) fn readable_sources(
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     common::adopt_bytecode(
         context,
         lower_program_to_bytecode(&ir, &Default::default())

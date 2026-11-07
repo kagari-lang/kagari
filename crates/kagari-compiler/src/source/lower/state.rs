@@ -1,3 +1,4 @@
+use crate::source::elaborate::model::CheckedBody;
 use crate::source::lower::{
     MirLoweringError,
     debug::capture_origin,
@@ -7,15 +8,12 @@ use kagari_abi::representation::ValueType;
 use kagari_common::span::Span;
 use kagari_contract::effects::EffectSet;
 use kagari_hir::{
-    AnalyzedModule,
-    hir::{
-        expr::ExprKind,
-        ids::{HirOwner, LocalId as HirLocalId, ParamId},
-        stmt::StmtKind,
-        writeability::Writeability,
+    compile_input::{
+        body::bindings::BindingId, environment::CheckedEnvironment, program::CheckedModule,
     },
-    resolver::resolved::ResolvedName,
-    typeck::{GenericBounds, TypedFunction, TypedParameter},
+    hir::ids::{LocalId as HirLocalId, ParamId},
+    semantic::signatures::{TypedFunction, TypedParameter},
+    typeck::GenericBounds,
     types::TypeId,
 };
 use kagari_mir::{
@@ -24,6 +22,7 @@ use kagari_mir::{
     ids::{BlockId, LocalId, TempId},
     instruction::{Instruction, MirValue, Terminator},
 };
+use kagari_source::source::SourceFile;
 use kagari_types::ty::Ty;
 use std::{
     collections::{HashMap, HashSet},
@@ -57,7 +56,10 @@ pub(crate) struct LoopScope {
 }
 
 pub(crate) struct FunctionLowerer<'a, 'p> {
-    pub(crate) analyzed: &'a AnalyzedModule,
+    pub(crate) environment: CheckedEnvironment<'a>,
+    pub(crate) source: &'a SourceFile,
+    /// Generated adapters have no authored operation tree.
+    pub(crate) body: Option<CheckedBody>,
     pub(crate) instance: Instance,
     pub(crate) implementation_bounds: GenericBounds,
     pub(crate) planner: &'p mut InstancePlanner<'a>,
@@ -75,13 +77,21 @@ pub(crate) struct FunctionLowerer<'a, 'p> {
 
 impl<'a, 'p> FunctionLowerer<'a, 'p> {
     pub(crate) fn new(
-        analyzed: &'a AnalyzedModule,
+        module: &'a CheckedModule<'a>,
         signature: &LoweringSignature,
+        body: Option<CheckedBody>,
         instance: Instance,
         planner: &'p mut InstancePlanner<'a>,
     ) -> Result<Self, MirLoweringError> {
+        if body.as_ref().is_some_and(|body| {
+            body.key.module != module.handle() || body.key.owner != instance.body.owner()
+        }) {
+            return Err(MirLoweringError::MissingBinding(
+                "expanded body belongs to another instance owner",
+            ));
+        }
         let entry = BlockId::new(0);
-        let span = instance.body.span(analyzed);
+        let span = instance.body.span(module);
         let value_type = |ty| planner.value_type(ty, &instance.substitution, span);
         let mut function = MirFunction {
             semantic: Default::default(),
@@ -113,7 +123,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             effects: EffectSet::default(),
             debug: MirFunctionDebugMetadata {
                 source: None,
-                source_module: Some(analyzed.lowered.source.module_identity().clone()),
+                source_module: Some(module.source().module_identity().clone()),
                 source_span: span,
                 locals: Vec::new(),
                 captured_bindings: Vec::new(),
@@ -124,46 +134,12 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             },
         };
 
+        let input = module.body_for(instance.body.owner());
+        let cell_locals = body
+            .as_ref()
+            .map(|body| body.cell_locals.clone())
+            .unwrap_or_default();
         let mut params = HashMap::new();
-        let mutable_locals = analyzed
-            .lowered
-            .module
-            .body
-            .statements()
-            .filter_map(|(id, stmt)| {
-                if id.owner() != HirOwner::Body(instance.body.owner()) {
-                    return None;
-                }
-                match &stmt.kind {
-                    StmtKind::Binding {
-                        pattern,
-                        writeability: Writeability::Var,
-                        ..
-                    } => Some(*pattern),
-                    _ => None,
-                }
-            })
-            .flat_map(|pattern| analyzed.lowered.module.body.pattern_bindings(pattern))
-            .map(|(local, _)| local)
-            .collect::<HashSet<_>>();
-        let cell_locals = analyzed
-            .lowered
-            .module
-            .body
-            .expressions()
-            .filter(|(id, expr)| {
-                id.owner() == HirOwner::Body(instance.body.owner())
-                    && matches!(
-                        expr.kind,
-                        ExprKind::Closure { .. } | ExprKind::AsyncBlock { .. }
-                    )
-            })
-            .flat_map(|(id, _)| analyzed.names.closure_captures(id).iter())
-            .filter_map(|resolved| match resolved {
-                ResolvedName::Local(id) if mutable_locals.contains(id) => Some(*id),
-                _ => None,
-            })
-            .collect();
         for param in &signature.params {
             let local = LocalId::new(function.locals.len());
             function.locals.push(MirLocal {
@@ -173,7 +149,10 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             function.debug.locals.push(MirLocalDebugInfo {
                 local,
                 name: param.name.clone(),
-                span: analyzed.lowered.source_map.param_span(param.id),
+                span: input
+                    .and_then(|input| input.binding(BindingId::Parameter(param.id)))
+                    .ok_or(MirLoweringError::MissingBinding("parameter source binding"))?
+                    .span,
                 ty: value_type(&param.ty)?,
                 is_parameter: true,
             });
@@ -197,9 +176,10 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 .body
                 .function()
                 .and_then(|id| {
-                    analyzed
-                        .typed
-                        .functions
+                    module
+                        .environment()
+                        .signatures()
+                        .functions()
                         .iter()
                         .find(|function| function.id == id)
                 })
@@ -213,23 +193,12 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             function.semantic.params.insert(index, concrete(&param.ty)?);
             function.semantic.locals.insert(index, concrete(&param.ty)?);
         }
-        let mut bounds = GenericBounds::new();
-        for (ty, constraints) in scope_bounds {
-            let actual = planner.catalog.normalize_type(
-                &planner.definitions(),
-                &ty.instantiate(&instance.substitution),
-            );
-            bounds.entry(actual).or_default().extend(
-                constraints
-                    .iter()
-                    .map(|interface| interface.instantiate(&instance.substitution)),
-            );
-        }
-        let implementation_bounds = planner
-            .catalog
-            .expanded_bounds(&bounds, &planner.options.cancel)?;
+        let implementation_bounds =
+            planner.implementation_bounds(scope_bounds, &instance.substitution)?;
         Ok(Self {
-            analyzed,
+            environment: module.environment(),
+            source: module.source(),
+            body,
             instance,
             implementation_bounds,
             planner,
@@ -244,6 +213,13 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             current_scope: 0,
             current_debug_span: None,
         })
+    }
+
+    /// Authored operations are absent only for planner-generated adapter recipes.
+    pub(crate) fn source_body(&self) -> &CheckedBody {
+        self.body
+            .as_ref()
+            .expect("authored operation lowering requires a source body")
     }
 
     pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<Ty, MirLoweringError> {
@@ -262,7 +238,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         self.function.effects = self.effects;
         self.function.debug.source = Some(capture_origin(
             &self.function,
-            &self.analyzed.lowered.source,
+            self.source,
             &self.planner.options.cancel,
         )?);
         Ok(self.function)

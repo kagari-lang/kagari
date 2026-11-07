@@ -1,4 +1,4 @@
-use std::iter;
+use std::iter::{self, Peekable};
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 
@@ -135,7 +135,7 @@ pub fn decode_string_literal_with_cancellation(
 ) -> Result<Result<String, &'static str>, Cancelled> {
     cancel.check()?;
     let mut value = String::new();
-    let decoded = decode_string_literal_inner(text, cancel, false, &mut |ch| value.push(ch));
+    let decoded = decode_string_literal_inner(text, cancel, false, &mut |ch| value.push(ch))?;
     cancel.check()?;
     Ok(decoded.map(|()| value))
 }
@@ -156,22 +156,18 @@ pub fn decode_byte_string_literal_with_cancellation(
 ) -> Result<Result<Vec<u8>, &'static str>, Cancelled> {
     cancel.check()?;
     let mut value = Vec::new();
-    let decoded = text
-        .strip_prefix('b')
-        .ok_or("invalid byte string prefix")
-        .and_then(|text| {
-            decode_string_literal_inner(text, cancel, true, &mut |ch| value.push(ch as u8))
-        });
+    let decoded = match text.strip_prefix('b') {
+        Some(text) => {
+            decode_string_literal_inner(text, cancel, true, &mut |ch| value.push(ch as u8))?
+        }
+        None => Err("invalid byte string prefix"),
+    };
     cancel.check()?;
     Ok(decoded.map(|()| value))
 }
 
-fn decode_string_literal_inner(
-    text: &str,
-    cancel: &CancellationToken,
-    byte: bool,
-    push: &mut impl FnMut(char),
-) -> Result<(), &'static str> {
+/// Separates validated delimiters from their undecoded source content.
+fn string_content(text: &str) -> Result<(StringDelimiter, &str), &'static str> {
     let (delimiter, opening) =
         StringDelimiter::opening(text)?.ok_or("invalid String opening delimiter")?;
     let closing = match delimiter {
@@ -193,6 +189,19 @@ fn decode_string_literal_inner(
     let content = text
         .get(opening..end)
         .ok_or("invalid String delimiter boundary")?;
+    Ok((delimiter, content))
+}
+
+fn decode_string_literal_inner(
+    text: &str,
+    cancel: &CancellationToken,
+    byte: bool,
+    push: &mut impl FnMut(char),
+) -> Result<Result<(), &'static str>, Cancelled> {
+    let (delimiter, content) = match string_content(text) {
+        Ok(parts) => parts,
+        Err(reason) => return Ok(Err(reason)),
+    };
     match delimiter {
         StringDelimiter::Cooked => decode_string_content(content, true, byte, cancel, push),
         StringDelimiter::Raw(_) => {
@@ -200,12 +209,10 @@ fn decode_string_literal_inner(
             for (index, ch) in content.char_indices() {
                 if index >= next_check {
                     next_check = index.saturating_add(CANCELLATION_CHECK_BYTES);
-                    if cancel.check().is_err() {
-                        return Err("String decoding cancelled");
-                    }
+                    cancel.check()?;
                 }
                 if ch == '"' && delimiter.closing_len(&content[index..]).is_some() {
-                    return Err("unexpected text after raw String delimiter");
+                    return Ok(Err("unexpected text after raw String delimiter"));
                 }
             }
             decode_string_content(content, false, byte, cancel, push)
@@ -230,20 +237,22 @@ pub fn decode_string_fragment_with_cancellation(
 ) -> Result<Result<String, &'static str>, Cancelled> {
     cancel.check()?;
     let mut value = String::with_capacity(content.len());
-    let decoded = decode_string_content(content, true, false, cancel, &mut |ch| value.push(ch));
+    let decoded = decode_string_content(content, true, false, cancel, &mut |ch| value.push(ch))?;
     cancel.check()?;
     Ok(decoded.map(|()| value))
 }
 
+/// Runs decoding with one polling iterator shared by text, escapes and continuations.
+/// Cancellation exhausts that iterator internally, but the completion check here
+/// distinguishes it from EOF or malformed syntax before returning either result.
+/// The callback may receive a prefix; callers must publish it only on `Ok(Ok(()))`.
 fn decode_string_content(
     content: &str,
     cooked: bool,
     byte: bool,
     cancel: &CancellationToken,
     push: &mut impl FnMut(char),
-) -> Result<(), &'static str> {
-    // Escapes and continuations consume this same iterator, so long nested
-    // fragments share the byte cadence. Public decoders check entry and return.
+) -> Result<Result<(), &'static str>, Cancelled> {
     let mut next_check = CANCELLATION_CHECK_BYTES;
     let mut chars = content
         .char_indices()
@@ -256,6 +265,18 @@ fn decode_string_content(
         })
         .map(|(_, ch)| ch)
         .peekable();
+    let decoded = decode_string_characters(&mut chars, cooked, byte, push);
+    cancel.check()?;
+    Ok(decoded)
+}
+
+/// Interprets escapes and newlines; the caller owns cancellation and publication.
+fn decode_string_characters(
+    chars: &mut Peekable<impl Iterator<Item = char>>,
+    cooked: bool,
+    byte: bool,
+    push: &mut impl FnMut(char),
+) -> Result<(), &'static str> {
     while let Some(ch) = chars.next() {
         if byte && !ch.is_ascii() {
             return Err("direct byte literal text must be ASCII");
@@ -588,10 +609,11 @@ mod tests {
         ] {
             let cancel = CancellationToken::default();
             let mut decoded = String::new();
-            let _ = decode_string_content(&content, true, false, &cancel, &mut |ch| {
+            let result = decode_string_content(&content, true, false, &cancel, &mut |ch| {
                 decoded.push(ch);
                 cancel.cancel();
             });
+            assert_eq!(result, Err(Cancelled));
             assert!(cancel.check().is_err());
             assert!(decoded.len() < content.len());
             assert!(!decoded.ends_with('b'));

@@ -1,4 +1,5 @@
 use super::{checked, insert};
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{
@@ -75,7 +76,8 @@ fn retained_cross_module_calls_compile_after_source_use_disappears() {
         "root",
         "use pkg::provider; fn main() -> i32 { provider::kept(41) }",
     );
-    let original = lower_program_to_mir(&checked(&sources, root), &Default::default()).unwrap();
+    let original =
+        lower_program_to_mir(&compilation(&checked(&sources, root)), &Default::default()).unwrap();
     let (history, headers) = history(&original);
     insert(
         &mut sources,
@@ -88,7 +90,8 @@ fn retained_cross_module_calls_compile_after_source_use_disappears() {
         ..Default::default()
     };
     let candidate =
-        lower_program_to_mir_with_demands(&source, &options, &history, &headers).unwrap();
+        lower_program_to_mir_with_demands(&compilation(&source), &options, &history, &headers)
+            .unwrap();
     let owner = candidate
         .modules()
         .iter()
@@ -139,11 +142,19 @@ fn retained_cross_module_calls_compile_after_source_use_disappears() {
         max_generic_instances: 0,
         ..Default::default()
     };
-    assert!(lower_program_to_mir_with_demands(&source, &limited, &history, &headers).is_err());
+    assert!(
+        lower_program_to_mir_with_demands(&compilation(&source), &limited, &history, &headers)
+            .is_err()
+    );
     insert(&mut sources, "provider", "pub fn other() -> i32 { 0 }");
     assert!(
-        lower_program_to_mir_with_demands(&checked(&sources, root), &options, &history, &headers)
-            .is_err()
+        lower_program_to_mir_with_demands(
+            &compilation(&checked(&sources, root)),
+            &options,
+            &history,
+            &headers
+        )
+        .is_err()
     );
 }
 
@@ -157,7 +168,7 @@ fn publication_keeps_preoptimization_tokens_and_executable_recipe() {
     );
     let source = checked(&sources, root);
     let program = lower_program_to_mir(
-        &source,
+        &compilation(&source),
         &MirLoweringOptions {
             optimization: Some(Default::default()),
             ..Default::default()

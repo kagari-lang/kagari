@@ -129,7 +129,7 @@ impl<'a> BodyChecker<'a> {
             }
             return TypeId::Error;
         };
-        let Some(function) = self.function_index.by_id.get(&id) else {
+        let Some(function) = self.signatures.function(id) else {
             self.infer_call_args(args, env);
             return self.infer_expr_type(callee, env);
         };
@@ -259,7 +259,7 @@ impl<'a> BodyChecker<'a> {
             bounds,
             env,
         );
-        if self.cancel.check().is_err() {
+        if self.cancelled() {
             return TypeId::Unknown;
         }
         let mut suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
@@ -578,7 +578,7 @@ impl<'a> BodyChecker<'a> {
             );
         }
         for (index, (name, ty)) in function.parameters().enumerate() {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return;
             }
             self.check_arg_type(
@@ -617,7 +617,7 @@ impl<'a> BodyChecker<'a> {
         if !completes {
             return;
         }
-        let _ = self.solver.constrain(&expected, found, self.cancel);
+        self.constrain_types(&expected, found);
         if found.conflicts_with(&expected) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
@@ -670,7 +670,7 @@ impl<'a> BodyChecker<'a> {
             if self.body_inference && !suppress_missing {
                 let variable = self.inference_variable(site, index + 1024);
                 if let Some(inferred) = substitution.get(parameter) {
-                    let _ = self.solver.constrain(&variable, inferred, self.cancel);
+                    self.constrain_types(&variable, inferred);
                 }
                 let inferred = self.solver.resolve(&variable);
                 substitution.insert(parameter.clone(), inferred);
@@ -759,7 +759,7 @@ impl<'a> BodyChecker<'a> {
         let parameters = parameters.collect::<Vec<_>>();
         let mut actual = Vec::new();
         for (index, argument) in args.iter().enumerate() {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 break;
             }
             let parameter = parameters.get(index).cloned();
@@ -793,7 +793,8 @@ impl<'a> BodyChecker<'a> {
             };
             if completes && let Some(parameter) = parameter.as_ref() {
                 let context = parameter.argument_context(substitution, generics);
-                let _ = self.solver.constrain(&context, &ty, self.cancel);
+                self.stopped =
+                    self.stopped || self.solver.constrain(&context, &ty, self.cancel).is_err();
             }
             if completes
                 && !generics.is_empty()
@@ -823,7 +824,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 if let Some(signature) = signature {
                     let context = callable.argument_context(substitution, generics);
-                    let _ = self.solver.constrain(&context, &signature, self.cancel);
+                    self.constrain_types(&context, &signature);
                     let _ = inference::infer(
                         &callable,
                         &signature,
@@ -846,7 +847,7 @@ impl<'a> BodyChecker<'a> {
         // expression again or replacing an already selected conversion.
         if !generics.is_empty() {
             for ((argument, ty), parameter) in actual.iter_mut().zip(&parameters) {
-                if self.cancel.check().is_err() {
+                if self.cancelled() {
                     break;
                 }
                 if self.type_table.interface_coercion(*argument).is_some() {

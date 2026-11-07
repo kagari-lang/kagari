@@ -93,6 +93,11 @@ impl<T> Required<T> {
 /// accessors such as `args()` omit missing elements; use `Ast::data()` and this
 /// entry slice when recovery positions or exact punctuation matter. The second
 /// returned argument above has original entry index 2, not 1.
+///
+/// For `f(a b)`, the first entry instead has `Some(Missing { at })` anchored
+/// at `b`; the second has no separator. For `f(a @@@,b)`, the comma is present
+/// and `@@@` belongs to the first entry's [`RecoveryPart::Separator`], exposed
+/// through the owning node's `unexpected()` rather than as another element.
 #[derive(Debug)]
 pub struct SeparatedList<T, S = Comma> {
     pub entries: Box<[ListEntry<T, S>]>,

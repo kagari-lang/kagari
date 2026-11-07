@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
@@ -9,7 +10,7 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{source::ExecutableOrigin, updates::BodyClassification};
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, program::CheckedProgram};
 use kagari_source::{
     package::{PackageEnvironment, PackageScope},
     source_database::{CapturedSource, SourceDatabase, SourceLayer},
@@ -36,7 +37,7 @@ fn executable_source_anchors_reject_same_document_definition_swaps() {
         "../../../tests/fixtures/source_package/declaration-swaps.kgr"
     ));
     let bytecode = compile(&checked);
-    let package = build_source_package(&checked, &bytecode, &cancel).unwrap();
+    let package = build_source_package(&compilation(&checked), &bytecode, &cancel).unwrap();
     let artifact =
         KbcArtifact::from_verified(bytecode.clone(), Default::default(), &cancel).unwrap();
     let artifact = KbcArtifact::with_source_package(artifact, &package, &cancel).unwrap();
@@ -185,7 +186,7 @@ fn equal_display_and_text_keep_distinct_module_origins_and_inline_coordinates() 
         .check_program(file, &cancel)
         .unwrap();
     let bytecode = compile(&checked);
-    let package = build_source_package(&checked, &bytecode, &cancel).unwrap();
+    let package = build_source_package(&compilation(&checked), &bytecode, &cancel).unwrap();
     let a_doc = package
         .records()
         .documents
@@ -294,7 +295,7 @@ fn tuple() -> i64 { hashed((42, 3)) }
     );
     let cancel = CancellationToken::default();
     let bytecode = compile(&checked);
-    let package = build_source_package(&checked, &bytecode, &cancel).unwrap();
+    let package = build_source_package(&compilation(&checked), &bytecode, &cancel).unwrap();
     let intrinsic = package
         .records()
         .executables
@@ -414,7 +415,7 @@ fn convert() -> fn(i32) -> i32 { Number { value: 2 } }
     );
     let cancel = CancellationToken::default();
     let bytecode = compile(&checked);
-    let source = build_source_package(&checked, &bytecode, &cancel).unwrap();
+    let source = build_source_package(&compilation(&checked), &bytecode, &cancel).unwrap();
     let adapter = source
         .records()
         .executables
@@ -495,7 +496,8 @@ fn foreign_defaults_and_materialized_generic_applications_keep_authored_owner() 
         .check_program(root, &Default::default())
         .unwrap();
     let bytecode = compile(&checked);
-    let package = build_source_package(&checked, &bytecode, &Default::default()).unwrap();
+    let package =
+        build_source_package(&compilation(&checked), &bytecode, &Default::default()).unwrap();
     let again = named(&package, "again");
     assert_eq!(
         text(&package, again),
@@ -525,7 +527,7 @@ fn foreign_defaults_and_materialized_generic_applications_keep_authored_owner() 
 
 fn compile(checked: &CheckedProgram) -> VerifiedBytecodeProgram {
     let options = MirLoweringOptions::default();
-    let mir = lower_program_to_mir(checked, &options).unwrap();
+    let mir = lower_program_to_mir(&compilation(checked), &options).unwrap();
     lower_program_to_bytecode(&mir, &options.cancel).unwrap()
 }
 
@@ -555,7 +557,8 @@ fn exact_definitions_keep_private_unused_generic_local_inline_unicode_and_crlf()
     let source = "// π😀\r\nfn unused<T>(x: T) -> T { x }\r\nmod inner { fn hidden() -> i32 { 7 } }\r\nfn main() -> i32 { fn local() -> i32 { 3 } local() }\r\n";
     let checked = checked(source);
     let bytecode = compile(&checked);
-    let package = build_source_package(&checked, &bytecode, &Default::default()).unwrap();
+    let package =
+        build_source_package(&compilation(&checked), &bytecode, &Default::default()).unwrap();
     assert_eq!(
         text(&package, named(&package, "unused")),
         "fn unused<T>(x: T) -> T { x }"
@@ -592,7 +595,8 @@ fn generated_origins_and_source_only_artifact_round_trip() {
         "fn closure() -> fn(i32) -> i32 { |x: i32| x } async fn work(x: i32) -> i32 { x } fn main() { val f = async { 1 }; } static val VALUE: i32 = 7;",
     );
     let bytecode = compile(&checked);
-    let package = build_source_package(&checked, &bytecode, &Default::default()).unwrap();
+    let package =
+        build_source_package(&compilation(&checked), &bytecode, &Default::default()).unwrap();
     for (origin, owner) in [
         (ExecutableOrigin::Closure, "closure"),
         (ExecutableOrigin::Resume, "work"),
@@ -636,7 +640,8 @@ fn generated_origins_and_source_only_artifact_round_trip() {
 fn rejects_mismatched_products_ranges_documents_and_origin_forgery() {
     let checked = checked("// π\r\nfn main() -> i32 { 1 }");
     let bytecode = compile(&checked);
-    let package = build_source_package(&checked, &bytecode, &Default::default()).unwrap();
+    let package =
+        build_source_package(&compilation(&checked), &bytecode, &Default::default()).unwrap();
     let cancel = CancellationToken::default();
     let validate = |records| {
         VerifiedSourcePackage::validate(
@@ -683,13 +688,13 @@ fn rejects_mismatched_products_ranges_documents_and_origin_forgery() {
         Err(SourcePackageError::OriginMismatch)
     ));
     let other = self::checked("fn main() -> i32 { 2 }");
-    assert!(build_source_package(&other, &bytecode, &cancel).is_err());
+    assert!(build_source_package(&compilation(&other), &bytecode, &cancel).is_err());
     // Identical function tokens do not excuse a different private declaration contract.
     let original = self::checked("struct Hidden { val value: i32 } fn main() {}");
     let changed = self::checked("struct Hidden { val value: i64 } fn main() {}");
     let bytecode = compile(&original);
     assert!(matches!(
-        build_source_package(&changed, &bytecode, &cancel),
+        build_source_package(&compilation(&changed), &bytecode, &cancel),
         Err(SourcePackageError::DeclarationMismatch)
     ));
 }

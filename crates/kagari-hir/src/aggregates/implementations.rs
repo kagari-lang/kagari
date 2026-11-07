@@ -1,5 +1,8 @@
 //! Bounded trait matching, inherited constraints, defaults and associated-type normalization.
 
+#[cfg(test)]
+use crate::tests::cancellation::{Checkpoint, checkpoint};
+
 use crate::{
     aggregates::{
         AggregateCatalog,
@@ -94,6 +97,8 @@ impl<'a> SearchBudget<'a> {
     }
 
     fn check_candidate(&mut self) -> Result<(), ImplementationSearchError> {
+        #[cfg(test)]
+        checkpoint(Checkpoint::TraitCandidates);
         self.cancel
             .check()
             .map_err(|_| ImplementationSearchError::Cancelled)?;
@@ -843,6 +848,14 @@ impl AggregateCatalog {
         budget: &mut SearchBudget<'_>,
     ) -> Result<Option<TypeSubstitution>, ImplementationSearchError> {
         budget.check_candidate()?;
+        // Canonicalization changes nested value types, never the root trait or
+        // its arity. Reject impossible headers before cloning/expanding types,
+        // but after charging this candidate so limits and cancellation stay exact.
+        if implementation.trait_type.declaration != trait_type.declaration
+            || implementation.trait_type.arguments.len() != trait_type.arguments.len()
+        {
+            return Ok(None);
+        }
         // Operation requirements may be raised from executable value types.
         // Compare canonical nested values while retaining exact root constraints.
         let receiver = self.canonical_value_type(budget.definitions, receiver);
@@ -1015,9 +1028,6 @@ fn implementation_member(
         .expect("implementation member registered before aggregate publication")
 }
 
-#[cfg(test)]
-mod search_tests;
-
 mod mapping;
 
 impl AggregateCatalog {
@@ -1026,3 +1036,6 @@ impl AggregateCatalog {
         self.implementations.get(id).map(AsRef::as_ref)
     }
 }
+
+#[cfg(test)]
+mod tests;

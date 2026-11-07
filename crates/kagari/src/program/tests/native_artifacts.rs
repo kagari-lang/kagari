@@ -16,7 +16,7 @@ use kagari_compiler::{
     bytecode::lower_program_to_bytecode, native_input::verify_native_input,
     source::program::lower_program_to_mir,
 };
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::{
@@ -106,7 +106,11 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
             .unwrap()
             .check_program(root, &Default::default())
             .unwrap();
-        let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+        let mir = lower_program_to_mir(
+            &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
         let bytecode = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
         let artifact =
             KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();

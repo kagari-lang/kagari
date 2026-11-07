@@ -1,0 +1,9 @@
+pub struct Player<T> {
+    val id: T,
+    pub var name: String,
+}
+
+enum Maybe<T> {
+    None,
+    Some(T),
+}

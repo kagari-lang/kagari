@@ -10,10 +10,10 @@ use kagari_common::{
         scoped::RemapDefinitions,
     },
 };
-use kagari_hir::program::CheckedProgram;
+use kagari_hir::compile_input::program::CheckedCompilation;
 
 pub(super) fn validate(
-    checked: &CheckedProgram,
+    checked: &CheckedCompilation<'_>,
     bytecode: &VerifiedBytecodeProgram,
     cancel: &CancellationToken,
 ) -> Result<(), SourcePackageError> {
@@ -39,7 +39,7 @@ pub(super) fn validate(
             .program()
             .modules
             .iter()
-            .find(|compiled| &compiled.identity == module.lowered.source.module_identity())
+            .find(|compiled| &compiled.identity == module.source().module_identity())
             .ok_or(SourcePackageError::DeclarationMismatch)?;
         // Lowering can add synthesized placement contracts. Every authored contract,
         // including private/unused declarations, must nevertheless match exactly.

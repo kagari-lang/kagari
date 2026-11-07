@@ -1,3 +1,4 @@
+use crate::tests::common::compilation;
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -25,6 +26,6 @@ fn compile_success(#[case] text: &str) {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
     lower_program_to_bytecode(&mir, &Default::default()).unwrap();
 }

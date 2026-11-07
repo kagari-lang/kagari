@@ -1,17 +1,17 @@
+use crate::source::elaborate::model::{CheckedLocal, ValueBinding};
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{
     operations::{BinaryOp, UnaryOp},
     representation::semantic_representation,
 };
 use kagari_hir::{
+    compile_input::body::bindings::BindingId,
     hir::{
         expr::ops::{BinaryOp as HirBinaryOp, PrefixOp},
-        ids::{ExprId, LocalId as HirLocalId, PlaceId},
-        place::PlaceKind,
+        ids::{ExprId, PlaceId},
     },
-    resolver::resolved::ResolvedName,
     typeck::scalar::ScalarValue,
     types::TypeId,
 };
@@ -96,82 +96,53 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn bind_local(
         &mut self,
-        hir_local: HirLocalId,
-        name: String,
+        binding: &CheckedLocal,
     ) -> Result<LocalId, MirLoweringError> {
-        let ty = self
-            .analyzed
-            .typed
-            .type_table
-            .local_type(hir_local)
-            .as_ref()
-            .map(|ty| self.value_type(ty))
-            .transpose()?
-            .ok_or(MirLoweringError::MissingLocalType(hir_local))?;
-        let ty = if self.cell_locals.contains(&hir_local) {
+        let ty = if self.cell_locals.contains(&binding.id) {
             ValueType::HeapObject
         } else {
-            ty
+            self.value_type(&binding.ty)?
         };
-        let local = self.alloc_local(
-            name,
-            ty,
-            self.analyzed.lowered.source_map.local_span(hir_local),
-        );
-        let semantic = self.semantic_type(
-            &self
-                .analyzed
-                .typed
-                .type_table
-                .local_type(hir_local)
-                .ok_or(MirLoweringError::MissingLocalType(hir_local))?,
-        )?;
+        let local = self.alloc_local(binding.name.clone(), ty, binding.span);
+        let semantic = self.semantic_type(&binding.ty)?;
         self.function
             .semantic
             .locals
             .insert(local.index(), semantic);
-        self.locals.insert(hir_local, local);
+        self.locals.insert(binding.id, local);
         Ok(local)
     }
 
-    pub(crate) fn lookup_binding(
-        &self,
-        resolved: ResolvedName,
-    ) -> Result<LocalId, MirLoweringError> {
-        match resolved {
-            ResolvedName::Param(id) => self
+    pub(crate) fn lookup_binding(&self, binding: BindingId) -> Result<LocalId, MirLoweringError> {
+        match binding {
+            BindingId::Parameter(id) => self
                 .params
                 .get(&id)
                 .copied()
                 .ok_or(MirLoweringError::MissingBinding("parameter")),
-            ResolvedName::Local(id) => self
+            BindingId::Local(id) => self
                 .locals
                 .get(&id)
                 .copied()
                 .ok_or(MirLoweringError::MissingBinding("local")),
-            ResolvedName::Static(_)
-            | ResolvedName::Const(_)
-            | ResolvedName::Function(_)
-            | ResolvedName::Module(_)
-            | ResolvedName::Source(_)
-            | ResolvedName::Namespace(_)
-            | ResolvedName::RuntimeHelper(_)
-            | ResolvedName::OpaqueType(_)
-            | ResolvedName::TypeAlias(_)
-            | ResolvedName::Struct(_)
-            | ResolvedName::Enum(_)
-            | ResolvedName::Trait(_) => Err(MirLoweringError::UnsupportedExpr(
-                "non-local binding used as local value",
-            )),
         }
+    }
+
+    /// Authored value type before any explicit conversion operation.
+    pub(crate) fn expression_type(&self, id: ExprId) -> Option<TypeId> {
+        self.source_body().value(id).map(|value| value.ty.clone())
+    }
+
+    pub(crate) fn expression_span(&self, id: ExprId) -> Span {
+        self.source_body()
+            .value(id)
+            .expect("expanded expression")
+            .span
     }
 
     pub(crate) fn array_element_type(&self, expr_id: ExprId) -> Result<Ty, MirLoweringError> {
         let ty = self
-            .analyzed
-            .typed
-            .type_table
-            .expr_type(expr_id)
+            .expression_type(expr_id)
             .ok_or(MirLoweringError::MissingExprType(expr_id))?;
         let TypeId::Array(item) = ty else {
             return Err(MirLoweringError::MissingBinding(
@@ -182,10 +153,7 @@ impl FunctionLowerer<'_, '_> {
     }
 
     pub(crate) fn expr_type(&self, expr_id: ExprId) -> Result<ValueType, MirLoweringError> {
-        self.analyzed
-            .typed
-            .type_table
-            .expr_type(expr_id)
+        self.expression_type(expr_id)
             .as_ref()
             .map(|ty| self.value_type(ty))
             .transpose()?
@@ -193,12 +161,10 @@ impl FunctionLowerer<'_, '_> {
     }
 
     pub(crate) fn place_type(&self, place_id: PlaceId) -> Result<ValueType, MirLoweringError> {
-        self.analyzed
-            .typed
-            .type_table
-            .place_type(place_id)
-            .as_ref()
-            .map(|ty| self.value_type(ty))
+        self.source_body()
+            .places
+            .get(&place_id)
+            .map(|place| self.value_type(&place.ty))
             .transpose()?
             .ok_or(MirLoweringError::UnresolvedPlace(place_id))
     }
@@ -209,8 +175,8 @@ impl FunctionLowerer<'_, '_> {
         receiver: &TypeId,
     ) -> Result<AggregateFieldRef, MirLoweringError> {
         let field = self
-            .analyzed
-            .aggregates
+            .environment
+            .aggregates()
             .field(field)
             .expect("checked field contract");
         let (receiver, reference) = match receiver {
@@ -258,30 +224,9 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn expr_nominal_instance(&self, id: ExprId) -> Result<NominalTy, MirLoweringError> {
         let ty = self
-            .analyzed
-            .typed
-            .type_table
-            .expr_type(id)
+            .expression_type(id)
             .ok_or(MirLoweringError::MissingExprType(id))?;
         self.nominal_instance(&ty)
-    }
-
-    pub(crate) fn place_root(&self, place_id: PlaceId) -> PlaceId {
-        match &self.analyzed.lowered.module.place(place_id).kind {
-            PlaceKind::Name(_) | PlaceKind::Expr(_) => place_id,
-            PlaceKind::Field { base, .. } | PlaceKind::Index { base, .. } => self.place_root(*base),
-        }
-    }
-
-    pub(crate) fn place_root_resolution(
-        &self,
-        place_id: PlaceId,
-    ) -> Result<ResolvedName, MirLoweringError> {
-        let root = self.place_root(place_id);
-        self.analyzed
-            .names
-            .place_resolution(root)
-            .ok_or(MirLoweringError::UnresolvedPlace(root))
     }
 
     pub(crate) fn lower_constant(&mut self, constant: Constant, ty: ValueType) -> MirValue {
@@ -305,66 +250,33 @@ impl FunctionLowerer<'_, '_> {
         dst
     }
 
-    pub(crate) fn lower_name_expr(
+    pub(crate) fn lower_binding(
         &mut self,
         expr_id: ExprId,
+        binding: ValueBinding,
     ) -> Result<MirValue, MirLoweringError> {
-        let resolved = self
-            .analyzed
-            .names
-            .expr_resolution(expr_id)
-            .ok_or(MirLoweringError::UnresolvedExpr(expr_id))?;
-        if let Some(slot) = self.planner.static_slot(self.analyzed, &resolved)? {
-            return Ok(self.load_static(slot));
-        }
-
-        match resolved {
-            ResolvedName::Param(_) | ResolvedName::Local(_) => {
-                let local = self.lookup_binding(resolved.clone())?;
-                let is_cell =
-                    matches!(resolved, ResolvedName::Local(id) if self.cell_locals.contains(&id));
-                let physical = if is_cell {
-                    ValueType::HeapObject
-                } else {
-                    self.expr_type(expr_id)?
-                };
-                let loaded = self.alloc_temp(physical);
-                self.emit(Instruction::LoadLocal { dst: loaded, local });
-                if is_cell {
-                    let dst = self.alloc_temp(self.expr_type(expr_id)?);
-                    self.emit(Instruction::ReadCell { dst, cell: loaded });
-                    return Ok(dst);
-                }
-                let dst = loaded;
-                Ok(dst)
+        let binding = match binding {
+            ValueBinding::Static(declaration) => {
+                let slot = self.planner.static_slot(declaration)?;
+                return Ok(self.load_static(slot));
             }
-            ResolvedName::Const(id) => {
-                let constant = self
-                    .analyzed
-                    .typed
-                    .const_values
-                    .get(&id)
-                    .cloned()
-                    .ok_or(MirLoweringError::MissingBinding("const value"))?;
-                Ok(self.lower_constant(lower_scalar(constant), self.expr_type(expr_id)?))
-            }
-            ResolvedName::Static(_) => unreachable!("static binding lowered above"),
-            ResolvedName::Function(_) => Err(MirLoweringError::UnsupportedExpr(
-                "bare function values are not lowered yet",
-            )),
-            ResolvedName::Source(_)
-            | ResolvedName::Namespace(_)
-            | ResolvedName::RuntimeHelper(_) => Err(MirLoweringError::UnsupportedExpr(
-                "bare standard functions are not lowered yet",
-            )),
-            ResolvedName::Module(_)
-            | ResolvedName::OpaqueType(_)
-            | ResolvedName::TypeAlias(_)
-            | ResolvedName::Struct(_)
-            | ResolvedName::Enum(_)
-            | ResolvedName::Trait(_) => Err(MirLoweringError::UnsupportedExpr(
-                "type-level names are not value expressions",
-            )),
+            ValueBinding::Lexical(binding) => binding,
+        };
+        let local = self.lookup_binding(binding)?;
+        let is_cell = matches!(binding, BindingId::Local(id) if self.cell_locals.contains(&id));
+        let physical = if is_cell {
+            ValueType::HeapObject
+        } else {
+            self.expr_type(expr_id)?
+        };
+        let loaded = self.alloc_temp(physical);
+        self.emit(Instruction::LoadLocal { dst: loaded, local });
+        if is_cell {
+            let dst = self.alloc_temp(self.expr_type(expr_id)?);
+            self.emit(Instruction::ReadCell { dst, cell: loaded });
+            Ok(dst)
+        } else {
+            Ok(loaded)
         }
     }
 

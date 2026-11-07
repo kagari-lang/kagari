@@ -22,7 +22,7 @@ use kagari_types::scalar::BuiltinType;
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_stmt(&mut self, stmt_id: StmtId, env: &mut BodyTypeEnv) {
-        if self.cancel.check().is_err() {
+        if !self.checkpoint() {
             return;
         }
         let stmt = self.lowered.module.stmt(stmt_id);
@@ -140,7 +140,10 @@ impl<'a> BodyChecker<'a> {
                     *target,
                     self.cancel,
                 )
-                .unwrap_or(false);
+                .unwrap_or_else(|_| {
+                    self.stopped = true;
+                    false
+                });
                 // Write permission does not erase the known target type needed by
                 // contextual inference and tooling after an invalid assignment.
                 let shifting = matches!(op, Some(BinaryOp::Shl | BinaryOp::Shr));
@@ -282,7 +285,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_pattern(*pattern, &element_ty, &mut body_env);
                 if !self
                     .names
-                    .pattern_is_irrefutable(&self.lowered.module, *pattern)
+                    .pattern_is_irrefutable(&self.lowered.module.body, *pattern)
                 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {

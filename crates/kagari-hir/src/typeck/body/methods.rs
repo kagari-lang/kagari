@@ -59,7 +59,7 @@ impl<'a> BodyChecker<'a> {
             && let Some((interface, signature)) = self.callable_contract(&source, env)
             && !signature.conflicts_with(target)
         {
-            let _ = self.solver.constrain(target, &signature, self.cancel);
+            self.constrain_types(target, &signature);
             self.type_table
                 .insert_callable_coercion(expr_id, source, interface);
             return signature;
@@ -831,7 +831,7 @@ impl<'a> BodyChecker<'a> {
             );
         }
         for (index, param) in params.iter().enumerate() {
-            if self.cancel.check().is_err() {
+            if self.cancelled() {
                 return Some(TypeId::Unknown);
             }
             self.check_arg_type(

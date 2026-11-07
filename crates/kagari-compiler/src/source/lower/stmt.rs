@@ -1,3 +1,4 @@
+use crate::source::elaborate::model::CheckedStmtKind;
 use crate::source::{
     lower::{
         MirLoweringError,
@@ -10,7 +11,6 @@ use kagari_hir::{
     hir::{
         expr::Condition,
         ids::{BlockId, ExprId, PatternId, StmtId},
-        stmt::StmtKind,
     },
     typeck::table::ResolvedIteration,
     types::NominalType,
@@ -35,7 +35,7 @@ impl FunctionLowerer<'_, '_> {
         block_id: BlockId,
     ) -> Result<Option<MirValue>, MirLoweringError> {
         self.planner.check()?;
-        let block = self.analyzed.lowered.module.block(block_id).clone();
+        let block = self.source_body().blocks[&block_id].clone();
         for stmt in &block.statements {
             if self.current_block_terminated() {
                 return Ok(None);
@@ -46,8 +46,8 @@ impl FunctionLowerer<'_, '_> {
         if self.current_block_terminated() {
             return Ok(None);
         }
-        if let Some(expr) = block.tail_expr {
-            let span = self.analyzed.lowered.source_map.expr_span(expr);
+        if let Some(expr) = block.tail {
+            let span = self.expression_span(expr);
             self.with_debug_span(span, |this| this.lower_expr(expr).map(Some))
         } else {
             Ok(None)
@@ -56,15 +56,15 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_stmt(&mut self, stmt_id: StmtId) -> Result<(), MirLoweringError> {
         self.planner.check()?;
-        let span = self.analyzed.lowered.source_map.stmt_span(stmt_id);
+        let span = self.source_body().statements[&stmt_id].span;
         self.with_debug_span(span, |this| this.lower_stmt_inner(stmt_id))
     }
 
     fn lower_stmt_inner(&mut self, stmt_id: StmtId) -> Result<(), MirLoweringError> {
-        let stmt = self.analyzed.lowered.module.stmt(stmt_id).clone();
+        let stmt = self.source_body().statements[&stmt_id].clone();
         match stmt.kind {
-            StmtKind::Function(_) => Ok(()),
-            StmtKind::Binding {
+            CheckedStmtKind::Function => Ok(()),
+            CheckedStmtKind::Binding {
                 pattern,
                 initializer,
                 ..
@@ -74,16 +74,16 @@ impl FunctionLowerer<'_, '_> {
                     return Ok(());
                 }
                 let ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .coerced_expr_type(&self.planner.definitions(), initializer)
-                    .ok_or(MirLoweringError::MissingExprType(initializer))?;
+                    .source_body()
+                    .result(initializer)
+                    .ok_or(MirLoweringError::MissingExprType(initializer))?
+                    .ty
+                    .clone();
                 let mut bindings = Vec::new();
                 self.lower_pattern_decision(pattern, src, &ty, None, &mut bindings)?;
                 self.publish_declaration_bindings(pattern, bindings)
             }
-            StmtKind::Assign { target, value, op } => {
+            CheckedStmtKind::Assign { target, value, op } => {
                 let Some(location) = self.prepare_place(target)? else {
                     return Ok(());
                 };
@@ -93,8 +93,11 @@ impl FunctionLowerer<'_, '_> {
                 }
                 let numeric = match (
                     op,
-                    self.analyzed.typed.type_table.place_type(target),
-                    self.analyzed.typed.type_table.expr_type(value),
+                    self.source_body()
+                        .places
+                        .get(&target)
+                        .map(|place| place.ty.clone()),
+                    self.expression_type(value),
                 ) {
                     (Some(op), Some(TypeId::Builtin(input)), Some(TypeId::Builtin(rhs))) => {
                         types::lower_numeric_operation(op, input, rhs)
@@ -104,7 +107,26 @@ impl FunctionLowerer<'_, '_> {
                 self.commit_place(location, op, numeric, src)?;
                 Ok(())
             }
-            StmtKind::Return { expr } => {
+            CheckedStmtKind::EvaluatePlace(target) => {
+                if self.prepare_place(target)?.is_some() {
+                    return Err(MirLoweringError::MissingBinding(
+                        "terminating target completed",
+                    ));
+                }
+                Ok(())
+            }
+            CheckedStmtKind::EvaluateAssignment { target, value } => {
+                if self.prepare_place(target)?.is_some() {
+                    self.lower_expr(value)?;
+                }
+                if !self.current_block_terminated() {
+                    return Err(MirLoweringError::MissingBinding(
+                        "terminating assignment completed",
+                    ));
+                }
+                Ok(())
+            }
+            CheckedStmtKind::Return(expr) => {
                 let value = match expr {
                     Some(expr) => Some(self.lower_expr(expr)?),
                     None => Some(self.lower_unit()),
@@ -114,18 +136,19 @@ impl FunctionLowerer<'_, '_> {
                 }
                 Ok(())
             }
-            StmtKind::Expr(expr) => {
+            CheckedStmtKind::Expr(expr) => {
                 let _ = self.lower_expr(expr)?;
                 Ok(())
             }
-            StmtKind::While { condition, body } => self.lower_while(condition, body),
-            StmtKind::Loop { body } => self.lower_loop(body),
-            StmtKind::For {
+            CheckedStmtKind::While { condition, body } => self.lower_while(condition, body),
+            CheckedStmtKind::Loop(body) => self.lower_loop(body),
+            CheckedStmtKind::For {
                 pattern,
                 iterable,
                 body,
-            } => self.lower_for(pattern, iterable, body),
-            StmtKind::Break => {
+                iteration,
+            } => self.lower_protocol_for(pattern, iterable, body, *iteration),
+            CheckedStmtKind::Break => {
                 let scope = self
                     .loops
                     .last()
@@ -138,7 +161,7 @@ impl FunctionLowerer<'_, '_> {
                 self.set_terminator(Terminator::Jump(scope.break_block));
                 Ok(())
             }
-            StmtKind::BreakValue(expr) => {
+            CheckedStmtKind::BreakValue(expr) => {
                 let scope = self
                     .loops
                     .last()
@@ -155,7 +178,7 @@ impl FunctionLowerer<'_, '_> {
                 self.set_terminator(Terminator::Jump(scope.break_block));
                 Ok(())
             }
-            StmtKind::Continue => {
+            CheckedStmtKind::Continue => {
                 let scope = self
                     .loops
                     .last()
@@ -191,10 +214,7 @@ impl FunctionLowerer<'_, '_> {
                 initializer,
             } => {
                 let ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .expr_type(initializer)
+                    .expression_type(initializer)
                     .ok_or(MirLoweringError::MissingExprType(initializer))?;
                 self.lower_pattern_decision(pattern, cond, &ty, Some(exit_block), &mut bindings)?;
                 self.set_terminator(Terminator::Jump(body_block));
@@ -237,22 +257,6 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_join(exit_block);
         Ok(())
     }
-
-    fn lower_for(
-        &mut self,
-        pattern: PatternId,
-        iterable: ExprId,
-        body: BlockId,
-    ) -> Result<(), MirLoweringError> {
-        let fact = self
-            .analyzed
-            .typed
-            .type_table
-            .iteration(iterable)
-            .cloned()
-            .ok_or(MirLoweringError::MissingBinding("checked for protocol"))?;
-        self.lower_protocol_for(pattern, iterable, body, fact)
-    }
 }
 
 impl FunctionLowerer<'_, '_> {
@@ -264,10 +268,7 @@ impl FunctionLowerer<'_, '_> {
         fact: ResolvedIteration,
     ) -> Result<(), MirLoweringError> {
         let receiver = self
-            .analyzed
-            .typed
-            .type_table
-            .expr_type(iterable)
+            .expression_type(iterable)
             .ok_or(MirLoweringError::MissingExprType(iterable))?;
         let source = self.lower_expr(iterable)?;
         if self.current_block_terminated() {

@@ -4,7 +4,7 @@ use kagari_common::{
     identity::table::{DefinitionId, DefinitionTable},
 };
 use kagari_contract::host as module_host;
-use kagari_hir::AnalyzedModule;
+use kagari_hir::compile_input::program::CheckedModule;
 use kagari_mir::{
     function::MirFunction,
     instruction::{CallTarget, Instruction},
@@ -16,8 +16,8 @@ use std::{
 };
 
 pub(super) fn collect(
-    module: &AnalyzedModule,
-    modules: &[AnalyzedModule],
+    module: &CheckedModule<'_>,
+    modules: &[CheckedModule<'_>],
     roots: BTreeSet<DefinitionId>,
     functions: &[MirFunction],
     cancel: &CancellationToken,
@@ -90,14 +90,18 @@ pub(super) fn collect(
             .resolve(id)
             .map_err(|error| MirLoweringError::Identity(error.into()))?
             .module();
-        let definition = module.declarations.external_type(id).or_else(|| {
-            // Concrete generic bodies may mention a host type absent from this
-            // module's source imports. Its checked defining module owns the schema.
-            modules
-                .iter()
-                .find(|provider| provider.lowered.source.module_identity() == owner)
-                .and_then(|provider| provider.declarations.external_type(id))
-        });
+        let definition = module
+            .environment()
+            .declarations()
+            .external_type(id)
+            .or_else(|| {
+                // Concrete generic bodies may mention a host type absent from this
+                // module's source imports. Its checked defining module owns the schema.
+                modules
+                    .iter()
+                    .find(|provider| provider.source().module_identity() == owner)
+                    .and_then(|provider| provider.environment().declarations().external_type(id))
+            });
         if let Some(definition) = definition {
             // Common schemas remain the semantic owner, including recursive members.
             // Only external identities enter this closure, not ordinary DTO nominals.

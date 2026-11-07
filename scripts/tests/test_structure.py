@@ -25,6 +25,26 @@ def rules(text, path="src/worker.rs"):
 
 
 class SourceRulesTests(unittest.TestCase):
+    def test_named_module_layout_including_tests_and_generated_sources(self):
+        self.assertEqual(audit({
+            "src/lib.rs": "mod feature; #[cfg(test)] mod tests;",
+            "src/feature.rs": "mod child;",
+            "src/feature/child.rs": "",
+            "src/tests.rs": "use super::*;",
+        }, {"Cargo.toml": MANIFEST}), [])
+        for path in ["src/feature/mod.rs", "tests/support/mod.rs", "generated/mod.rs"]:
+            with self.subTest(path=path):
+                result = audit({path: "// Generated source\n"})
+                self.assertEqual([f["rule"] for f in result], ["module-layout"])
+                self.assertEqual(result[0]["path"], path)
+        # Invalid layout still participates in module classification: do not
+        # report a production wildcard error for a private test descendant.
+        result = audit({
+            "src/lib.rs": "#[cfg(test)] mod tests;",
+            "src/tests/mod.rs": "use super::*;",
+        }, {"Cargo.toml": MANIFEST})
+        self.assertEqual([f["rule"] for f in result], ["module-layout"])
+
     def test_explicit_imports_short_qualifiers_and_associated_calls(self):
         self.assertEqual(rules('''
 use std::{fmt, sync::Arc};
@@ -91,7 +111,7 @@ macro_rules! make { () => { $crate::private::run(); }; }
 
     def test_reexports_require_whitelist_in_every_file_and_scope(self):
         text = "pub use crate::a::A; pub(crate) use crate::b::B;"
-        for path in ["src/lib.rs", "src/feature/mod.rs", "src/worker.rs", "tests/api.rs"]:
+        for path in ["src/lib.rs", "src/feature.rs", "src/worker.rs", "tests/api.rs"]:
             self.assertEqual(rules(text, path), ["reexport-whitelist"] * 2)
         manifest = MANIFEST + b'[lib]\npath = "entry.rs"\n'
         result = audit({"entry.rs": text}, {"Cargo.toml": manifest})
@@ -401,10 +421,12 @@ use real::*;
         }, {"Cargo.toml": manifest}), [])
 
     def test_integration_root_and_disabled_auto_targets(self):
-        sources = {"tests/check.rs": "mod support;", "tests/support/mod.rs": "use super::*;"}
+        sources = {"tests/check.rs": "mod support;", "tests/support.rs": "use super::*;"}
         self.assertEqual(audit(sources, {"Cargo.toml": MANIFEST}), [])
         manifest = MANIFEST + b'autotests = false\n'
         self.assertEqual(len(audit(sources, {"Cargo.toml": manifest})), 1)
+        manifest += b'[[test]]\nname = "check"\npath = "tests/check.rs"\n'
+        self.assertEqual(audit(sources, {"Cargo.toml": manifest}), [])
 
 
 class CommandLineTests(unittest.TestCase):

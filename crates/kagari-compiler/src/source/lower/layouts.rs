@@ -5,7 +5,7 @@ use kagari_contract::{
     layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
 };
 use kagari_hir::{
-    AnalyzedModule,
+    compile_input::program::CheckedModule,
     types::{NominalType, TypeId, TypeSubstitution, semantic::raise_type},
 };
 use kagari_mir::function::MirFunction;
@@ -32,7 +32,7 @@ pub(super) struct Layouts {
 impl Layouts {
     pub fn collect(
         &mut self,
-        module: &AnalyzedModule,
+        module: &CheckedModule<'_>,
         planner: &mut InstancePlanner<'_>,
         functions: &[MirFunction],
         bridges: &[MirFunction],
@@ -43,7 +43,8 @@ impl Layouts {
             // Catalog keys are context-local IDs. Seed the layout queue in exact
             // definition order so snapshot history cannot change executable slots.
             let mut structures: Vec<_> = module
-                .aggregates
+                .environment()
+                .aggregates()
                 .structures()
                 .filter(|s| s.generic_params.is_empty())
                 .collect();
@@ -63,11 +64,10 @@ impl Layouts {
                 ));
             }
             let mut enumerations: Vec<_> = module
-                .aggregates
+                .environment()
+                .aggregates()
                 .enumerations()
-                .filter(|s| {
-                    s.generic_params.is_empty() || module.lowered.is_registered_native_api()
-                })
+                .filter(|s| s.generic_params.is_empty() || module.registration().is_some())
                 .collect();
             enumerations.sort_by(|left, right| {
                 definitions
@@ -89,17 +89,19 @@ impl Layouts {
                     enumeration.declaration.location.range,
                 ));
             }
-            if module.lowered.is_registered_native_api() {
+            if module.registration().is_some() {
                 self.scope
-                    .extend(module.aggregates.enumerations().flat_map(|enumeration| {
-                        enumeration
-                            .generic_params
-                            .iter()
-                            .map(|parameter| GenericParam {
-                                owner: parameter.owner,
-                                position: parameter.position,
-                            })
-                    }));
+                    .extend(module.environment().aggregates().enumerations().flat_map(
+                        |enumeration| {
+                            enumeration
+                                .generic_params
+                                .iter()
+                                .map(|parameter| GenericParam {
+                                    owner: parameter.owner,
+                                    position: parameter.position,
+                                })
+                        },
+                    ));
             }
             self.seeded = true;
         }

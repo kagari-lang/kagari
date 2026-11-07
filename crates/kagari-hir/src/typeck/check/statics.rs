@@ -10,12 +10,12 @@ use crate::{
         BodyTypeEnv, TypeIndexes,
         body::BodyChecker,
         completion,
-        table::TypeTable,
+        state::TypeCheckState,
         ty::{display_type, display_type_id, resolve_type},
     },
     types::TypeId,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity};
 use std::collections::{HashMap, HashSet};
 
@@ -23,7 +23,7 @@ use std::collections::{HashMap, HashSet};
 pub(super) fn signatures(
     lowered: &LoweredModule,
     declarations: &Declarations,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) -> HashMap<StaticId, TypeId> {
@@ -59,22 +59,20 @@ pub(super) fn initializers(
     lowered: &LoweredModule,
     names: &ResolvedNames,
     indexes: TypeIndexes<'_>,
-    table: &mut TypeTable,
+    table: &mut TypeCheckState,
     diagnostics: &mut DiagnosticBuffer,
-) -> HashSet<StaticId> {
+) -> Result<HashSet<StaticId>, Cancelled> {
+    indexes.cancel.check()?;
     let shared_valid = !diagnostics
         .iter()
         .any(|diagnostic| diagnostic.severity == Severity::Error);
     let mut valid = HashSet::new();
     for item in &lowered.module.statics {
-        if indexes.cancel.check().is_err() {
-            break;
-        }
+        indexes.cancel.check()?;
         let diagnostic_start = diagnostics.len();
         let expected = indexes
-            .top_level_index
-            .statics
-            .get(&item.id)
+            .signatures
+            .static_type(item.id)
             .cloned()
             .unwrap_or(TypeId::Error);
         let mut checker = BodyChecker::new(
@@ -91,15 +89,14 @@ pub(super) fn initializers(
             &mut BodyTypeEnv::default(),
             Some(&expected),
         );
+        checker.finish()?;
         if completion::expr_can_complete(
             &lowered.module,
             names,
             table,
             item.initializer,
             indexes.cancel,
-        )
-        .unwrap_or(false)
-            && actual.conflicts_with(&expected)
+        )? && actual.conflicts_with(&expected)
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
@@ -118,5 +115,6 @@ pub(super) fn initializers(
             valid.insert(item.id);
         }
     }
-    valid
+    indexes.cancel.check()?;
+    Ok(valid)
 }

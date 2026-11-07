@@ -14,33 +14,7 @@ impl Factory for Player { fn make() -> Self { Player { health: 100 } } }
 fn contextual_trait_static_calls_share_checked_dispatch_and_expected_boundaries() {
     let source = SourceFile::new(
         "factory.kgr",
-        format!(
-            r#"
-{FACTORY}
-use self::Factory as Maker;
-use self::Factory as Default;
-struct Holder {{ val player: Player }}
-fn consume(player: Player) {{}}
-fn contextual() -> Player {{ Factory::make() }}
-fn concrete() -> Player {{ Player::make() }}
-fn qualified() -> Player {{ <Player as Factory>::make() }}
-fn generic<T: Factory>() -> T {{ Factory::make() }}
-fn generic_owner<T: Factory>() -> T {{ T::make() }}
-fn alias() -> Player {{ Maker::make() }}
-fn shadowed_prelude() -> Player {{ Default::make() }}
-fn value_shadow(Factory: i32) -> Player {{ Factory::make() }}
-fn local_shadow() -> Player {{ val Factory = 42; Factory::make() }}
-fn returned() -> Player {{ return Factory::make(); }}
-fn boundaries() {{
-    var player: Player = Factory::make();
-    player = Factory::make();
-    consume(Factory::make());
-    val holder = Holder {{ player: Factory::make() }};
-    val delayed = Factory::make();
-    consume(delayed);
-}}
-"#
-        ),
+        include_str!("../../../tests/fixtures/typeck/traits/factory-dispatch.kgr"),
     );
     let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
     assert!(
@@ -87,7 +61,8 @@ fn boundaries() {{
         assert!(resolution.receiver.is_none(), "{name}");
         let signature = checked
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|function| function.name == name)
             .unwrap();
@@ -103,18 +78,7 @@ fn boundaries() {{
 fn contextual_trait_static_calls_constrain_general_declared_results() {
     let source = SourceFile::new(
         "factory-result.kgr",
-        r#"
-trait Factory<A> { fn make<B>(value: B) -> (Self, A, B); }
-struct Player {}
-impl Factory<i32> for Player {
-    fn make<B>(value: B) -> (Self, i32, B) { (Player {}, 42, value) }
-}
-fn explicit() -> (Player, i32, bool) { Factory<i32>::make::<bool>(true) }
-fn inferred() -> (Player, i32, bool) { Factory<i32>::make(true) }
-trait Nested { fn make() -> Option<Self>; }
-impl Nested for Player { fn make() -> Option<Self> { Some(Player {}) } }
-fn nested() -> Option<Player> { Nested::make() }
-"#,
+        include_str!("../../../tests/fixtures/typeck/traits/factory-result.kgr"),
     );
     let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
     assert!(
@@ -163,10 +127,10 @@ fn main() -> i32 { Factory::make() }
 #[test]
 fn contextual_trait_static_calls_require_proven_bounds_and_preserve_ambiguity() {
     for declaration in [
-        "fn missing<T>() -> T { Factory::make() }",
-        "fn incompatible() -> bool { Factory::make() }",
+        include_str!("../../../tests/fixtures/typeck/traits/factory-missing-bound.kgr"),
+        include_str!("../../../tests/fixtures/typeck/traits/factory-incompatible-bound.kgr"),
     ] {
-        let source = SourceFile::new("factory-bound.kgr", format!("{FACTORY} {declaration}"));
+        let source = SourceFile::new("factory-bound.kgr", declaration);
         let analysis =
             crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
         assert!(
@@ -188,14 +152,7 @@ fn contextual_trait_static_calls_require_proven_bounds_and_preserve_ambiguity() 
     }
     let source = SourceFile::new(
         "factory-ambiguity.kgr",
-        format!(
-            r#"
-{FACTORY}
-trait Other {{ fn make() -> Self; }}
-impl Other for Player {{ fn make() -> Self {{ Player {{ health: 1 }} }} }}
-fn main() -> Player {{ Player::make() }}
-"#
-        ),
+        include_str!("../../../tests/fixtures/typeck/traits/factory-ambiguity.kgr"),
     );
     let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
     assert!(
@@ -230,10 +187,10 @@ fn contextual_trait_static_calls_preserve_static_only_admission() {
 #[test]
 fn contextual_trait_static_calls_recovery_and_never_do_not_prove_a_receiver() {
     for declaration in [
-        "fn diverges() -> never { Factory::make() }",
-        "fn recovery() -> Missing { Factory::make() }",
+        include_str!("../../../tests/fixtures/typeck/traits/factory-never.kgr"),
+        include_str!("../../../tests/fixtures/typeck/traits/factory-recovery.kgr"),
     ] {
-        let source = SourceFile::new("factory-recovery.kgr", format!("{FACTORY} {declaration}"));
+        let source = SourceFile::new("factory-recovery.kgr", declaration);
         let analysis =
             crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
@@ -293,7 +250,8 @@ fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
         .expect("Self bounds in their declaring trait context");
     let typed = analyzed.typed;
     let method = typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| function.name == "size")
         .unwrap();
@@ -427,7 +385,8 @@ where T: Display
     let typed = analyzed.typed;
 
     let show_interface = typed
-        .functions
+        .signatures
+        .functions()
         .iter()
         .find(|function| function.name == "show_interface")
         .expect("expected show_interface");

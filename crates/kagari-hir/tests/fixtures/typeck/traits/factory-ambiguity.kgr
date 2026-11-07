@@ -1,0 +1,27 @@
+trait Factory {
+    fn make() -> Self;
+}
+
+struct Player {
+    val health: i32
+}
+
+impl Factory for Player {
+    fn make() -> Self {
+        Player { health: 100 }
+    }
+}
+
+trait Other {
+    fn make() -> Self;
+}
+
+impl Other for Player {
+    fn make() -> Self {
+        Player { health: 1 }
+    }
+}
+
+fn main() -> Player {
+    Player::make()
+}

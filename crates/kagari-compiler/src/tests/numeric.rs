@@ -1,3 +1,4 @@
+use crate::tests::common::compilation;
 use crate::{
     bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir, tests::common,
 };
@@ -77,7 +78,7 @@ fn shared_associated_output_preserves_primitive_and_distinct_custom_results() {
         ),
     ] {
         let checked = common::program_ok(source);
-        match lower_program_to_mir(&checked, &Default::default()) {
+        match lower_program_to_mir(&compilation(&checked), &Default::default()) {
             Ok(mir) => {
                 let context = DefinitionContext::new().unwrap();
                 let program = common::adopt_bytecode(

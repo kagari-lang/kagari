@@ -1100,3 +1100,11 @@ fn deep_aliases_and_direct_leaves_share_declarations_without_child_bindings() {
             .any(|d| matches!(d.kind, DiagnosticKind::UnknownName { .. }))
     );
 }
+
+mod aggregate;
+mod alias;
+mod cache;
+mod provenance;
+mod signature;
+mod solver;
+mod types;

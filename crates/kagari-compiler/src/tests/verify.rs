@@ -1,4 +1,5 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::tests::common;
+use crate::tests::common::lower_root;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::ArtifactFingerprint,
@@ -38,7 +39,7 @@ use std::slice;
 fn raw(context: &DefinitionContext, source: &str) -> MirModule {
     common::adopt(
         context,
-        lower_to_mir(&common::analyze_ok(source), &Default::default())
+        lower_root(&common::program_ok(source), &Default::default())
             .unwrap()
             .into_unverified(),
     )

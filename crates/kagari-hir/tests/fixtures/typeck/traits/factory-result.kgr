@@ -1,0 +1,33 @@
+trait Factory<A> {
+    fn make<B>(value: B) ->(Self, A, B);
+}
+
+struct Player {}
+
+impl Factory<i32> for Player {
+    fn make<B>(value: B) ->(Self, i32, B) {
+        (Player {}, 42, value)
+    }
+}
+
+fn explicit() ->(Player, i32, bool) {
+    Factory<i32>::make::<bool>(true)
+}
+
+fn inferred() ->(Player, i32, bool) {
+    Factory<i32>::make(true)
+}
+
+trait Nested {
+    fn make() -> Option<Self>;
+}
+
+impl Nested for Player {
+    fn make() -> Option<Self> {
+        Some(Player {})
+    }
+}
+
+fn nested() -> Option<Player> {
+    Nested::make()
+}

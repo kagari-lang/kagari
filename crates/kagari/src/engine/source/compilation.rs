@@ -65,11 +65,12 @@ impl Compilation {
             options,
         ));
         let options = inputs.lowering(options.cancel.clone());
+        let compilation = checked.compilation_input(&options.cancel)?;
         let mir = match retained {
             Some((demands, headers)) => {
-                lower_program_to_mir_with_demands(checked.program(), &options, demands, headers)
+                lower_program_to_mir_with_demands(&compilation, &options, demands, headers)
             }
-            None => lower_program_to_mir(checked.program(), &options),
+            None => lower_program_to_mir(&compilation, &options),
         }
         .map_err(|error| match error {
             SourceProgramError::Lowering { module, error } => {
@@ -105,8 +106,8 @@ impl Compilation {
                 EmbeddingError::bytecode_lowering(error)
             }
         })?;
-        let source = build_source_package(checked.program(), &bytecode, &options.cancel).map_err(
-            |error| {
+        let source =
+            build_source_package(&compilation, &bytecode, &options.cancel).map_err(|error| {
                 if options.cancel.check().is_err() {
                     EmbeddingError::Cancelled
                 } else {
@@ -115,8 +116,7 @@ impl Compilation {
                         message: format!("exact source package: {error}"),
                     }
                 }
-            },
-        )?;
+            })?;
         Ok(Self {
             source,
             bytecode,

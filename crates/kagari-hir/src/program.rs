@@ -1,6 +1,6 @@
 //! A checked, snapshot-owned source dependency closure for compilation and linking.
 
-use crate::{program::exports::ProgramExports, typeck::TypedFunction};
+use crate::{program::exports::ProgramExports, semantic::signatures::TypedFunction};
 use std::collections::{HashMap, HashSet};
 
 pub mod exports;
@@ -111,7 +111,8 @@ impl CheckedProgram {
         }
         let function = module
             .typed
-            .functions
+            .signatures
+            .functions()
             .iter()
             .find(|function| Some(function.id) == id.function())?;
         Some((module, function))

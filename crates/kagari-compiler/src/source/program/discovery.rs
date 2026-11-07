@@ -19,7 +19,7 @@ use kagari_contract::{
     native_import::NativeImport,
     types::ConcreteFunctionIdentity,
 };
-use kagari_hir::AnalyzedModule;
+use kagari_hir::compile_input::program::CheckedModule;
 use kagari_mir::program::construction::{
     function_construction,
     methods::{ConstructionModule, construction_methods},
@@ -76,7 +76,7 @@ impl Discovery {
     pub fn scan(
         &mut self,
         states: &[ScheduledModule],
-        sources: &[AnalyzedModule],
+        sources: &[CheckedModule<'_>],
         definitions: &DefinitionTable,
         requests: &mut RequestQueue,
         root: &ModuleIdentity,
@@ -91,7 +91,7 @@ impl Discovery {
             let products = retained.state.products();
             let cursor = self.cursors[index];
             let owner = definitions
-                .lookup_module(source.lowered.source.module_identity())
+                .lookup_module(source.source().module_identity())
                 .expect("checked source module");
             for function in products.functions[cursor.functions..]
                 .iter()
@@ -141,7 +141,7 @@ impl Discovery {
         for (index, (retained, source)) in states.iter().zip(sources).enumerate() {
             let products = retained.state.products();
             let cursor = self.cursors[index];
-            let caller = source.lowered.source.module_identity();
+            let caller = source.source().module_identity();
             for (bridge, function_index, function) in products.functions[cursor.functions..]
                 .iter()
                 .enumerate()
@@ -273,7 +273,7 @@ impl Discovery {
     pub fn close_constructions(
         &self,
         states: &[ScheduledModule],
-        sources: &[AnalyzedModule],
+        sources: &[CheckedModule<'_>],
         definitions: &DefinitionTable,
         requests: &mut RequestQueue,
         root: &ModuleIdentity,
@@ -285,7 +285,7 @@ impl Discovery {
             .map(|(retained, source)| {
                 let products = retained.state.products();
                 ConstructionModule {
-                    identity: source.lowered.source.module_identity(),
+                    identity: source.source().module_identity(),
                     functions: products.functions,
                     bridge_functions: products.bridge_functions,
                     native_targets: products.native_targets,

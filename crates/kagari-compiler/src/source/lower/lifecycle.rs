@@ -11,8 +11,11 @@ use crate::source::lower::{
 };
 use kagari_contract::{types::identity, updates::DemandRequests};
 use kagari_hir::{
-    AnalyzedModule, declarations::DeclarationId, hir::item::function::FunctionKind,
-    native::NativeBinding, resolver::resolved::ResolvedName, typeck::FunctionImplementation,
+    compile_input::program::CheckedModule,
+    declarations::DeclarationId,
+    hir::item::{Item, function::FunctionKind},
+    resolver::resolved::ResolvedName,
+    semantic::signatures::FunctionImplementation,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use std::{collections::HashSet, mem};
@@ -23,7 +26,7 @@ impl ModuleLowering {
     /// `available` is the original limit less preceding modules' output debits.
     /// Only its instruction/generic allowance may change between processing steps.
     pub fn initialize(
-        module: &AnalyzedModule,
+        module: &CheckedModule<'_>,
         inputs: &ModuleLoweringInputs<'_>,
         available: &MirLoweringOptions,
         bridge_identities: &mut BridgeIdentities,
@@ -94,7 +97,7 @@ impl ModuleLowering {
 
     fn process_pending(
         &mut self,
-        module: &AnalyzedModule,
+        module: &CheckedModule<'_>,
         requests: &DemandRequests,
         planner: &mut InstancePlanner<'_>,
     ) -> Result<(), MirLoweringError> {
@@ -145,7 +148,8 @@ impl ModuleLowering {
                     InstanceBody::Static(id) => ResolvedName::Static(id),
                 };
                 let DeclarationId::Definition(source) = origin
-                    .declarations
+                    .environment()
+                    .declarations()
                     .target(authored)
                     .ok_or(MirLoweringError::MissingBinding(
                         "emitted body source owner",
@@ -168,8 +172,7 @@ impl ModuleLowering {
                 match instance.body {
                     InstanceBody::Function(id) => {
                         let function = origin
-                            .lowered
-                            .module
+                            .headers()
                             .functions
                             .iter()
                             .find(|function| function.id == id)
@@ -287,42 +290,27 @@ impl ModuleLowering {
 }
 
 fn seed(
-    module: &AnalyzedModule,
+    module: &CheckedModule<'_>,
     planner: &mut InstancePlanner<'_>,
 ) -> Result<(), MirLoweringError> {
     planner.enqueue_statics()?;
-    for function in &module.typed.functions {
-        if matches!(
-            function.implementation,
-            FunctionImplementation::Native(NativeBinding::Default(_))
-        ) && module
-            .typed
-            .type_table
-            .native_default_call(function.id)
-            .is_none()
-        {
-            return Err(MirLoweringError::MissingBinding(
-                "checked native default body",
-            ));
-        }
-    }
     let callable_methods = module
-        .lowered
-        .module
-        .impls
+        .headers()
+        .implementations
         .iter()
         .filter(|implementation| {
             implementation.trait_ref.is_none() || implementation.generic_params.is_empty()
         })
         .flat_map(|implementation| implementation.methods.iter().map(|method| method.function))
         .collect::<HashSet<_>>();
-    for function in &module.lowered.module.functions {
+    for function in module.headers().functions {
         if (matches!(function.kind, FunctionKind::User) || callable_methods.contains(&function.id))
             && function.generic_params.is_empty()
         {
             let signature = module
-                .typed
-                .functions
+                .environment()
+                .signatures()
+                .functions()
                 .iter()
                 .find(|signature| signature.id == function.id)
                 .ok_or(MirLoweringError::MissingTypedFunction(function.id))?;
@@ -332,20 +320,23 @@ fn seed(
             planner.enqueue(
                 function.id,
                 Vec::new(),
-                module.lowered.source_map.function_span(function.id),
+                module
+                    .declaration_span(Item::Function(function.id))
+                    .expect("admitted function span"),
             )?;
         }
     }
     let definitions = planner.definitions();
     let mut implementations: Vec<_> = module
-        .aggregates
+        .environment()
+        .aggregates()
         .implementations()
         .filter(|item| {
             definitions
                 .resolve(item.id)
                 .expect("checked implementation")
                 .module()
-                == module.lowered.source.module_identity()
+                == module.source().module_identity()
                 && item.generic_params.is_empty()
         })
         .collect();

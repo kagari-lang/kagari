@@ -275,7 +275,7 @@ pub(crate) fn resolve_bodies(
             function
                 .params
                 .iter()
-                .map(|param| (param.name.as_str(), param.id)),
+                .map(|param| (param.name.as_str(), param.id, param.writeability)),
             body,
         );
     }

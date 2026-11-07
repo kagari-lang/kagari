@@ -1,10 +1,11 @@
+use crate::tests::common::{compilation, lower_root, program_ok};
 use std::slice;
 
 use super::*;
 use crate::source::lower::{
     ModuleLowering, ModuleLoweringInputs,
     instances::{MirLoweringOptions, bridge_identities::BridgeIdentities},
-    lower_to_mir, module_contract,
+    module_contract,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
@@ -22,34 +23,28 @@ use kagari_contract::{
         limits::Budget,
     },
 };
-use kagari_hir::{CheckedAnalysis, analyze_source};
-use kagari_source::source::SourceFile;
-use kagari_stdlib::catalog;
+use kagari_hir::program::CheckedProgram;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     scalar::BuiltinType,
     ty::NominalTy,
 };
 
-fn checked(source: &str) -> CheckedAnalysis {
-    analyze_source(
-        &SourceFile::new("retained.kgr", source),
-        catalog::shared().unwrap(),
-    )
-    .unwrap()
-    .into_codegen()
-    .unwrap()
+fn checked(source: &str) -> CheckedProgram {
+    program_ok(source)
 }
 
-fn inventory(module: &CheckedAnalysis) -> Vec<NamedDeclaration> {
-    module_contract(module, &Default::default())
+fn inventory(module: &CheckedProgram) -> Vec<NamedDeclaration> {
+    let input = compilation(module);
+    module_contract(input.module(input.root()).unwrap(), &Default::default())
         .unwrap()
         .into_records()
         .named_declarations
 }
 
-fn named(module: &CheckedAnalysis, name: &str) -> DefinitionId {
-    let contract = module_contract(module, &Default::default())
+fn named(module: &CheckedProgram, name: &str) -> DefinitionId {
+    let input = compilation(module);
+    let contract = module_contract(input.module(input.root()).unwrap(), &Default::default())
         .unwrap()
         .into_records();
     contract
@@ -60,6 +55,7 @@ fn named(module: &CheckedAnalysis, name: &str) -> DefinitionId {
         .chain(contract.trait_contracts.iter().map(|item| item.declaration))
         .find(|id| {
             module
+                .root()
                 .definitions()
                 .resolve(*id)
                 .unwrap()
@@ -74,7 +70,7 @@ fn contract_batches_materialize_all_five_products_without_specializing_shared_bo
     let checked = checked(include_str!(
         "../../../../tests/fixtures/updates/demand-products.kgr"
     ));
-    let definitions = checked.definitions();
+    let definitions = checked.root().definitions();
     let i32_ty = Ty::Builtin(BuiltinType::I32);
     let i64_ty = Ty::Builtin(BuiltinType::I64);
     let nominal = |declaration, arguments| NominalTy {
@@ -155,10 +151,10 @@ fn contract_batches_materialize_all_five_products_without_specializing_shared_bo
     };
     let cancel = CancellationToken::default();
     let mut budget = Budget::new(Default::default(), &cancel).unwrap();
-    let initial = lower_to_mir(&checked, &Default::default()).unwrap();
+    let initial = lower_root(&checked, &Default::default()).unwrap();
     let proofs = proof_catalog(
         slice::from_ref(&initial),
-        &checked.definition_context().snapshot(),
+        &checked.root().definition_context().snapshot(),
         &cancel,
     )
     .unwrap();
@@ -178,20 +174,27 @@ fn contract_batches_materialize_all_five_products_without_specializing_shared_bo
     );
     assert_eq!(batch.layouts.as_slice(), slice::from_ref(&layout));
     let mut queue = RequestQueue::default();
-    let context = checked.definition_context();
-    let module = checked.to_unverified(&cancel).unwrap().into_records();
+    let context = checked.root().definition_context();
+    let input = compilation(&checked);
+    let module = input.module(input.root()).unwrap();
     let owner = definitions
-        .lookup_module(module.lowered.source.module_identity())
+        .lookup_module(module.source().module_identity())
         .unwrap();
     assert!(
         queue
-            .apply(batch, &module.aggregates, definitions, owner, &cancel)
+            .apply(
+                batch,
+                module.environment().aggregates(),
+                definitions,
+                owner,
+                &cancel
+            )
             .unwrap()
     );
     let options = MirLoweringOptions::default();
-    let inputs = ModuleLoweringInputs::new(slice::from_ref(&module), &module.aggregates, &context);
+    let inputs = ModuleLoweringInputs::new(&input, &context);
     let mut bridges = BridgeIdentities::default();
-    let mut state = ModuleLowering::initialize(&module, &inputs, &options, &mut bridges).unwrap();
+    let mut state = ModuleLowering::initialize(module, &inputs, &options, &mut bridges).unwrap();
     state
         .process(
             queue.module(owner).unwrap(),
@@ -256,7 +259,7 @@ fn contract_batches_materialize_all_five_products_without_specializing_shared_bo
     };
     let mut limited_bridges = BridgeIdentities::default();
     assert!(
-        ModuleLowering::initialize(&module, &inputs, &limited, &mut limited_bridges)
+        ModuleLowering::initialize(module, &inputs, &limited, &mut limited_bridges)
             .and_then(|mut state| {
                 state.process(
                     queue.module(owner).unwrap(),
@@ -279,6 +282,7 @@ fn shared_receiver_and_method_binder_identity_remains_exact() {
         .into_iter()
         .find(|record| {
             let path = checked
+                .root()
                 .definitions()
                 .resolve(record.declaration)
                 .unwrap()
@@ -301,15 +305,13 @@ fn shared_receiver_and_method_binder_identity_remains_exact() {
         }],
         ..Default::default()
     };
-    let context = checked.definition_context();
-    let module = checked
-        .to_unverified(&Default::default())
-        .unwrap()
-        .into_records();
+    let context = checked.root().definition_context();
+    let input = compilation(&checked);
+    let module = input.module(input.root()).unwrap();
     let options = MirLoweringOptions::default();
-    let inputs = ModuleLoweringInputs::new(slice::from_ref(&module), &module.aggregates, &context);
+    let inputs = ModuleLoweringInputs::new(&input, &context);
     let mut bridges = BridgeIdentities::default();
-    let mut state = ModuleLowering::initialize(&module, &inputs, &options, &mut bridges).unwrap();
+    let mut state = ModuleLowering::initialize(module, &inputs, &options, &mut bridges).unwrap();
     state
         .process(&requests, &inputs, &options, &mut bridges)
         .unwrap();
@@ -342,11 +344,11 @@ fn retained_impl_members_follow_semantic_headers_after_reordering() {
     let old = named(&before, "keep");
     let new = named(&after, "keep");
     assert_ne!(
-        before.definitions().resolve(old).unwrap().to_path(),
-        after.definitions().resolve(new).unwrap().to_path()
+        before.root().definitions().resolve(old).unwrap().to_path(),
+        after.root().definitions().resolve(new).unwrap().to_path()
     );
     let history = DefinitionMetadata::checked(
-        before.definitions().clone(),
+        before.root().definitions().clone(),
         DemandEnvelope {
             requirements: vec![CallRequirement::Direct(ConcreteFunctionIdentity {
                 declaration: old,
@@ -361,7 +363,7 @@ fn retained_impl_members_follow_semantic_headers_after_reordering() {
         &history,
         &inventory(&before),
         &inventory(&after),
-        &after.definition_context(),
+        &after.root().definition_context(),
         &Default::default(),
     )
     .unwrap();
@@ -374,7 +376,7 @@ fn retained_impl_members_follow_semantic_headers_after_reordering() {
             &history,
             &inventory(&before),
             &inventory(&changed),
-            &changed.definition_context(),
+            &changed.root().definition_context(),
             &Default::default()
         )
         .is_err()

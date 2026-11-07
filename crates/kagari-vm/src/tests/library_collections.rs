@@ -2,6 +2,7 @@ use crate::vm::Vm;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_hir::{
     analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
 };
@@ -52,7 +53,11 @@ fn program(text: &str, modules: &[&NativeModule]) -> DefinitionMetadata<Bytecode
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap()

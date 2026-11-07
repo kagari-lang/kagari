@@ -24,6 +24,10 @@ lifetime safety remain required.
 
 - [Engineering a Compiler review](#engineering-a-compiler-chapter-review): chapter-led
   assessment at `5b57c9a8`, reconciled with current storage/optimization boundaries.
+- [HIR architecture and module organization](#hir-architecture-and-module-organization):
+  staged validation, search context and remaining responsibility/API boundaries.
+- [Syntax and HIR follow-ups](#syntax-and-hir-follow-ups): historical-snapshot
+  retention and remaining ambiguous-prefix lookahead costs to evaluate.
 - [Source line-index costs](#source-line-index-costs): measure construction and
   UTF-16 conversion before changing byte scanning or source-update ownership.
 - [Copied-source mapping cleanup](#copied-source-mapping-cleanup): verify whether
@@ -60,6 +64,281 @@ have their described representation or missing feature. Test preparation progres
 and pending measurements belong to the [existing task](test-preparation-plan.md),
 not a separate review finding. Reconfirm affected behavior when activating a task.
 
+## HIR architecture and module organization
+
+Reviewed `refactor/hir-architecture` at `75a8b7ee` against the ownership constraints
+in the [completed HA0-HA5 design](https://github.com/kagari-lang/kagari/blob/491f705750e96f86eb2a1dd226ed5051638fb0e9/docs/hir-architecture-design.md)
+and the current [HIR guide](architecture/hir.md). The design's directory tree is
+illustrative; findings below concern actual responsibilities and consumers.
+The two earlier selected-body-context and terminating-guard defects are repaired
+and are not repeated here. This review activates no implementation migration.
+
+### P2: Protocol adaptation escapes the caller's search context
+
+[Implementation counting](../crates/kagari-hir/src/aggregates/implementations.rs)
+creates one `SearchBudget`, charges direct candidates, then calls
+`language::semantics::intrinsic_applies` when there is no direct match. That
+[protocol helper](../crates/kagari-hir/src/language/semantics.rs) can perform more
+catalog searches through `iteration_outputs` or conversion/ordering requirements.
+Those paths create fresh limits of 4096 or 100000 checks and depth 64, use a new
+`CancellationToken::default()`, and collapse search errors into `false` or `None`.
+[Native implementation selection](../crates/kagari-hir/src/aggregates/native.rs)
+has the same context loss. These are live paths used by checking and instance
+planning, not unused convenience functions.
+
+A public-API characterization used the installed standard catalog and this source:
+
+```text
+struct Cursor {}
+impl Iterator for Cursor {
+    type Item = i32;
+    fn next(self) -> Option<i32> { None }
+}
+fn main() {}
+```
+
+After analysis, obtain `Cursor`'s receiver from its source implementation, request
+`Protocol::Iterable.nominal(definitions)`, and call
+`AggregateCatalog::implementation_count_bounded` with empty assumptions and
+`max_depth: 64`. Let `N = catalog.implementations().count()`. The current catalog
+has `N = 224`: `max_checks: N - 1` returns `Err(LimitExceeded)`, while
+`max_checks: N` returns `Ok(1)`. The direct scan consumes all N candidate checks;
+the Iterator-to-Iterable adaptation then succeeds through newly budgeted searches.
+The N-relative construction, rather than the incidental catalog size, defines the
+reproduction. The existing direct-search limit works; nested work escapes it.
+
+This violates the documented candidate budget including recursive requirements.
+Separately, the call chain folds inner exhaustion into absence of an implementation;
+the probe did not exhaust those inner fixed budgets. The disconnected cancellation
+token is confirmed by the call chain; no cancellation latency was measured. The outer final cancellation check remains and can reject publication,
+so this is not evidence of successful publication after cancellation.
+
+Repair boundary: keep pure intrinsic shape rules in `language`; discharge
+catalog-dependent adaptation requirements through the existing caller-owned search
+budget/context and return distinct search errors. Preserve engine provenance,
+assumptions, candidate charging and ambiguity rules. Do not add another solver or
+cache. Extend the existing bounded-search owner in
+[implementation search tests](../crates/kagari-hir/src/aggregates/implementations/tests/search.rs)
+with the source Iterator scenario already covered by
+[native selection tests](../crates/kagari-hir/src/aggregates/native/tests.rs).
+
+### P2: Declaration attribute errors are checked only after full body analysis
+
+[`analyze_parsed`](../crates/kagari-hir/src/lib.rs) performs generic attribute-name
+validation after `analyze_prepared` has checked bodies. It is the only producer of
+`UnknownAttribute` and `UnsupportedAttribute`. Declaration, signature and selected
+body queries never execute that block. In contrast, `#[lang]` validation already
+belongs to [declaration preparation](../crates/kagari-hir/src/language/items.rs).
+
+For each of these independent files, install the standard catalog and query the
+same source snapshot through declarations, signatures, selected body and full
+analysis:
+
+```text
+#[reflect] fn good() -> i32 { 42 }
+```
+
+```text
+#[unknown] fn good() -> i32 { 42 }
+```
+
+Both declaration/signature results and selected-body diagnostics are empty;
+selected-body eligibility is `Complete`. Full analysis reports respectively
+`UnsupportedAttribute` and `UnknownAttribute`, but its body eligibility also
+remains `Complete`. `check_program` correctly rejects both files. This was
+confirmed through the public APIs, not inferred only from imports.
+
+An editor using staged header queries therefore misses required declaration
+errors, despite the selected-body API directing header diagnostics to its retained
+signature snapshot. The shared-validity decision precedes this late validation.
+This stage ownership problem leaves the errors outside the shared-validity
+evidence used by both paths. It is not a selected-body-only error or a bypass of
+executable admission.
+
+Repair boundary: validate generic attribute names and registered native spans once
+at declaration preparation, publish the resulting staged diagnostics/validity, and
+let full analysis aggregate them. Preserve `tool::*` passthrough, native authority,
+local declaration coverage and recovery. Reuse the existing full-analysis attribute
+fixtures and native-authority tests; add staged-query assertions at the declaration/
+signature query owner rather than duplicating language fixtures.
+
+### P3: Shared semantic utilities are owned by fact storage and checking files
+
+The public model and catalog depend back on checking modules for pure operations:
+
+| Operation | Current owner | Actual consumers |
+| --- | --- | --- |
+| Exact implementation matching | `typeck/table.rs::match_implementation` | Catalog candidate search, associated outputs and native selection; the helper does not read a `TypeTable`. |
+| Implementation overlap shape check | `typeck/check.rs::possibly_overlapping_impls` | Catalog policy and declaration checking; it does not use checker work state. |
+| Projection/type normalization with a supplied lookup | `typeck/associated.rs::normalize` | `TypeId::with_associated_types` and catalog normalization; it does not use the mutable preparation state in the same file. |
+
+See the [fact table](../crates/kagari-hir/src/typeck/table.rs),
+[check orchestration](../crates/kagari-hir/src/typeck/check.rs),
+[associated checking](../crates/kagari-hir/src/typeck/associated.rs),
+[type model](../crates/kagari-hir/src/types.rs) and
+[catalog consumers](../crates/kagari-hir/src/aggregates/implementations.rs).
+Changing a shared implementation-matching rule currently requires maintaining it
+inside a storage/checking owner which itself depends on the catalog. The actual
+semantic dependency is obscured even though there is only one implementation.
+No incorrect matching result or duplicate solver was established.
+
+Repair boundary: give exact matching/overlap one explicit implementation-matching
+owner and keep pure type normalization with its type owner. Checking and catalogs
+consume these same functions. Preserve limits and recovery distinctions; do not
+merge inference matching, which has different partial-information semantics, or
+move unrelated helpers into `common`.
+
+### P3: The public handoff surface retains unused process and catalog access
+
+A workspace consumer audit found no calls to `CheckedEnvironment::imported_functions`,
+`imported_statics` or `imported_constants` in
+[the admitted environment](../crates/kagari-hir/src/compile_input/environment.rs).
+Its `functions` field serves only the unused getter. Static/constant storage also
+serves the used `static_declaration`/`constant_value` projections and must remain.
+[BodyReuse](../crates/kagari-hir/src/typeck/reuse.rs) is public although all of its
+consumers are within HIR and its operations are crate-internal.
+
+`TypeTable::implementation_method` is another public bridge whose consumers are
+only HIR tests; production planning calls the catalog method. The current HIR guide
+explicitly documents that bridge, so it is not an undisclosed second solver.
+`CheckedAnalysis::to_unverified` likewise has admission-negative-test consumers,
+not current production compiler callers. These surfaces expose read-only or
+unverified records; no checked-input forgery was demonstrated.
+
+For this unpublished project, remove unused handoff getters/fields and narrow
+process-only visibility. Review the test-only bridges against concrete consumers:
+move equivalent selection assertions to the production catalog API before removing
+an unused bridge, and retain private support needed for admission-negative tests.
+Preserve independent identity, cancellation, budget and old-snapshot coverage.
+Do not introduce forwarding aliases or widen another module to compensate.
+
+### Remaining file and test ownership work
+
+The original design's concern about facade responsibilities remains partly open.
+`lib.rs` still owns `PreparedAnalysis`/`DeclaredAnalysis`, cross-module signature
+validation, signature reuse decisions, declaration preparation and full-body
+orchestration. Signature queries call back into these root implementations.
+`analysis.rs` combines position/type/binding projections with database inputs,
+cache orchestration and snapshot publication. The attribute finding above is a
+concrete stage-policy consequence; these locations are not extra semantic bugs
+merely because the files are large.
+
+The focused `queries` owner now contains calls, methods, namespaces, documentation,
+attributes and usage, with their existing module-local tests. Analysis stage modules
+have dropped the `_queries` suffix. Remaining position/type/binding helpers in
+`analysis.rs` and the root stage orchestration still need responsibility-led review.
+Move the remaining responsibilities in finite closures: stage checking/policy to
+its producer, request/reuse/publication to analysis and tool projections to queries.
+Keep the crate facade for documented entrypoints. Follow the actual owners
+without mechanically creating every directory in the historical sketch.
+
+Private tests largely use ordinary owner-local modules. Two concrete exceptions
+are [function completion](../crates/kagari-hir/src/analysis/tests/completion.rs) and
+[generic completion](../crates/kagari-hir/src/analysis/tests/generic_type/completion.rs):
+they exercise language acceptance through `analyze_source`, not cache/revision
+internals, and belong with existing crate-level typechecking contracts. Do not move
+all generic-type tests: neighboring cases genuinely test queries and reuse. No
+sufficient evidence was found to delete these cases as duplicate coverage.
+
+### Verified boundaries and review limits
+
+The inventory covered all 261 Rust files under `kagari-hir/src`: 174 files containing
+production code and 87 reachable only from test modules. Inline tests remain part
+of their production files; the build script and six example files are excluded
+from these source-tree counts. The inventory reused the structural checker's Rust
+parser, test-scope classification and lexical LOC rules. These are navigation
+counts, not complexity or performance measures. Manual review followed module
+entrypoints, representative stage paths and the cited helpers' actual consumers;
+it did not prove every expression-checking branch correct.
+
+The following design boundaries were found intact:
+
+- `hir`/lowering/source maps retain structural ownership and provenance; lowering
+  does not perform name resolution or inference.
+- Resolver/import modules separate scopes, graph solving and staged projections;
+  their borrowed preparation records do not reenter a mutable database.
+- `TypeCheckState` drops temporary inference state before publishing read-only
+  facts. Written signatures and environment-normalized signatures are distinct
+  stages; `ResolvedCall`/`ScalarValue` are facts even where their paths say `typeck`.
+- Checked module evidence, checked dependency closure and compilation admission
+  have distinct consumers. Compiler elaboration/instance planning use admitted
+  inputs; no compiler callback into IDE name resolution was found. Temporary body
+  expansion and MIR emission remain separate.
+- Native adoption retains installed provenance and ordinary checking. Definition
+  visitors/mappers validate scoped IDs without adding another semantic checker.
+- HIR references in runtime/VM/backend/stdlib manifests are test dependencies;
+  source-free execution and backend production boundaries remain separate.
+
+The architectural comparison rechecked the official
+[rust-analyzer layering guide](https://rust-analyzer.github.io/book/contributing/architecture.html),
+[rustc HIR storage guide](https://rustc-dev-guide.rust-lang.org/hir.html) and
+[THIR lifecycle guide](https://rustc-dev-guide.rust-lang.org/thir.html) on
+2026-11-06 and 2026-11-07 (online guides, not pinned source versions). The relevant mechanisms are distinct
+model/query boundaries, owner-based lookup and temporary typed-body expansion.
+Kagari retains its explicit cancellation errors, installed native authority,
+GC and reload semantics; no Salsa/unwinding or Rust ownership model is proposed.
+The finite repairs above reuse existing mechanisms and make no speed claim.
+
+Two temporary public-API characterization tests confirmed the P2 behaviors above
+(one attribute-query target covering two inputs and one bounded-search target).
+Their assertions recorded current defective behavior; passing those probes does
+not mean the findings are fixed. Temporary crate targets were removed. No Rust
+implementation changes remain, and no full-workspace tests were run. The existing
+structure/fmt/Clippy evidence at `75a8b7ee` remains valid; this review requires
+content/link/diff validation, not another build sweep. Physical body arenas, R8,
+general solver changes, the existing cache-retention follow-up and SA11 remain
+separate. Duplicate initializer token preparation was observed across update
+provenance and anonymous-instance identity, but its separate lifetime/use cases
+and unmeasured cost do not justify a new cache or a performance finding here.
+
+## Syntax and HIR follow-ups
+
+These follow-ups remain outside the completed local contract repairs from the
+2026-11-06 reviews. Current grammar and optional-fact contracts live in the
+[syntax](architecture/syntax.md) and [HIR](architecture/hir.md) architecture.
+The original review baseline was `76ef0798767920649152dbbe235a0ea70bf8e21c`.
+
+### Historical body-cache retention: confirmed mechanism, impact still to measure
+
+`AnalysisDatabase::body_cache` retains one `Arc<FunctionAnalysis>` per declaration.
+Each result owns a complete `SignatureSnapshot`, whose file map retains physical
+parses and lowerings. [Body cache publication](../crates/kagari-hir/src/analysis/body.rs)
+removes entries for deleted declarations but does not retire older revisions of
+still-existing functions until those functions are queried again.
+
+A deterministic API probe used one file with four stable functions `a/b/c/d`.
+On each of four revisions it changed only a leading comment, queried a different
+function, saved a `Weak<FileSignatures>`, then dropped every caller-owned result
+and declaration snapshot. The number of live whole-file signature revisions grew
+1, 2, 3, 4. Dropping `SourceDatabase` left all four alive; dropping
+`AnalysisDatabase` released all of them. The weak-reference assertions passed.
+
+This is database-owned retention, not a permanent leak or invalid old snapshot.
+Its multiplier can grow with the number of distinct cached functions, retaining
+multiple old parse/HIR versions of the same file without an external reader.
+No RSS, allocation-byte total or realistic IDE peak was measured, so this is a
+cost follow-up rather than an established memory-exhaustion or correctness defect.
+
+Follow-up owner: selected-body cache ownership. Measure retained bytes and reuse
+value under editing before choosing a history/capacity policy or shared per-file
+reuse baseline. Preserve explicitly retained results, arena remapping and checked
+dependency inputs; reducing references must not weaken source identity checks.
+
+### Ambiguous comma-separated comparison lookahead
+
+The parser's type-shape probe now stops at impossible type tokens or unmatched
+closing delimiters. Independent `val z = x < y;` statements no longer scan later
+statements; [work counts and timings](performance-baseline.md#independent-comparison-lookahead-2026-11-06)
+cover that repaired workload.
+
+A wide tuple such as `(x < y, x < y, ...)` still contains tokens that could belong
+to nested generic arguments until the enclosing `)`. Repeated probing of those
+ambiguous prefixes can therefore still revisit suffixes. This is a source-level
+complexity concern, not a measured IDE workload or a claim of incorrect parsing.
+Measure its practical cost before choosing a parse-local reuse policy; preserve
+Kagari's generic constructors, qualified paths and ordinary comparison meanings.
+No global linear-time parser guarantee or additional cache is introduced here.
+
 ## RefCell ownership and borrow boundaries
 
 User direction recorded 2026-10-28: do not pursue repository-wide RefCell removal.
@@ -70,7 +349,7 @@ performance defect or authorization for an API/runtime migration.
 
 ### Observed uses and distinctions
 
-The [engine](../crates/kagari/src/engine/mod.rs) wraps its source and analysis
+The [engine](../crates/kagari/src/engine.rs) wraps its source and analysis
 Databases in RefCell so [source operations](../crates/kagari/src/engine/source.rs)
 can update inputs, settings and query caches through `&self`. Explicit `&mut self`
 is a possible simplification here, but only after reviewing callers and session
@@ -211,8 +490,8 @@ into the current analysis view. This supports text copied into generated source,
 not arbitrary rewritten source maps or edit history.
 
 The read side is wired into
-[declaration source lookup](../crates/kagari-hir/src/analysis/declaration_queries.rs),
-[documentation queries](../crates/kagari-hir/src/analysis/documentation_queries.rs)
+[declaration source lookup](../crates/kagari-hir/src/analysis/declarations.rs),
+[documentation queries](../crates/kagari-hir/src/queries/documentation.rs)
 and [source collection](../crates/kagari-hir/src/source_inspection.rs).
 However, the inspected production paths do not populate the mapping. Ordinary
 sources start with an empty vector; inline modules clone it while independently
@@ -568,7 +847,7 @@ Identity and release boundaries:
    name resolution or consider all retained generic contracts dead artifact data.
    Owners: [program lowering](../crates/kagari-compiler/src/source/program.rs),
    [type arguments](../crates/kagari-runtime/src/frame/types/arguments.rs) and
-   [executor interface entry](../crates/kagari-vm/src/executor/mod.rs).
+   [executor interface entry](../crates/kagari-vm/src/executor.rs).
 4. **Script → host → script.** A linked native binding validates/narrows arguments,
    protects conversion inputs/results and invokes a callback without a live cursor
    storage borrow. Reentry adds a suffix to the same session stack, sharing depth,
@@ -1070,10 +1349,10 @@ Each entry records its own evidence level and validation limits.
 Evidence owners:
 
 
-- R8: [body reuse](../crates/kagari-hir/src/analysis/body_queries.rs),
+- R8: [body reuse](../crates/kagari-hir/src/analysis/body.rs),
   [imported functions](../crates/kagari-hir/src/imports/functions.rs),
-  [source identities](../crates/kagari-hir/src/imports/mod.rs) and
-  [aggregate equality](../crates/kagari-hir/src/aggregates/mod.rs).
+  [source identities](../crates/kagari-hir/src/imports.rs) and
+  [aggregate equality](../crates/kagari-hir/src/aggregates.rs).
 
 These findings remain review items, not automatically activated tasks or new
 prerequisites for unrelated work.

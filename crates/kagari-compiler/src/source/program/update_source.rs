@@ -1,21 +1,26 @@
 //! Validate source-owned provenance against the complete named inventory.
 
-use kagari_common::identity::mapping::DefinitionMappingError;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::mapping::{DefinitionMappingError, check_cancel},
+};
 use kagari_contract::types::named::{NamedContract, NamedDeclaration};
 use kagari_hir::{
-    CheckedAnalysis,
-    update_source::{self, SourceBodyKind, SourceBudget, SourceEvidence},
+    compile_input::program::CheckedModule,
+    update_source::{SourceBodyKind, SourceEvidence},
 };
 
 /// Require authored function/constant owners in the named declaration inventory.
-/// Statics retain their separate owning contracts. Use one budget per publication.
-pub fn collect(
-    module: &CheckedAnalysis,
+/// Statics retain their separate owning contracts. Admission owns the shared budget.
+pub fn collect<'a>(
+    module: &'a CheckedModule<'_>,
     inventory: &[NamedDeclaration],
-    budget: &mut SourceBudget<'_>,
-) -> Result<SourceEvidence, DefinitionMappingError> {
-    let evidence = update_source::collect(module, budget)?;
+    cancel: &CancellationToken,
+) -> Result<&'a SourceEvidence, DefinitionMappingError> {
+    let evidence = module.provenance();
+    check_cancel(cancel)?;
     for body in &evidence.bodies {
+        check_cancel(cancel)?;
         if body.kind == SourceBodyKind::StaticInitializer {
             continue;
         }
@@ -43,35 +48,21 @@ pub fn collect(
 mod tests {
     use super::*;
     use crate::source::lower::module_contract;
+    use crate::tests::common::{compilation, program_ok};
     use kagari_common::cancellation::CancellationToken;
-    use kagari_hir::analyze_source;
-    use kagari_source::source::SourceFile;
-    use kagari_stdlib::catalog;
 
     #[test]
     fn source_adapter_checks_provenance_inventory_without_collecting_function_contents() {
-        let module = analyze_source(
-            &SourceFile::new(
-                "adapter.kgr",
-                "fn unused<T>(x: T) -> T { x } static val N: i32 = ((1 + 2));",
-            ),
-            catalog::shared().unwrap(),
-        )
-        .unwrap()
-        .into_codegen()
-        .unwrap();
+        let program = program_ok("fn unused<T>(x: T) -> T { x } static val N: i32 = ((1 + 2));");
+        let input = compilation(&program);
+        let module = input.module(input.root()).unwrap();
         let cancel = CancellationToken::default();
         assert_eq!(
-            collect(&module, &[], &mut SourceBudget::new(&cancel)),
+            collect(module, &[], &cancel),
             Err(DefinitionMappingError::InvalidContract)
         );
-        let inventory = module_contract(&module, &cancel).unwrap();
-        let records = collect(
-            &module,
-            &inventory.records().named_declarations,
-            &mut SourceBudget::new(&cancel),
-        )
-        .unwrap();
+        let inventory = module_contract(module, &cancel).unwrap();
+        let records = collect(module, &inventory.records().named_declarations, &cancel).unwrap();
         assert_eq!(records.initializers.len(), 1);
         let function = records
             .bodies

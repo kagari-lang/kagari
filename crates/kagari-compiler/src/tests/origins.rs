@@ -1,4 +1,5 @@
-use crate::{source::lower::lower_to_mir, tests::common};
+use crate::tests::common;
+use crate::tests::common::lower_root;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_mir::{debug::SourcePosition, verify::MirVerificationErrorKind};
 use std::sync::Arc;
@@ -14,7 +15,7 @@ fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {
         let checked = common::program_ok(text);
         let weak_source = Arc::downgrade(&checked.root().lowered.source);
         let expected_uri = checked.root().lowered.source.name().to_owned();
-        let verified = lower_to_mir(checked.root(), &Default::default()).unwrap();
+        let verified = lower_root(&checked, &Default::default()).unwrap();
         let expected = verified.functions[0]
             .blocks
             .iter()
@@ -75,7 +76,7 @@ fn malformed_origins_and_unmapped_ranges_are_rejected_before_lowering() {
     let checked = common::program_ok("fn main() -> i32 { val x = 1; x + 2 }");
     let original = common::adopt(
         &context,
-        lower_to_mir(checked.root(), &Default::default())
+        lower_root(&checked, &Default::default())
             .unwrap()
             .into_unverified(),
     );
@@ -136,7 +137,7 @@ fn origin_free_mir_keeps_spans_but_does_not_invent_source_coordinates() {
     let checked = common::program_ok("fn main() -> i32 { 7 }");
     let mut raw = common::adopt(
         &context,
-        lower_to_mir(checked.root(), &Default::default())
+        lower_root(&checked, &Default::default())
             .unwrap()
             .into_unverified(),
     );
