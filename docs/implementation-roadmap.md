@@ -2057,6 +2057,81 @@ content/link/diff checks. Performance reports retain revision, workload, machine
 toolchain, profile/features, parallelism and cache state, separating compilation,
 preparation and execution.
 
+## Enum layouts
+
+The [enum layout design](enum-layout-design.md) owns a common layout mechanism for
+Option, Result and eligible small standard/user enums, including required
+compositional niche encoding. The user deferred this work on 2026-11-08 to review
+Runtime execution and ownership first. EL00 baseline/models are locally complete
+and retained; EL01-EL04 remain unstarted and inactive. Preserve nominal types,
+syntax, nested states, trait/propagation
+behavior and Result error-origin capture/forwarding. Explicit tags remain the
+fallback when niches are unavailable; large/recursive layouts may remain heap-backed.
+
+The design owns applied-layout/origin lifetime, shared generic transport, GC,
+source-free validation, host conversion and native/interpreter agreement. EL00
+selects typed packed records of at most 24 bytes, scoped views and eight-byte
+non-reused descriptor/origin tokens. A uniform widened Value was rejected: the
+measured naive carrier increases Value from 16 to 40 bytes. The existing-runtime
+baseline and finite layout/retention/span models freeze niche and numeric gates
+at the design owner; production storage remains unchanged.
+EL01 direct-layout cutover alone does not complete delivery: niche encoding and
+integrated acceptance in EL02/EL03 are required. No allocation/performance result
+is claimed for production. The feature-enabled probe, structure, formatting,
+workspace all-target Clippy, scoped probe Clippy and diff checks pass; full tests
+and exhaustive platform/backend/feature acceptance remain CI-owned. Target the
+existing Runtime collector and coordinate final adapter
+requirements with GCR03 without activating collector replacement or value structs.
+Reactivation requires review of the transport/layout proposals and fresh affected
+baselines after the Runtime work; EL01 is not the current next implementation
+task. Value structs stay separately deferred.
+
+The design's primary-source comparison with Swift 6.0.3 and CoreCLR 9.0.0
+supports type-owned layout operations and indirect generic argument/result
+storage. EL01 must distinguish value size, owner/array stride and native call ABI;
+EL03 retains responsibility for packed-versus-aligned measurements. Those sources
+do not validate the local 24-byte cutoff, reload/origin safety or integrated gains.
+
+The [concrete Native value proposal](enum-layout-design.md#proposed-native-value-api)
+defines scoped argument locations, typed result publication, retained host values
+and payload-owned typed storage/tracing, with HashMap insert/get ordering. EL01
+must close that shared contract before concrete storage migration. The NC plan
+records the representation dependency without activating its ownership migration.
+
+The user's 2026-11-08 [host-boundary review](enum-layout-design.md#call-frame-model-and-independent-libraries)
+reaffirms independent stdlib ownership and requests a clear registration/calling
+mental model. Review the existing protected call frame as the shared boundary
+before freezing EL01's public APIs; the current detailed API spellings remain
+exploratory. Simplifying registration must preserve portable checked declarations.
+NC retains ownership of concrete collection privilege removal and the joint GC
+provider migration. This broadens design review, not implementation activation
+or a new parallel Runtime rewrite plan.
+
+## Deferred value structs
+
+Recorded at the user's request on 2026-11-08; design and implementation are
+deferred. Consider an explicit declaration such as
+`value struct PlayerId { val value: u64 }` for nominal value types that can store
+their payload inline without a per-value GC wrapper. The spelling is a proposal,
+not accepted syntax or an implemented feature.
+
+The direction is to preserve distinct type identity, methods, trait implementations
+and field access rules while giving these declarations content-copy semantics and
+no object identity. Ordinary `struct` retains its current shared-object semantics;
+all-`val` fields alone must not silently change that category. This addresses
+numeric domain wrappers such as PlayerId without reducing them to type aliases.
+
+Before activation, define permitted field types, `val`/`var` rules, recursive
+layout constraints, large-value copy costs, generic/interface transport, GC edges,
+host conversion and reload contracts. Scalar-only and nested value-struct payloads
+are an initial scope candidate, not a frozen restriction. Reject invalid declarations
+during checked compilation and preserve independent executable validation.
+
+Value structs may later reuse the checked layout foundation from
+[enum layouts](enum-layout-design.md), but are outside EL00-EL04
+and are not a prerequisite for that work. No separate implementation plan is
+activated by this record.
+
 ## GC library redesign
 
 The [GC redesign plan](gc-redesign-plan.md) owns remaining GCR00-GCR05 work;

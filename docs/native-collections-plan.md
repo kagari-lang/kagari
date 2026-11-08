@@ -35,6 +35,19 @@ The standard implementation must exercise that boundary, not leave the external
 fixture on a generic path while standard collections retain privileged paths.
 This is an ownership/access test, not a requirement to create a new production crate.
 
+Design review, 2026-11-08: the user reaffirmed full stdlib independence and asked
+for a coherent registration/calling mental model comparable to Lua's host API.
+The [call-frame review](enum-layout-design.md#call-frame-model-and-independent-libraries)
+owns the current cross-cutting proposal: one logical call window, typed adapters
+over one native entry, and explicit retention beyond a frame. This extends design
+review beyond the earlier exclusion of registration ergonomics; it does not
+activate a registration rewrite, NC01-NC06 or collector replacement. NC remains
+the owner of collection privilege removal and independent-provider acceptance.
+Runtime's present protected frame slots and checked root/borrow owners are
+foundations to reuse; a new raw stack or a helper named with_payload_edit does
+not establish a general provider protocol. Carry the finite library-boundary
+migration here rather than maintaining a second runtime rewrite queue.
+
 ```text
 Rust collection storage and operations
     -> checked NativeModule declarations and local storage/entry bindings
@@ -340,6 +353,21 @@ Interim unsafe provider obligations:
   generations, cancellation and cleanup on every exit.
 
 #### Consolidated Native API surface
+
+The enum-layout work was deferred on 2026-11-08 pending Runtime execution and
+ownership review. Its linked Native API sketches remain research inputs, not a
+frozen boundary or an additional prerequisite imposed on that review.
+
+The [enum-layout Native value proposal](enum-layout-design.md#proposed-native-value-api)
+refines this boundary for inline Option/Result/user enums. Call-scoped admitted
+locations and typed result publication replace the assumption that every value
+is an owned raw Value; payload scanning must accept initialized typed records
+and their object/layout/origin edges. The Value-based storage/trace sketches
+below remain conceptual retention examples, not a requirement to rebox enums.
+Reuse the same checked access/retain/publication owners; do not create a second
+Native registry, per-element external roots or privileged standard containers.
+This coordination note does not activate NC01-NC06, change provider safety
+classification or start collector integration.
 
 Keep existing runtime-owned root mechanisms and prepared conversion owners. Do not
 carry forward the counted Value/control-block layout or force a ScriptValue-to-Value

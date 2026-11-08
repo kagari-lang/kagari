@@ -60,6 +60,12 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Enum layouts](enum-layout-design.md): deferred pending Runtime execution and
+  ownership review. EL00 baseline/models are retained; EL01-EL04 remain unstarted.
+  The proposed Option/Result/small-enum layouts, niche encoding and Native APIs
+  require review before reactivation. Production storage remains unchanged and
+  value structs remain separately deferred.
+
 - [Standalone GC redesign](gc-redesign-plan.md): independent `kagari-gc` allocation,
   rooting, field access and incremental collection, with standalone tests and
   benchmarks. The [implementation design](gc-implementation-design.md) owns its

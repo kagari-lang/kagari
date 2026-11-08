@@ -90,3 +90,7 @@ required-features = ["source", "serde"]
 [[example]]
 name = "scoped_host"
 required-features = ["source"]
+
+[[example]]
+name = "enum_layout_baseline"
+required-features = ["source", "kagari-runtime/execution-diagnostics"]
