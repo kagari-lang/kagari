@@ -18,7 +18,7 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
 use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
 use lsp_types::{GotoDefinitionResponse, Location};
-use std::{fs, sync::Arc};
+use std::{collections::BTreeSet, fs, sync::Arc};
 use tokio::sync::oneshot;
 
 const API: &str = include_str!("../../../../tests/fixtures/analysis/index-api.kgr");
@@ -266,5 +266,58 @@ fn required_consumer_gap_and_shared_provider_edits_preserve_exact_old_reads() {
     assert_eq!(world.search(&changed).unwrap(), (old_answer.clone(), 3));
     assert_eq!(world.search(&changed).unwrap(), (old_answer.clone(), 1));
     assert_eq!(world.search(&old).unwrap().0, old_answer);
+
+    // New membership changes the required scope even if all existing contexts
+    // keep the same inputs. A formerly warm scope must not hide a new implementor.
+    fs::write(
+        world.project.directory().join("first/Kagari.toml"),
+        include_str!("../../../../tests/fixtures/workspace/workspace.toml")
+            .replace("\"app\", \"api\"", "\"app\", \"api\", \"consumer\""),
+    )
+    .unwrap();
+    let consumer = world.project.directory().join("first/consumer");
+    fs::create_dir_all(consumer.join("src")).unwrap();
+    fs::write(
+        consumer.join("Kagari.toml"),
+        include_str!("../../../../tests/fixtures/workspace/app.toml")
+            .replace("name = \"app\"", "name = \"consumer\""),
+    )
+    .unwrap();
+    fs::write(consumer.join("src/lib.kgr"), APP).unwrap();
+    let expanded = world.input();
+    for context in &changed.capture.contexts {
+        assert_eq!(
+            expanded
+                .capture
+                .contexts
+                .iter()
+                .find(|next| next.key == context.key)
+                .unwrap()
+                .input_revision,
+            context.input_revision
+        );
+    }
+    let (locations, steps) = world.search(&expanded).unwrap();
+    assert_eq!(steps, 4);
+    assert_eq!(locations.len(), 2);
+    assert_eq!(
+        locations
+            .into_iter()
+            .map(|location| location.uri.as_str().to_owned())
+            .collect::<BTreeSet<_>>(),
+        [
+            world
+                .project
+                .uri("first/app/src/lib.kgr")
+                .as_str()
+                .to_owned(),
+            world
+                .project
+                .uri("first/consumer/src/lib.kgr")
+                .as_str()
+                .to_owned()
+        ]
+        .into()
+    );
     world.finish();
 }

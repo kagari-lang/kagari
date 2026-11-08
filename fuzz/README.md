@@ -107,6 +107,10 @@ against independently fresh HIR contexts. Inputs up to 1 KiB select at most thre
 two-byte actions over the small `analysis/fuzz-base.kgr` fixture: body values,
 function signatures, implementation overrides/defaults, source provider identity,
 close/reopen epochs, cancellation, unresolved headers and context retirement.
+Independent document admission, signature errors, edits and removal additionally
+exercise search-scope isolation across session generations. The primary document's
+exact answers must still agree with a fresh world while the independent input is
+broken. Seeds retain old reads across those changes and provider replacement.
 The fixture deliberately retains `value.` for incomplete-member recovery.
 Each generation compares hover, definition, completion and complete implementation
 results. One older admitted capture is queried again after the edits, and its
@@ -114,7 +118,9 @@ answers must remain unchanged. Unknown signature relations must fail explicitly;
 an empty exhaustive implementation response is not a substitute for coverage.
 All captured/query/index owners are then dropped and the exact charged source
 budget must return to its native baseline. This is source ownership accounting,
-not RSS. Cross-root provider matching has a separate deterministic index-owner test.
+not RSS. Physical package/provider graph matching, missing reverse consumers and
+membership changes have separate deterministic index/actor tests; the fuzz target
+does not synthesize filesystem package graphs.
 
 The fixture uses intrinsic types and its own source-defined trait. Both semantic
 worlds install a closed empty native provider generation through ordinary environment

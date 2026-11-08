@@ -515,15 +515,25 @@ context/input/provider stamps, with immutable leases retained by admitted reads.
 Validation strengthens existing multi-root/index scenarios, B03/B04/B07 work and
 retention measurements, and the FZ04 fresh-world oracle. Global reacquisition,
 diagnostic invalidation and live folder changes remain LSP08 work. The
-[bounded correction](lsp-design.md#multi-project-isolation-implementation-references-and-queued-correction)
+[bounded correction](lsp-design.md#multi-project-isolation-implementation-references-and-query-scopes)
 owns the design and pinned implementation references. The acquisition/scope/cache
 handoff is implemented together as one buildable checkpoint. Seven selected
 index/acquisition/actor regressions and four diagnostic/native-view/worker checks
 pass, together with four package tooling/provenance regressions; source-free
 compiler/runtime behavior is unchanged. Structure (1,976 Rust
 files, zero violations), formatting, workspace all-target Clippy and diff checks
-pass. Benchmark and FZ04 extensions remain in progress; no new performance or
-complete-correction acceptance is claimed yet. Full-workspace matrices remain CI.
+pass. The follow-up verification checkpoint adds the 63-sample-point component scope
+probe, exact work/retention assertions, a membership-change witness and FZ04
+independent-document actions/seeds. All eight curated seeds pass; a bounded MSVC
+ASan campaign passes 520 inputs in 61 s with no findings. Measured cold/provider
+searches build two shards and unrelated edits build none, while global acquisition
+still grows with total contexts. The design retains methods, medians and limits;
+no paired speedup or percentile claim is made. Six selected verification-enabled
+index/actor/cancellation checks pass, including changed membership. Final structure
+(1,978 Rust files, zero violations), formatting, workspace all-target Clippy,
+verification-enabled analyzer all-target Clippy and diff checks pass. Local
+query-isolation acceptance is complete; full-workspace matrices, longer sanitizer
+campaigns and LSP08 capture/diagnostic/folder lifecycle work remain separate.
 
 The [LSP design](lsp-design.md) owns LSP00-LSP08. Implementation through LSP04 is
 authorized on `feat/lsp`, with phase commits. The five-feature pilot through LSP04

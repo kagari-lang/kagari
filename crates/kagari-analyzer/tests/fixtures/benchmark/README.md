@@ -13,6 +13,7 @@ sample. Initialization is not project readiness. The implemented suites are:
 | `benchmark_lsp.py --suite diagnostic-tails` | The same diagnostic contract, with 20 edits per route and per-process nearest-rank p50/p95 |
 | `benchmark_lsp.py --suite queries` | B02 warm hover/definition/implementation/completion; B03 affected/unaffected edit queries; B04 cold/warm complete implementation search; B05 fixed offered load and a bounded slow reader |
 | `lsp_benchmark_memory.py` | Separate B07 acquisition/analysis component allocation, retained-source/index and externally sampled resident-memory evidence |
+| `lsp_benchmark_scopes.py` | B03/B04/B07 component scope selection versus shard construction, unrelated/provider edits, retained old reads and exact source/index retirement; no actor, transport or RSS |
 
 These are measurement methods, not claims that performance targets have passed.
 The process runner marks rows outside its selected suite unavailable. B06

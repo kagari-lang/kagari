@@ -21,6 +21,17 @@ use kagari_hir::{
 use lsp_types::{GotoDefinitionResponse, Location};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(any(test, feature = "verification"))]
+use std::time::Instant;
+
+#[cfg(any(test, feature = "verification"))]
+#[derive(Clone, Copy, Default)]
+pub(in crate::analysis) struct SearchWork {
+    pub candidates: usize,
+    pub selected: usize,
+    pub selection_ns: u128,
+    pub indexed: usize,
+}
 
 pub(crate) enum ImplementationStep {
     Complete(Option<GotoDefinitionResponse>),
@@ -38,6 +49,8 @@ struct SelectedTarget {
 #[derive(Default)]
 pub(in crate::analysis) struct ImplementationSearches {
     requests: BTreeMap<u64, SelectedTarget>,
+    #[cfg(any(test, feature = "verification"))]
+    pub(in crate::analysis) work: SearchWork,
 }
 
 impl ImplementationSearches {
@@ -126,6 +139,8 @@ impl AnalysisState {
                 receiver,
                 assumptions: editor.generic_bounds(input.offset),
             };
+            #[cfg(any(test, feature = "verification"))]
+            let selection_started = Instant::now();
             let search = scope::select(
                 &input.capture,
                 selected_context(input)?,
@@ -133,6 +148,12 @@ impl AnalysisState {
                 &target,
                 cancel,
             )?;
+            #[cfg(any(test, feature = "verification"))]
+            {
+                self.implementation.work.candidates += input.capture.contexts.len();
+                self.implementation.work.selected += search.contexts.len();
+                self.implementation.work.selection_ns += selection_started.elapsed().as_nanos();
+            }
             let stamp = self.indexes.ensure_scope(search)?;
             self.implementation.requests.insert(
                 input.serial,
@@ -157,6 +178,10 @@ impl AnalysisState {
                 &self.budget,
                 cancel,
             )?;
+            #[cfg(any(test, feature = "verification"))]
+            {
+                self.implementation.work.indexed += 1;
+            }
             drop(signatures._lease);
             return Ok(ImplementationStep::Continue);
         }

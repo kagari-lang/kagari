@@ -4,11 +4,15 @@ use crate::analysis::verification as analysis_verification;
 #[cfg(any(test, feature = "verification"))]
 use crate::analysis::verification::retention as retention_verification;
 #[cfg(any(test, feature = "verification"))]
+use crate::analysis::verification::scope as scope_verification;
+#[cfg(any(test, feature = "verification"))]
 use crate::documents::verification as document_verification;
 #[cfg(feature = "verification")]
 use crate::protocol::verification as wire_verification;
 #[cfg(any(test, feature = "verification"))]
 use crate::session::verification as session_verification;
+#[cfg(any(test, feature = "verification"))]
+use serde::Serialize;
 use std::{io, process::ExitCode};
 
 mod analysis;
@@ -77,4 +81,28 @@ pub struct RetentionCheckpoint {
 #[cfg(any(test, feature = "verification"))]
 pub fn verify_retention(checkpoint: impl FnMut(RetentionCheckpoint)) {
     retention_verification::run(checkpoint);
+}
+
+/// One component measurement; source leases and index rows are distinct from RSS.
+#[cfg(any(test, feature = "verification"))]
+#[derive(Serialize)]
+pub struct ScopeCheckpoint {
+    pub phase: &'static str,
+    pub sample: usize,
+    pub unrelated_projects: usize,
+    pub capture_ns: u128,
+    pub query_ns: u128,
+    pub scope_selection_ns: u128,
+    pub examined_contexts: usize,
+    pub selected_contexts: usize,
+    pub indexed_contexts: usize,
+    pub source_input_bytes: usize,
+    pub index_row_bytes: usize,
+}
+
+/// Measures bounded multi-project search, unrelated/provider edits and old reads.
+/// Includes semantic/work/retirement assertions; panics remain benchmark failures.
+#[cfg(any(test, feature = "verification"))]
+pub fn verify_scope_isolation(checkpoint: impl FnMut(ScopeCheckpoint)) {
+    scope_verification::run(checkpoint);
 }

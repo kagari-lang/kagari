@@ -1,5 +1,7 @@
 //! Fresh-world semantic oracle over real capture, selected queries and relation indexes.
+mod project;
 pub(crate) mod retention;
+pub(crate) mod scope;
 
 use crate::{
     analysis::{
@@ -50,6 +52,7 @@ struct Edits {
     override_body: bool,
     unresolved: bool,
     provider: bool,
+    independent: u8,
 }
 
 #[derive(Debug, PartialEq)]
@@ -147,7 +150,7 @@ impl Worlds {
         retained.push(initial);
         for record in input.chunks(2).take(ACTIONS) {
             let value = record.get(1).copied().unwrap_or(1);
-            match record[0] % 8 {
+            match record[0] % 10 {
                 0 => edits.boolean = value & 1 != 0,
                 1 => edits.wide = value & 1 != 0,
                 2 => edits.override_body = value & 1 != 0,
@@ -175,6 +178,8 @@ impl Worlds {
                 }
                 6 => edits.unresolved = value & 1 != 0,
                 7 => Self::reset(&mut self.reused),
+                8 => edits.independent = value & 3,
+                9 => edits.independent ^= 2,
                 _ => unreachable!(),
             }
             version += 1;
@@ -238,22 +243,40 @@ impl Worlds {
         }
         .parse()
         .unwrap();
-        let source_name = source_name(&uri).unwrap();
+        let primary_name = source_name(&uri).unwrap();
         let document = DocumentInput {
-            source: Some(Arc::new(SourceFile::new(&source_name, &text))),
-            source_name: source_name.clone(),
+            source: Some(Arc::new(SourceFile::new(&primary_name, &text))),
+            source_name: primary_name.clone(),
             uri: uri.clone(),
             version,
             incarnation,
             unavailable: false,
         };
-        let documents: Arc<[DocumentInput]> = vec![document.clone()].into();
-        let capture = self.capture(vec![document]);
+        let mut documents = vec![document];
+        if edits.independent != 0 {
+            let uri = "untitled:scope-independent".parse().unwrap();
+            let name = source_name(&uri).unwrap();
+            let independent = if edits.independent & 2 != 0 {
+                BASE.replace("scalar() -> i32", "scalar() -> Missing")
+            } else {
+                BASE.replace("local = 31", "local = 73")
+            };
+            documents.push(DocumentInput {
+                source: Some(Arc::new(SourceFile::new(&name, independent))),
+                source_name: name,
+                uri,
+                version,
+                incarnation: 1,
+                unavailable: false,
+            });
+        }
+        let capture = self.capture(documents.clone());
+        let documents: Arc<[DocumentInput]> = documents.into();
         let input = DocumentQueryInput {
             serial: self.generation,
             capture,
             documents,
-            source_name,
+            source_name: primary_name,
             uri,
             offset: text.find("local +").unwrap(),
             limit: 1024 * 1024,

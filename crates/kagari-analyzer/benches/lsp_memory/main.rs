@@ -1,8 +1,8 @@
-//! Separate B07 requested/live allocation evidence, never latency evidence.
+//! B07 allocation/retention and instrumented search-scope component probes.
 mod allocation;
 
 use allocation::{Allocator, Counts};
-use kagari_analyzer::{RetentionCheckpoint, verify_retention};
+use kagari_analyzer::{RetentionCheckpoint, verify_retention, verify_scope_isolation};
 use serde_json::json;
 use std::{
     env,
@@ -13,6 +13,20 @@ use std::{
 static ALLOCATOR: Allocator = Allocator;
 
 fn main() {
+    if env::args().any(|argument| argument == "--scope-isolation") {
+        let mut rows = Vec::new();
+        verify_scope_isolation(|checkpoint| rows.push(checkpoint));
+        println!(
+            "{}",
+            json!({
+                "schema": 1, "workload": "B03+B04+B07.scope-isolation-v1",
+                "measurement_layer": "analysis-and-acquisition-component",
+                "actor_runtime": false, "transport": "none", "rss_measured": false,
+                "checkpoints": rows,
+            })
+        );
+        return;
+    }
     let external = env::args().any(|argument| argument == "--external-checkpoints");
     let mut output = io::stdout().lock();
     let mut input = io::stdin().lock();

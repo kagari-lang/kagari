@@ -6,6 +6,7 @@ use crate::{
         AnalysisState,
         diagnostics::ProjectionLimits,
         features::{DocumentQueryInput, navigation::implementation::ImplementationStep},
+        verification::project,
     },
     documents::DocumentInput,
     protocol::source_name,
@@ -20,13 +21,7 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
 use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
 use lsp_types::{GotoDefinitionResponse, Uri};
-use std::{
-    collections::BTreeSet,
-    fs,
-    path::{Path, PathBuf},
-    process,
-    sync::Arc,
-};
+use std::{collections::BTreeSet, path::Path, process, sync::Arc};
 use tokio::sync::oneshot;
 
 const APP: &str = include_str!("../../../tests/fixtures/analysis/retention-app.kgr");
@@ -47,8 +42,8 @@ pub(crate) fn run(mut checkpoint: impl FnMut(RetentionCheckpoint)) {
         .join("../../target/lsp-retention")
         .join(process::id().to_string());
     let providers = [
-        project(&directory.join("first")),
-        project(&directory.join("replacement")),
+        project::create(&directory.join("first"), APP, API),
+        project::create(&directory.join("replacement"), APP, API),
     ];
     let budget = InputBudget::new(256 * 1024 * 1024);
     let worker = acquisition::start(root.clone(), budget.clone()).unwrap();
@@ -226,30 +221,6 @@ fn sample(
             .sum(),
         contexts: state.contexts.len(),
     }
-}
-
-fn project(directory: &Path) -> PathBuf {
-    for (name, text) in [
-        (
-            "Kagari.toml",
-            include_str!("../../../tests/fixtures/workspace/workspace.toml"),
-        ),
-        (
-            "app/Kagari.toml",
-            include_str!("../../../tests/fixtures/workspace/app.toml"),
-        ),
-        (
-            "api/Kagari.toml",
-            include_str!("../../../tests/fixtures/workspace/api.toml"),
-        ),
-        ("app/src/lib.kgr", APP),
-        ("api/src/lib.kgr", API),
-    ] {
-        let path = directory.join(name);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, text).unwrap();
-    }
-    directory.to_owned()
 }
 
 fn input(

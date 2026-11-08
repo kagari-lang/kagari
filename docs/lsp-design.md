@@ -602,7 +602,7 @@ opaque and cause no disk IO. A loose local file can discover declared sibling
 modules within its approved root; an untitled buffer has no implicit project imports.
 Saving it under a new URI is a new association, not a rename of a semantic identity.
 
-### Multi-project isolation: implementation references and queued correction
+### Multi-project isolation: implementation references and query scopes
 
 The 2026-11-08 source review distinguishes four boundaries: editor folders admit
 acquisition roots and configuration; discovered projects supply package/provider
@@ -687,9 +687,63 @@ an old read is held at LSP08. Extend B03/B04/B07 with increasing unrelated proje
 count, affected-context/work counters, exact result/coverage assertions and retained
 old captures. Performance targets and seed replay must distinguish scope
 selection from indexing work; no new latency or memory win is claimed here.
-The scope/cache correction has focused acquisition/index and real actor witnesses.
-The benchmark/fuzz extensions below remain required for this correction's final
-acceptance; the LSP08 lifecycle witnesses remain deferred.
+The correction strengthens existing index/actor scenarios with an independent
+broken physical copy, a required consumer with no root source, shared-provider
+edits and held old reads, and a newly discovered member joining a warm scope even
+though existing context stamps are unchanged. Dynamic folder lifecycle remains
+LSP08 work.
+
+The [scope component runner](../scripts/lsp_benchmark_scopes.py) reuses the
+existing `lsp_memory --scope-isolation` benchmark target. It samples 0/7/31
+unrelated two-member projects, three context-retirement cycles each, with cold,
+warm, unchanged/unrelated edit, provider edit, retained-old, held-only and released
+phases (63 checkpoints). Feature counters distinguish examined/selected contexts
+and successful shard construction; range/location equality and exact source/index
+retirement assertions are part of the workload. Acquisition worker round trips
+and feature queries are timed separately. Query timing starts after input
+maintenance; fixture materialization/native setup, actor, transport, diagnostics
+and RSS are outside this component measurement. Zero durations mean no operation
+was performed in that phase.
+
+The 2026-11-08 release/verification sample uses Rust/Cargo 1.99.1, LLVM 23.1.1,
+Windows 11 x64 build 26300, Intel Family 6 Model 151 Stepping 2 with 24 logical
+CPUs, balanced power, default Cargo build parallelism and one synchronous probe. Native preparation
+precedes each project-count group; contexts retire between samples; OS caches
+are uncontrolled. The build takes 27.64 s, separately from execution.
+The existing counting System allocator remains installed, so timings describe
+the instrumented component rather than the ordinary analyzer executable. Its frozen
+executable SHA256 is
+`8838c78927c027ad4c0cc89b11fadd1032fe97fad0ac819738a44f32e19d1729`.
+This freezes the verification working tree over `bb8581c4`; final edits affect
+membership-test assertions, documentation, comments and runner metadata. Three
+samples establish work/retention witnesses and the following medians, not percentiles or a paired speedup/regression claim:
+
+| Unrelated projects | Examined / selected contexts | Cold query (ms) | Warm query (ms) | Scope selection, cold (ms) | Acquisition, cold (ms) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 2 / 2 | 212.263 | 0.081 | 0.0084 | 2.861 |
+| 7 | 16 / 2 | 222.627 | 0.079 | 0.0113 | 20.623 |
+| 31 | 64 / 2 | 215.862 | 0.093 | 0.0291 | 82.361 |
+
+Cold/provider-edit requests build exactly two shards; warm and unrelated-edit
+requests build zero. Compact index rows remain 42,680 bytes. After current owners
+retire, old inputs remain charged until their capture is dropped; then all cases
+return to 530,481 native-baseline source bytes and zero index bytes. Source leases
+are not heap/RSS measurements. Scope selection still examines admitted contexts,
+and global acquisition clearly scales with unrelated inputs; this evidence does
+not claim either cost is removed.
+
+FZ04 adds independent-document admission/error/edit/removal actions and three
+curated seeds. Its fresh-world oracle preserves exact primary answers and old
+captures despite unrelated broken signatures. Physical provider graphs, missing
+reverse consumers and membership changes remain the deterministic index/actor
+sample rather than a filesystem-graph fuzz matrix. All eight curated seeds pass.
+A fresh one-worker MSVC ASan campaign passes 520 inputs in 61 s with a 60 s mutation
+budget, seed `11082026`, 1 KiB maximum input, 30 s per-input timeout and 2 GiB RSS
+ceiling; peak sanitizer RSS is 515 MiB. It uses nightly 1.101.0
+(`249c1e4e3`, LLVM 23.1.5), optimized fuzz release with line tables and default Cargo
+build parallelism; compilation (2 min 33 s) is excluded. No assertion, timeout or
+sanitizer findings occur. Longer/Linux sanitizer campaigns and full-workspace
+matrices remain CI scope.
 
 ### Overlay-aware capture
 
