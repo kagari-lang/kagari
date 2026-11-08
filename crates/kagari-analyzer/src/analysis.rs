@@ -29,29 +29,18 @@ use kagari_hir::analysis::{AnalysisDatabase, AnalysisSnapshot, error::AnalysisEr
 use kagari_source::generated::{GeneratedDocument, GeneratedDocuments};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    error::Error,
-    fmt,
     sync::Arc,
 };
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum AnalysisFailure {
+    #[error("analysis cancelled")]
     Cancelled,
+    #[error("{0}")]
     Capacity(String),
+    #[error("{0}")]
     Unavailable(String),
 }
-
-impl fmt::Display for AnalysisFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Cancelled => formatter.write_str("analysis cancelled"),
-            Self::Capacity(message) => message.fmt(formatter),
-            Self::Unavailable(message) => message.fmt(formatter),
-        }
-    }
-}
-
-impl Error for AnalysisFailure {}
 
 impl From<Cancelled> for AnalysisFailure {
     fn from(_: Cancelled) -> Self {

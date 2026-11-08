@@ -2681,6 +2681,12 @@ listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
 
+Analyzer failures derive Display/Error through the existing workspace `thiserror`
+dependency. Cancellation and capacity/unavailability text, plus the explicit
+semantic error conversions, retain their current behavior. The three affected
+analysis-owner regressions and the required local structure/format/Clippy/diff
+checks pass for this mechanical change.
+
 Known protocol methods now bind `METHOD`, `Params` and `Result` through the
 `lsp-types` request/notification descriptors. `protocol/typed.rs` consumes wire
 JSON into method-specific parameters. `TypedRequest<HoverRequest>` contains its
