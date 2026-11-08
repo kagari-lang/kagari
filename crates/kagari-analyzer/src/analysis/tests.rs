@@ -14,7 +14,7 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
 use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
-use lsp_types::{NumberOrString, Position, Range, Uri};
+use lsp_types::{GotoDefinitionResponse, NumberOrString, Position, Range, Uri};
 use std::{
     collections::BTreeSet,
     slice::from_ref,
@@ -365,7 +365,9 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
     let definition = state
         .definition(&input, &CancellationToken::default())
         .unwrap();
-    assert_eq!(definition.value["uri"].as_str(), Some(uri.as_str()));
+    assert!(
+        matches!(definition, Some(GotoDefinitionResponse::Scalar(location)) if location.uri == uri)
+    );
     assert!(state.contexts.is_empty());
     let modified = document(uri.clone(), &format!("{}\n", generated.text()), 2);
     let dependent = document("untitled:dependent".parse().unwrap(), SOURCE, 1);

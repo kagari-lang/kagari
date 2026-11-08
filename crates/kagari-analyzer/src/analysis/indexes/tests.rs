@@ -18,6 +18,7 @@ use kagari_hir::{
     types::{NominalType, TypeId},
 };
 use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
+use lsp_types::GotoDefinitionResponse;
 use std::{fs, sync::Arc};
 use tokio::sync::oneshot;
 
@@ -287,7 +288,9 @@ fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance
         if let QueryStep::Complete(result) =
             state.implementation(&input, &Default::default()).unwrap()
         {
-            assert_eq!(result.value.as_array().unwrap().len(), 1);
+            assert!(
+                matches!(result, Some(GotoDefinitionResponse::Array(locations)) if locations.len() == 1)
+            );
             completed = true;
             break;
         }

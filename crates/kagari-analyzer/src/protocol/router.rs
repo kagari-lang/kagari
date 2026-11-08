@@ -1,6 +1,9 @@
 //! Frozen method registration; typed Lattice messages retain admission permits.
 use crate::{
-    protocol::{Message as WireMessage, Notification, Request},
+    protocol::{
+        Message as WireMessage, Notification, Request,
+        typed::{TypedNotification, TypedRequest},
+    },
     session::{
         SessionActor,
         handlers::{
@@ -23,6 +26,10 @@ use lattice_actor::{
     context::HandlerContext,
     handle::ActorHandle,
     traits::{Handler, Message},
+};
+use lsp_types::{
+    notification::{self, Notification as LspNotification},
+    request::{self, Request as LspRequest},
 };
 use std::io::Error;
 use std::{collections::HashMap, future::Future, io, pin::Pin};
@@ -79,36 +86,36 @@ impl Router {
             requests: HashMap::new(),
             notifications: HashMap::new(),
         };
-        router.request("initialize", InitializeRequested);
-        router.request("shutdown", ShutdownRequested);
-        router.request("textDocument/hover", HoverRequested);
-        router.request("textDocument/definition", DefinitionRequested);
-        router.request("textDocument/implementation", ImplementationRequested);
-        router.request("textDocument/completion", CompletionRequested);
-        router.request("workspace/executeCommand", ReloadRequested);
-        router.notification("initialized", Initialized);
-        router.notification("exit", ExitRequested);
-        router.notification("$/cancelRequest", CancelRequested);
-        router.notification("window/workDoneProgress/cancel", ProgressCancelled);
-        router.notification("textDocument/didOpen", Opened);
-        router.notification("textDocument/didChange", Changed);
-        router.notification("textDocument/didClose", Closed);
-        router.notification("textDocument/didSave", Saved);
-        router.notification("workspace/didChangeWatchedFiles", WatchedFilesChanged);
+        router.request::<request::Initialize, _>(InitializeRequested);
+        router.request::<request::Shutdown, _>(ShutdownRequested);
+        router.request::<request::HoverRequest, _>(HoverRequested);
+        router.request::<request::GotoDefinition, _>(DefinitionRequested);
+        router.request::<request::GotoImplementation, _>(ImplementationRequested);
+        router.request::<request::Completion, _>(CompletionRequested);
+        router.request::<request::ExecuteCommand, _>(ReloadRequested);
+        router.notification::<notification::Initialized, _>(Initialized);
+        router.notification::<notification::Exit, _>(ExitRequested);
+        router.notification::<notification::Cancel, _>(CancelRequested);
+        router.notification::<notification::WorkDoneProgressCancel, _>(ProgressCancelled);
+        router.notification::<notification::DidOpenTextDocument, _>(Opened);
+        router.notification::<notification::DidChangeTextDocument, _>(Changed);
+        router.notification::<notification::DidCloseTextDocument, _>(Closed);
+        router.notification::<notification::DidSaveTextDocument, _>(Saved);
+        router.notification::<notification::DidChangeWatchedFiles, _>(WatchedFilesChanged);
         router
     }
 
-    pub fn request<M: Message>(&mut self, method: &'static str, make: fn(Request) -> M)
+    pub fn request<R: LspRequest + 'static, M: Message>(&mut self, make: fn(TypedRequest<R>) -> M)
     where
         SessionActor: Handler<M>,
     {
         assert!(
             self.requests
                 .insert(
-                    method,
+                    R::METHOD,
                     Box::new(move |handle, request, permit| Box::pin(send(
                         handle,
-                        make(request),
+                        make(TypedRequest::decode(request)),
                         permit
                     )))
                 )
@@ -117,17 +124,19 @@ impl Router {
         );
     }
 
-    pub fn notification<M: Message>(&mut self, method: &'static str, make: fn(Notification) -> M)
-    where
+    pub fn notification<N: LspNotification + 'static, M: Message>(
+        &mut self,
+        make: fn(TypedNotification<N>) -> M,
+    ) where
         SessionActor: Handler<M>,
     {
         assert!(
             self.notifications
                 .insert(
-                    method,
+                    N::METHOD,
                     Box::new(move |handle, notification, permit| Box::pin(send(
                         handle,
-                        make(notification),
+                        make(TypedNotification::decode(notification)),
                         permit
                     )))
                 )

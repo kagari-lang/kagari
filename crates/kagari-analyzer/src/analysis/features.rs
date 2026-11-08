@@ -6,15 +6,14 @@ pub(crate) mod projection;
 use crate::{
     analysis::{AnalysisFailure, AnalysisState},
     documents::DocumentInput,
+    protocol::typed::check_encoded_size,
     workspace::WorkspaceCapture,
 };
 use kagari_common::cancellation::CancellationToken;
-use lsp_types::Uri;
-use serde_json::{Value, to_writer};
-use std::{
-    io::{self, Error, Write},
-    sync::Arc,
-};
+use lsp_types::{ProgressToken, TextDocumentPositionParams, Uri, request::Request as LspRequest};
+use serde::Serialize;
+use serde_json::{Value, to_value};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct FeatureInput {
@@ -33,13 +32,15 @@ pub(crate) struct FeatureOutput {
 }
 
 impl FeatureOutput {
+    /// Erase a method-bound result only at the bounded protocol output boundary.
+    pub fn encode<T: Serialize>(value: T, limit: usize) -> Result<Self, AnalysisFailure> {
+        let value = to_value(value).map_err(projection::conversion)?;
+        Self::new(value, limit)
+    }
+
     /// Bound both encoded payload and retained JSON storage before actor delivery.
     pub fn new(value: Value, limit: usize) -> Result<Self, AnalysisFailure> {
-        let mut counter = PayloadCounter {
-            bytes: 0,
-            limit: limit.saturating_sub(4096),
-        };
-        to_writer(&mut counter, &value).map_err(|_| {
+        check_encoded_size(&value, limit.saturating_sub(4096)).map_err(|_| {
             AnalysisFailure::Capacity("semantic result exceeds its encoded byte limit".into())
         })?;
         let charge = retained_value_bytes(&value).saturating_add(4096);
@@ -49,25 +50,6 @@ impl FeatureOutput {
             ));
         }
         Ok(Self { value, charge })
-    }
-}
-
-struct PayloadCounter {
-    bytes: usize,
-    limit: usize,
-}
-
-impl Write for PayloadCounter {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if bytes.len() > self.limit.saturating_sub(self.bytes) {
-            return Err(Error::other("semantic result byte limit"));
-        }
-        self.bytes += bytes.len();
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
     }
 }
 
@@ -101,18 +83,26 @@ fn retained_value_bytes(value: &Value) -> usize {
     }
 }
 
-pub(crate) enum QueryStep {
-    Complete(FeatureOutput),
+pub(crate) enum QueryStep<T> {
+    Complete(T),
     Continue,
 }
 
-pub(crate) trait FeatureQuery: Send + 'static {
-    const METHOD: &'static str;
+pub(crate) type QueryParams<Q> = <<Q as FeatureQuery>::Request as LspRequest>::Params;
+pub(crate) type QueryResult<Q> = <<Q as FeatureQuery>::Request as LspRequest>::Result;
+
+pub(crate) trait FeatureQuery: Send + Sized + 'static {
+    type Request: LspRequest;
     const WORK_DONE: bool = false;
+
+    fn position(params: &QueryParams<Self>) -> &TextDocumentPositionParams;
+
+    fn work_done(params: &QueryParams<Self>) -> Option<&ProgressToken>;
 
     fn run(
         state: &mut AnalysisState,
         input: &FeatureInput,
+        params: &QueryParams<Self>,
         cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure>;
+    ) -> Result<QueryStep<QueryResult<Self>>, AnalysisFailure>;
 }

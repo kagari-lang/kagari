@@ -19,7 +19,8 @@ use kagari_hir::{
     },
     declarations::DeclarationId,
 };
-use serde_json::{Value, to_value};
+use lsp_types::{GotoDefinitionResponse, Location};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_INDEX_BYTES: usize = 16 * 1024 * 1024;
@@ -115,7 +116,7 @@ impl AnalysisState {
         &mut self,
         input: &FeatureInput,
         cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
+    ) -> Result<QueryStep<Option<GotoDefinitionResponse>>, AnalysisFailure> {
         let result = self.implementation_step(input, cancel);
         if !matches!(result, Ok(QueryStep::Continue)) {
             self.indexes.requests.remove(&input.serial);
@@ -128,7 +129,7 @@ impl AnalysisState {
         &mut self,
         input: &FeatureInput,
         cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
+    ) -> Result<QueryStep<Option<GotoDefinitionResponse>>, AnalysisFailure> {
         cancel.check()?;
         self.indexes.retain_generation(input.capture.generation);
         self.check_generated_views(&input.capture, &input.documents)?;
@@ -169,8 +170,9 @@ impl AnalysisState {
                     .filter(|ty| !ty.is_unresolved())
             };
             if selected.is_none() && receiver.is_none() {
-                return FeatureOutput::new(Value::Array(Vec::new()), input.limit)
-                    .map(QueryStep::Complete);
+                return Ok(QueryStep::Complete(Some(GotoDefinitionResponse::Array(
+                    Vec::new(),
+                ))));
             }
             let target = ImplementationTarget {
                 declaration: selected
@@ -263,23 +265,23 @@ impl AnalysisState {
                     .len()
                     .saturating_mul(6)
                     .saturating_add(256);
-                let value = to_value(target)
-                    .map_err(|error| AnalysisFailure::Unavailable(error.to_string()))?;
-                let output = FeatureOutput::new(value, input.limit)?;
+                let output = FeatureOutput::encode(&target, input.limit)?;
                 // Each element is measured before retaining the next one. Include
                 // vector growth and a worst-case JSON URI escape bound, rather
                 // than constructing an unbounded typed array before admission.
                 projected_bytes = projected_bytes
                     .saturating_add(output.charge.saturating_sub(4096).max(encoded_bound))
-                    .saturating_add(size_of::<Value>() * 2);
+                    .saturating_add(size_of::<Value>().max(size_of::<Location>()) * 2);
                 if projected_bytes > input.limit {
                     return Err(AnalysisFailure::Capacity(
                         "implementation locations exceed their projection byte limit".into(),
                     ));
                 }
-                locations.push(output.value);
+                locations.push(target);
             }
         }
-        FeatureOutput::new(Value::Array(locations), input.limit).map(QueryStep::Complete)
+        Ok(QueryStep::Complete(Some(GotoDefinitionResponse::Array(
+            locations,
+        ))))
     }
 }

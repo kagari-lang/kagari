@@ -2,23 +2,34 @@
 use crate::analysis::{
     AnalysisFailure, AnalysisState,
     features::{
-        FeatureInput, FeatureOutput, FeatureQuery, QueryStep,
-        projection::{conversion, location, selected_context},
+        FeatureInput, FeatureQuery, QueryParams, QueryResult, QueryStep,
+        projection::{location, selected_context},
     },
 };
 use kagari_common::cancellation::CancellationToken;
-use serde_json::{Value, to_value};
+use lsp_types::{
+    GotoDefinitionResponse, ProgressToken, TextDocumentPositionParams, request::GotoDefinition,
+};
 
 pub(crate) struct DefinitionQuery;
 
 impl FeatureQuery for DefinitionQuery {
-    const METHOD: &'static str = "textDocument/definition";
+    type Request = GotoDefinition;
+
+    fn position(params: &QueryParams<Self>) -> &TextDocumentPositionParams {
+        &params.text_document_position_params
+    }
+
+    fn work_done(params: &QueryParams<Self>) -> Option<&ProgressToken> {
+        params.work_done_progress_params.work_done_token.as_ref()
+    }
 
     fn run(
         state: &mut AnalysisState,
         input: &FeatureInput,
+        _params: &QueryParams<Self>,
         cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
+    ) -> Result<QueryStep<QueryResult<Self>>, AnalysisFailure> {
         state.definition(input, cancel).map(QueryStep::Complete)
     }
 }
@@ -28,23 +39,22 @@ impl AnalysisState {
         &mut self,
         input: &FeatureInput,
         cancel: &CancellationToken,
-    ) -> Result<FeatureOutput, AnalysisFailure> {
+    ) -> Result<Option<GotoDefinitionResponse>, AnalysisFailure> {
         let retained = self.editor_for_input(input, cancel)?;
         let editor = &retained.editor;
         let value = match editor.definition_at(input.offset) {
             Some(declaration) => {
                 let context = selected_context(input)?;
-                to_value(location(
+                Some(GotoDefinitionResponse::Scalar(location(
                     input,
                     context,
                     editor.signature_snapshot(),
                     declaration.location,
-                )?)
-                .map_err(conversion)?
+                )?))
             }
-            None => Value::Null,
+            None => None,
         };
         cancel.check()?;
-        FeatureOutput::new(value, input.limit)
+        Ok(value)
     }
 }

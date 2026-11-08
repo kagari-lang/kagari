@@ -19,6 +19,7 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
 use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
+use serde::Serialize;
 use serde_json::Value;
 use std::{cell::RefCell, collections::BTreeSet, path::Path, process, sync::Arc};
 use tokio::sync::oneshot;
@@ -329,11 +330,11 @@ fn queries(state: &mut AnalysisState, input: &FeatureInput) -> Vec<Answer> {
         match state.implementation(&at, &token) {
             Ok(QueryStep::Continue) => {}
             Ok(QueryStep::Complete(output)) => {
-                complete = Some(Answer::Complete(output.value));
+                complete = Some(answer(Ok(output)));
                 break;
             }
             Err(error) => {
-                complete = Some(answer(Err(error)));
+                complete = Some(answer::<()>(Err(error)));
                 break;
             }
         }
@@ -344,7 +345,8 @@ fn queries(state: &mut AnalysisState, input: &FeatureInput) -> Vec<Answer> {
     result
 }
 
-fn answer(result: Result<FeatureOutput, AnalysisFailure>) -> Answer {
+fn answer<T: Serialize>(result: Result<T, AnalysisFailure>) -> Answer {
+    let result = result.and_then(|value| FeatureOutput::encode(value, 1024 * 1024));
     match result {
         Ok(output) => Answer::Complete(output.value),
         Err(AnalysisFailure::Cancelled) => Answer::Cancelled,

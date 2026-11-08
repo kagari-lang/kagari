@@ -19,7 +19,7 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
 use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
-use lsp_types::Uri;
+use lsp_types::{GotoDefinitionResponse, Uri};
 use std::{
     collections::BTreeSet,
     fs,
@@ -138,7 +138,7 @@ pub(crate) fn run(mut checkpoint: impl FnMut(RetentionCheckpoint)) {
         state.retain_input_generation(input.capture.generation);
         state.retain_contexts(&live);
         let answer = state.hover(&input, &Default::default()).unwrap();
-        assert!(!answer.value.is_null());
+        assert!(answer.is_some());
         if edit % 64 == 0 || matches!(edit, 100 | 500 | 1000) {
             let mut search = input.clone();
             search.offset = text.find("api::Read").unwrap() + "api::".len();
@@ -147,7 +147,9 @@ pub(crate) fn run(mut checkpoint: impl FnMut(RetentionCheckpoint)) {
                 match state.implementation(&search, &Default::default()).unwrap() {
                     QueryStep::Continue => {}
                     QueryStep::Complete(result) => {
-                        assert_eq!(result.value.as_array().unwrap().len(), 1);
+                        assert!(
+                            matches!(result, Some(GotoDefinitionResponse::Array(locations)) if locations.len() == 1)
+                        );
                         complete = true;
                         break;
                     }

@@ -1,22 +1,31 @@
 //! Hover query policy and protocol presentation.
 use crate::analysis::{
     AnalysisFailure, AnalysisState,
-    features::{FeatureInput, FeatureOutput, FeatureQuery, QueryStep, projection::conversion},
+    features::{FeatureInput, FeatureQuery, QueryParams, QueryResult, QueryStep},
 };
 use kagari_common::cancellation::CancellationToken;
 use lsp_types::{Hover, HoverContents, LanguageString, MarkedString};
-use serde_json::{Value, to_value};
+use lsp_types::{ProgressToken, TextDocumentPositionParams, request::HoverRequest};
 
 pub(crate) struct HoverQuery;
 
 impl FeatureQuery for HoverQuery {
-    const METHOD: &'static str = "textDocument/hover";
+    type Request = HoverRequest;
+
+    fn position(params: &QueryParams<Self>) -> &TextDocumentPositionParams {
+        &params.text_document_position_params
+    }
+
+    fn work_done(params: &QueryParams<Self>) -> Option<&ProgressToken> {
+        params.work_done_progress_params.work_done_token.as_ref()
+    }
 
     fn run(
         state: &mut AnalysisState,
         input: &FeatureInput,
+        _params: &QueryParams<Self>,
         cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
+    ) -> Result<QueryStep<QueryResult<Self>>, AnalysisFailure> {
         state.hover(input, cancel).map(QueryStep::Complete)
     }
 }
@@ -26,7 +35,7 @@ impl AnalysisState {
         &mut self,
         input: &FeatureInput,
         cancel: &CancellationToken,
-    ) -> Result<FeatureOutput, AnalysisFailure> {
+    ) -> Result<Option<Hover>, AnalysisFailure> {
         let retained = self.editor_for_input(input, cancel)?;
         let editor = &retained.editor;
         let mut contents = Vec::new();
@@ -68,14 +77,13 @@ impl AnalysisState {
         }
         cancel.check()?;
         let value = if contents.is_empty() {
-            Value::Null
+            None
         } else {
-            to_value(Hover {
+            Some(Hover {
                 contents: HoverContents::Array(contents),
                 range: None,
             })
-            .map_err(conversion)?
         };
-        FeatureOutput::new(value, input.limit)
+        Ok(value)
     }
 }

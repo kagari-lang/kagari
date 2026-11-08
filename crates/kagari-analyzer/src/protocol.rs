@@ -2,6 +2,7 @@
 pub mod codec;
 mod envelope;
 pub(crate) mod router;
+pub(crate) mod typed;
 
 #[cfg(any(test, feature = "verification"))]
 pub(crate) mod verification;

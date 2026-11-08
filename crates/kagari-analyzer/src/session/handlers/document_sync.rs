@@ -1,31 +1,38 @@
 //! Ordered document changes; source storage retains the text and coordinate authority.
 use crate::{
-    protocol::{ErrorCode, Notification, Request},
+    protocol::{
+        ErrorCode,
+        typed::{TypedNotification, TypedRequest},
+    },
     session::{Lifecycle, SessionActor},
 };
 use lattice_actor::{context::HandlerContext, traits::Handler};
-use lsp_types::{DidChangeWatchedFilesParams, DidSaveTextDocumentParams, ExecuteCommandParams};
-use serde_json::Value;
-use serde_json::from_value;
+use lsp_types::{
+    notification::{
+        DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument, DidOpenTextDocument,
+        DidSaveTextDocument,
+    },
+    request::{ExecuteCommand, Request as LspRequest},
+};
 use std::io;
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct Opened(pub Notification);
+pub(crate) struct Opened(pub TypedNotification<DidOpenTextDocument>);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct Changed(pub Notification);
+pub(crate) struct Changed(pub TypedNotification<DidChangeTextDocument>);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct Closed(pub Notification);
+pub(crate) struct Closed(pub TypedNotification<DidCloseTextDocument>);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct Saved(pub Notification);
+pub(crate) struct Saved(pub TypedNotification<DidSaveTextDocument>);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct WatchedFilesChanged(pub Notification);
+pub(crate) struct WatchedFilesChanged(pub TypedNotification<DidChangeWatchedFiles>);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct ReloadRequested(pub Request);
+pub(crate) struct ReloadRequested(pub TypedRequest<ExecuteCommand>);
 
 impl Handler<Opened> for SessionActor {
     async fn handle(
@@ -34,8 +41,10 @@ impl Handler<Opened> for SessionActor {
         message: Opened,
     ) -> io::Result<()> {
         if self.state == Lifecycle::Running {
-            let result = from_value(message.0.params)
-                .map_err(|error| error.to_string())
+            let result = message
+                .0
+                .params
+                .map_err(|_| "invalid document notification parameters".to_owned())
                 .and_then(|params| self.documents.open(params));
             if let Err(error) = result {
                 self.logger.write(error);
@@ -60,8 +69,10 @@ impl Handler<Changed> for SessionActor {
         message: Changed,
     ) -> io::Result<()> {
         if self.state == Lifecycle::Running {
-            let result = from_value(message.0.params)
-                .map_err(|error| error.to_string())
+            let result = message
+                .0
+                .params
+                .map_err(|_| "invalid document notification parameters".to_owned())
                 .and_then(|params| self.documents.change(params));
             if let Err(error) = result {
                 self.logger.write(error);
@@ -86,8 +97,10 @@ impl Handler<Closed> for SessionActor {
         message: Closed,
     ) -> io::Result<()> {
         if self.state == Lifecycle::Running {
-            let result = from_value(message.0.params)
-                .map_err(|error| error.to_string())
+            let result = message
+                .0
+                .params
+                .map_err(|_| "invalid document notification parameters".to_owned())
                 .and_then(|params| self.documents.close(params));
             if let Err(error) = result {
                 self.logger.write(error);
@@ -107,9 +120,7 @@ impl Handler<Closed> for SessionActor {
 
 impl Handler<Saved> for SessionActor {
     async fn handle(&mut self, _: &mut HandlerContext<'_, Self>, message: Saved) -> io::Result<()> {
-        if self.state == Lifecycle::Running
-            && from_value::<DidSaveTextDocumentParams>(message.0.params).is_ok()
-        {
+        if self.state == Lifecycle::Running && message.0.params.is_ok() {
             // The authoritative unsaved buffer is changed only by didChange.
             self.invalidate_inputs()?;
         }
@@ -123,9 +134,7 @@ impl Handler<WatchedFilesChanged> for SessionActor {
         _: &mut HandlerContext<'_, Self>,
         message: WatchedFilesChanged,
     ) -> io::Result<()> {
-        if self.state == Lifecycle::Running
-            && from_value::<DidChangeWatchedFilesParams>(message.0.params).is_ok()
-        {
+        if self.state == Lifecycle::Running && message.0.params.is_ok() {
             self.invalidate_inputs()?;
         }
         Ok(())
@@ -138,13 +147,13 @@ impl Handler<ReloadRequested> for SessionActor {
         ctx: &mut HandlerContext<'_, Self>,
         message: ReloadRequested,
     ) -> io::Result<()> {
-        let Some(serial) = self.admit(ctx, message.0.id, "workspace/executeCommand") else {
+        let Some(serial) = self.admit(ctx, message.0.id, ExecuteCommand::METHOD) else {
             return Ok(());
         };
         if !self.require_running(serial)? {
             return Ok(());
         }
-        let Ok(params) = from_value::<ExecuteCommandParams>(message.0.params) else {
+        let Ok(params) = message.0.params else {
             return self.reject(
                 serial,
                 ErrorCode::InvalidParams,
@@ -160,6 +169,6 @@ impl Handler<ReloadRequested> for SessionActor {
         }
         self.invalidate_inputs()?;
         // Null acknowledges scheduling; semantic reads use the resulting input barrier.
-        self.finish(serial, Ok(Value::Null))
+        self.finish_lsp::<ExecuteCommand>(serial, None)
     }
 }

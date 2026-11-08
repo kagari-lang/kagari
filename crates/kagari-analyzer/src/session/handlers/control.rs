@@ -1,11 +1,17 @@
 //! Request policy shared by unsupported methods and client cancellation.
 use crate::{
-    protocol::{ErrorCode, MAX_REQUEST_ID_BYTES, Notification, Request, RequestId, Response},
+    protocol::{
+        ErrorCode, MAX_REQUEST_ID_BYTES, Notification, Request, RequestId, Response,
+        typed::TypedNotification,
+    },
     session::SessionActor,
 };
 use lattice_actor::{context::HandlerContext, traits::Handler};
-use lsp_types::{ProgressToken, WorkDoneProgressCancelParams};
-use serde_json::{Value, from_value};
+use lsp_types::{
+    NumberOrString, ProgressToken,
+    notification::{Cancel, WorkDoneProgressCancel},
+};
+
 use std::io;
 
 #[derive(lattice_actor::Message)]
@@ -18,7 +24,7 @@ pub(crate) struct UnknownNotification(pub Notification);
 pub(crate) struct ClientResponse(pub Response);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct CancelRequested(pub Notification);
+pub(crate) struct CancelRequested(pub TypedNotification<Cancel>);
 
 impl Handler<UnknownRequest> for SessionActor {
     async fn handle(
@@ -68,13 +74,13 @@ impl Handler<CancelRequested> for SessionActor {
         _: &mut HandlerContext<'_, Self>,
         message: CancelRequested,
     ) -> io::Result<()> {
-        let id = match message.0.params.get("id") {
-            Some(Value::Number(value)) => value
-                .as_i64()
-                .and_then(|id| i32::try_from(id).ok())
-                .map(RequestId::Integer),
-            Some(Value::String(value)) if value.len() <= MAX_REQUEST_ID_BYTES => {
-                Some(RequestId::String(value.clone()))
+        let Ok(params) = message.0.params else {
+            return Ok(());
+        };
+        let id = match params.id {
+            NumberOrString::Number(id) => Some(RequestId::Integer(id)),
+            NumberOrString::String(id) if id.len() <= MAX_REQUEST_ID_BYTES => {
+                Some(RequestId::String(id))
             }
             _ => None,
         };
@@ -91,7 +97,7 @@ impl Handler<CancelRequested> for SessionActor {
 
 /// Work-done cancellation addresses the active progress token, not the request ID.
 #[derive(lattice_actor::Message)]
-pub(crate) struct ProgressCancelled(pub Notification);
+pub(crate) struct ProgressCancelled(pub TypedNotification<WorkDoneProgressCancel>);
 
 impl Handler<ProgressCancelled> for SessionActor {
     async fn handle(
@@ -99,7 +105,7 @@ impl Handler<ProgressCancelled> for SessionActor {
         _: &mut HandlerContext<'_, Self>,
         message: ProgressCancelled,
     ) -> io::Result<()> {
-        let Ok(params) = from_value::<WorkDoneProgressCancelParams>(message.0.params) else {
+        let Ok(params) = message.0.params else {
             return Ok(());
         };
         if matches!(&params.token, ProgressToken::String(token) if token.len() > 256) {

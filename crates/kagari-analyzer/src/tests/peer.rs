@@ -38,7 +38,9 @@ const WAIT: Duration = Duration::from_secs(5);
 pub(super) async fn send(peer: &mut DuplexStream, message: Value) {
     timeout(WAIT, async {
         let body = serde_json::to_vec(&message).unwrap();
-        assert!(body.len() <= 64 * 1024);
+        // Outgoing witnesses may cross the 64 KiB semantic-parameter limit.
+        // Incoming frame/history limits remain independently bounded.
+        assert!(body.len() <= 128 * 1024);
         peer.write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
             .await
             .unwrap();

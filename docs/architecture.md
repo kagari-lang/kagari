@@ -2507,6 +2507,15 @@ diagnostics receive a turn after eight reliable frames. Clean completed contexts
 emit an empty result without retaining empty URI tombstones. Publication storage
 has its own finite budget, separate from reliable output and source input leases.
 
+The protocol router registers known methods using `lsp-types` descriptors, binding
+method name, parameters and response type. Known actor messages contain a typed
+request/notification rather than raw JSON. Invalid-parameter markers preserve
+session admission and lifecycle error precedence. Semantic parameters remain
+typed across capture waits and worker continuations, with a 64 KiB retained
+parameter cap. Feature queries return their descriptor's Result; worker-side
+bounded serialization is the common JSON output boundary. Unknown methods and
+uncorrelated client responses remain wire envelopes.
+
 Protocol handlers are grouped under `session/handlers`: navigation (hover,
 definition and implementation), completion, lifecycle, document synchronization
 and control. Corresponding worker query policies and presentation live under

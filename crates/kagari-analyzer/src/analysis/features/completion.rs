@@ -2,23 +2,34 @@
 use crate::analysis::{
     AnalysisFailure, AnalysisState,
     diagnostics::protocol_range,
-    features::{FeatureInput, FeatureOutput, FeatureQuery, QueryStep, projection::conversion},
+    features::{FeatureInput, FeatureQuery, QueryParams, QueryResult, QueryStep},
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::aggregates::implementations::ImplementationSearchError;
-use lsp_types::{CompletionItem, CompletionItemKind, CompletionList, CompletionTextEdit, TextEdit};
-use serde_json::to_value;
+use lsp_types::{
+    CompletionItem, CompletionItemKind, CompletionList, CompletionResponse, CompletionTextEdit,
+    ProgressToken, TextDocumentPositionParams, TextEdit, request::Completion,
+};
 
 pub(crate) struct CompletionQuery;
 
 impl FeatureQuery for CompletionQuery {
-    const METHOD: &'static str = "textDocument/completion";
+    type Request = Completion;
+
+    fn position(params: &QueryParams<Self>) -> &TextDocumentPositionParams {
+        &params.text_document_position
+    }
+
+    fn work_done(params: &QueryParams<Self>) -> Option<&ProgressToken> {
+        params.work_done_progress_params.work_done_token.as_ref()
+    }
 
     fn run(
         state: &mut AnalysisState,
         input: &FeatureInput,
+        _params: &QueryParams<Self>,
         cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
+    ) -> Result<QueryStep<QueryResult<Self>>, AnalysisFailure> {
         state.completion(input, cancel).map(QueryStep::Complete)
     }
 }
@@ -28,7 +39,7 @@ impl AnalysisState {
         &mut self,
         input: &FeatureInput,
         cancel: &CancellationToken,
-    ) -> Result<FeatureOutput, AnalysisFailure> {
+    ) -> Result<Option<CompletionResponse>, AnalysisFailure> {
         let retained = self.editor_for_input(input, cancel)?;
         let editor = &retained.editor;
         let completions = editor
@@ -69,13 +80,9 @@ impl AnalysisState {
                 ..Default::default()
             });
         }
-        FeatureOutput::new(
-            to_value(CompletionList {
-                is_incomplete: false,
-                items,
-            })
-            .map_err(conversion)?,
-            input.limit,
-        )
+        Ok(Some(CompletionResponse::List(CompletionList {
+            is_incomplete: false,
+            items,
+        })))
     }
 }

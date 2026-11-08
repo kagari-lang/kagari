@@ -295,7 +295,8 @@ crates/kagari-analyzer/src/
   server.rs, server/options.rs   # Runtime, worker lifetimes and validated limits
   protocol/
     codec.rs, envelope.rs        # Shared framing and JSON-RPC validation
-    router.rs                    # Frozen wire method -> concrete Lattice message
+    router.rs                    # Descriptor METHOD -> concrete typed Lattice message
+    typed.rs                     # Method Params/Result decoding and bounded serialization
   transport/
     tcp.rs, stdio.rs             # Transport drivers
     reader.rs, writer.rs         # Admission, framed IO and acknowledgements
@@ -373,8 +374,8 @@ transport/{tcp,stdio} -> protocol/{codec,envelope,router}
   -> session/handlers/navigation/hover: HoverRequested
   -> session/feature_scheduler: admit_feature::<HoverQuery>
        request registry -> retained capture barrier -> context scheduling
-  -> analysis/features/navigation/hover: HoverQuery::run -> AnalysisState::hover
-       source/HIR query -> bounded owned FeatureOutput
+  -> analysis/features/navigation/hover: HoverQuery::run -> Option<Hover>
+       source/HIR query -> typed result -> bounded owned FeatureOutput
   -> typed oneshot -> Lattice pipe_to_self -> FeatureFinished<HoverQuery>
   -> shared scheduler -> session terminal decision -> outbox -> writer -> editor
 ```
@@ -2659,29 +2660,48 @@ listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
 
-Message marker implementations use Lattice's `#[derive(lattice_actor::Message)]`
-from the pinned revision, including generic ingress/completion messages. Generic
-`Message`/`FeatureQuery` constraints stay on their owning structs. No local derive
-wrapper or additional actor dependency is introduced.
-All 35 empty marker implementations are replaced. Verification-enabled target
-checking, three semantic actor tests, structure, workspace all-target Clippy,
-formatting and diff checks pass for this mechanical maintenance change.
+Known protocol methods now bind `METHOD`, `Params` and `Result` through the
+`lsp-types` request/notification descriptors. `protocol/typed.rs` consumes wire
+JSON into method-specific parameters. `TypedRequest<HoverRequest>` contains its
+ID and `Result<HoverParams, InvalidParams>`; the bounded error marker defers
+rejection until session admission/lifecycle checks, retaining their precedence.
+Known notifications likewise carry typed parameters. Unknown methods and
+uncorrelated client responses retain their wire envelope because no method
+contract is available. The router has no independent method-name string for a
+known registration.
 
-Post-pilot request organization is aligned with functional ownership:
-`session/handlers` groups navigation, completion, lifecycle, document sync and
-control; `analysis/features` mirrors the semantic domains. RequestRegistry and
-FeatureScheduler remain separate shared state owners. The refactor moves existing
-handlers and query bodies without changing routing, queue policy, snapshot
-selection, progress or terminal behavior. Focused actor/scheduler/process tests
-and repository implementation checks validate this maintenance checkpoint.
-Seventeen focused tests pass: three semantic actor cases, context scheduling,
-three registry cases, ordered overlay/workspace input propagation and nine actual
-stdio/TCP process cases. Structure (1,968 Rust files, zero violations), workspace
-all-target Clippy, formatting and diff checks pass. The moved hover/definition/
-completion method bodies match their prior implementation exactly after newline
-normalization. Existing performance/fuzz evidence is retained for unchanged
-mechanisms; full-workspace and exhaustive matrices remain CI-only.
+Each FeatureQuery selects its protocol Request. Its associated Params survive
+capture waits and continuations through a shared Arc, and its worker returns
+`QueryStep<Request::Result>`. Hover returns `Option<Hover>`, definition and
+implementation their Goto responses, completion `Option<CompletionResponse>`.
+The worker's shared output adapter performs bounded serialization before sending
+owned JSON to the actor. Lifecycle/command responses also use descriptor-bound
+result serialization; initialize retains the documented lsp-types 0.97 wire-field
+patch at that boundary. There is no second JSON decode inside business handlers
+or a common-position decoder that skips method-specific fields.
 
+Retained semantic parameters have a 64 KiB serialized-size cap, checked without
+an encoded allocation before scheduling; source leases and output budgets remain
+separate. Full declared parameter shapes are validated even for currently unused
+optional fields. The existing held-worker actor scenario now asserts invalid
+completion context and oversized retained parameters reject before queuing, while
+an undecodable pre-initialize hover still reports ServerNotInitialized first.
+This extends distinct decoding/lifecycle/retention contracts without a new test
+binary or mirroring private implementation state.
+
+
+Request handlers remain grouped by feature, with RequestRegistry and
+FeatureScheduler owning shared request state and scheduling. Lattice derives
+all marker implementations, retaining generic bounds. Typed-method maintenance
+passes the strengthened actor scenario, the other cancellation/continuation
+cases, three analysis-owner cases, nine process cases, curated analysis fuzz
+replay and both independent Node transports. The actor peer's outgoing witness
+limit is 128 KiB so the new oversized-parameter case reaches production's
+64 KiB admission boundary; incoming frame/history limits are unchanged.
+Structure (1,969 Rust files, zero violations), workspace all-target Clippy,
+formatting and diff checks pass. Prior pilot benchmark numbers below describe
+their frozen images; no new speed claim is made for the typed-contract change.
+Full-workspace/exhaustive tests and longer sanitizer campaigns remain CI-only.
 
 LSP04's functional/editor integration, formal performance, retention and bounded
 sanitizer checks pass. Selected local Gate A acceptance is complete; later

@@ -16,7 +16,9 @@ pub(crate) mod verification;
 use crate::{
     documents::Documents,
     logging::LogSink,
-    protocol::{ErrorCode, Message as WireMessage, RequestId, Response, ResponseError},
+    protocol::{
+        ErrorCode, Message as WireMessage, RequestId, Response, ResponseError, typed::encode_result,
+    },
     server::{
         ProcessNotice, ThreadOwners,
         options::{Endpoint, SessionLimits},
@@ -38,6 +40,7 @@ use lattice_actor::{
     state_machine::Stateless,
     traits::{Actor, MessageMetadata, MessageOutcome},
 };
+use lsp_types::request::Request as LspRequest;
 use serde_json::Value;
 use std::{
     io,
@@ -166,6 +169,13 @@ impl SessionActor {
                 None
             }
         }
+    }
+
+    pub fn finish_lsp<R: LspRequest>(&mut self, serial: u64, result: R::Result) -> io::Result<()> {
+        self.finish(
+            serial,
+            Ok(encode_result::<R>(result).map_err(Error::other)?),
+        )
     }
 
     pub fn finish(&mut self, serial: u64, outcome: Result<Value, ResponseError>) -> io::Result<()> {

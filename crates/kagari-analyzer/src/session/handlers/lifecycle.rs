@@ -1,29 +1,34 @@
 //! Lifecycle messages are ordinary typed Lattice handlers, including invalid phases.
 use crate::{
-    protocol::{ErrorCode, Notification, Request},
+    protocol::{
+        ErrorCode,
+        typed::{TypedNotification, TypedRequest, encode_result},
+    },
     session::{Lifecycle, SessionActor, timers::Deadline},
 };
 use lattice_actor::{context::HandlerContext, traits::Handler};
 use lsp_types::{
     CompletionOptions, ExecuteCommandOptions, HoverProviderCapability,
-    ImplementationProviderCapability, InitializeParams, InitializeResult, InitializedParams, OneOf,
-    PositionEncodingKind, ServerCapabilities, ServerInfo, StaticTextDocumentRegistrationOptions,
-    TextDocumentSyncKind, TextDocumentSyncOptions,
+    ImplementationProviderCapability, InitializeResult, OneOf, PositionEncodingKind,
+    ServerCapabilities, ServerInfo, StaticTextDocumentRegistrationOptions, TextDocumentSyncKind,
+    TextDocumentSyncOptions,
+    notification::{Exit, Initialized as InitializedMethod},
+    request::{Initialize, Request as LspRequest, Shutdown},
 };
-use serde_json::{Value, from_value, to_value};
+use serde_json::Value;
 use std::io::{self, Error};
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct InitializeRequested(pub Request);
+pub(crate) struct InitializeRequested(pub TypedRequest<Initialize>);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct Initialized(pub Notification);
+pub(crate) struct Initialized(pub TypedNotification<InitializedMethod>);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct ShutdownRequested(pub Request);
+pub(crate) struct ShutdownRequested(pub TypedRequest<Shutdown>);
 
 #[derive(lattice_actor::Message)]
-pub(crate) struct ExitRequested(pub Notification);
+pub(crate) struct ExitRequested(pub TypedNotification<Exit>);
 
 impl Handler<InitializeRequested> for SessionActor {
     async fn handle(
@@ -32,7 +37,7 @@ impl Handler<InitializeRequested> for SessionActor {
         message: InitializeRequested,
     ) -> io::Result<()> {
         let request = message.0;
-        let Some(serial) = self.admit(ctx, request.id, "initialize") else {
+        let Some(serial) = self.admit(ctx, request.id, Initialize::METHOD) else {
             return Ok(());
         };
         if self.state != Lifecycle::AwaitInitialize {
@@ -42,7 +47,7 @@ impl Handler<InitializeRequested> for SessionActor {
                 "server is already initialized",
             );
         }
-        let params = match from_value::<InitializeParams>(request.params) {
+        let params = match request.params {
             Ok(params) => params,
             Err(_) => {
                 return self.reject(
@@ -71,7 +76,7 @@ impl Handler<InitializeRequested> for SessionActor {
                 .unwrap_or(false),
         );
         self.state = Lifecycle::AwaitInitialized;
-        let mut result = to_value(capabilities()).map_err(Error::other)?;
+        let mut result = encode_result::<Initialize>(capabilities()).map_err(Error::other)?;
         // lsp-types 0.97's implementation capability omits WorkDoneProgressOptions.
         // Keep its typed registration fields and fill this standard wire field.
         result["capabilities"]["implementationProvider"]["workDoneProgress"] = Value::Bool(true);
@@ -85,9 +90,7 @@ impl Handler<Initialized> for SessionActor {
         ctx: &mut HandlerContext<'_, Self>,
         message: Initialized,
     ) -> io::Result<()> {
-        if self.state == Lifecycle::AwaitInitialized
-            && from_value::<InitializedParams>(message.0.params).is_ok()
-        {
+        if self.state == Lifecycle::AwaitInitialized && message.0.params.is_ok() {
             self.state = Lifecycle::Running;
             self.timers.remove(Deadline::Initialize);
             self.start_acquisition(ctx)?;
@@ -104,13 +107,13 @@ impl Handler<ShutdownRequested> for SessionActor {
         message: ShutdownRequested,
     ) -> io::Result<()> {
         let request = message.0;
-        let Some(serial) = self.admit(ctx, request.id, "shutdown") else {
+        let Some(serial) = self.admit(ctx, request.id, Shutdown::METHOD) else {
             return Ok(());
         };
         if !self.require_running(serial)? {
             return Ok(());
         }
-        if !request.params.is_null() {
+        if request.params.is_err() {
             return self.reject(
                 serial,
                 ErrorCode::InvalidParams,
@@ -132,7 +135,7 @@ impl Handler<ShutdownRequested> for SessionActor {
             }
         }
         self.shutdown_serial = Some(serial);
-        self.finish(serial, Ok(Value::Null))
+        self.finish_lsp::<Shutdown>(serial, ())
     }
 }
 
@@ -142,7 +145,7 @@ impl Handler<ExitRequested> for SessionActor {
         ctx: &mut HandlerContext<'_, Self>,
         message: ExitRequested,
     ) -> io::Result<()> {
-        if !message.0.params.is_null()
+        if message.0.params.is_err()
             || !matches!(self.state, Lifecycle::ShuttingDown | Lifecycle::AwaitExit)
         {
             self.fail(

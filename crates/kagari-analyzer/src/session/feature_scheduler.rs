@@ -7,9 +7,12 @@ use crate::session::analysis::testing::CompletionGate;
 use crate::{
     analysis::{
         AnalysisFailure,
-        features::{FeatureInput, FeatureOutput, FeatureQuery, QueryStep},
+        features::{FeatureInput, FeatureOutput, FeatureQuery, QueryParams, QueryStep},
     },
-    protocol::{ErrorCode, Request, source_name},
+    protocol::{
+        ErrorCode, source_name,
+        typed::{TypedRequest, check_encoded_size},
+    },
     session::{Lifecycle, SessionActor, feature_scheduler::progress::ProgressStreams},
     workspace::{ContextKey, WorkspaceCapture},
 };
@@ -20,8 +23,7 @@ use lattice_actor::{
     context::{ActorContext, HandlerContext},
     traits::Handler,
 };
-use lsp_types::{ProgressToken, TextDocumentPositionParams};
-use serde_json::from_value;
+use lsp_types::{ProgressToken, request::Request as LspRequest};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{self, Error},
@@ -146,7 +148,8 @@ impl FeatureScheduler {
 struct FeatureFinished<Q: FeatureQuery> {
     job: u64,
     input: FeatureInput,
-    result: Result<Result<QueryStep, AnalysisFailure>, RecvError>,
+    params: Arc<QueryParams<Q>>,
+    result: Result<Result<QueryStep<FeatureOutput>, AnalysisFailure>, RecvError>,
     query: PhantomData<Q>,
 }
 
@@ -154,45 +157,49 @@ impl SessionActor {
     pub fn admit_feature<Q: FeatureQuery>(
         &mut self,
         ctx: &mut ActorContext<Self>,
-        request: Request,
+        request: TypedRequest<Q::Request>,
     ) -> io::Result<()> {
-        let Some(serial) = self.admit(ctx, request.id, Q::METHOD) else {
+        let Some(serial) = self.admit(ctx, request.id, <Q::Request as LspRequest>::METHOD) else {
             return Ok(());
         };
         if !self.require_running(serial)? {
             return Ok(());
         }
-        let progress = if Q::WORK_DONE && self.features.progress.supported {
-            match request.params.get("workDoneToken") {
-                Some(value) => match from_value::<ProgressToken>(value.clone()) {
-                    Ok(ProgressToken::String(token)) if token.len() <= 256 => {
-                        Some(ProgressToken::String(token))
-                    }
-                    Ok(ProgressToken::Number(token)) => Some(ProgressToken::Number(token)),
-                    _ => {
-                        return self.reject(
-                            serial,
-                            ErrorCode::InvalidParams,
-                            "invalid or oversized work-done token",
-                        );
-                    }
-                },
-                None => None,
-            }
-        } else {
-            None
-        };
-        let params = match from_value::<TextDocumentPositionParams>(request.params) {
-            Ok(params) => params,
+        let params = match request.params {
+            Ok(params) => Arc::new(params),
             Err(_) => {
                 return self.reject(
                     serial,
                     ErrorCode::InvalidParams,
-                    "invalid document position parameters",
+                    "invalid method parameters",
                 );
             }
         };
-        let name = match source_name(&params.text_document.uri) {
+        // Full method parameters survive capture waits and continuations. Bound their
+        // retained strings/options as well as the separately charged source inputs.
+        if check_encoded_size(&*params, 64 * 1024).is_err() {
+            return self.reject(
+                serial,
+                ErrorCode::InvalidParams,
+                "semantic parameters exceed 64 KiB",
+            );
+        }
+        let progress = if Q::WORK_DONE && self.features.progress.supported {
+            match Q::work_done(&params) {
+                Some(ProgressToken::String(token)) if token.len() > 256 => {
+                    return self.reject(
+                        serial,
+                        ErrorCode::InvalidParams,
+                        "oversized work-done token",
+                    );
+                }
+                token => token.cloned(),
+            }
+        } else {
+            None
+        };
+        let position = Q::position(&params);
+        let name = match source_name(&position.text_document.uri) {
             Ok(name) => name,
             Err(error) => return self.reject(serial, ErrorCode::InvalidParams, &error),
         };
@@ -216,8 +223,8 @@ impl SessionActor {
         };
         let Some(offset) = source.offset(
             Position {
-                line: params.position.line as usize,
-                character: params.position.character as usize,
+                line: position.position.line as usize,
+                character: position.position.character as usize,
             },
             PositionEncoding::Utf16,
         ) else {
@@ -245,7 +252,7 @@ impl SessionActor {
             };
             self.outbox.push(notification.into(), None, 4096)?;
         }
-        let uri = params.text_document.uri;
+        let uri = position.text_document.uri.clone();
         let limit = self.limits.result_bytes;
         self.features.pending.push_back(FeatureTask {
             serial,
@@ -264,6 +271,7 @@ impl SessionActor {
                         offset,
                         limit,
                     },
+                    params,
                 )
             }),
         });
@@ -308,6 +316,7 @@ impl SessionActor {
         &mut self,
         ctx: &mut ActorContext<Self>,
         input: FeatureInput,
+        params: Arc<QueryParams<Q>>,
     ) -> io::Result<()> {
         let token = self
             .requests
@@ -316,9 +325,11 @@ impl SessionActor {
         let job = self.analysis.credit.reserve(token.clone())?;
         let (sender, receiver) = oneshot::channel();
         let completion_input = input.clone();
+        let completion_params = params.clone();
         ctx.pipe_to_self(receiver, move |result| FeatureFinished::<Q> {
             job,
             input: completion_input,
+            params: completion_params,
             result,
             query: PhantomData,
         })
@@ -349,7 +360,13 @@ impl SessionActor {
                     state.retain_contexts(&retained);
                     state.retain_requests(&live_serials);
                     state.retain_input_generation(input_generation);
-                    let result = Q::run(state, &input, cancel);
+                    let result =
+                        Q::run(state, &input, &params, cancel).and_then(|step| match step {
+                            QueryStep::Complete(value) => {
+                                FeatureOutput::encode(value, input.limit).map(QueryStep::Complete)
+                            }
+                            QueryStep::Continue => Ok(QueryStep::Continue),
+                        });
                     #[cfg(test)]
                     if matches!(result, Ok(QueryStep::Continue))
                         && let Some(gate) = step_gate
@@ -420,7 +437,9 @@ impl<Q: FeatureQuery> Handler<FeatureFinished<Q>> for SessionActor {
                     generation: input.capture.generation,
                     source_name: input.source_name.clone(),
                     capture: Some(input.capture.clone()),
-                    dispatch: Box::new(move |actor, ctx, _| actor.start_feature::<Q>(ctx, input)),
+                    dispatch: Box::new(move |actor, ctx, _| {
+                        actor.start_feature::<Q>(ctx, input, message.params)
+                    }),
                 });
                 Ok(())
             }

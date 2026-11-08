@@ -76,6 +76,9 @@ fn pilot_features_preserve_request_inputs_and_cancel_without_waiting_for_worker_
     let (gate, held) = CompletionGate::new();
     let mut peer = Peer::with_gate(source_name(&root).unwrap(), SessionLimits::default(), gate);
     Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        // Lifecycle errors win even when method-specific decoding already failed.
+        let before = peer.request(0, "textDocument/hover", json!({})).await;
+        assert_eq!(before["error"]["code"], -32002);
         let initialized = peer.request(1, "initialize", json!({"capabilities":{"window":{"workDoneProgress":true}},"workspaceFolders":[{"uri":root.as_str(),"name":"editor"}]})).await;
         assert_eq!(initialized["result"]["capabilities"]["hoverProvider"],true);
         assert_eq!(initialized["result"]["capabilities"]["implementationProvider"]["workDoneProgress"],true);
@@ -85,6 +88,15 @@ fn pilot_features_preserve_request_inputs_and_cancel_without_waiting_for_worker_
         }
         peer.capture(3).await;
         let completed = held.recv_timeout(Duration::from_secs(5)).expect("actual diagnostic worker held outside actor");
+        // A valid document position cannot hide an invalid completion-specific field.
+        // The real worker is held, so this must reject during admission rather than queue.
+        let mut malformed = site(lib.as_str(), LIB, "answer\n");
+        malformed["context"] = json!({"triggerKind":"invalid"});
+        let rejected = peer.request(10, "textDocument/completion", malformed).await;
+        assert_eq!(rejected["error"]["code"], -32602);
+        let mut oversized = site(lib.as_str(), LIB, "answer\n");
+        oversized["context"] = json!({"triggerKind":2,"triggerCharacter":"x".repeat(64*1024)});
+        assert_eq!(peer.request(11, "textDocument/completion", oversized).await["error"]["code"], -32602);
         let boolean = overlay.replace("pub fn value() -> i32 {\n    42", "pub fn value() -> bool {\n    true");
         let wide = overlay.replace("pub fn value() -> i32 {\n    42", "pub fn value() -> i64 {\n    42");
         peer.notify("textDocument/didChange",json!({"textDocument":{"uri":api.as_str(),"version":2},"contentChanges":[{"text":boolean}]})).await;
