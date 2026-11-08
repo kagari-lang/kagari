@@ -1,6 +1,6 @@
 //! Fixed IO completion messages; failures remain visible even without more input.
 use crate::{
-    protocol::{DecodeError, ErrorCode, RequestId, Response},
+    protocol::{DecodeError, ErrorCode, RequestId, Response, output::MESSAGE_BASE_CHARGE_BYTES},
     session::{Lifecycle, SessionActor, timers::Deadline},
     transport::{self, ReadyEndpoint},
 };
@@ -68,7 +68,8 @@ impl Handler<ProtocolFailure> for SessionActor {
         }
         self.logger.write(message.0.message);
         if let Some(response) = message.0.response {
-            self.outbox.push(response.into(), None, 4096)?;
+            self.outbox
+                .push(response.into(), None, MESSAGE_BASE_CHARGE_BYTES)?;
         }
         Ok(())
     }
@@ -143,7 +144,7 @@ impl Handler<EncodeRejected> for SessionActor {
             )
             .into(),
             serial,
-            4096,
+            MESSAGE_BASE_CHARGE_BYTES,
         )
     }
 }

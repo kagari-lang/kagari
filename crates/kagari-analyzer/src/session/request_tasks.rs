@@ -8,6 +8,7 @@ use crate::{
     analysis::{AnalysisFailure, AnalysisState, features::ProtocolOutput},
     protocol::{
         ErrorCode,
+        output::request_lifecycle_reserve_bytes,
         typed::{TypedRequest, check_encoded_size},
     },
     session::{Lifecycle, SessionActor},
@@ -350,7 +351,7 @@ impl SessionActor {
             }
             Err(error) => return self.reject(serial, ErrorCode::RequestFailed, &error.to_string()),
         };
-        let reserve = self.requests.unresolved().len() * 3 * 4096;
+        let reserve = request_lifecycle_reserve_bytes(self.requests.unresolved().len());
         if !self.outbox.can_push_payload(output.charge, reserve) {
             return self.reject(
                 serial,

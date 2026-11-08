@@ -7,6 +7,9 @@ use std::{
     io::{self, Error},
 };
 
+const MAX_PROGRESS_TITLE_BYTES: usize = 512;
+const MAX_PROGRESS_REPORT_BYTES: usize = 1024;
+
 struct Stream {
     token: ProgressToken,
     report: Option<Notification>,
@@ -26,7 +29,7 @@ impl ProgressStreams {
         token: ProgressToken,
         title: &str,
     ) -> io::Result<Notification> {
-        if title.len() > 512 {
+        if title.len() > MAX_PROGRESS_TITLE_BYTES {
             return Err(Error::other("progress title exceeds its byte limit"));
         }
         if self.streams.values().any(|stream| stream.token == token) {
@@ -56,7 +59,7 @@ impl ProgressStreams {
     }
 
     pub fn report(&mut self, serial: u64, message: String) {
-        if message.len() > 1024 {
+        if message.len() > MAX_PROGRESS_REPORT_BYTES {
             return;
         }
         let Some(stream) = self

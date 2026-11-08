@@ -6,7 +6,7 @@ use crate::{
             DocumentQueryInput, ProtocolOutput, navigation::implementation::ImplementationStep,
         },
     },
-    protocol::{ErrorCode, typed::TypedRequest},
+    protocol::{ErrorCode, output::MESSAGE_BASE_CHARGE_BYTES, typed::TypedRequest},
     session::{SessionActor, request_tasks::WorkCompletion},
 };
 use lattice_actor::{
@@ -82,7 +82,8 @@ impl Handler<ImplementationRequested> for SessionActor {
                         );
                     }
                 };
-            self.outbox.push(notification.into(), None, 4096)?;
+            self.outbox
+                .push(notification.into(), None, MESSAGE_BASE_CHARGE_BYTES)?;
         }
         self.wait_for_document(input, |actor, ctx, input| {
             actor.start_implementation(ctx, input, 0)

@@ -1,6 +1,7 @@
 //! JSON-RPC envelopes and the shared, IO-independent LSP frame codec.
 pub mod codec;
 mod envelope;
+pub(crate) mod output;
 pub(crate) mod router;
 pub(crate) mod typed;
 

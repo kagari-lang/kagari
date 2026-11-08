@@ -2681,6 +2681,18 @@ listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
 
+Shared output accounting lives in `protocol/output.rs`: a 4 KiB message base
+charge, three reliable lifecycle frames per request, and eight additional control
+slots. Session validation, result projection, output admission and fuzz workload
+setup use the same named policy. Terminal error text is capped at 512 Unicode
+scalar values; acquisition log text has its own character cap, while progress
+uses distinct byte caps. Equal numeric values do not couple socket read buffers
+or completion item counts to output accounting. Values and behavior are unchanged.
+The 12 session-owner cases, three feature actor cases and curated session fuzz seed
+replay pass, together with structure, formatting, workspace all-target Clippy and
+diff checks. These sample output capacity, progress, cancellation and wire
+propagation; full-workspace and exhaustive tests remain CI-only.
+
 Analyzer analysis/index, framing, envelope encoding/decoding, acquisition and both
 worker-submission failures derive Display/Error through the workspace `thiserror`
 dependency. Existing error text and explicit semantic conversions are preserved.

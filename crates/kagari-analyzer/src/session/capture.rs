@@ -1,6 +1,6 @@
 //! Input generation barriers and the single acquisition-worker credit.
 use crate::{
-    protocol::{Notification, source_name},
+    protocol::{Notification, output::MESSAGE_BASE_CHARGE_BYTES, source_name},
     session::{Lifecycle, SessionActor, jobs::JobCredit},
     workspace::{
         CaptureFailure, CaptureRequest, WorkspaceCapture,
@@ -23,6 +23,8 @@ use std::{
 #[cfg(test)]
 use tokio::sync::watch;
 use tokio::sync::{oneshot, oneshot::error::RecvError};
+
+const MAX_LOG_MESSAGE_CHARS: usize = 512;
 
 pub(crate) struct CaptureState {
     pub normalization_root: String,
@@ -236,7 +238,7 @@ impl SessionActor {
     pub(super) fn report_problem(&mut self, message: String) -> io::Result<()> {
         self.logger.write(message.clone());
         // Unlocated input/environment failures remain visible in the client log.
-        let text: String = message.chars().take(512).collect();
+        let text: String = message.chars().take(MAX_LOG_MESSAGE_CHARS).collect();
         let params = to_value(LogMessageParams {
             typ: MessageType::ERROR,
             message: text,
@@ -245,7 +247,7 @@ impl SessionActor {
         self.outbox.push(
             Notification::new("window/logMessage".into(), params).into(),
             None,
-            4096,
+            MESSAGE_BASE_CHARGE_BYTES,
         )
     }
 

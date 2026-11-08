@@ -4,7 +4,9 @@ pub(crate) mod navigation;
 pub(crate) mod projection;
 
 use crate::{
-    analysis::AnalysisFailure, documents::DocumentInput, protocol::typed::check_encoded_size,
+    analysis::AnalysisFailure,
+    documents::DocumentInput,
+    protocol::{output::MESSAGE_BASE_CHARGE_BYTES, typed::check_encoded_size},
     workspace::WorkspaceCapture,
 };
 use lsp_types::{Uri, request::Request as LspRequest};
@@ -44,10 +46,10 @@ impl ProtocolOutput {
 
     /// Bound both encoded payload and retained JSON storage before actor delivery.
     pub fn new(value: Value, limit: usize) -> Result<Self, AnalysisFailure> {
-        check_encoded_size(&value, limit.saturating_sub(4096)).map_err(|_| {
-            AnalysisFailure::Capacity("semantic result exceeds its encoded byte limit".into())
-        })?;
-        let charge = retained_value_bytes(&value).saturating_add(4096);
+        check_encoded_size(&value, limit.saturating_sub(MESSAGE_BASE_CHARGE_BYTES)).map_err(
+            |_| AnalysisFailure::Capacity("semantic result exceeds its encoded byte limit".into()),
+        )?;
+        let charge = retained_value_bytes(&value).saturating_add(MESSAGE_BASE_CHARGE_BYTES);
         if charge > limit {
             return Err(AnalysisFailure::Capacity(
                 "semantic result exceeds its retained byte limit".into(),

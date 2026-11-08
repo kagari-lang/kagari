@@ -1,4 +1,7 @@
 //! Validated process options and finite application budgets.
+use crate::protocol::output::{
+    MESSAGE_BASE_CHARGE_BYTES, REQUEST_LIFECYCLE_FRAMES, SESSION_CONTROL_RESERVE_FRAMES,
+};
 use std::io::Error;
 use std::{env, io, net::SocketAddr, time::Duration};
 #[cfg(test)]
@@ -76,8 +79,15 @@ impl SessionLimits {
             || self.publication_uris == 0
             || self.publication_diagnostics == 0
             || self.publication_bytes < self.result_bytes
-            || self.outbox_count < self.requests.saturating_mul(3).saturating_add(8)
-            || self.outbox_bytes < self.result_bytes + (self.requests * 3 + 8) * 4096
+            || self.outbox_count
+                < self
+                    .requests
+                    .saturating_mul(REQUEST_LIFECYCLE_FRAMES)
+                    .saturating_add(SESSION_CONTROL_RESERVE_FRAMES)
+            || self.outbox_bytes
+                < self.result_bytes
+                    + (self.requests * REQUEST_LIFECYCLE_FRAMES + SESSION_CONTROL_RESERVE_FRAMES)
+                        * MESSAGE_BASE_CHARGE_BYTES
             || [self.startup, self.write, self.cleanup, self.exit]
                 .iter()
                 .any(Duration::is_zero)

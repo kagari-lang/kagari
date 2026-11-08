@@ -18,7 +18,11 @@ use crate::{
     documents::Documents,
     logging::LogSink,
     protocol::{
-        ErrorCode, Message as WireMessage, RequestId, Response, ResponseError, typed::encode_result,
+        ErrorCode, Message as WireMessage, RequestId, Response, ResponseError,
+        output::{
+            MAX_ERROR_MESSAGE_CHARS, MESSAGE_BASE_CHARGE_BYTES, request_lifecycle_reserve_bytes,
+        },
+        typed::encode_result,
     },
     server::{
         ProcessNotice, ThreadOwners,
@@ -163,7 +167,7 @@ impl SessionActor {
                     )
                     .into(),
                     None,
-                    4096,
+                    MESSAGE_BASE_CHARGE_BYTES,
                 );
                 if let Err(error) = result {
                     self.fail(ctx, error.to_string());
@@ -185,7 +189,7 @@ impl SessionActor {
     }
 
     pub fn finish(&mut self, serial: u64, outcome: Result<Value, ResponseError>) -> io::Result<()> {
-        self.finish_charged(serial, outcome, 4096)
+        self.finish_charged(serial, outcome, MESSAGE_BASE_CHARGE_BYTES)
     }
 
     pub fn finish_charged(
@@ -196,7 +200,8 @@ impl SessionActor {
     ) -> io::Result<()> {
         if let Some(id) = self.requests.terminal(serial) {
             if let Some(notification) = self.progress.end(serial) {
-                self.outbox.push(notification.into(), None, 4096)?;
+                self.outbox
+                    .push(notification.into(), None, MESSAGE_BASE_CHARGE_BYTES)?;
             }
             self.outbox.push(
                 WireMessage::Response(Response {
@@ -215,7 +220,7 @@ impl SessionActor {
             serial,
             Err(ResponseError {
                 code: code as i32,
-                message: message.chars().take(512).collect(),
+                message: message.chars().take(MAX_ERROR_MESSAGE_CHARS).collect(),
                 data: None,
             }),
         )
@@ -281,7 +286,7 @@ impl SessionActor {
             let optional_capacity = self.outbox.can_grant_publication()
                 && self.outbox.can_push_payload(
                     self.limits.result_bytes,
-                    self.requests.unresolved().len() * 3 * 4096,
+                    request_lifecycle_reserve_bytes(self.requests.unresolved().len()),
                 );
             let report = if !self.outbox.has_queued() && optional_capacity {
                 self.progress.take_report()

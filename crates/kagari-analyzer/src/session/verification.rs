@@ -1,6 +1,11 @@
 //! Bounded FZ02 sequences over production request and output owners.
 use crate::{
-    protocol::{Message, Notification, RequestId, Response},
+    protocol::{
+        Message, Notification, RequestId, Response,
+        output::{
+            MESSAGE_BASE_CHARGE_BYTES, REQUEST_LIFECYCLE_FRAMES, SESSION_CONTROL_RESERVE_FRAMES,
+        },
+    },
     server::options::SessionLimits,
     session::{
         outbox::Outbox,
@@ -211,11 +216,11 @@ pub(crate) fn check(input: &[u8]) {
     }
     publications::check(input);
     let capacity = usize::from(input.first().copied().unwrap_or(0) % 8) + 1;
-    let outbox_count = capacity * 3 + 8;
+    let outbox_count = capacity * REQUEST_LIFECYCLE_FRAMES + SESSION_CONTROL_RESERVE_FRAMES;
     let limits = SessionLimits {
         requests: capacity,
         outbox_count,
-        outbox_bytes: outbox_count * 4096 + 1024,
+        outbox_bytes: outbox_count * MESSAGE_BASE_CHARGE_BYTES + 1024,
         result_bytes: 1024,
         ..SessionLimits::default()
     };

@@ -8,6 +8,7 @@ use crate::{
         },
         indexes::cache::ScopeStamp,
     },
+    protocol::output::MESSAGE_BASE_CHARGE_BYTES,
     workspace::{ContextKey, budget::InputLease},
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
@@ -162,7 +163,7 @@ impl AnalysisState {
         )?;
         let mut locations = Vec::new();
         let mut seen = BTreeSet::new();
-        let mut projected_bytes = 4096usize;
+        let mut projected_bytes = MESSAGE_BASE_CHARGE_BYTES;
         for destination in destinations {
             cancel.check()?;
             let context = input
@@ -197,7 +198,12 @@ impl AnalysisState {
                 // vector growth and a worst-case JSON URI escape bound, rather
                 // than constructing an unbounded typed array before admission.
                 projected_bytes = projected_bytes
-                    .saturating_add(output.charge.saturating_sub(4096).max(encoded_bound))
+                    .saturating_add(
+                        output
+                            .charge
+                            .saturating_sub(MESSAGE_BASE_CHARGE_BYTES)
+                            .max(encoded_bound),
+                    )
                     .saturating_add(size_of::<Value>().max(size_of::<Location>()) * 2);
                 if projected_bytes > input.limit {
                     return Err(AnalysisFailure::Capacity(

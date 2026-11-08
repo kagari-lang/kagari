@@ -1,5 +1,8 @@
 //! Reliable output remains owned until a matching writer acknowledgement.
-use crate::{protocol::Message, server::options::SessionLimits};
+use crate::{
+    protocol::{Message, output::MESSAGE_BASE_CHARGE_BYTES},
+    server::options::SessionLimits,
+};
 use std::{
     collections::VecDeque,
     io::{self, Error},
@@ -105,7 +108,7 @@ impl Outbox {
     }
 
     pub fn grant_progress(&mut self, message: Message, serial: u64) -> io::Result<WriteFrame> {
-        let frame = self.grant_publication(message, 4096, serial)?;
+        let frame = self.grant_publication(message, MESSAGE_BASE_CHARGE_BYTES, serial)?;
         self.active_publication = None;
         self.active_progress = Some(serial);
         Ok(frame)
