@@ -5,8 +5,7 @@ use crate::workspace::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::generated::{GeneratedDocument, GeneratedDocuments};
 use std::{
-    error::Error,
-    fmt, io,
+    io,
     path::PathBuf,
     sync::{
         Arc,
@@ -26,22 +25,13 @@ pub(crate) struct AcquisitionWorker {
     pub terminated: oneshot::Receiver<Result<(), String>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum SubmitError {
+    #[error("acquisition submission without a free worker credit")]
     Full,
+    #[error("acquisition worker has stopped")]
     Closed,
 }
-
-impl fmt::Display for SubmitError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Full => "acquisition submission without a free worker credit",
-            Self::Closed => "acquisition worker has stopped",
-        })
-    }
-}
-
-impl Error for SubmitError {}
 
 impl AcquisitionPort {
     /// Register the matching actor deferred wait before calling this method.

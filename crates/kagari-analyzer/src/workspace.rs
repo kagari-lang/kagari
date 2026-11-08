@@ -13,7 +13,7 @@ use crate::workspace::budget::{InputBudget, InputLease};
 use kagari_common::identity::ModuleIdentity;
 use kagari_source::{identity::FileId, source_database::SourceSnapshot};
 use lsp_types::Uri;
-use std::{collections::BTreeMap, error::Error, fmt, ops::Range, path::Path};
+use std::{collections::BTreeMap, fmt, ops::Range, path::Path};
 
 pub(crate) const MAX_CONTEXTS: usize = 128;
 #[cfg(test)]
@@ -140,29 +140,12 @@ impl WorkspaceCapture {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum CaptureFailure {
+    #[error("source acquisition cancelled")]
     Cancelled,
+    #[error("capture generation {requested} does not follow {previous}")]
     OutOfOrder { previous: u64, requested: u64 },
+    #[error("{0}")]
     InvalidInput(String),
 }
-
-impl fmt::Display for CaptureFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Cancelled => formatter.write_str("source acquisition cancelled"),
-            Self::OutOfOrder {
-                previous,
-                requested,
-            } => {
-                write!(
-                    formatter,
-                    "capture generation {requested} does not follow {previous}"
-                )
-            }
-            Self::InvalidInput(message) => message.fmt(formatter),
-        }
-    }
-}
-
-impl Error for CaptureFailure {}

@@ -3,8 +3,7 @@ use crate::analysis::{AnalysisState, diagnostics::ProjectionLimits};
 use crate::workspace::budget::InputBudget;
 use kagari_common::cancellation::CancellationToken;
 use std::{
-    error::Error,
-    fmt, io,
+    io,
     sync::mpsc::{SyncSender, TrySendError, sync_channel},
     thread::{Builder, JoinHandle},
 };
@@ -20,22 +19,13 @@ pub(crate) struct AnalysisWorker {
     pub terminated: oneshot::Receiver<Result<(), String>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum SubmitError {
+    #[error("analysis submission without a free worker credit")]
     Full,
+    #[error("analysis worker has stopped")]
     Closed,
 }
-
-impl fmt::Display for SubmitError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Full => "analysis submission without a free worker credit",
-            Self::Closed => "analysis worker has stopped",
-        })
-    }
-}
-
-impl Error for SubmitError {}
 
 impl AnalysisPort {
     /// Register the typed deferred completion before submitting. Cancellation is

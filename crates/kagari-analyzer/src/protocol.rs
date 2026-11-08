@@ -17,7 +17,7 @@ use serde::{Serialize, Serializer, ser::Error as SerializeError};
 use serde_json::Value;
 #[cfg(any(test, feature = "verification"))]
 use serde_json::to_value;
-use std::{error::Error, fmt};
+use std::fmt;
 
 /// Maximum UTF-8 bytes in a wire request identifier.
 pub const MAX_REQUEST_ID_BYTES: usize = 256;
@@ -175,7 +175,8 @@ impl From<Response> for Message {
 }
 
 /// A framed-body error. Malformed responses and fatal limits must not be answered.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
 pub struct DecodeError {
     pub response: Option<Response>,
     pub message: String,
@@ -183,27 +184,12 @@ pub struct DecodeError {
     pub fatal: bool,
 }
 
-impl fmt::Display for DecodeError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.message.fmt(formatter)
-    }
-}
-
-impl Error for DecodeError {}
-
 /// Encoding failed before any bytes reached the transport.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
 pub struct EncodeError {
     pub message: String,
 }
-
-impl fmt::Display for EncodeError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.message.fmt(formatter)
-    }
-}
-
-impl Error for EncodeError {}
 
 /// Validate one UTF-8 JSON-RPC body, preserving present-null success results.
 pub fn decode(body: &[u8]) -> Result<Message, DecodeError> {

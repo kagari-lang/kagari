@@ -1,5 +1,5 @@
 //! Bounded incremental framing with an explicit allocation-admission boundary.
-use std::{error::Error, fmt, mem::take, str::from_utf8};
+use std::{mem::take, str::from_utf8};
 
 /// Limits count wire bytes, including header terminators and encoded JSON bodies.
 #[derive(Clone, Copy, Debug)]
@@ -18,40 +18,31 @@ impl Default for CodecLimits {
 }
 
 /// Framing failure is terminal: subsequent input cannot restore synchronization.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FrameError {
+    #[error("LSP header exceeds its byte limit")]
     HeaderTooLarge,
+    #[error("invalid LSP header")]
     InvalidHeader,
+    #[error("LSP header is missing Content-Length")]
     MissingContentLength,
+    #[error("duplicate LSP Content-Length")]
     DuplicateContentLength,
+    #[error("Content-Length must be an unsigned decimal length")]
     InvalidContentLength,
+    #[error("LSP body exceeds its byte limit")]
     BodyTooLarge,
+    #[error("unsupported LSP content encoding")]
     UnsupportedEncoding,
+    #[error("EOF within an LSP frame")]
     Truncated,
+    #[error("cannot allocate LSP body")]
     AllocationFailed,
+    #[error("LSP body allocation was not awaiting admission")]
     BudgetNotRequested,
+    #[error("LSP framing has already failed")]
     Failed,
 }
-
-impl fmt::Display for FrameError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::HeaderTooLarge => "LSP header exceeds its byte limit",
-            Self::InvalidHeader => "invalid LSP header",
-            Self::MissingContentLength => "LSP header is missing Content-Length",
-            Self::DuplicateContentLength => "duplicate LSP Content-Length",
-            Self::InvalidContentLength => "Content-Length must be an unsigned decimal length",
-            Self::BodyTooLarge => "LSP body exceeds its byte limit",
-            Self::UnsupportedEncoding => "unsupported LSP content encoding",
-            Self::Truncated => "EOF within an LSP frame",
-            Self::AllocationFailed => "cannot allocate LSP body",
-            Self::BudgetNotRequested => "LSP body allocation was not awaiting admission",
-            Self::Failed => "LSP framing has already failed",
-        })
-    }
-}
-
-impl Error for FrameError {}
 
 /// A decoder boundary; the caller retains any bytes after `consumed`.
 #[derive(Debug, PartialEq, Eq)]

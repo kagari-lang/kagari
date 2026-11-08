@@ -2681,11 +2681,15 @@ listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
 
-Analyzer failures derive Display/Error through the existing workspace `thiserror`
-dependency. Cancellation and capacity/unavailability text, plus the explicit
-semantic error conversions, retain their current behavior. The three affected
-analysis-owner regressions and the required local structure/format/Clippy/diff
-checks pass for this mechanical change.
+Analyzer analysis/index, framing, envelope encoding/decoding, acquisition and both
+worker-submission failures derive Display/Error through the workspace `thiserror`
+dependency. Existing error text and explicit semantic conversions are preserved.
+Request IDs and acquisition issue rendering keep their ordinary Display owners;
+protocol error payloads and admission/invalid-parameter markers keep their existing
+structured representation. The 58 selected protocol/acquisition/index/worker
+regressions pass (one controlled benchmark ignored), along with the required local
+structure, formatting, workspace all-target Clippy and diff checks. Full-workspace
+and exhaustive tests remain CI-only.
 
 Known protocol methods now bind `METHOD`, `Params` and `Result` through the
 `lsp-types` request/notification descriptors. `protocol/typed.rs` consumes wire

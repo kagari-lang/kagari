@@ -28,23 +28,17 @@ use kagari_hir::{
     typeck::GenericBounds,
     types::TypeId,
 };
-use std::{collections::BTreeMap, fmt, iter, sync::Arc};
+use std::{collections::BTreeMap, iter, sync::Arc};
 
 /// Explicit search coverage failure, never an exhaustive empty answer.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum IndexFailure {
+    #[error("implementation index cancelled")]
     Cancelled,
+    #[error("{0}")]
     Capacity(String),
+    #[error("{0}")]
     Incomplete(String),
-}
-
-impl fmt::Display for IndexFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Cancelled => formatter.write_str("implementation index cancelled"),
-            Self::Capacity(message) | Self::Incomplete(message) => message.fmt(formatter),
-        }
-    }
 }
 
 impl From<RelationError> for IndexFailure {
