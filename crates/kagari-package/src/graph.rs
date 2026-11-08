@@ -51,6 +51,16 @@ pub struct ResolvedPackage {
 }
 
 impl ResolvedPackage {
+    /// Local provider directory relative to the graph's approved input root.
+    /// Host selections have no filesystem directory. Consumers must resolve this
+    /// locator through that same input root before comparing physical providers.
+    pub fn source_directory(&self) -> Option<&str> {
+        match &self.source {
+            PackageSource::Local { directory } => Some(directory),
+            PackageSource::Host(_) => None,
+        }
+    }
+
     pub fn selection(&self) -> &PackageSelection {
         &self.selection
     }

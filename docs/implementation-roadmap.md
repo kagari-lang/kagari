@@ -507,6 +507,24 @@ separately proposed debug/DAP modes.
 
 ## Language server
 
+The multi-project query-isolation correction is authorized before LSP05 feature
+expansion. Acquisition owns physical provider/consumer facts, scoped discovery
+failures and stable context input revisions. Implementation search selects an
+explicit complete scope before indexing; cache identity includes that scope's
+context/input/provider stamps, with immutable leases retained by admitted reads.
+Validation strengthens existing multi-root/index scenarios, B03/B04/B07 work and
+retention measurements, and the FZ04 fresh-world oracle. Global reacquisition,
+diagnostic invalidation and live folder changes remain LSP08 work. The
+[bounded correction](lsp-design.md#multi-project-isolation-implementation-references-and-queued-correction)
+owns the design and pinned implementation references. The acquisition/scope/cache
+handoff is implemented together as one buildable checkpoint. Seven selected
+index/acquisition/actor regressions and four diagnostic/native-view/worker checks
+pass, together with four package tooling/provenance regressions; source-free
+compiler/runtime behavior is unchanged. Structure (1,976 Rust
+files, zero violations), formatting, workspace all-target Clippy and diff checks
+pass. Benchmark and FZ04 extensions remain in progress; no new performance or
+complete-correction acceptance is claimed yet. Full-workspace matrices remain CI.
+
 The [LSP design](lsp-design.md) owns LSP00-LSP08. Implementation through LSP04 is
 authorized on `feat/lsp`, with phase commits. The five-feature pilot through LSP04
 passes selected local Gate A functional, ownership, performance and bounded fuzz

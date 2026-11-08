@@ -6,12 +6,16 @@ use crate::{
     workspace::{
         CaptureFailure, CaptureIssue, CaptureRequest, ContextCapture, ContextKey, DocumentContext,
         MAX_CONTEXTS, Origin, WorkspaceCapture,
-        budget::{InputBudget, InputLease},
+        budget::InputBudget,
         origins::{input_error, issue, native_key},
         overlay::{OverlayInput, ReadCache},
+        relations::{ContextRelations, DiscoveryIssue, ProviderKey},
     },
 };
-use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, PackageId},
+};
 use kagari_package::{
     error::PackageError,
     manifest::{MANIFEST_NAME, MAX_MANIFEST_BYTES},
@@ -37,7 +41,7 @@ struct ContextIdentity {
 struct ContextState {
     key: ContextKey,
     database: SourceDatabase,
-    lease: InputLease,
+    previous: Option<ContextCapture>,
 }
 
 struct StagedContext {
@@ -47,6 +51,7 @@ struct StagedContext {
     errors: Vec<CaptureIssue>,
     semantic_available: bool,
     root_order: usize,
+    relations: ContextRelations,
 }
 
 impl StagedContext {
@@ -63,7 +68,7 @@ struct Staging {
     contexts: Vec<StagedContext>,
     identities: BTreeSet<ContextIdentity>,
     unavailable: BTreeSet<String>,
-    errors: Vec<CaptureIssue>,
+    errors: Vec<DiscoveryIssue>,
 }
 
 pub(super) struct CaptureState {
@@ -111,7 +116,13 @@ impl CaptureState {
         for (order, root) in request.roots.iter().enumerate() {
             match OverlayInput::new(root, &request.documents, cache.clone(), cancel) {
                 Ok(input) => {
-                    errors.extend(input.errors().iter().map(issue));
+                    errors.extend(
+                        input
+                            .errors()
+                            .iter()
+                            .map(issue)
+                            .map(DiscoveryIssue::unknown),
+                    );
                     let key = input.canonical_root().map_err(package_failure)?;
                     // Construct every adapter before reading source: aliases opened
                     // through another configured root must still shadow disk here.
@@ -120,7 +131,7 @@ impl CaptureState {
                     }
                 }
                 Err(PackageError::Cancelled) => return Err(CaptureFailure::Cancelled),
-                Err(error) => errors.push(issue(&error)),
+                Err(error) => errors.push(DiscoveryIssue::unknown(issue(&error))),
             }
         }
         let mut staging = Staging {
@@ -198,7 +209,7 @@ impl CaptureState {
                     ContextState {
                         key,
                         database,
-                        lease: InputLease::default(),
+                        previous: None,
                     },
                 );
             }
@@ -211,7 +222,6 @@ impl CaptureState {
                 .source_snapshot(&mut state.database, cancel)
                 .map_err(package_failure)?;
             let lease = self.budget.retain(snapshot.sources.files().cloned())?;
-            state.lease = lease.clone();
             let origins = snapshot
                 .origins
                 .into_iter()
@@ -225,8 +235,10 @@ impl CaptureState {
                 })
                 .collect();
             orders.insert(state.key.clone(), candidate.root_order);
-            contexts.push(ContextCapture {
+            let mut context = ContextCapture {
                 key: state.key.clone(),
+                input_revision: state.previous.as_ref().map_or(0, |old| old.input_revision),
+                relations: candidate.relations,
                 root: candidate.inputs.root().clone(),
                 sources: snapshot.sources,
                 origins,
@@ -235,7 +247,24 @@ impl CaptureState {
                 semantic_available: candidate.semantic_available,
                 errors: candidate.errors,
                 _lease: lease,
+            };
+            let unchanged = state.previous.as_ref().is_some_and(|old| {
+                old.sources.same_inputs(&context.sources)
+                    && old.origins == context.origins
+                    && old.relations.providers == context.relations.providers
+                    && old.complete == context.complete
+                    && old.discovery_complete == context.discovery_complete
+                    && old.semantic_available == context.semantic_available
+                    && old.errors == context.errors
             });
+            if !unchanged {
+                context.input_revision =
+                    context.input_revision.checked_add(1).ok_or_else(|| {
+                        CaptureFailure::InvalidInput("context input revision exhausted".into())
+                    })?;
+            }
+            state.previous = Some(context.clone());
+            contexts.push(context);
         }
         check(cancel)?;
         let mut document_contexts = BTreeMap::new();
@@ -311,7 +340,7 @@ fn stage_projects(
             Ok(_) => {}
             Err(PackageError::Cancelled) => return Err(CaptureFailure::Cancelled),
             Err(error) => {
-                staging.errors.push(issue(&error));
+                staging.errors.push(DiscoveryIssue::unknown(issue(&error)));
                 staging.unavailable.insert(document.source_name.clone());
             }
         }
@@ -320,7 +349,7 @@ fn stage_projects(
         Ok(Some(_)) if seen.insert(String::new()) => directories.push(String::new()),
         Ok(_) => {}
         Err(PackageError::Cancelled) => return Err(CaptureFailure::Cancelled),
-        Err(error) => staging.errors.push(issue(&error)),
+        Err(error) => staging.errors.push(DiscoveryIssue::unknown(issue(&error))),
     }
     let mut covered = BTreeSet::new();
     for directory in directories {
@@ -344,6 +373,7 @@ fn stage_projects(
                 )
                 .map_err(CaptureFailure::InvalidInput)?;
                 for member in project.roots.keys() {
+                    let providers = project_providers(&project, member, input, cancel)?;
                     match project.tooling_inputs(member, cancel) {
                         Ok(inputs) => {
                             let errors = inputs.errors().iter().map(issue).collect();
@@ -381,12 +411,23 @@ fn stage_projects(
                                     errors,
                                     semantic_available,
                                     root_order: order,
+                                    relations: ContextRelations {
+                                        folders: [input
+                                            .canonical_root()
+                                            .map_err(package_failure)?]
+                                        .into(),
+                                        providers,
+                                    },
                                 },
                             )?;
                         }
                         Err(PackageError::Cancelled) => return Err(CaptureFailure::Cancelled),
                         Err(error) => {
-                            staging.errors.push(issue(&error));
+                            staging.errors.push(DiscoveryIssue {
+                                issue: issue(&error),
+                                project: Some(workspace.clone()),
+                                providers: Some(providers.into_values().collect()),
+                            });
                             mark_unavailable(
                                 input,
                                 &directory,
@@ -399,12 +440,50 @@ fn stage_projects(
             }
             Err(PackageError::Cancelled) => return Err(CaptureFailure::Cancelled),
             Err(error) => {
-                staging.errors.push(issue(&error));
+                staging.errors.push(DiscoveryIssue {
+                    issue: issue(&error),
+                    project: input
+                        .approved(&directory)
+                        .ok()
+                        .and_then(|path| native_key(&path).ok()),
+                    providers: None,
+                });
                 mark_unavailable(input, &directory, documents, &mut staging.unavailable);
             }
         }
     }
     Ok(())
+}
+
+fn project_providers(
+    project: &ProjectDiscovery,
+    member: &str,
+    input: &OverlayInput,
+    cancel: &CancellationToken,
+) -> Result<BTreeMap<PackageId, ProviderKey>, CaptureFailure> {
+    let closure = project
+        .graph
+        .closure(&project.graph.members()[member], cancel)
+        .map_err(package_failure)?;
+    let mut providers = BTreeMap::new();
+    for selection in closure {
+        check(cancel)?;
+        let Some(directory) = project.graph.packages()[&selection].source_directory() else {
+            continue;
+        };
+        let physical = native_key(&input.approved(directory).map_err(package_failure)?)
+            .map_err(CaptureFailure::InvalidInput)?;
+        let package = selection.family.package_id();
+        providers.insert(
+            package.clone(),
+            ProviderKey {
+                package,
+                physical,
+                selection,
+            },
+        );
+    }
+    Ok(providers)
 }
 
 fn push_context(staging: &mut Staging, context: StagedContext) -> Result<(), CaptureFailure> {
@@ -415,6 +494,12 @@ fn push_context(staging: &mut Staging, context: StagedContext) -> Result<(), Cap
             ));
         }
         staging.contexts.push(context);
+    } else if let Some(previous) = staging
+        .contexts
+        .iter_mut()
+        .find(|previous| previous.identity() == context.identity())
+    {
+        previous.relations.folders.extend(context.relations.folders);
     }
     Ok(())
 }

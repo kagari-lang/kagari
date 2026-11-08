@@ -280,7 +280,7 @@ impl SessionActor {
         let mut retained = self.operations.retained_contexts();
         retained.extend(self.analysis.live_contexts.iter().cloned());
         let live_serials = self.requests.unresolved().into_iter().collect();
-        let input_generation = self.captures.generation;
+        let latest_capture = self.captures.latest.clone();
         #[cfg(all(test, feature = "verification"))]
         let gate = self.operations.gate.take();
         #[cfg(all(test, feature = "verification"))]
@@ -299,7 +299,9 @@ impl SessionActor {
                         .map(|gate| milestone::install(gate).expect("one worker milestone scope"));
                     state.retain_contexts(&retained);
                     state.retain_requests(&live_serials);
-                    state.retain_input_generation(input_generation);
+                    if let Some(capture) = &latest_capture {
+                        state.retain_capture_inputs(capture);
+                    }
                     execute(state, cancel, job)
                 },
                 token,

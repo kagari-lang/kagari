@@ -98,7 +98,7 @@ impl SessionActor {
         })
         .map_err(Error::other)?;
         let live_serials = self.requests.unresolved().into_iter().collect();
-        let input_generation = self.captures.generation;
+        let latest_capture = self.captures.latest.clone();
         let mut retained = self.operations.retained_contexts();
         retained.extend(self.analysis.live_contexts.iter().cloned());
         self.analysis.maintenance = false;
@@ -119,7 +119,9 @@ impl SessionActor {
                     }
                     state.retain_contexts(&retained);
                     state.retain_requests(&live_serials);
-                    state.retain_input_generation(input_generation);
+                    if let Some(capture) = &latest_capture {
+                        state.retain_capture_inputs(capture);
+                    }
                     let result = state.diagnostics(
                         &task.capture,
                         task.context.as_ref(),

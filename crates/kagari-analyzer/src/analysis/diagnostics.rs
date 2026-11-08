@@ -60,7 +60,7 @@ impl AnalysisState {
                 }
                 for issue in &capture.errors {
                     cancel.check()?;
-                    projection.acquisition(issue, None);
+                    projection.acquisition(&issue.issue, None);
                 }
             }
             Some(key) => {

@@ -1,11 +1,13 @@
 //! Bounded signature relation shards with exact context and source provenance.
 pub(super) mod cache;
+pub(crate) mod scope;
 
 #[cfg(test)]
 mod tests;
 
+use crate::analysis::indexes::scope::IndexScope;
 use crate::workspace::{
-    ContextCapture, ContextKey, WorkspaceCapture,
+    ContextCapture, ContextKey,
     budget::{InputBudget, InputLease},
 };
 use kagari_common::{
@@ -65,24 +67,18 @@ pub(crate) struct IndexedLocation {
 /// One immutable admitted scope, filled by at most one context per worker turn.
 /// A consumer retains this owner while later session generations are acquired.
 pub(crate) struct ImplementationIndex {
-    capture: Arc<WorkspaceCapture>,
-    environment_epoch: u64,
+    scope: IndexScope,
     limits: RelationLimits,
     shards: BTreeMap<ContextKey, RelationShard>,
     row_bytes: usize,
 }
 
 impl ImplementationIndex {
-    pub fn new(
-        capture: Arc<WorkspaceCapture>,
-        environment_epoch: u64,
-        limits: RelationLimits,
-    ) -> Result<Self, IndexFailure> {
-        if !capture.errors.is_empty()
-            || capture
-                .contexts
-                .iter()
-                .any(|context| !context.discovery_complete || !context.semantic_available)
+    pub fn new(scope: IndexScope, limits: RelationLimits) -> Result<Self, IndexFailure> {
+        if scope
+            .contexts
+            .iter()
+            .any(|context| !context.discovery_complete || !context.semantic_available)
         {
             return Err(IndexFailure::Incomplete(
                 "implementation search scope has unavailable declared modules or package inputs"
@@ -90,24 +86,15 @@ impl ImplementationIndex {
             ));
         }
         Ok(Self {
-            capture,
-            environment_epoch,
+            scope,
             limits,
             shards: BTreeMap::new(),
             row_bytes: 0,
         })
     }
 
-    pub fn generation(&self) -> u64 {
-        self.capture.generation
-    }
-
-    pub fn environment_epoch(&self) -> u64 {
-        self.environment_epoch
-    }
-
     pub fn next_context(&self) -> Option<&ContextCapture> {
-        self.capture
+        self.scope
             .contexts
             .iter()
             .find(|context| !self.shards.contains_key(&context.key))
@@ -125,7 +112,7 @@ impl ImplementationIndex {
         check(cancel)?;
         if self.shards.contains_key(context)
             || !self
-                .capture
+                .scope
                 .contexts
                 .iter()
                 .any(|candidate| &candidate.key == context)
@@ -202,7 +189,7 @@ impl ImplementationIndex {
             ));
         }
         let source_context = self
-            .capture
+            .scope
             .contexts
             .iter()
             .find(|context| &context.key == selected)
@@ -212,7 +199,7 @@ impl ImplementationIndex {
                 )
             })?;
         let mut result = Vec::new();
-        for context in &self.capture.contexts {
+        for context in &self.scope.contexts {
             check(cancel)?;
             let shard = &self.shards[&context.key];
             let target = if context.key == *selected
@@ -286,7 +273,25 @@ fn map_target(
             .resolve(anchor)
             .map_err(|error| IndexFailure::Incomplete(error.to_string()))?
             .to_path();
+        let shared = source
+            .declaration_snapshot()
+            .declaration(&DeclarationId::Definition(anchor))
+            .and_then(|site| source.source(site.location.file))
+            .and_then(|file| {
+                source_context
+                    .relations
+                    .providers
+                    .get(&file.module_identity().package)
+            })
+            .is_some_and(|provider| {
+                target_context.relations.providers.get(&provider.package) == Some(provider)
+            });
         let Some(mapped) = destination.definitions().lookup(&path) else {
+            if shared {
+                return Err(IndexFailure::Incomplete(
+                    "a relevant provider lacks the captured implementation anchor".into(),
+                ));
+            }
             return Ok(None);
         };
         if !same_provider(
@@ -297,6 +302,11 @@ fn map_target(
             destination,
             mapped,
         )? {
+            if shared {
+                return Err(IndexFailure::Incomplete(
+                    "workspace contexts disagree about declaration source provenance".into(),
+                ));
+            }
             return Ok(None);
         }
     }

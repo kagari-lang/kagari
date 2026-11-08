@@ -31,7 +31,7 @@ impl SessionActor {
         let token = CancellationToken::default();
         let job = self.analysis.credit.reserve(token.clone())?;
         let live_serials = self.requests.unresolved().into_iter().collect();
-        let input_generation = self.captures.generation;
+        let latest_capture = self.captures.latest.clone();
         let mut retained = self.operations.retained_contexts();
         retained.extend(self.analysis.live_contexts.iter().cloned());
         let (sender, receiver) = oneshot::channel();
@@ -46,7 +46,9 @@ impl SessionActor {
                 move |state, _| {
                     state.retain_contexts(&retained);
                     state.retain_requests(&live_serials);
-                    state.retain_input_generation(input_generation);
+                    if let Some(capture) = &latest_capture {
+                        state.retain_capture_inputs(capture);
+                    }
                     #[cfg(test)]
                     {
                         state.index_cursor_count()

@@ -4,12 +4,14 @@ pub(crate) mod budget;
 mod capture;
 pub(crate) mod origins;
 mod overlay;
+pub(crate) mod relations;
 
 #[cfg(test)]
 mod tests;
 
 use crate::documents::DocumentInput;
 use crate::workspace::budget::{InputBudget, InputLease};
+use crate::workspace::relations::{ContextRelations, DiscoveryIssue};
 use kagari_common::identity::ModuleIdentity;
 use kagari_source::{identity::FileId, source_database::SourceSnapshot};
 use lsp_types::Uri;
@@ -58,7 +60,7 @@ pub(crate) struct ContextKey {
 }
 
 /// Acquisition diagnostics retain a physical destination when one is known.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CaptureIssue {
     pub uri: Option<Uri>,
     pub range: Option<Range<usize>>,
@@ -80,7 +82,7 @@ impl fmt::Display for CaptureIssue {
 }
 
 /// Package provenance paired with its editor-visible physical document.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Origin {
     pub uri: Option<Uri>,
     pub module: ModuleIdentity,
@@ -98,6 +100,9 @@ impl Origin {
 #[derive(Clone, Debug)]
 pub(crate) struct ContextCapture {
     pub key: ContextKey,
+    /// Changes only when this context's source, provider or coverage inputs change.
+    pub input_revision: u64,
+    pub relations: ContextRelations,
     pub root: ModuleIdentity,
     pub sources: SourceSnapshot,
     pub origins: BTreeMap<FileId, Origin>,
@@ -129,7 +134,7 @@ pub(crate) struct WorkspaceCapture {
     /// that cannot receive a semantic binding due to conflicting/unavailable text.
     /// Keys use normalized admitted document names; values use normalized provider keys.
     pub document_origins: BTreeMap<String, String>,
-    pub errors: Vec<CaptureIssue>,
+    pub errors: Vec<DiscoveryIssue>,
     _lease: InputLease,
 }
 

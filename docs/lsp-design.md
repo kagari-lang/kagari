@@ -627,26 +627,35 @@ explicit search-scope policy, not a promise that another server never performs
 session-wide bookkeeping, cancellation or reload. The sources establish
 mechanisms, not measured Kagari performance or blanket fault isolation.
 
-The current pilot is narrower than the intended scope contract below:
-`WorkspaceCapture` groups all admitted contexts under one generation,
-`ImplementationIndex::new` checks the entire capture, and input changes invalidate
-all diagnostic contributions. Consequently an unrelated broken project can block
-implementation search, and an unrelated edit can trigger capture/diagnostic work.
-Successful same-name-provider isolation tests do not prove fault or invalidation
-isolation. This review records the gap without claiming it is implemented.
+Implementation search now selects its required contexts before creating an
+index. Acquisition retains the exact selected user-package providers (physical
+package directory plus portable selection), configured-folder associations and
+per-context input revisions. Provider membership comes from the resolved graph,
+including consumers whose root source is unavailable; native declarations alone
+do not connect independent projects. Unknown discovery failures remain explicit
+coverage gaps because directory separation cannot prove missing dependency edges.
 
-The finite follow-up is:
+The feature owns anchor/provider selection; the index consumes only the selected
+immutable contexts. Index keys contain the ordered context/input stamp vector.
+Unchanged contexts can retain warm shards across unrelated session generations;
+older admitted reads pin their original scopes and source leases. The installed
+native environment owns the cache lifetime: replacement discards its scopes.
+Context retirement and changed source/provider/coverage inputs retire unpinned
+stale entries; bounded warm entries may be evicted before refusing new work.
+Cross-context identity translation still checks physical anchor, bytes, module and
+declaration provenance. A missing/mismatched anchor in a common user provider is
+incomplete coverage, not permission to omit that consumer.
 
-1. **LSP05 scope/coverage owner (`analysis/features` and `analysis/indexes`),
-   before extending occurrence/reference indexing:** derive the request's required context set before creating an index scope.
-   Search admitted project/member and reverse-dependent contexts using the actual
-   selected package/provider identity, with the dependency closures needed to
-   interpret them. Do not limit the search to the defining package's imports,
-   join unrelated physical copies by display name, or merge projects merely
-   because both use native declarations. Missing discovery that could affect the
-   selected search remains a coverage gap; it cannot be filtered away as unrelated
-   without evidence. Cache identity and pins must include the selected scope and
-   its input/provider stamp vector, not only the session generation.
+`WorkspaceCapture` still groups all admitted contexts under one ordered generation.
+Acquisition and diagnostic invalidation remain session-wide, so unrelated edits
+can still trigger capture/diagnostic work. Query isolation does not establish
+capture, CPU scheduling or memory isolation. The remaining follow-up is:
+
+1. **LSP05 scope/coverage owner (`analysis/features` and `analysis/indexes`):**
+   reuse these acquisition/provider contracts when adding occurrence/reference
+   indexing. Each feature retains its own scope policy; required discovery that
+   cannot be classified remains a gap. Do not limit reverse searches to the
+   defining package's imports or join independent copies by display name.
 2. **LSP08 lifecycle/invalidation owner (`workspace` and `session`):** maintain
    explicit folder-to-project and physical-source-to-context associations. Keep
    global event order for admission, but use affected context/provider stamps for
@@ -678,8 +687,9 @@ an old read is held at LSP08. Extend B03/B04/B07 with increasing unrelated proje
 count, affected-context/work counters, exact result/coverage assertions and retained
 old captures. Performance targets and seed replay must distinguish scope
 selection from indexing work; no new latency or memory win is claimed here.
-This is documentation-only research; runtime validation remains the existing
-pilot evidence until the owning phase implements these contracts.
+The scope/cache correction has focused acquisition/index and real actor witnesses.
+The benchmark/fuzz extensions below remain required for this correction's final
+acceptance; the LSP08 lifecycle witnesses remain deferred.
 
 ### Overlay-aware capture
 

@@ -6,6 +6,7 @@ use crate::{
         capture::{StagedContext, package_failure},
         origins::{input_error, issue, native_key},
         overlay::OverlayInput,
+        relations::ContextRelations,
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
@@ -142,5 +143,14 @@ pub(super) fn stage(
         inputs,
         errors,
         root_order: order,
+        relations: ContextRelations {
+            folders: selected
+                .map(|(_, input)| input.canonical_root())
+                .transpose()
+                .map_err(package_failure)?
+                .into_iter()
+                .collect(),
+            ..ContextRelations::default()
+        },
     })
 }

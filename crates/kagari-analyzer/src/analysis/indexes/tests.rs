@@ -3,7 +3,7 @@ use crate::{
         AnalysisState,
         diagnostics::ProjectionLimits,
         features::{DocumentQueryInput, navigation::implementation::ImplementationStep},
-        indexes::{ImplementationIndex, IndexFailure},
+        indexes::{ImplementationIndex, IndexFailure, scope::IndexScope},
     },
     documents::DocumentInput,
     protocol::source_name,
@@ -21,6 +21,8 @@ use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
 use lsp_types::GotoDefinitionResponse;
 use std::{fs, sync::Arc};
 use tokio::sync::oneshot;
+
+mod isolation;
 
 #[test]
 fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance() {
@@ -107,7 +109,13 @@ fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance
         receiver: None,
         assumptions: Default::default(),
     };
-    let mut index = ImplementationIndex::new(capture.clone(), 1, Default::default()).unwrap();
+    let mut index = ImplementationIndex::new(
+        IndexScope {
+            contexts: capture.contexts.clone(),
+        },
+        Default::default(),
+    )
+    .unwrap();
     assert!(matches!(
         index.query(
             &selected.key,
@@ -245,8 +253,13 @@ fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance
             origin.module.path.push("other-semantic-module".into());
         }
     }
-    let mut rejected =
-        ImplementationIndex::new(Arc::new(conflicting), 1, Default::default()).unwrap();
+    let mut rejected = ImplementationIndex::new(
+        IndexScope {
+            contexts: conflicting.contexts,
+        },
+        Default::default(),
+    )
+    .unwrap();
     while let Some(context) = rejected.next_context().cloned() {
         let shard = state
             .signatures_for_context(&context, &Default::default())
@@ -273,7 +286,7 @@ fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance
             .map(|context| context.key.clone())
             .collect(),
     );
-    state.retain_input_generation(capture.generation);
+    state.retain_capture_inputs(&capture);
     let input = DocumentQueryInput {
         serial: 7,
         capture: capture.clone(),
@@ -300,7 +313,28 @@ fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance
         state.indexes.retained_bytes() > 0,
         "the completed current scope is warm"
     );
-    state.retain_input_generation(capture.generation + 1);
+    let (sender, receiver) = oneshot::channel();
+    fs::write(
+        fixture.directory().join("first/api/src/lib.kgr"),
+        api.replace("Read", "ReadNew"),
+    )
+    .unwrap();
+    worker
+        .port
+        .submit(
+            CaptureRequest::new(
+                capture.generation + 1,
+                vec![fixture.uri("first"), cloned.uri("first")],
+                vec![],
+                &budget,
+            )
+            .unwrap(),
+            CancellationToken::default(),
+            sender,
+        )
+        .unwrap();
+    let changed = receiver.blocking_recv().unwrap().unwrap();
+    state.retain_capture_inputs(&changed);
     assert_eq!(
         state.indexes.retained_bytes(),
         0,

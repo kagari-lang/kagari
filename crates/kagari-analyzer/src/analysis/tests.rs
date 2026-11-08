@@ -8,7 +8,7 @@ use crate::{
     tests::fixture::Fixture,
     workspace::{
         CaptureIssue, CaptureRequest, WorkspaceCapture, acquisition, budget::InputBudget,
-        origins::file_uri,
+        origins::file_uri, relations::DiscoveryIssue,
     },
 };
 use kagari_common::cancellation::CancellationToken;
@@ -104,11 +104,11 @@ fn full_analysis_projects_inline_ranges_reuses_context_and_retains_leases_until_
         .unwrap();
     let old_file = old.contexts[0].sources.files().next().unwrap().id();
     assert_ne!(held.snapshot.definitions().id(), baseline_identity.0);
-    old.errors.push(CaptureIssue {
+    old.errors.push(DiscoveryIssue::unknown(CaptureIssue {
         uri: Some(uri.clone()),
         range: Some(0..usize::MAX),
         message: "invalid acquisition location".into(),
-    });
+    }));
     let unlocated = state
         .diagnostics(&old, None, &[], &CancellationToken::default())
         .unwrap();

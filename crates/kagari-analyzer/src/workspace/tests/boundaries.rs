@@ -81,7 +81,7 @@ fn nested_packages_are_discovered_only_from_open_files_and_never_widen_approved_
         confined
             .errors
             .iter()
-            .any(|issue| issue.message.contains("escapes the input root")),
+            .any(|issue| issue.issue.message.contains("escapes the input root")),
         "{:?}",
         confined.errors
     );

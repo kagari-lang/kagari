@@ -20,7 +20,7 @@ use crate::{
         indexes::cache::IndexCache,
     },
     workspace::{
-        ContextCapture, ContextKey,
+        ContextCapture, ContextKey, WorkspaceCapture,
         budget::{InputBudget, InputLease},
     },
 };
@@ -162,8 +162,8 @@ impl AnalysisState {
 }
 
 impl AnalysisState {
-    pub fn retain_input_generation(&mut self, generation: u64) {
-        self.indexes.retain_generation(generation);
+    pub fn retain_capture_inputs(&mut self, capture: &WorkspaceCapture) {
+        self.indexes.retain_capture(capture);
     }
 
     #[cfg(test)]

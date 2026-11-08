@@ -65,6 +65,15 @@ fn pilot_features_preserve_request_inputs_and_cancel_without_waiting_for_worker_
         .unwrap();
     }
     let root = file_uri(project.to_str().unwrap()).unwrap();
+    let unrelated = fixture.uri("second");
+    fs::write(
+        fixture.directory().join("second/src/lib.kgr"),
+        format!(
+            "mod missing;\n{}",
+            include_str!("../../tests/fixtures/workspace/other.kgr")
+        ),
+    )
+    .unwrap();
     let lib = file_uri(project.join("src/lib.kgr").to_str().unwrap()).unwrap();
     let alias = project.join("open api alias 雪 #");
     fixture.link_directory(&project.join("src"), &alias);
@@ -79,7 +88,7 @@ fn pilot_features_preserve_request_inputs_and_cancel_without_waiting_for_worker_
         // Lifecycle errors win even when method-specific decoding already failed.
         let before = peer.request(0, "textDocument/hover", json!({})).await;
         assert_eq!(before["error"]["code"], -32002);
-        let initialized = peer.request(1, "initialize", json!({"capabilities":{"window":{"workDoneProgress":true}},"workspaceFolders":[{"uri":root.as_str(),"name":"editor"}]})).await;
+        let initialized = peer.request(1, "initialize", json!({"capabilities":{"window":{"workDoneProgress":true}},"workspaceFolders":[{"uri":root.as_str(),"name":"editor"},{"uri":unrelated.as_str(),"name":"unrelated broken project"}]})).await;
         assert_eq!(initialized["result"]["capabilities"]["hoverProvider"],true);
         assert_eq!(initialized["result"]["capabilities"]["implementationProvider"]["workDoneProgress"],true);
         peer.notify("initialized",json!({})).await;

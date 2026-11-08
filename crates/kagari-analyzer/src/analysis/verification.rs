@@ -303,7 +303,7 @@ impl Worlds {
 }
 
 fn queries(state: &mut AnalysisState, input: &DocumentQueryInput) -> Vec<Answer> {
-    state.retain_input_generation(input.capture.generation);
+    state.retain_capture_inputs(&input.capture);
     let live = state
         .contexts
         .keys()

@@ -1,4 +1,6 @@
 //! Implementation-specific target selection, search lifetime and LSP presentation.
+mod scope;
+
 use crate::{
     analysis::{
         AnalysisFailure, AnalysisState,
@@ -6,7 +8,7 @@ use crate::{
             DocumentQueryInput, ProtocolOutput,
             projection::{location, selected_context},
         },
-        indexes::cache::ScopeStamp,
+        indexes::scope::ScopeStamp,
     },
     protocol::output::MESSAGE_BASE_CHARGE_BYTES,
     workspace::{ContextKey, budget::InputLease},
@@ -42,7 +44,7 @@ impl ImplementationSearches {
     pub(in crate::analysis) fn pins(&self) -> BTreeSet<ScopeStamp> {
         self.requests
             .values()
-            .map(|request| request.scope)
+            .map(|request| request.scope.clone())
             .collect()
     }
 
@@ -76,9 +78,8 @@ impl AnalysisState {
         cancel: &CancellationToken,
     ) -> Result<ImplementationStep, AnalysisFailure> {
         cancel.check()?;
-        self.indexes.retain_generation(input.capture.generation);
+        self.indexes.retain_capture(&input.capture);
         self.check_generated_views(&input.capture, &input.documents)?;
-        let stamp = (input.capture.generation, 1);
         if !self.implementation.requests.contains_key(&input.serial) {
             let context = selected_context(input)?.key.clone();
             let retained = self.editor_for_input(input, cancel)?;
@@ -125,7 +126,14 @@ impl AnalysisState {
                 receiver,
                 assumptions: editor.generic_bounds(input.offset),
             };
-            self.indexes.ensure_scope(stamp, input.capture.clone())?;
+            let search = scope::select(
+                &input.capture,
+                selected_context(input)?,
+                &signatures,
+                &target,
+                cancel,
+            )?;
+            let stamp = self.indexes.ensure_scope(search)?;
             self.implementation.requests.insert(
                 input.serial,
                 SelectedTarget {
@@ -138,11 +146,12 @@ impl AnalysisState {
             );
         }
         self.indexes.retain_pins(self.implementation.pins());
-        let next = self.indexes.scope(stamp).next_context().cloned();
+        let stamp = self.implementation.requests[&input.serial].scope.clone();
+        let next = self.indexes.scope(&stamp).next_context().cloned();
         if let Some(context) = next {
             let signatures = self.signatures_for_context(&context, cancel)?;
             self.indexes.insert_context(
-                stamp,
+                &stamp,
                 &context,
                 signatures.snapshot,
                 &self.budget,
@@ -152,9 +161,7 @@ impl AnalysisState {
             return Ok(ImplementationStep::Continue);
         }
         let request = &self.implementation.requests[&input.serial];
-        let index = self.indexes.scope(stamp);
-        debug_assert_eq!(index.generation(), input.capture.generation);
-        debug_assert_eq!(index.environment_epoch(), stamp.1);
+        let index = self.indexes.scope(&stamp);
         let destinations = index.query(
             &request.context,
             &request.signatures,

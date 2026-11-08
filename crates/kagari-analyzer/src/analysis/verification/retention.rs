@@ -135,7 +135,7 @@ pub(crate) fn run(mut checkpoint: impl FnMut(RetentionCheckpoint)) {
             .iter()
             .map(|context| context.key.clone())
             .collect();
-        state.retain_input_generation(input.capture.generation);
+        state.retain_capture_inputs(&input.capture);
         state.retain_contexts(&live);
         let answer = state.hover(&input, &Default::default()).unwrap();
         assert!(answer.is_some());

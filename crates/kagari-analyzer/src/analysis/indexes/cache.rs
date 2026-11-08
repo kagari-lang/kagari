@@ -2,28 +2,29 @@
 use crate::{
     analysis::{
         AnalysisFailure,
-        indexes::{ImplementationIndex, IndexFailure},
+        indexes::{
+            ImplementationIndex, IndexFailure,
+            scope::{IndexScope, ScopeStamp},
+        },
     },
     workspace::{ContextCapture, ContextKey, WorkspaceCapture, budget::InputBudget},
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::analysis::signatures::{SignatureSnapshot, relations::RelationLimits};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_INDEX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_INDEX_SCOPES: usize = 64;
-pub(in crate::analysis) type ScopeStamp = (u64, u64);
 
-/// One warm scope plus older scopes still owned by admitted requests.
+/// Bounded warm scopes plus older scopes still pinned by admitted requests.
+/// The cache is destroyed whenever the installed native environment is replaced.
 #[derive(Default)]
 pub(in crate::analysis) struct IndexCache {
     scopes: BTreeMap<ScopeStamp, ImplementationIndex>,
     pins: BTreeSet<ScopeStamp>,
     live_contexts: BTreeSet<ContextKey>,
     live_generation: u64,
+    live_inputs: BTreeMap<ContextKey, u64>,
 }
 
 impl IndexCache {
@@ -34,34 +35,44 @@ impl IndexCache {
 
     pub(in crate::analysis) fn ensure_scope(
         &mut self,
-        stamp: ScopeStamp,
-        capture: Arc<WorkspaceCapture>,
-    ) -> Result<(), AnalysisFailure> {
+        scope: IndexScope,
+    ) -> Result<ScopeStamp, AnalysisFailure> {
+        let stamp = scope.stamp();
         if self.scopes.contains_key(&stamp) {
-            return Ok(());
+            return Ok(stamp);
         }
         self.retire();
         if self.scopes.len() >= MAX_INDEX_SCOPES {
-            return Err(AnalysisFailure::Capacity(
-                "retained implementation scope limit exceeded".into(),
-            ));
+            // Completed warm scopes are expendable; admitted reads are not.
+            let victim = self
+                .scopes
+                .keys()
+                .find(|stamp| !self.pins.contains(*stamp))
+                .cloned();
+            if let Some(victim) = victim {
+                self.scopes.remove(&victim);
+            } else {
+                return Err(AnalysisFailure::Capacity(
+                    "retained implementation scope limit exceeded".into(),
+                ));
+            }
         }
         self.scopes.insert(
-            stamp,
-            ImplementationIndex::new(capture, stamp.1, RelationLimits::default())?,
+            stamp.clone(),
+            ImplementationIndex::new(scope, RelationLimits::default())?,
         );
-        Ok(())
+        Ok(stamp)
     }
 
-    pub(in crate::analysis) fn scope(&self, stamp: ScopeStamp) -> &ImplementationIndex {
+    pub(in crate::analysis) fn scope(&self, stamp: &ScopeStamp) -> &ImplementationIndex {
         self.scopes
-            .get(&stamp)
+            .get(stamp)
             .expect("admitted implementation scope")
     }
 
     pub(in crate::analysis) fn insert_context(
         &mut self,
-        stamp: ScopeStamp,
+        stamp: &ScopeStamp,
         context: &ContextCapture,
         signatures: SignatureSnapshot,
         budget: &InputBudget,
@@ -69,7 +80,7 @@ impl IndexCache {
     ) -> Result<(), AnalysisFailure> {
         let available = MAX_INDEX_BYTES.saturating_sub(self.retained_bytes());
         self.scopes
-            .get_mut(&stamp)
+            .get_mut(stamp)
             .expect("admitted implementation scope")
             .insert(&context.key, signatures, budget, available, cancel)?;
         Ok(())
@@ -83,16 +94,13 @@ impl IndexCache {
     }
 
     fn retire(&mut self) {
-        let newest = self.scopes.keys().next_back().copied().filter(|stamp| {
-            stamp.0 == self.live_generation
-                && self.scopes[stamp]
-                    .capture
-                    .contexts
-                    .iter()
-                    .all(|context| self.live_contexts.contains(&context.key))
+        self.scopes.retain(|stamp, _| {
+            self.pins.contains(stamp)
+                || stamp.inputs.iter().all(|input| {
+                    self.live_contexts.contains(&input.context)
+                        && self.live_inputs.get(&input.context) == Some(&input.input)
+                })
         });
-        self.scopes
-            .retain(|stamp, _| Some(*stamp) == newest || self.pins.contains(stamp));
     }
 
     pub(in crate::analysis) fn retain_contexts(&mut self, live: &BTreeSet<ContextKey>) {
@@ -100,9 +108,18 @@ impl IndexCache {
         self.retire();
     }
 
-    pub(in crate::analysis) fn retain_generation(&mut self, generation: u64) {
-        self.live_generation = self.live_generation.max(generation);
-        self.retire();
+    /// Admission order prevents older reads from replacing current validity.
+    /// Generation itself never participates in semantic cache identity.
+    pub(in crate::analysis) fn retain_capture(&mut self, capture: &WorkspaceCapture) {
+        if capture.generation > self.live_generation {
+            self.live_generation = capture.generation;
+            self.live_inputs = capture
+                .contexts
+                .iter()
+                .map(|context| (context.key.clone(), context.input_revision))
+                .collect();
+            self.retire();
+        }
     }
 }
 
