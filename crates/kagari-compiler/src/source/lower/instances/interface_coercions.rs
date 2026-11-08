@@ -6,7 +6,10 @@ use kagari_contract::callable::construction::evidence::{
 };
 use kagari_hir::{
     typeck::table::{ResolvedInterfaceCoercion, ResolvedInterfaceImplementation},
-    types::{TypeId, TypeSubstitution, semantic::raise_type},
+    types::{
+        NominalType, TypeId, TypeSubstitution,
+        semantic::{raise_nominal_type, raise_type},
+    },
 };
 use kagari_mir::instruction::ConstructionTarget;
 use kagari_types::ty::{NominalTy, Ty};
@@ -19,6 +22,15 @@ pub(crate) struct InterfacePlan {
 }
 
 impl InstancePlanner<'_> {
+    /// Construction proofs keep exact implementation outputs; executable views
+    /// additionally fill omitted associated outputs such as Iterable::Iter.
+    fn interface_value(&self, interface: &NominalType) -> Result<NominalTy, MirLoweringError> {
+        let Ty::Trait(value) = self.encode_type(&TypeId::Trait(interface.clone())) else {
+            return Err(MirLoweringError::MissingBinding("interface value type"));
+        };
+        Ok(value)
+    }
+
     pub(crate) fn interface_coercion(
         &mut self,
         mut coercion: ResolvedInterfaceCoercion,
@@ -74,7 +86,9 @@ impl InstancePlanner<'_> {
                     };
                     return Ok(InterfacePlan {
                         receiver: selected.requirement.receiver.clone(),
-                        source: selected.requirement.interface.clone(),
+                        source: self.interface_value(&raise_nominal_type(
+                            &selected.requirement.interface,
+                        ))?,
                         target,
                         construction: Some(ConstructionTarget::Bound(selected.requirement)),
                     });
@@ -186,8 +200,8 @@ impl InstancePlanner<'_> {
                     )
                 }
             };
-        let source = self.encode_nominal(&constructed);
-        let target = self.encode_nominal(interface);
+        let source = self.interface_value(&constructed)?;
+        let target = self.interface_value(interface)?;
         Ok(InterfacePlan {
             receiver: self.encode_type(&types[0]),
             source,

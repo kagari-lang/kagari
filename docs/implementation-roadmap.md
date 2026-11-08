@@ -1917,6 +1917,21 @@ improvement is claimed.
 
 ## Verification and open CI acceptance
 
+The 2026-11-08 SDK failure batch reproduces all 45 supplied failures with exact
+name filters; all 45 pass after the compiler correction. Elaboration distinguishes
+flat callable syntax from the Fn method's packed tuple. MIR planning admits
+impl-owned script defaults through their checked trait bodies, retains builtin
+Debug/Display dispatch, and encodes interface source/target as value views rather
+than requirement applications. Block termination uses the instantiated Never
+result. Existing source/artifact/JIT, GC, callable ordering and malformed iterator
+output assertions remain enabled; no tests or rejection checks were weakened.
+Seven selected compiler-owner regressions also pass, sampling elaboration,
+Never/MIR rejection and imported default-body provenance. Structure, formatting,
+workspace all-target Clippy and diff checks pass. Full-workspace and exhaustive
+feature/backend/platform tests still require CI; the 817 other SDK cases were not
+rerun locally for this repair. See the [HIR/compiler handoff](architecture/hir.md)
+for the lasting call/value-view contract.
+
 Completed implementations have recorded local acceptance with no carried local
 integration failures. Complete GitHub CI feature/backend acceptance remains
 unverified; local validation does not establish that matrix passed.
