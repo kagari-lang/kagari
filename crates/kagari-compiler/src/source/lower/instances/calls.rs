@@ -3,6 +3,7 @@ use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::{callable::shared::SharedCall, types::ConcreteFunctionIdentity};
 use kagari_hir::{
+    aggregates::traits::MethodDefault,
     callable::AppliedCallSignature,
     resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
@@ -60,23 +61,28 @@ impl InstancePlanner<'_> {
             .modules
             .get(&self.module_handle(declaration))
             .ok_or(MirLoweringError::MissingBinding("direct function module"))?;
-        let Some(ResolvedName::Function(id)) = module
+        if let Some(ResolvedName::Function(id)) = module
             .environment()
             .declarations()
             .definition_target(&declaration)
-        else {
+        {
+            let signature = module
+                .environment()
+                .signatures()
+                .function(id)
+                .ok_or(MirLoweringError::MissingTypedFunction(id))?;
+            if signature.implementation != FunctionImplementation::Script {
+                return Err(MirLoweringError::MissingBinding(
+                    "unimplemented direct callable",
+                ));
+            }
+        } else if !self
+            .catalog
+            .default_method(&self.definitions(), &declaration)
+            .is_some_and(|(_, method)| method.default == Some(MethodDefault::Script))
+        {
             return Err(MirLoweringError::MissingBinding(
                 "direct function declaration",
-            ));
-        };
-        let signature = module
-            .environment()
-            .signatures()
-            .function(id)
-            .ok_or(MirLoweringError::MissingTypedFunction(id))?;
-        if signature.implementation != FunctionImplementation::Script {
-            return Err(MirLoweringError::MissingBinding(
-                "unimplemented direct callable",
             ));
         }
         if self.module_handle(declaration) == self.owner_handle() {

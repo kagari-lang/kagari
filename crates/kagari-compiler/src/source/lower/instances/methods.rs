@@ -373,6 +373,12 @@ impl InstancePlanner<'_> {
             Some(Protocol::Ord) => {
                 MethodOperation::Call(CallTarget::RuntimePrimitive(RuntimePrimitive::ValueCmp))
             }
+            Some(Protocol::Debug) => {
+                MethodOperation::Call(CallTarget::RuntimePrimitive(RuntimePrimitive::ValueDebug))
+            }
+            Some(Protocol::Display) => {
+                MethodOperation::Call(CallTarget::RuntimePrimitive(RuntimePrimitive::ValueDisplay))
+            }
             _ => return Err(MirLoweringError::MissingBinding("builtin operator")),
         };
         Ok(MethodPlan { result, operation })
