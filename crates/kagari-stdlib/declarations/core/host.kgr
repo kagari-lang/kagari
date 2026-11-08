@@ -1,25 +1,49 @@
-//! Scope-bound shared and mutable host locations with checked target and access capabilities. These views retain no host ownership.
+//! Scope-bound shared and mutable host locations with checked target and access
+//! capabilities. These views retain no host ownership.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }
+//! struct Player {}
+//! fn inspect(value: Ref<Player>, visitor: fn(Ref<Player>) -> i32) -> i32 {
+//!     visitor(value)
+//! }
 //! ```
 
-/// A shared host location valid only within its execution scope. It cannot be returned, captured, stored in owning values or retained across suspension. The target schema does not grant a Rust reference without an installed host capability.
+/// A shared host location valid only within its execution scope. It cannot be
+/// returned, captured, stored in owning values or retained across suspension. The
+/// target schema does not grant a Rust reference without an installed host
+/// capability.
+///
+/// This declaration-only example forwards an existing scoped view to a synchronous
+/// visitor. It does not create a Player or a host capability. The host must install
+/// the target schema and supply the view within a checked execution scope; this is
+/// not a standalone program.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }
+/// struct Player {}
+/// fn inspect(value: Ref<Player>, visitor: fn(Ref<Player>) -> i32) -> i32 {
+///     visitor(value)
+/// }
 /// ```
 pub type Ref<T>;
 
-/// A mutable host location valid only within its execution scope. Exclusive access uses checked loans; holding a view neither transfers ownership nor creates an active Rust reference. A shared view cannot upgrade to this capability.
+/// A mutable host location valid only within its execution scope. Exclusive access
+/// uses checked loans; holding a view neither transfers ownership nor creates an
+/// active Rust reference. A shared view cannot upgrade to this capability.
+///
+/// This declaration-only example passes an existing mutable view to a synchronous
+/// visitor. The host supplies both the scoped capability and the visitor; declaring
+/// Player alone creates neither. No view is stored or returned.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// struct Player {} fn inspect(value: RefMut<Player>) -> i32 { 1 }
+/// struct Player {}
+/// fn update(value: RefMut<Player>, visitor: fn(RefMut<Player>) -> i32) -> i32 {
+///     visitor(value)
+/// }
 /// ```
 pub type RefMut<T>;

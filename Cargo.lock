@@ -967,7 +967,9 @@ dependencies = [
  "kagari-runtime",
  "kagari-source",
  "kagari-types",
+ "kagari-vm",
  "rstest",
+ "thiserror",
 ]
 
 [[package]]

@@ -1,23 +1,32 @@
-//! Optional values: Some contains a value; None represents absence. Question-mark propagation preserves the enclosing Option result.
+//! Optional values: Some contains a value; None represents absence. Question-mark
+//! propagation preserves the enclosing Option result.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }
+//! fn main() -> bool {
+//!     val values = Vec::from([4, 5]);
+//!     values.get(0u64) == Some(4) && values.get(2u64) == None
+//! }
 //! ```
 
-/// An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.
+/// An optional value: Some carries one value and None carries none. Question-mark
+/// propagation returns None early.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }
+/// fn main() -> bool {
+///     val values = Vec::from([4, 5]);
+///     values.get(0u64) == Some(4) && values.get(2u64) == None
+/// }
 /// ```
 pub enum Option<T> {
-    /// The `Some` case of `Option`. An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.
+    /// Contains the present value of type `T`.
     Some(T),
 
-    /// The `None` case of `Option`. An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.
+    /// Represents absence and carries no value. `?` returns this case early from an
+    /// Option-returning function.
     None,
 }
 
@@ -30,23 +39,28 @@ impl<T> core::ops::Try for Option<T> {
 
     /// Construct a successful carrier from Output.
     ///
-    /// See `Try` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// fn main() -> bool {
+    ///     Option<i32>::from_output(42) == Some(42)
+    /// }
     /// ```
     pub fn from_output(output: T) -> Option<T>;
 
     /// Consume the carrier once and return Continue(Output) or Break(Residual).
     ///
-    /// See `Try` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// use core::ops::ControlFlow;
+    /// fn main() -> bool {
+    ///     val value: Option<i32> = Some(42);
+    ///     match value.branch() {
+    ///         ControlFlow::Continue(item) => item == 42,
+    ///         ControlFlow::Break(_) => false,
+    ///     }
+    /// }
     /// ```
     pub fn branch(self) -> core::ops::ControlFlow<Option<core::convert::Infallible>, T>;
 }
@@ -54,19 +68,29 @@ impl<T> core::ops::Try for Option<T> {
 impl<T> core::ops::FromResidual<Option<core::convert::Infallible>> for Option<T> {
     /// Construct the enclosing early-return value from a compatible Residual.
     ///
-    /// See `FromResidual` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }
+    /// fn main() -> bool {
+    ///     val residual: Option<core::convert::Infallible> = None;
+    ///     val result: Option<i32> = Option<i32>::from_residual(residual);
+    ///     result == None
+    /// }
     /// ```
     pub fn from_residual(residual: Option<core::convert::Infallible>) -> Option<T>;
 }
 
 impl<T> core::default::Default for Option<T> {
-    /// Return Option<T>::None using the checked Option enum identity. T need not implement Default.
+    /// Returns None. The element type does not need to implement Default.
     ///
-    /// See `core::default::Default` for the construction contract.
+    /// # Examples
+    ///
+    /// ```kgr
+    /// struct Element {}
+    /// fn main() -> bool {
+    ///     val value = Option<Element>::default();
+    ///     match value { None => true, Some(_) => false }
+    /// }
+    /// ```
     pub fn default() -> Option<T>;
 }

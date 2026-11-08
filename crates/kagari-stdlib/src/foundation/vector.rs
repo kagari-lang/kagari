@@ -216,7 +216,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         .with_overrides([entry]))
     })?;
     let default = interface(module, "Default", 0)?;
-    let entry = override_entry(module, &default, "default", 0, raw(0, vectors::new))?.documentation("Return a fresh empty Vec<T>. Every call creates independent mutable storage; T need not implement Default.\n\nSee `core::default::Default` for the construction contract.");
+    let entry = override_entry(module, &default, "default", 0, raw(0, vectors::new))?.documentation(documentation::example("Returns a fresh empty Vec. The element type need not implement Default. Independently created vectors have separate mutable storage.", "struct Element {}\nfn main() -> bool {\n    val values = Vec<Element>::default();\n    values.is_empty()\n}"));
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {
             receiver: vector.apply(items.to_vec())?,
@@ -267,39 +267,39 @@ fn scoped(arguments: Vec<Codec>, entry: Entry) -> NativeBinding {
 
 const TYPE_DOCS: (&str, &str) = (
     "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and invalidates existing cursors.",
-    "fn append(values: Vec<i32>) -> u64 { values.push(3); values.len() }",
+    "fn main() -> bool {\n    val values = Vec::from([1, 2]);\n    val alias = values;\n    values.push(3);\n    alias.len() == 3u64 && alias.get(2u64) == Some(3)\n}",
 );
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
     "Shared mutable sequences with checked indexing, iteration and collection algorithms. Readonly views do not freeze aliases.",
-    "fn length(values: Vec<i32>) -> u64 { values.len() }",
+    "fn main() -> bool {\n    val values = Vec::from([10, 20]);\n    values.len() == 2u64 && values.get(0u64) == Some(10) && values.get(2u64) == None\n}",
 );
 
 fn inherent_docs(name: &str) -> String {
     let (description, code) = match name {
         "new" => (
             "Create fresh empty mutable sequence storage.",
-            "fn create() -> Vec<i32> { Vec::new() }",
+            "fn main() -> bool {\n    val left: Vec<i32> = Vec::new();\n    val right: Vec<i32> = Vec::new();\n    left.push(7);\n    left.get(0u64) == Some(7) && right.is_empty()\n}",
         ),
         "from" => (
             "Copy an array into fresh mutable sequence storage.",
-            "fn create() -> Vec<i32> { Vec::from([1, 2]) }",
+            "fn main() -> bool {\n    val source = [1, 2];\n    val values = Vec::from(source);\n    values.push(3);\n    source.len() == 2u64 && values.len() == 3u64 && values.get(1u64) == Some(2)\n}",
         ),
         "push" => (
             "Append one item and return the same Vec. A guarded structural edit traps before committing the edit.",
-            "fn example(values: Vec<i32>) { val result = values.push(1); }",
+            "fn main() -> bool {\n    val values: Vec<i32> = Vec::new();\n    val returned = values.push(7);\n    returned.push(8);\n    values.len() == 2u64 && values.get(1u64) == Some(8)\n}",
         ),
         "insert" => (
             "Insert at the given position and return the same Vec. An index beyond the length traps.",
-            "fn example(values: Vec<i32>) { val result = values.insert(0, 1); }",
+            "fn main() -> bool {\n    val values = Vec::from([10, 30]);\n    val returned = values.insert(1u64, 20);\n    values.get(1u64) == Some(20) && returned.get(2u64) == Some(30)\n}",
         ),
         "clear" => (
             "Remove all entries after validating structural mutation guards and return the same Vec.",
-            "fn example(values: Vec<i32>) { val result = values.clear(); }",
+            "fn main() -> bool {\n    val values = Vec::from([1, 2]);\n    val returned = values.clear();\n    returned.push(9);\n    values.len() == 1u64 && values.get(0u64) == Some(9)\n}",
         ),
         "set" => (
             "Replace the item at an existing index and return the same Vec. An out-of-bounds index traps.",
-            "fn example(values: Vec<i32>) { val result = values.set(0, 1); }",
+            "fn main() -> bool {\n    val values = Vec::from([10, 20]);\n    val returned = values.set(1u64, 99);\n    returned.get(1u64) == Some(99) && values.len() == 2u64 && values.get(0u64) == Some(10)\n}",
         ),
         _ => unreachable!("Vec inherent inventory"),
     };

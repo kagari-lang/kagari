@@ -1,9 +1,12 @@
-//! Explicit infallible and checked conversions, including reverse adapters and error conversion.
+//! Explicit infallible and checked conversions, including reverse adapters and
+//! error conversion.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn widen(value: i32) -> i64 { i64::from(value) }
+//! fn main() -> bool {
+//!     i64::from(42i32) == 42i64 && i64::from(-7i32) == -7i64
+//! }
 //! ```
 
 pub use core::convert::From as From;

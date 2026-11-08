@@ -33,9 +33,11 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                             } else {
                                 "Return whether the collection has no entries."
                             },
-                            &format!(
-                                "fn example(values: [i32]) {{ val result = values.{name}(); }}"
-                            ),
+                            if name == "len" {
+                                "fn main() -> bool {\n    [10, 20, 30].len() == 3u64\n}"
+                            } else {
+                                "fn main() -> bool {\n    val empty: [i32] = [];\n    empty.is_empty() && ![10].is_empty()\n}"
+                            },
                         ))
                         .implementation_send(NativeBinding::new(
                             vec![Codec::Value],
@@ -99,5 +101,5 @@ pub(super) fn array(item: Type) -> NativeResult<Type> {
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
     "Builtin shared arrays have construction-time fixed length and checked element access.",
-    "fn length(values: Vec<i32>) -> u64 { values.len() }",
+    "fn main() -> bool {\n    val values = [10, 20];\n    val alias = values;\n    alias[1u64] = 42;\n    values.len() == 2u64 && values[1u64] == 42\n}",
 );

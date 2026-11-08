@@ -1,16 +1,35 @@
-//! Cold asynchronous operations. Creation captures inputs without starting work; first await drives the operation once. Aliases share that single-drive state.
+//! Cold asynchronous operations. Creation captures inputs without starting work;
+//! first await drives the operation once. Aliases share that single-drive state.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn retain(value: Future<i32>) -> core::future::Future<i32> { value }
+//! async fn main() -> bool {
+//!     val calls: Vec<i32> = Vec::new();
+//!     val future = async { calls.push(1); 42 };
+//!     val cold = calls.is_empty();
+//!     val value = future.await;
+//!     cold && value == 42 && calls.len() == 1u64
+//! }
 //! ```
 
-/// A cold runtime-local operation with one invariant result type. Creation does not submit work. Await drives once and returns the result; repeated awaiting through any alias traps. Cancellation terminates execution rather than wrapping the result in Result.
+/// A cold runtime-local operation with one invariant result type. Creation does not
+/// submit work. Await drives once and returns the result; repeated awaiting through
+/// any alias traps. Cancellation terminates execution rather than wrapping the
+/// result in Result.
+///
+/// The example is driven by the host interpreter. Observe that creating the cold
+/// operation does not run its body, and the single await performs the effect.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn retain(value: Future<i32>) -> core::future::Future<i32> { value }
+/// async fn main() -> bool {
+///     val calls: Vec<i32> = Vec::new();
+///     val future = async { calls.push(1); 42 };
+///     val cold = calls.is_empty();
+///     val value = future.await;
+///     cold && value == 42 && calls.len() == 1u64
+/// }
 /// ```
 pub type Future<T>;

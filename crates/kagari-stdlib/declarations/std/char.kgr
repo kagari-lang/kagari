@@ -1,9 +1,17 @@
-//! Unicode scalar values, distinct from integers. char has scalar-value equality, ordering and hashing, UTF-8 Display, escaped single-quoted Debug and a NUL default. Explicit conversions provide char to u32 or String and checked u32 to char; Into and TryInto use the corresponding forward implementations. No numeric parsing, arithmetic, aggregation or character-range iteration is provided.
+//! Unicode scalar values, distinct from integers. char has scalar-value equality,
+//! ordering and hashing, UTF-8 Display, escaped single-quoted Debug and a NUL
+//! default. Explicit conversions provide char to u32 or String and checked u32 to
+//! char; Into and TryInto use the corresponding forward implementations. No numeric
+//! parsing, arithmetic, aggregation or character-range iteration is provided.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn scalar(value: u32) -> Result<char, core::char::CharTryFromError> { char::try_from(value) }
+//! use core::char::CharTryFromError;
+//! fn main() -> bool {
+//!     (match char::try_from(0xE9u32) { Ok(value) => value == 'é', Err(_) => false, }) &&
+//!         (match char::try_from(0xD800u32) { Err(CharTryFromError::InvalidScalar) => true, _ => false, })
+//! }
 //! ```
 
 pub use core::char::CharTryFromError as CharTryFromError;

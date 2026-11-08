@@ -1,6 +1,7 @@
 //! Collection comparison contracts bind the shared algorithms by semantic operation.
 pub(super) mod operations;
 use crate::{
+    catalog::documentation::example,
     foundation::{
         bound,
         comparison::operations::{self as comparison, Operation, Shape},
@@ -41,7 +42,7 @@ pub(super) fn public_functions(module: &mut ModuleDraft<'_>) -> NativeResult<()>
         module.define_function(
             FunctionDecl::new(format!("{family}_content_equal"))
                 .returns(Type::bool())
-                .documentation(format!("Compare {family} contents across compatible implementations using element protocols. Receiver object equality and lookup policies do not change this comparison. Traversal preserves completed callback effects and iterator invalidation."))
+                .documentation(example(&format!("Compares {family} contents across compatible implementations using element protocols.\n\nThis compares contents, not receiver storage identity. Lists compare in order;\nsets and maps compare their members or key/value entries independently of\niteration order. Completed callback effects remain visible on failure."), content_example(family)))
                 .configure(move |function| {
                     let items = names.iter().map(|name| function.type_parameter(*name).map(|parameter| parameter.ty())).collect::<NativeResult<Vec<_>>>()?;
                     let receiver = collection.apply(items.clone())?;
@@ -252,4 +253,19 @@ pub(super) fn interface_debug(module: &mut ModuleDraft<'_>) -> NativeResult<()> 
         })?;
     }
     Ok(())
+}
+
+fn content_example(family: &str) -> &'static str {
+    match family {
+        "list" => {
+            "fn main() -> bool {\n    val left = Vec::from([1, 2]);\n    val same = Vec::from([1, 2]);\n    val reversed = Vec::from([2, 1]);\n    std::collections::list_content_equal(left, same) && !std::collections::list_content_equal(left, reversed)\n}"
+        }
+        "set" => {
+            "fn main() -> bool {\n    val left = std::collections::HashSet::from([1, 2]);\n    val right = std::collections::HashSet::from([2, 1, 1]);\n    std::collections::set_content_equal(left, right)\n}"
+        }
+        "map" => {
+            "fn main() -> bool {\n    val left: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();\n    val right: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();\n    left.insert(1, 10).insert(2, 20);\n    right.insert(2, 20).insert(1, 10);\n    std::collections::map_content_equal(left, right)\n}"
+        }
+        _ => unreachable!("content equality family"),
+    }
 }

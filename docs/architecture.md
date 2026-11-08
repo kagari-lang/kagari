@@ -941,17 +941,22 @@ types and functions are used together.
 
 The [bundled declaration style guide](../crates/kagari-stdlib/declarations/README.md#documentation-style)
 owns source spacing, caller-facing summaries, operation-specific examples and
-script trap sections. Registration Markdown and bundled doc comments both feed
-the existing isolated documentation-example analysis. A passing example checks
-syntax/types, not the truth or completeness of the surrounding prose; content
-review must follow the actual operation implementation.
+script trap sections. The existing stdlib documentation test compares registration
+Markdown with bundled comments by portable declaration identity, then extracts and
+executes the displayed examples. Ordinary boolean main programs must return true;
+typed trap witnesses have owner-local assertions. Only the scoped Ref/RefMut
+visitor declarations are analysis-only. TaskScope examples use real controlled
+host admission and scheduler drive. Preparation is reused within bounded groups;
+sources, mutable runtime state and heaps remain isolated per program. A passing
+example establishes its observed outcome, not completeness of the surrounding
+prose; content review must follow the actual operation implementation.
 
 Documentation-only changes invalidate the source-package/documentation cache,
 without changing executable type identity, native binding compatibility or ABI
 versions. Keep documentation attached to authoring records; executable validation
 must not depend on Markdown contents. This requirement covers registration APIs,
 generated files and analysis queries; it does not add a documentation website or
-an automatic doctest runner.
+a general-purpose doctest platform.
 
 ### Registration API
 

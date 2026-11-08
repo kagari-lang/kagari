@@ -1,23 +1,68 @@
-//! Success and failure values. Question-mark propagation returns an error early and uses a declared From conversion where needed.
+//! Success and failure values. Question-mark propagation returns an error early and
+//! uses a declared From conversion where needed.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+//! use core::num::ParseError;
+//!
+//! fn main() -> bool {
+//!     (
+//!         match i32::from_str("42") {
+//!             Ok(value) => value == 42,
+//!             Err(_) => false,
+//!         }
+//!     ) &&
+//!         (
+//!         match i32::from_str("") {
+//!             Err(ParseError::Empty) => true,
+//!             _ => false,
+//!         }
+//!     ) &&
+//!         (
+//!         match i32::from_str("12x") {
+//!             Err(ParseError::InvalidDigit) => true,
+//!             _ => false,
+//!         }
+//!     )
+//! }
 //! ```
 
-/// A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.
+/// A checked outcome: Ok carries the successful value and Err carries the error.
+/// Question-mark propagation returns a converted error early.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn read(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+/// use core::num::ParseError;
+///
+/// fn main() -> bool {
+///     (
+///         match i32::from_str("42") {
+///             Ok(value) => value == 42,
+///             Err(_) => false,
+///         }
+///     ) &&
+///         (
+///         match i32::from_str("") {
+///             Err(ParseError::Empty) => true,
+///             _ => false,
+///         }
+///     ) &&
+///         (
+///         match i32::from_str("12x") {
+///             Err(ParseError::InvalidDigit) => true,
+///             _ => false,
+///         }
+///     )
+/// }
 /// ```
 pub enum Result<T1, T2> {
-    /// The `Ok` case of `Result`. A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.
+    /// Contains the successful value of type `T`.
     Ok(T1),
 
-    /// The `Err` case of `Result`. A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.
+    /// Contains the error of type `E`. `?` converts and returns this error early from
+    /// the enclosing compatible function.
     Err(T2),
 }
 
@@ -30,23 +75,28 @@ impl<T1, T2> core::ops::Try for Result<T1, T2> {
 
     /// Construct a successful carrier from Output.
     ///
-    /// See `Try` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// fn main() -> bool {
+    ///     Option<i32>::from_output(42) == Some(42)
+    /// }
     /// ```
     pub fn from_output(output: T1) -> Result<T1, T2>;
 
     /// Consume the carrier once and return Continue(Output) or Break(Residual).
     ///
-    /// See `Try` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// use core::ops::ControlFlow;
+    /// fn main() -> bool {
+    ///     val value: Option<i32> = Some(42);
+    ///     match value.branch() {
+    ///         ControlFlow::Continue(item) => item == 42,
+    ///         ControlFlow::Break(_) => false,
+    ///     }
+    /// }
     /// ```
     pub fn branch(self) -> core::ops::ControlFlow<Result<core::convert::Infallible, T2>, T1>;
 }
@@ -54,12 +104,14 @@ impl<T1, T2> core::ops::Try for Result<T1, T2> {
 impl<T1, T2, T3> core::ops::FromResidual<Result<core::convert::Infallible, T3>> for Result<T1, T2> where T2: core::convert::From<T3> {
     /// Construct the enclosing early-return value from a compatible Residual.
     ///
-    /// See `FromResidual` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }
+    /// fn main() -> bool {
+    ///     val residual: Option<core::convert::Infallible> = None;
+    ///     val result: Option<i32> = Option<i32>::from_residual(residual);
+    ///     result == None
+    /// }
     /// ```
     pub fn from_residual(residual: Result<core::convert::Infallible, T3>) -> Result<T1, T2>;
 }

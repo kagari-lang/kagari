@@ -507,21 +507,25 @@ separately proposed debug/DAP modes.
 
 ## Language server
 
-Standard declaration documentation review starts with `core::iter`: user-facing
-summaries, operation-specific examples, lazy/consuming behavior, shared progress,
-short-circuit and trap boundaries now have an owner review. Fixed sources and
-registration documentation are updated together. Sibling declaration spacing is
-normalized across the package and native exporter; renderer site ownership is
-preserved. The existing documentation scenario now analyzes examples from actual
-bundled resources as well as registration Markdown, with deduplication and isolated
-user inputs. That scenario and three renderer/native-trivia contracts pass.
-The SDK documentation/materialized-navigation regression also passes. Structure
-(1,980 Rust files, zero violations), formatting, workspace all-target Clippy and
-diff checks pass; VSIX packaging retains all 38 resources byte-for-byte.
-The [declaration documentation guide](../crates/kagari-stdlib/declarations/README.md#documentation-style)
-owns the standard and Rust primary references. Other modules' prose/example review
-remains queued; spacing, nonempty comments and passing examples alone do not prove
-documentation quality. Full workspace/editor matrices remain CI acceptance.
+The complete standard documentation correction (DOC1-DOC6) uses observed examples
+across all 38 bundled resources, including the earlier iteration rewrite. Its
+lasting contracts live in the [documentation design](lsp-design.md#standard-library-api-documentation-correction),
+[authoring guide](../crates/kagari-stdlib/declarations/README.md#documentation-style)
+and [test owner](testing.md#put-invariant-preparation-outside-scenario-loops).
+The inventory reconciles 685 documented items and 475 distinct displayed programs;
+473 execute, while the two scoped Ref/RefMut visitor declarations have explicit
+analysis-only purposes. Fixed sources, source-free runtime, native authority and
+existing semantic test ownership are preserved. Documentation execution complements
+the semantic matrix; it is not a replacement for content review or editor testing.
+
+The documentation acceptance runs all 15 cases, including actual task drive,
+wrong-offset rejection and the typed slice trap. SDK registration/source navigation
+(7), scoped task lifecycle/dependencies (5), actual actor hover/navigation (1),
+source-free SDK checking and exact VSIX bytes (38 resources) pass locally. Detailed
+measurement conditions and the 185.11-second full documentation sample are recorded
+with the documentation contract. Structure, Rust formatting, workspace all-target
+Clippy, fixture formatting and diff checks pass. No performance improvement is claimed; complete
+workspace/backend/platform/editor-host matrices remain CI scope.
 
 The bundled-standard-declaration correction implements 38 fixed module-named
 resources, analyzer embedding and VSIX delivery, independently of Host build/export
@@ -540,7 +544,7 @@ the original OS error kind. Renderer site-bound checks stay at the HIR owner;
 SDK checks exact file text, parsed navigation, retained snapshots and native execution.
 The new ordinary program fixture passes `kg fmt --check`; declaration-mode standard
 resources are checked by native analysis. VSIX packaging and byte comparison verify
-all 38 resources. Structure (1,979 Rust files, zero violations), Rust formatting,
+all 38 resources. Structure, Rust formatting,
 workspace all-target Clippy, verification-enabled analyzer Clippy, source-free SDK
 build and diff checks pass. No paired performance improvement is claimed.
 

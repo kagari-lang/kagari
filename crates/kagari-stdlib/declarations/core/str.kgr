@@ -1,30 +1,94 @@
-//! String parsing contracts with an explicit error type and complete input validation.
+//! String parsing contracts with an explicit error type and complete input
+//! validation.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+//! use core::num::ParseError;
+//!
+//! fn main() -> bool {
+//!     (
+//!         match i32::from_str("42") {
+//!             Ok(value) => value == 42,
+//!             Err(_) => false,
+//!         }
+//!     ) &&
+//!         (
+//!         match i32::from_str("") {
+//!             Err(ParseError::Empty) => true,
+//!             _ => false,
+//!         }
+//!     ) &&
+//!         (
+//!         match i32::from_str("12x") {
+//!             Err(ParseError::InvalidDigit) => true,
+//!             _ => false,
+//!         }
+//!     )
+//! }
 //! ```
 
-/// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
+/// Parses a string into a value, returning the declared `Err` on invalid input.
+/// Built-in numeric parsing validates the complete input and representable range.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+/// use core::num::ParseError;
+///
+/// fn main() -> bool {
+///     (
+///         match i32::from_str("42") {
+///             Ok(value) => value == 42,
+///             Err(_) => false,
+///         }
+///     ) &&
+///         (
+///         match i32::from_str("") {
+///             Err(ParseError::Empty) => true,
+///             _ => false,
+///         }
+///     ) &&
+///         (
+///         match i32::from_str("12x") {
+///             Err(ParseError::InvalidDigit) => true,
+///             _ => false,
+///         }
+///     )
+/// }
 /// ```
 pub trait FromStr {
     /// The error returned when this conversion or parse fails.
     type Err;
 
-    /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
-    ///
-    /// See `FromStr` for the behavioral contract and examples.
+    /// Parses a string into a value, returning the declared `Err` on invalid input.
+    /// Built-in numeric parsing validates the complete input and representable range.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+    /// use core::num::ParseError;
+    ///
+    /// fn main() -> bool {
+    ///     (
+    ///         match i32::from_str("42") {
+    ///             Ok(value) => value == 42,
+    ///             Err(_) => false,
+    ///         }
+    ///     ) &&
+    ///         (
+    ///         match i32::from_str("") {
+    ///             Err(ParseError::Empty) => true,
+    ///             _ => false,
+    ///         }
+    ///     ) &&
+    ///         (
+    ///         match i32::from_str("12x") {
+    ///             Err(ParseError::InvalidDigit) => true,
+    ///             _ => false,
+    ///         }
+    ///     )
+    /// }
     /// ```
     fn from_str(text: alloc::string::String) -> core::result::Result<Self, <Self as FromStr>::Err>;
 }

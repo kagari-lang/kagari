@@ -1,10 +1,13 @@
 //! Carrier owners bind propagation bodies directly; trait signatures remain authoritative.
 pub(super) mod operations;
-use crate::foundation::{
-    bound, enumeration,
-    enumerations::value::{self as enums, Entry, EnumRequest},
-    interface, override_entry,
-    propagation::operations as propagation,
+use crate::{
+    catalog::documentation::example,
+    foundation::{
+        bound, enumeration,
+        enumerations::value::{self as enums, Entry, EnumRequest},
+        interface, override_entry,
+        propagation::operations as propagation,
+    },
 };
 use kagari_runtime::native::{
     assembly::draft::{ModuleDraft, TraitImplementation},
@@ -111,7 +114,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>, name: &str) -> NativeResult<
     if name == "Option" {
         let default = interface(module, "Default", 0)?;
         let entry = override_entry(module, &default, "default", 0, enums::pending(0, &[enums::OPTION], |symbols, cx| enums::option(symbols, cx, None)))?
-            .documentation("Return Option<T>::None using the checked Option enum identity. T need not implement Default.\n\nSee `core::default::Default` for the construction contract.");
+            .documentation(example("Returns None. The element type does not need to implement Default.", "struct Element {}\nfn main() -> bool {\n    val value = Option<Element>::default();\n    match value { None => true, Some(_) => false }\n}"));
         module.trait_implementation_with(1, |arguments| {
             Ok(TraitImplementation {
                 receiver: carrier.apply(arguments.to_vec())?,

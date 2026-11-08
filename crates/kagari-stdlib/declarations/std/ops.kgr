@@ -1,9 +1,12 @@
-//! Operator contracts, range values and boundary policies. Operators dispatch through checked implementations and preserve evaluation order.
+//! Operator contracts, range values and boundary policies. Operators dispatch
+//! through checked implementations and preserve evaluation order.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn plus(left: i32, right: i32) -> i32 { left + right }
+//! fn main() -> bool {
+//!     2 + 3 == 5 && -2 + 3 == 1
+//! }
 //! ```
 
 pub use core::ops::Add as Add;

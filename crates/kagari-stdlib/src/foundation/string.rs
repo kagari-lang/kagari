@@ -1,7 +1,9 @@
 //! String owns its constructor, complete method definitions and scoped UTF-8 bodies.
+mod documentation;
 use crate::{
     foundation::{
-        Entry, arrays::operations::index_argument, default_impl, enumeration, interface, type_docs,
+        Entry, arrays::operations::index_argument, default_impl, enumeration, interface,
+        string::documentation as docs, type_docs,
     },
     identity,
 };
@@ -28,14 +30,7 @@ use kagari_types::{
 };
 use std::cell::Ref;
 
-pub(crate) const TYPE_DOCS: (&str, &str) = (
-    "An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver. Explicit chars, char_indices and bytes methods return lazy cursors; String itself is not Iterable and has no indexing operator.",
-    "fn greeting() -> String { \"  hello  \".trim() }",
-);
-
-fn documented(method: MethodDecl, text: &str, name: &str, arguments: &str) -> MethodDecl {
-    method.documentation(format!("{text}\n\n# Examples\n\n```kgr\nfn example(values: String) {{ val result = values.{name}({arguments}); }}\n```"))
-}
+pub(crate) const TYPE_DOCS: (&str, &str) = docs::OVERVIEW;
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let reference = module.define_constructor("String", NativeTypeConstructor::String)?;
@@ -51,39 +46,104 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         )?
         .apply([string.clone()])?;
     module.inherent(string.clone(), |methods| {
-        methods.define(documented(MethodDecl::instance("len").returns(Type::u64()), "Return the UTF-8 byte length.", "len", "")
-            .implementation_send(NativeBinding::primitive(NativePrimitive::StringByteLength)))?;
-        for (name, parameters, result, entry, description, example) in [
-            ("is_empty", vec![], Type::bool(), is_empty as Entry, "Return whether the string has no bytes.", ""),
-            ("contains", vec![("pattern", string.clone())], Type::bool(), contains, "Test for a literal substring; the empty pattern matches.", "\"a\""),
-            ("starts_with", vec![("pattern", string.clone())], Type::bool(), starts_with, "Test for a literal prefix; the empty pattern matches.", "\"a\""),
-            ("ends_with", vec![("pattern", string.clone())], Type::bool(), ends_with, "Test for a literal suffix; the empty pattern matches.", "\"a\""),
-            ("find", vec![("pattern", string.clone())], option, find, "Return the first matching byte offset, or None. An empty pattern matches at zero.", "\"a\""),
-            ("slice", vec![("start", Type::u64()), ("end", Type::u64())], string.clone(), slice, "Copy the half-open byte range. Invalid order, bounds or UTF-8 boundaries trap.", "0, 1"),
-            ("trim", vec![], string.clone(), trim, "Remove Unicode whitespace from both ends.", ""),
-            ("trim_start", vec![], string.clone(), trim_start, "Remove leading Unicode whitespace.", ""),
-            ("trim_end", vec![], string.clone(), trim_end, "Remove trailing Unicode whitespace.", ""),
-            ("replace", vec![("from", string.clone()), ("to", string.clone())], string.clone(), replace, "Replace all non-overlapping literal matches. An empty pattern inserts at Unicode scalar boundaries, including both ends.", "\"a\", \"b\""),
+        methods.define(
+            MethodDecl::instance("len")
+                .returns(Type::u64())
+                .documentation(docs::method("len"))
+                .implementation_send(NativeBinding::primitive(NativePrimitive::StringByteLength)),
+        )?;
+        for (name, parameters, result, entry) in [
+            ("is_empty", vec![], Type::bool(), is_empty as Entry),
+            (
+                "contains",
+                vec![("pattern", string.clone())],
+                Type::bool(),
+                contains,
+            ),
+            (
+                "starts_with",
+                vec![("pattern", string.clone())],
+                Type::bool(),
+                starts_with,
+            ),
+            (
+                "ends_with",
+                vec![("pattern", string.clone())],
+                Type::bool(),
+                ends_with,
+            ),
+            ("find", vec![("pattern", string.clone())], option, find),
+            (
+                "slice",
+                vec![("start", Type::u64()), ("end", Type::u64())],
+                string.clone(),
+                slice,
+            ),
+            ("trim", vec![], string.clone(), trim),
+            ("trim_start", vec![], string.clone(), trim_start),
+            ("trim_end", vec![], string.clone(), trim_end),
+            (
+                "replace",
+                vec![("from", string.clone()), ("to", string.clone())],
+                string.clone(),
+                replace,
+            ),
         ] {
-            let mut method = MethodDecl::instance(name).returns(result.clone());
+            let mut method = MethodDecl::instance(name)
+                .returns(result.clone())
+                .documentation(docs::method(name));
             let mut codecs = vec![Codec::Exact(string.clone())];
-            for (name, ty) in parameters { codecs.push(Codec::Exact(ty.clone())); method = method.parameter(name, ty); }
-            methods.define(documented(method, description, name, example)
-                .implementation_send(NativeBinding::new(codecs, Codec::Exact(result), entry)))?;
+            for (name, ty) in parameters {
+                codecs.push(Codec::Exact(ty.clone()));
+                method = method.parameter(name, ty);
+            }
+            methods.define(method.implementation_send(NativeBinding::new(
+                codecs,
+                Codec::Exact(result),
+                entry,
+            )))?;
         }
-        for (name, kind, item, description) in [
-            ("chars", StringIterKind::Chars, Type::scalar(BuiltinType::Char), "Traverse Unicode scalars as char, not grapheme clusters. Combining marks and NUL are separate scalar items."),
-            ("char_indices", StringIterKind::CharIndices, Type::tuple([Type::u64(), Type::scalar(BuiltinType::Char)])?, "Traverse (u64, char) pairs of UTF-8 byte offsets and Unicode scalars. For aé🙂 the offsets are 0, 1 and 3, not scalar ordinals."),
-            ("bytes", StringIterKind::Bytes, Type::scalar(BuiltinType::U8), "Traverse UTF-8 encoded bytes as u8. For aé🙂 there are seven bytes but three Unicode scalars."),
+        for (name, kind, item) in [
+            (
+                "chars",
+                StringIterKind::Chars,
+                Type::scalar(BuiltinType::Char),
+            ),
+            (
+                "char_indices",
+                StringIterKind::CharIndices,
+                Type::tuple([Type::u64(), Type::scalar(BuiltinType::Char)])?,
+            ),
+            (
+                "bytes",
+                StringIterKind::Bytes,
+                Type::scalar(BuiltinType::U8),
+            ),
         ] {
             let result = Type::iterator(item)?;
-            let description = format!("{description} Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.");
-            methods.define(documented(MethodDecl::instance(name).returns(result.clone()), &description, name, "")
-                .implementation_send(NativeBinding::new(vec![Codec::Exact(string.clone())], Codec::Exact(result), move |cx| cx.iter_operation(0, IterOp::String(kind)))))?;
+            methods.define(
+                MethodDecl::instance(name)
+                    .returns(result.clone())
+                    .documentation(docs::method(name))
+                    .implementation_send(NativeBinding::new(
+                        vec![Codec::Exact(string.clone())],
+                        Codec::Exact(result),
+                        move |cx| cx.iter_operation(0, IterOp::String(kind)),
+                    )),
+            )?;
         }
-        methods.define(documented(MethodDecl::instance("split").parameter("separator", string.clone()).returns(list),
-            "Return an eager List<String> of literal-separated fields, preserving endpoint empties. An empty separator splits at Unicode scalar boundaries with endpoint empties.", "split", "\"a\"")
-            .produces(vector.clone()).implementation_send(NativeBinding::new(vec![Codec::Exact(string.clone()), Codec::Exact(string.clone())], Codec::Exact(vector), split)))?;
+        methods.define(
+            MethodDecl::instance("split")
+                .parameter("separator", string.clone())
+                .returns(list)
+                .documentation(docs::method("split"))
+                .produces(vector.clone())
+                .implementation_send(NativeBinding::new(
+                    vec![Codec::Exact(string.clone()), Codec::Exact(string.clone())],
+                    Codec::Exact(vector),
+                    split,
+                )),
+        )?;
         Ok(())
     })?;
     default_impl(
@@ -183,7 +243,4 @@ fn split(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.encode_result(parts)
 }
 
-pub(super) const MODULE_DOCS: (&str, &str) = (
-    "Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries. Explicit lazy chars, char_indices and bytes cursors traverse scalars, byte-offset/scalar pairs and encoded bytes respectively.",
-    "fn clean(text: String) -> String { text.trim() }",
-);
+pub(super) const MODULE_DOCS: (&str, &str) = docs::OVERVIEW;

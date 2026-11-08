@@ -1,13 +1,15 @@
 //! Iteration over collections and user-defined sequences.
 //!
 //! `Iterable::iter` obtains a cursor; `Iterator::next` advances it. Collections
-//! normally create a fresh cursor on each `iter` call. Calling `iter` on an existing
+//! normally create a fresh cursor on each `iter` call. Calling `iter` on an
+//! existing
 //! iterator preserves that cursor and its progress. Assigning a cursor to another
 //! variable also shares its progress.
 //!
 //! Adapters such as `map`, `filter` and `take` are lazy: construction obtains the
 //! source cursor but does not read items or invoke the item callback. Methods such
-//! as `count`, `find` and `fold` start consuming immediately. A consumer stops at the
+//! as `count`, `find` and `fold` start consuming immediately. A consumer stops at
+//! the
 //! first `None`; a custom iterator may produce more items on a later `next` call.
 //!
 //! Built-in collection cursors reject reads after structural source mutation.
@@ -21,10 +23,10 @@
 //! # Examples
 //!
 //! ```kgr
-//! fn example() -> i32 {
+//! fn main() -> bool {
 //!     val values = Vec::from([1, -2, 3]);
-//!     values.filter(|item| item > 0).map(|item| item * 2).sum()
-//!     // Returns 8. Creating the adapters does not run either callback.
+//!     val result: i32 = values.filter(|item| item > 0).map(|item| item * 2).sum();
+//!     result == 8
 //! }
 //! ```
 

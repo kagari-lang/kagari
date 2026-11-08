@@ -13,8 +13,10 @@ kagari-bytecode.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
+thiserror.workspace = true
 kagari-abi.workspace = true
 kagari-hir.workspace = true
 kagari-source.workspace = true
+kagari-vm.workspace = true
 
 kagari-compiler = { workspace = true, features = ["source"] }

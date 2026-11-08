@@ -7,11 +7,11 @@ use kagari_types::declaration::{TypeDefKind, native::NativeStorageLayout};
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
     "Cold asynchronous operations. Creation captures inputs without starting work; first await drives the operation once. Aliases share that single-drive state.",
-    "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",
+    "async fn main() -> bool {\n    val calls: Vec<i32> = Vec::new();\n    val future = async { calls.push(1); 42 };\n    val cold = calls.is_empty();\n    val value = future.await;\n    cold && value == 42 && calls.len() == 1u64\n}",
 );
 
 const TYPE_DOCS: (&str, &str) = (
-    "A cold runtime-local operation with one invariant result type. Creation does not submit work. Await drives once and returns the result; repeated awaiting through any alias traps. Cancellation terminates execution rather than wrapping the result in Result.",
+    "A cold runtime-local operation with one invariant result type. Creation does not submit work. Await drives once and returns the result; repeated awaiting through any alias traps. Cancellation terminates execution rather than wrapping the result in Result.\n\nThe example is driven by the host interpreter. Observe that creating the cold\noperation does not run its body, and the single await performs the effect.",
     MODULE_DOCS.1,
 );
 

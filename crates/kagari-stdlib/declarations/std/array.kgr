@@ -1,7 +1,13 @@
-//! Builtin shared arrays have construction-time fixed length and checked element access.
+//! Builtin shared arrays have construction-time fixed length and checked element
+//! access.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! fn main() -> bool {
+//!     val values = [10, 20];
+//!     val alias = values;
+//!     alias[1u64] = 42;
+//!     values.len() == 2u64 && values[1u64] == 42
+//! }
 //! ```

@@ -1,5 +1,9 @@
 //! Library-owned interpretation of normal outputs; Runtime owns branch lifetimes.
-use crate::{foundation::enumeration, identity};
+use crate::{
+    catalog::documentation::example,
+    foundation::{enumeration, tasks::documentation as docs},
+    identity,
+};
 use kagari_common::identity::DefinitionKind;
 use kagari_runtime::{
     error::RuntimeError,
@@ -28,9 +32,15 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         let result = enumeration(module, "Result", 2)?;
         let name = if fallible { "try_join" } else { "join" };
         let docs = if fallible {
-            "Compose two cold Futures. Awaiting runs both cooperatively; the first observed Err closes the sibling before returning, retaining its original diagnostic origin. Otherwise return Ok of the input-ordered pair. Execution failures terminate the parent.\n\n# Examples\n\n```kgr\nasync fn sample() -> Result<(i32, i32), String> { core::task::try_join(async { Ok(1) }, async { Ok(2) }).await }\n```"
+            example(
+                "Combines two cold Result-producing Futures.\n\nAwaiting drives both cooperatively. Two Ok values produce an input-ordered\npair; the first observed Err closes the sibling before returning that error.\nExecution traps are not converted into Err values. Completed effects are not\nrolled back, and the error keeps its original diagnostic origin.",
+                docs::TRY_JOIN_EXAMPLE,
+            )
         } else {
-            "Compose two cold Futures without starting them. Awaiting runs both cooperatively and returns the input-ordered pair after cleanup. Result values are ordinary outputs; execution failures close the sibling and terminate the parent.\n\n# Examples\n\n```kgr\nasync fn sample() -> (i32, i32) { core::task::join(async { 1 }, async { 2 }).await }\n```"
+            example(
+                "Combines two cold Futures without starting them.\n\nAwaiting drives both cooperatively and returns the input-ordered pair after\nbranch cleanup. The order of outputs does not prescribe the order of effects.\nResult values are ordinary outputs; an execution trap closes the sibling and\nterminates the parent. The host drives the example's scheduler.",
+                docs::JOIN_EXAMPLE,
+            )
         };
         module.define_function(
             FunctionDecl::new(name)

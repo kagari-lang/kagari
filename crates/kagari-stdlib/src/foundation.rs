@@ -16,7 +16,10 @@ pub(crate) mod string;
 mod tasks;
 mod vector;
 
-use crate::{catalog::documentation, identity, namespaces};
+use crate::{
+    catalog::documentation, foundation::enumerations::documentation as enumeration_docs, identity,
+    namespaces,
+};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 use kagari_runtime::{
     error::RuntimeError,
@@ -34,6 +37,7 @@ use kagari_runtime::{
 };
 use kagari_types::{
     declaration::TypeDefKind,
+    scalar::BuiltinType,
     ty::{GenericBound, Ty},
 };
 
@@ -231,12 +235,11 @@ fn type_docs(
     variants: &[&str],
 ) -> NativeResult<()> {
     module.document(reference.id(), documentation::markdown(document))?;
-    let (description, _) = document;
     for variant in variants {
         let id = module.member(reference.id(), DefinitionKind::Variant, variant)?;
         module.document(
             id,
-            format!("The `{variant}` case of `{name}`. {description}"),
+            documentation::prose(enumeration_docs::variant(name, variant)),
         )?;
     }
     Ok(())
@@ -256,8 +259,9 @@ fn default_impl(
         0,
         PendingBinding::implementation_send(binding),
     )?
-    .documentation(format!(
-        "{description}\n\nSee `core::default::Default` for the construction contract."
+    .documentation(documentation::example(
+        description,
+        &default_example(receiver.abi()),
     ));
     module.trait_implementation_with(0, |_| {
         Ok(TraitImplementation {
@@ -268,6 +272,28 @@ fn default_impl(
         }
         .with_overrides([entry]))
     })
+}
+
+fn default_example(receiver: &Ty) -> String {
+    let expression = match receiver {
+        Ty::Builtin(BuiltinType::Unit) => {
+            "val value: () = Default::default();\n    value == ()".into()
+        }
+        Ty::Builtin(BuiltinType::Bool) => "!bool::default()".into(),
+        Ty::Builtin(BuiltinType::Char) => "char::default() == '\\0'".into(),
+        Ty::Builtin(BuiltinType::String) => "String::default() == \"\"".into(),
+        Ty::Builtin(kind) if kind.number_type().is_some() => {
+            let ty = format!("{kind:?}").to_ascii_lowercase();
+            let zero = if matches!(kind, BuiltinType::F32 | BuiltinType::F64) {
+                "0.0"
+            } else {
+                "0"
+            };
+            format!("{ty}::default() == {zero}{ty}")
+        }
+        _ => unreachable!("concrete default contributor"),
+    };
+    format!("fn main() -> bool {{\n    {expression}\n}}")
 }
 
 fn conflict(error: impl ToString) -> RuntimeError {

@@ -21,10 +21,10 @@ when a later operation traps or is cancelled.
 Lazy adapters retain the source operations and callbacks selected when created.
 Hot reload does not reset their progress or replace those retained selections.
 Ordinary calls made inside those operations still follow normal reload rules."#,
-    r#"fn example() -> i32 {
+    r#"fn main() -> bool {
     val values = Vec::from([1, -2, 3]);
-    values.filter(|item| item > 0).map(|item| item * 2).sum()
-    // Returns 8. Creating the adapters does not run either callback.
+    val result: i32 = values.filter(|item| item > 0).map(|item| item * 2).sum();
+    result == 8
 }"#,
 );
 
@@ -38,10 +38,10 @@ different rule.
 
 Cursor values share progress when copied. They also implement `Iterable`, so
 lazy adapters and terminal methods can continue from their current position."#,
-    r#"fn example() -> (Option<i32>, Option<i32>) {
+    r#"fn main() -> bool {
     val cursor = Vec::from([10, 20]).iter();
     val alias = cursor;
-    (cursor.next(), alias.next()) // (Some(10), Some(20)).
+    cursor.next() == Some(10) && alias.next() == Some(20) && cursor.next() == None
 }"#,
 );
 
@@ -56,11 +56,11 @@ The provided adapters obtain source cursors once when constructed. They do not
 read an item until advanced. Terminal methods start consumption when called;
 short-circuiting methods can leave items available through an existing cursor.
 See each method for its stopping rule."#,
-    r#"fn example() -> (u64, u64) {
+    r#"fn main() -> bool {
     val values = Vec::from([1, 2, 3]);
     val cursor = values.iter();
     cursor.next();
-    (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    cursor.count() == 2u64 && values.count() == 3u64
 }"#,
 );
 
@@ -71,9 +71,9 @@ Implement `from_iter` for the destination type. `Iterable::collect` delegates to
 that implementation, so the destination determines construction and stopping
 behavior. The standard `Vec` implementation collects items in source order until
 the first `None`. Already completed source effects survive a construction trap."#,
-    r#"fn example() -> Vec<i32> {
-    Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2))
-    // Contains [2, 4, 6].
+    r#"fn main() -> bool {
+    val result = Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2));
+    result.len() == 3u64 && result.get(1u64) == Some(4)
 }"#,
 );
 
@@ -84,8 +84,8 @@ pub(in crate::foundation) const SUM: (&str, &str) = (
 add items in source order and return zero for an empty input. Integer addition
 is checked and traps on overflow; floating-point addition follows the declared
 floating-point type's arithmetic. Custom implementations define their own rules."#,
-    r#"fn example() -> i32 {
-    i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    r#"fn main() -> bool {
+    i32::sum(Vec::from([2, 3, 4])) == 9
 }"#,
 );
 
@@ -97,8 +97,8 @@ implementations multiply items in source order and return one for an empty input
 Integer multiplication is checked and traps on overflow; floating-point
 multiplication follows the declared type's arithmetic. Custom implementations
 define their own rules."#,
-    r#"fn example() -> i32 {
-    i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    r#"fn main() -> bool {
+    i32::product(Vec::from([2, 3, 4])) == 24
 }"#,
 );
 
@@ -192,28 +192,28 @@ traps propagate without rolling back completed effects."#;
 pub(super) fn adapter_next(operation: Operation) -> (&'static str, &'static str) {
     let example = match operation {
         Operation::Map => {
-            "fn example() -> Option<i32> {\n    Vec::from([1, 2]).map(|item| item * 2).next() // Some(2).\n}"
+            "fn main() -> bool {\n    Vec::from([1, 2]).map(|item| item * 2).next() == Some(2)\n}"
         }
         Operation::Filter => {
-            "fn example() -> Option<i32> {\n    Vec::from([1, 2, 3]).filter(|item| item > 1).next() // Some(2).\n}"
+            "fn main() -> bool {\n    Vec::from([1, 2, 3]).filter(|item| item > 1).next() == Some(2)\n}"
         }
         Operation::Take => {
-            "fn example() -> Option<i32> {\n    Vec::from([1, 2]).take(0u64).next() // None.\n}"
+            "fn main() -> bool {\n    val cursor = Vec::from([1, 2]).iter();\n    cursor.take(0u64).next() == None && cursor.next() == Some(1)\n}"
         }
         Operation::FilterMap => {
-            "fn example() -> Option<i32> {\n    Vec::from([1, 2]).filter_map(|item| {\n        if item > 1 { Some(item * 10) } else { None }\n    }).next() // Some(20).\n}"
+            "fn main() -> bool {\n    Vec::from([1, 2]).filter_map(|item| {\n        if item > 1 { Some(item * 10) } else { None }\n    }).next() == Some(20)\n}"
         }
         Operation::Skip => {
-            "fn example() -> Option<i32> {\n    Vec::from([1, 2, 3]).skip(2u64).next() // Some(3).\n}"
+            "fn main() -> bool {\n    Vec::from([1, 2, 3]).skip(2u64).next() == Some(3)\n}"
         }
         Operation::Enumerate => {
-            "fn example() -> Option<(u64, i32)> {\n    Vec::from([10, 20]).enumerate().next() // Some((0u64, 10)).\n}"
+            "fn main() -> bool {\n    Vec::from([10, 20]).enumerate().next() == Some((0u64, 10))\n}"
         }
         Operation::Zip => {
-            "fn example() -> Option<(i32, i32)> {\n    Vec::from([1, 2]).zip(Vec::from([10, 20])).next() // Some((1, 10)).\n}"
+            "fn main() -> bool {\n    Vec::from([1, 2]).zip(Vec::from([10, 20])).next() == Some((1, 10))\n}"
         }
         Operation::Chain => {
-            "fn example() -> Option<i32> {\n    val empty: Vec<i32> = Vec::new();\n    empty.chain(Vec::from([3, 4])).next() // Some(3).\n}"
+            "fn main() -> bool {\n    val empty: Vec<i32> = Vec::new();\n    empty.chain(Vec::from([3, 4])).next() == Some(3)\n}"
         }
     };
     (ADAPTER_NEXT, example)
@@ -230,9 +230,9 @@ its result. Source order is preserved. Copies share progress.
 
 Source or callback traps propagate. The source item has already been consumed
 if its callback traps; earlier effects are retained."#,
-    r#"fn example() -> Vec<i32> {
-    Vec::from([1, 2, 3]).map(|item| item * 2).collect()
-    // Contains [2, 4, 6].
+    r#"fn main() -> bool {
+    val result: Vec<i32> = Vec::from([1, 2, 3]).map(|item| item * 2).collect();
+    result.len() == 3u64 && result.get(0u64) == Some(2) && result.get(2u64) == Some(6)
 }"#,
 );
 
@@ -246,9 +246,9 @@ the adapter does not inspect any item or call the predicate.
 # Traps
 
 Source and predicate traps propagate without undoing completed effects."#,
-    r#"fn example() -> Vec<i32> {
-    Vec::from([1, 2, 3, 4]).filter(|item| item % 2 == 0).collect()
-    // Contains [2, 4].
+    r#"fn main() -> bool {
+    val result: Vec<i32> = Vec::from([1, 2, 3, 4]).filter(|item| item % 2 == 0).collect();
+    result.len() == 2u64 && result.get(0u64) == Some(2) && result.get(1u64) == Some(4)
 }"#,
 );
 
@@ -259,10 +259,10 @@ After yielding `limit` items it returns `None` without advancing the source.
 A zero limit never advances the source. Construction still obtains its cursor.
 A source `None` does not reduce the remaining limit, so a custom source may
 resume on a later call. Copies share the limit and source progress."#,
-    r#"fn example() -> (Vec<i32>, Option<i32>) {
+    r#"fn main() -> bool {
     val cursor = Vec::from([1, 2, 3]).iter();
     val prefix: Vec<i32> = cursor.take(2u64).collect();
-    (prefix, cursor.next()) // ([1, 2], Some(3)).
+    prefix.len() == 2u64 && prefix.get(1u64) == Some(2) && cursor.next() == Some(3)
 }"#,
 );
 
@@ -277,10 +277,11 @@ source. Creating the adapter runs no item callback.
 # Traps
 
 Source and callback traps propagate without undoing completed effects."#,
-    r#"fn example() -> Vec<i32> {
-    Vec::from([1, 2, 3]).filter_map(|item| {
+    r#"fn main() -> bool {
+    val result: Vec<i32> = Vec::from([1, 2, 3]).filter_map(|item| {
         if item > 1 { Some(item * 10) } else { None }
-    }).collect() // Contains [20, 30].
+    }).collect();
+    result.len() == 2u64 && result.get(0u64) == Some(20) && result.get(1u64) == Some(30)
 }"#,
 );
 
@@ -291,8 +292,9 @@ Discarding starts on advancement. Once the requested number has been discarded,
 remaining items are yielded unchanged. A zero count skips nothing. If a custom
 source returns `None` before the count is reached, later advances retain the
 remaining skip count. Copies share that count and source progress."#,
-    r#"fn example() -> Vec<i32> {
-    Vec::from([1, 2, 3, 4]).skip(2u64).collect() // Contains [3, 4].
+    r#"fn main() -> bool {
+    val result: Vec<i32> = Vec::from([1, 2, 3, 4]).skip(2u64).collect();
+    result.len() == 2u64 && result.get(0u64) == Some(3)
 }"#,
 );
 
@@ -306,8 +308,9 @@ copies share both the counter and source progress.
 
 Advancing the counter past `u64`'s maximum traps. The source item has already
 been consumed when this overflow is detected."#,
-    r#"fn example() -> Vec<(u64, i32)> {
-    Vec::from([10, 20]).enumerate().collect() // Contains [(0u64, 10), (1u64, 20)].
+    r#"fn main() -> bool {
+    val result: Vec<(u64, i32)> = Vec::from([10, 20]).enumerate().collect();
+    result.get(0u64) == Some((0u64, 10)) && result.get(1u64) == Some((1u64, 20))
 }"#,
 );
 
@@ -319,9 +322,9 @@ reads the left cursor first, then the right. If the left returns `None`, the
 right is not advanced. If only the right returns `None`, the left item is still
 consumed. A `None` result does not permanently exhaust resumable custom sources.
 Copies share both cursors."#,
-    r#"fn example() -> Vec<(i32, i32)> {
-    Vec::from([1, 2, 3]).zip(Vec::from([10, 20])).collect()
-    // Contains [(1, 10), (2, 20)]. The unpaired left item 3 is also consumed.
+    r#"fn main() -> bool {
+    val result: Vec<(i32, i32)> = Vec::from([1, 2, 3]).zip(Vec::from([10, 20])).collect();
+    result.len() == 2u64 && result.get(0u64) == Some((1, 10)) && result.get(1u64) == Some((2, 20))
 }"#,
 );
 
@@ -333,8 +336,9 @@ the left cursor switches permanently to the right, including within the same
 advance. The left cursor is never read again even if it could later resume.
 Copies share the cursors and switch state. Both sources must yield the same
 item type."#,
-    r#"fn example() -> Vec<i32> {
-    Vec::from([1, 2]).chain(Vec::from([3, 4])).collect() // Contains [1, 2, 3, 4].
+    r#"fn main() -> bool {
+    val result: Vec<i32> = Vec::from([1, 2]).chain(Vec::from([3, 4])).collect();
+    result.len() == 4u64 && result.get(0u64) == Some(1) && result.get(3u64) == Some(4)
 }"#,
 );
 
@@ -364,8 +368,11 @@ Custom implementations determine their own arithmetic and stopping rules.
 
 Built-in integer sums trap on overflow. Source traps propagate and completed
 effects remain committed."#,
-    r#"fn example() -> i32 {
-    Vec::from([2, 3, 4]).sum() // Returns 9.
+    r#"fn main() -> bool {
+    val result: i32 = Vec::from([2, 3, 4]).sum();
+    val empty: Vec<i32> = Vec::new();
+    val identity: i32 = empty.sum();
+    result == 9 && identity == 0
 }"#,
 );
 
@@ -381,8 +388,11 @@ own arithmetic and stopping rules.
 
 Built-in integer products trap on overflow. Source traps propagate and completed
 effects remain committed."#,
-    r#"fn example() -> i32 {
-    Vec::from([2, 3, 4]).product() // Returns 24.
+    r#"fn main() -> bool {
+    val result: i32 = Vec::from([2, 3, 4]).product();
+    val empty: Vec<i32> = Vec::new();
+    val identity: i32 = empty.product();
+    result == 24 && identity == 1
 }"#,
 );
 
@@ -397,8 +407,8 @@ accumulator. Empty input returns `initial` without calling the callback.
 
 Source and callback traps propagate. Cursor advances and callback effects
 completed before the failure remain committed."#,
-    r#"fn example() -> i32 {
-    Vec::from([1, 2, 3]).fold(10, |total, item| total + item) // Returns 16.
+    r#"fn main() -> bool {
+    Vec::from([1, 2, 3]).fold(10, |total, item| total + item) == 16
 }"#,
 );
 
@@ -414,10 +424,10 @@ An input that never returns `None` does not terminate normally.
 
 Traps if the count would exceed `u64`'s maximum or a source advance traps.
 Already completed advances and source effects remain committed."#,
-    r#"fn example() -> u64 {
+    r#"fn main() -> bool {
     val cursor = Vec::from([10, 20, 30]).iter();
     cursor.next();
-    cursor.count() // Returns 2.
+    cursor.count() == 2u64 && cursor.next() == None
 }"#,
 );
 
@@ -433,10 +443,10 @@ cursor. Returns `None` at the first source `None`, including for empty input.
 
 Source and predicate traps propagate. The inspected item has already been
 consumed if its predicate traps; completed effects are not rolled back."#,
-    r#"fn example() -> (Option<i32>, Option<i32>) {
+    r#"fn main() -> bool {
     val cursor = Vec::from([1, 2, 3]).iter();
     val found = cursor.find(|item| item % 2 == 0);
-    (found, cursor.next()) // (Some(2), Some(3)).
+    found == Some(2) && cursor.next() == Some(3)
 }"#,
 );
 
@@ -451,10 +461,10 @@ consumed, while later items remain available through an existing cursor.
 # Traps
 
 Source and predicate traps propagate without undoing completed effects."#,
-    r#"fn example() -> (bool, Option<i32>) {
+    r#"fn main() -> bool {
     val cursor = Vec::from([1, 2, 3]).iter();
     val found = cursor.any(|item| item == 2);
-    (found, cursor.next()) // (true, Some(3)).
+    found && cursor.next() == Some(3)
 }"#,
 );
 
@@ -469,10 +479,10 @@ consumed, while later items remain available through an existing cursor.
 # Traps
 
 Source and predicate traps propagate without undoing completed effects."#,
-    r#"fn example() -> (bool, Option<i32>) {
+    r#"fn main() -> bool {
     val cursor = Vec::from([1, 0, 3]).iter();
     val positive = cursor.all(|item| item > 0);
-    (positive, cursor.next()) // (false, Some(3)).
+    !positive && cursor.next() == Some(3)
 }"#,
 );
 
@@ -486,9 +496,9 @@ call the callback. Use this method for effects rather than to build a new value.
 
 Source and callback traps stop consumption. Earlier cursor advances and callback
 effects remain committed; the failing item's advance is not rolled back."#,
-    r#"fn example() -> u64 {
+    r#"fn main() -> bool {
     val output: Vec<i32> = Vec::new();
     Vec::from([1, 2, 3]).for_each(|item| { output.push(item * 2); });
-    output.len() // Returns 3; output contains [2, 4, 6].
+    output.len() == 3u64 && output.get(0u64) == Some(2) && output.get(2u64) == Some(6)
 }"#,
 );

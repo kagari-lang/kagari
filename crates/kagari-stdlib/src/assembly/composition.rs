@@ -71,7 +71,7 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
         prelude: true,
         documentation: documentation::example(
             "Automatically imported standard names. Re-exports retain the canonical declaration identity and documentation of their owner.",
-            "fn length(values: Vec<i32>) -> u64 { values.len() }",
+            "fn main() -> bool {\n    val values = Vec::from([10, 20]);\n    values.len() == 2u64 && values.get(0u64) == Some(10) && values.get(2u64) == None\n}",
         ),
         dependencies: canonical,
         ..Default::default()

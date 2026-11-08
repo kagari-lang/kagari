@@ -10,4 +10,5 @@ pub fn run() -> i32 {
 pub fn native_values() {
     val values: Vec<i32> = create();
     values.len();
+    "aé🙂".char_indices();
 }

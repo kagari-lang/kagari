@@ -1,104 +1,177 @@
-//! Explicit infallible and checked conversions, including reverse adapters and error conversion.
+//! Explicit infallible and checked conversions, including reverse adapters and
+//! error conversion.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn widen(value: i32) -> i64 { i64::from(value) }
+//! fn main() -> bool {
+//!     i64::from(42i32) == 42i64 && i64::from(-7i32) == -7i64
+//! }
 //! ```
 
-/// An uninhabited error type for conversions that cannot fail. It has no constructible variants.
+/// An uninhabited error type for conversions that cannot fail. It has no
+/// constructible variants.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn widen(value: i32) -> i64 { i64::from(value) }
+/// fn main() -> bool {
+///     val converted: Result<i64, core::convert::Infallible> = i64::try_from(42i32);
+///     match converted {
+///         Ok(value) => value == 42i64,
+///         Err(_) => false,
+///     }
+/// }
 /// ```
 pub enum Infallible {
 }
 
-/// Constructs a target value from a source. The conversion is infallible in its declared signature. Result propagation can use `From` to convert an error type.
+/// Constructs a target value from a source. The conversion is infallible in its
+/// declared signature. Result propagation can use `From` to convert an error type.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn widen(value: i32) -> i64 { i64::from(value) }
+/// fn main() -> bool {
+///     i64::from(42i32) == 42i64 && i64::from(-7i32) == -7i64
+/// }
 /// ```
 #[lang = "from"]
 pub trait From<T> {
-    /// Constructs a target value from a source. The conversion is infallible in its declared signature. Result propagation can use `From` to convert an error type.
-    ///
-    /// See `From` for the behavioral contract and examples.
+    /// Constructs a target value from a source. The conversion is infallible in its
+    /// declared signature. Result propagation can use `From` to convert an error type.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn widen(value: i32) -> i64 { i64::from(value) }
+    /// fn main() -> bool {
+    ///     i64::from(42i32) == 42i64 && i64::from(-7i32) == -7i64
+    /// }
     /// ```
     fn from(value: T) -> Self;
 }
 
-/// Converts the receiver into a target. A matching `From` implementation supplies the reverse adapter without another body.
+/// Converts the receiver into a target. A matching `From` implementation supplies
+/// the reverse adapter without another body.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn widen(value: i32) -> i64 { value.into() }
+/// fn main() -> bool {
+///     val result: i64 = 42i32.into();
+///     result == 42i64
+/// }
 /// ```
 pub trait Into<T> {
-    /// Converts the receiver into a target. A matching `From` implementation supplies the reverse adapter without another body.
-    ///
-    /// See `Into` for the behavioral contract and examples.
+    /// Converts the receiver into a target. A matching `From` implementation supplies
+    /// the reverse adapter without another body.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn widen(value: i32) -> i64 { value.into() }
+    /// fn main() -> bool {
+    ///     val wide: i64 = 42i32.into();
+    ///     wide == 42i64
+    /// }
     /// ```
     fn into(self) -> T;
 }
 
-/// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
+/// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric
+/// value returns an error; it does not silently truncate.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { i32::try_from(value) }
+/// use core::num::TryFromIntError;
+/// fn main() -> bool {
+///     (match i32::try_from(42i64) { Ok(value) => value == 42i32, Err(_) => false, }) &&
+///         (match i32::try_from(2147483648i64) { Err(TryFromIntError::OutOfRange) => true, _ => false, })
+/// }
 /// ```
 pub trait TryFrom<T> {
     /// The error returned when this conversion or parse fails.
     type Error;
 
-    /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
-    ///
-    /// See `TryFrom` for the behavioral contract and examples.
+    /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric
+    /// value returns an error; it does not silently truncate.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { i32::try_from(value) }
+    /// use core::num::TryFromIntError;
+    ///
+    /// fn main() -> bool {
+    ///     (
+    ///         match i8::try_from(127i32) {
+    ///             Ok(value) => value == 127i8,
+    ///             Err(_) => false,
+    ///         }
+    ///     ) &&
+    ///         (
+    ///         match i8::try_from(128i32) {
+    ///             Err(TryFromIntError::OutOfRange) => true,
+    ///             _ => false,
+    ///         }
+    ///     )
+    /// }
     /// ```
     fn try_from(value: T) -> core::result::Result<Self, <Self as TryFrom<T>>::Error>;
 }
 
-/// A checked conversion of the receiver into a target. The reverse adapter uses the corresponding `TryFrom` declaration and error type.
+/// A checked conversion of the receiver into a target. The reverse adapter uses the
+/// corresponding `TryFrom` declaration and error type.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { value.try_into() }
+/// use core::num::TryFromIntError;
+///
+/// fn main() -> bool {
+///     val success: Result<i32, TryFromIntError> = 42i64.try_into();
+///     val failure: Result<i32, TryFromIntError> = 2147483648i64.try_into();
+///     (
+///         match success {
+///             Ok(value) => value == 42,
+///             Err(_) => false,
+///         }
+///     ) &&
+///         (
+///         match failure {
+///             Err(TryFromIntError::OutOfRange) => true,
+///             _ => false,
+///         }
+///     )
+/// }
 /// ```
 pub trait TryInto<T> {
     /// The error returned when this conversion or parse fails.
     type Error;
 
-    /// A checked conversion of the receiver into a target. The reverse adapter uses the corresponding `TryFrom` declaration and error type.
-    ///
-    /// See `TryInto` for the behavioral contract and examples.
+    /// A checked conversion of the receiver into a target. The reverse adapter uses the
+    /// corresponding `TryFrom` declaration and error type.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { value.try_into() }
+    /// use core::num::TryFromIntError;
+    ///
+    /// fn main() -> bool {
+    ///     val good: Result<i8, TryFromIntError> = 127i32.try_into();
+    ///     val bad: Result<i8, TryFromIntError> = 128i32.try_into();
+    ///     (
+    ///         match good {
+    ///             Ok(value) => value == 127i8,
+    ///             Err(_) => false,
+    ///         }
+    ///     ) &&
+    ///         (
+    ///         match bad {
+    ///             Err(TryFromIntError::OutOfRange) => true,
+    ///             _ => false,
+    ///         }
+    ///     )
+    /// }
     /// ```
     fn try_into(self) -> core::result::Result<T, <Self as TryInto<T>>::Error>;
 }

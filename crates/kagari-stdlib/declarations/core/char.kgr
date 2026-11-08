@@ -1,43 +1,94 @@
-//! Unicode scalar values, distinct from integers. char has scalar-value equality, ordering and hashing, UTF-8 Display, escaped single-quoted Debug and a NUL default. Explicit conversions provide char to u32 or String and checked u32 to char; Into and TryInto use the corresponding forward implementations. No numeric parsing, arithmetic, aggregation or character-range iteration is provided.
+//! Unicode scalar values, distinct from integers. char has scalar-value equality,
+//! ordering and hashing, UTF-8 Display, escaped single-quoted Debug and a NUL
+//! default. Explicit conversions provide char to u32 or String and checked u32 to
+//! char; Into and TryInto use the corresponding forward implementations. No numeric
+//! parsing, arithmetic, aggregation or character-range iteration is provided.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn scalar(value: u32) -> Result<char, core::char::CharTryFromError> { char::try_from(value) }
+//! use core::char::CharTryFromError;
+//! fn main() -> bool {
+//!     (match char::try_from(0xE9u32) { Ok(value) => value == 'é', Err(_) => false, }) &&
+//!         (match char::try_from(0xD800u32) { Err(CharTryFromError::InvalidScalar) => true, _ => false, })
+//! }
 //! ```
 
-/// A Unicode scalar conversion error. InvalidScalar rejects surrogate values U+D800 through U+DFFF and values above U+10FFFF.
+/// A Unicode scalar conversion error. InvalidScalar rejects surrogate values U+D800
+/// through U+DFFF and values above U+10FFFF.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn scalar(value: u32) -> Result<char, core::char::CharTryFromError> { char::try_from(value) }
+/// use core::char::CharTryFromError;
+/// fn main() -> bool {
+///     (match char::try_from(0xE9u32) { Ok(value) => value == 'é', Err(_) => false, }) &&
+///         (match char::try_from(0xD800u32) { Err(CharTryFromError::InvalidScalar) => true, _ => false, })
+/// }
 /// ```
 pub enum CharTryFromError {
-    /// The `InvalidScalar` case of `CharTryFromError`. A Unicode scalar conversion error. InvalidScalar rejects surrogate values U+D800 through U+DFFF and values above U+10FFFF.
+    /// The integer is a surrogate in U+D800..U+DFFF or exceeds U+10FFFF, so it is not a
+    /// Unicode scalar.
     InvalidScalar,
 }
 
 impl core::default::Default for char {
     /// Return the NUL Unicode scalar U+0000.
     ///
-    /// See `core::default::Default` for the construction contract.
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     char::default() == '\0'
+    /// }
+    /// ```
     pub fn default() -> char;
 }
 
 impl core::convert::From<char> for u32 {
     /// Return the Unicode scalar value as u32.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     u32::from('é') == 233u32 && u32::from('🙂') == 128578u32
+    /// }
+    /// ```
     pub fn from(value: char) -> u32;
 }
 
 impl core::convert::From<char> for alloc::string::String {
     /// Encode the character as an immutable UTF-8 String.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     String::from('é') == "é" && String::from('é').len() == 2u64
+    /// }
+    /// ```
     pub fn from(value: char) -> alloc::string::String;
 }
 
 impl core::convert::TryFrom<u32> for char {
     type Error = CharTryFromError;
 
-    /// Convert a Unicode scalar value to char. Surrogates U+D800 through U+DFFF and values above U+10FFFF return CharTryFromError::InvalidScalar.
+    /// Converts a Unicode scalar value to `char`.
+    ///
+    /// Surrogates U+D800 through U+DFFF and values above U+10FFFF return
+    /// `CharTryFromError::InvalidScalar`. This is a checked conversion, not a numeric
+    /// cast.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// use core::char::CharTryFromError;
+    /// fn main() -> bool {
+    ///     (match char::try_from(233u32) { Ok(value) => value == 'é', Err(_) => false, }) &&
+    ///         (match char::try_from(0xD800u32) { Err(CharTryFromError::InvalidScalar) => true, _ => false, }) &&
+    ///         (match char::try_from(0x110000u32) { Err(CharTryFromError::InvalidScalar) => true, _ => false, })
+    /// }
+    /// ```
     pub fn try_from(value: u32) -> core::result::Result<char, CharTryFromError>;
 }

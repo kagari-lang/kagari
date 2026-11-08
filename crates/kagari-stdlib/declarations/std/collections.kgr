@@ -1,405 +1,757 @@
-//! Sequence, map and set interfaces, concrete hash collections and lazy mapping. Callbacks run synchronously with explicit borrow, root and mutation guards.
+//! Sequence, map and set interfaces, concrete hash collections and lazy mapping.
+//! Callbacks run synchronously with explicit borrow, root and mutation guards.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! fn main() -> bool {
+//!     val values = Vec::from([10, 20]);
+//!     values.len() == 2u64 && values.get(0u64) == Some(10) && values.get(2u64) == None
+//! }
 //! ```
 
-/// A shared hash map with invariant key and value types. Equal keys must hash equally. Insert replaces an existing value; get returns None for an absent key.
+/// A shared hash map with invariant key and value types. Equal keys must hash
+/// equally. Insert replaces an existing value; get returns None for an absent key.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn find(values: std::collections::HashMap<i32, String>) -> Option<String> { values.get(1) }
+/// fn main() -> bool {
+///     val values: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+///     values.insert(1, "first").insert(1, "replacement");
+///     values.len() == 1u64 && values.get(1) == Some("replacement") && values.get(2) == None
+/// }
 /// ```
 pub type HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash;
 
-/// A shared hash set. Equal members occupy one entry, and must hash equally. Lookup and structural mutation use checked synchronous guards.
+/// A shared hash set. Equal members occupy one entry, and must hash equally. Lookup
+/// and structural mutation use checked synchronous guards.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn has(values: std::collections::HashSet<i32>) -> bool { values.contains(1) }
+/// fn main() -> bool {
+///     val values = std::collections::HashSet::from([1, 1, 2]);
+///     values.len() == 2u64 && values.contains(1) && !values.contains(3)
+/// }
 /// ```
 pub type HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash;
 
-/// A readonly sequence interface. Element types are invariant. A readonly view retains shared identity, so another alias can mutate the underlying sequence.
+/// A readonly sequence interface. Element types are invariant. A readonly view
+/// retains shared identity, so another alias can mutate the underlying sequence.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+/// fn main() -> bool {
+///     val values: std::collections::List<i32> = Vec::from([10, 20]);
+///     values.get(0u64) == Some(10) && values.get(2u64) == None
+/// }
 /// ```
 pub trait List<T>: core::ops::Index<u64, Output = T> + core::iter::Iterable<Item = T> {
     /// Return the number of entries.
     ///
-    /// See `List` for the behavioral contract and examples.
+    /// Counts elements as u64, not bytes. Reading through this view does not freeze
+    /// the storage; mutations through other aliases can change a later result.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// fn main() -> bool {
+    ///     val values: std::collections::List<i32> = Vec::from([10, 20]);
+    ///     values.len() == 2u64
+    /// }
     /// ```
     fn len(self) -> u64;
 
     /// Return whether the collection has no entries.
     ///
-    /// See `List` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// fn main() -> bool {
+    ///     val storage: Vec<i32> = Vec::new();
+    ///     val empty: std::collections::List<i32> = storage;
+    ///     val one: std::collections::List<i32> = Vec::from([1]);
+    ///     empty.is_empty() && !one.is_empty()
+    /// }
     /// ```
     fn is_empty(self) -> bool;
 
     /// Return the requested value, or None if the index or key is absent.
     ///
-    /// See `List` for the behavioral contract and examples.
+    /// The argument is a zero-based element index. Returns Some(value) below len and
+    /// None otherwise, including on empty input. In contrast, indexing with [] traps
+    /// for an invalid index. Referenced element values retain their shared identity.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// fn main() -> bool {
+    ///     val values: std::collections::List<i32> = Vec::from([10, 20]);
+    ///     values.get(1u64) == Some(20) && values.get(2u64) == None
+    /// }
     /// ```
     fn get(self, arg1: u64) -> core::option::Option<T>;
 
-    /// Return a stably sorted List using T: Ord; preserve the original slots.
+    /// Returns a new List in ascending `Ord` order.
+    ///
+    /// Equal elements keep their relative order. The original slots are unchanged;
+    /// elements themselves are copied as values, so referenced objects remain shared.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val input = Vec::from([3, 1, 2]);
+    ///     val result = input.sorted();
+    ///     result.get(0u64) == Some(1) && result.get(2u64) == Some(3) && input.get(0u64) == Some(3)
+    /// }
+    /// ```
     fn sorted(self) -> List<T> where T: core::cmp::Ord {
         __default_4_List_sorted::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
     }
 
-    /// Return a stably sorted List using the comparator; preserve the original slots.
+    /// Returns a new List ordered by `callback(left, right)`.
+    ///
+    /// The callback returns Less, Equal or Greater and must define a consistent order.
+    /// Equal elements keep their relative order. Original slots are unchanged, but
+    /// completed callback effects survive a later trap.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val input = Vec::from([1, 3, 2]);
+    ///     val result = input.sorted_by(|left, right| right.cmp(left));
+    ///     result.get(0u64) == Some(3) && result.get(2u64) == Some(1) && input.get(0u64) == Some(1)
+    /// }
+    /// ```
     fn sorted_by(self, callback: fn(T, T) -> core::cmp::Ordering) -> List<T> {
         __default_4_List_sorted_by::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
     }
 
-    /// Return a stably sorted List. Evaluate keys during comparisons without caching them.
+    /// Returns a new List ordered by the keys produced by `callback`.
+    ///
+    /// Keys are evaluated during comparisons, without caching. A callback can run
+    /// more than once for an element; it must yield a consistent ordering. Equal keys
+    /// keep their original element order. Original slots are unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val input = Vec::from([1, 3, 2]);
+    ///     val result = input.sorted_by_key(|value| -value);
+    ///     result.get(0u64) == Some(3) && result.get(2u64) == Some(1) && input.get(0u64) == Some(1)
+    /// }
+    /// ```
     fn sorted_by_key<M>(self, callback: fn(T) -> M) -> List<T> where M: core::cmp::Ord {
         __default_4_List_sorted_by_key::<Self, T, M, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
     }
 
-    /// Return a reversed List without changing the original slots.
+    /// Returns a new List in reverse input order.
+    ///
+    /// Original slots are unchanged. Empty and single-element lists retain their
+    /// contents. Referenced elements are shared rather than deeply cloned.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val input = Vec::from([1, 2, 3]);
+    ///     val result = input.reversed();
+    ///     result.get(0u64) == Some(3) && result.get(2u64) == Some(1) && input.get(0u64) == Some(1)
+    /// }
+    /// ```
     fn reversed(self) -> List<T> {
         __default_4_List_reversed::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
     }
 
-    /// Return first occurrences in input order using T: Eq; no Hash bound is required.
+    /// Returns the first occurrence of each equal element in input order.
+    ///
+    /// Equality uses `Eq`; no Hash bound is required. Unlike `dedup`, nonadjacent
+    /// duplicates are removed too. Original slots are unchanged; callback effects
+    /// from equality checks are not rolled back on failure.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val input = Vec::from([2, 1, 2, 1, 3]);
+    ///     val result = input.distinct();
+    ///     result.len() == 3u64 && result.get(0u64) == Some(2) && result.get(1u64) == Some(1) && input.len() == 5u64
+    /// }
+    /// ```
     fn distinct(self) -> List<T> where T: core::cmp::Eq {
         __default_4_List_distinct::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
     }
 }
 
-/// A mutable sequence interface. Structural edits validate active borrows and invalidate existing cursors. Completed writes and callback effects survive later failures.
+/// A mutable sequence interface. Structural edits validate active borrows and
+/// invalidate existing cursors. Completed writes and callback effects survive later
+/// failures.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+/// fn main() -> bool {
+///     val storage = Vec::from([1, 2]);
+///     val view: std::collections::MutableList<i32> = storage;
+///     view.push(3);
+///     storage.get(2u64) == Some(3) && view.len() == 3u64
+/// }
 /// ```
 pub trait MutableList<T>: List<T> {
     /// Append one item. A guarded structural edit traps before committing the edit.
     ///
-    /// See `MutableList` for the behavioral contract and examples.
+    /// Mutates the shared sequence storage. Vec aliases observe completed edits.
+    /// A committed structural change invalidates existing cursors; active guarded
+    /// operations such as sorting reject conflicting structural edits.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// fn main() -> bool {
+    ///     val values = Vec::from([1, 2]);
+    ///     val writable: std::collections::MutableList<i32> = values;
+    ///     writable.push(3);
+    ///     values.len() == 3u64 && values.get(2u64) == Some(3)
+    /// }
     /// ```
     fn push(self, arg1: T);
 
     /// Remove and return the last item, or None for an empty sequence.
     ///
-    /// See `MutableList` for the behavioral contract and examples.
+    /// Mutates the shared sequence storage. Vec aliases observe completed edits.
+    /// A committed structural change invalidates existing cursors; active guarded
+    /// operations such as sorting reject conflicting structural edits.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableList<i32> = Vec::from([10, 20]);
+    ///     values.pop() == Some(20) && values.pop() == Some(10) && values.pop() == None
+    /// }
     /// ```
     fn pop(self) -> core::option::Option<T>;
 
-    /// Insert at the given position and shift later elements. An index beyond the length traps.
+    /// Insert at the given position and shift later elements. An index beyond the
+    /// length traps.
     ///
-    /// See `MutableList` for the behavioral contract and examples.
+    /// Index len appends; smaller indices insert before the existing element.
+    /// Returns Unit. Vec aliases observe the edit and existing cursors reject later
+    /// reads after a structural change.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableList<i32> = Vec::from([10, 30]);
+    ///     values.insert(1u64, 20);
+    ///     values.len() == 3u64 && values.get(1u64) == Some(20) && values.get(2u64) == Some(30)
+    /// }
     /// ```
     fn insert(self, arg1: u64, arg2: T);
 
     /// Remove and return the entry, or None if it is absent.
     ///
-    /// See `MutableList` for the behavioral contract and examples.
+    /// The argument is a zero-based element index. Later elements shift left when
+    /// an item is removed. An out-of-range index returns None and leaves slots
+    /// unchanged.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableList<i32> = Vec::from([10, 20, 30]);
+    ///     val removed = values.remove(1u64);
+    ///     removed == Some(20) && values.get(1u64) == Some(30) && values.remove(9u64) == None
+    /// }
     /// ```
     fn remove(self, arg1: u64) -> core::option::Option<T>;
 
     /// Remove all entries after validating structural mutation guards.
     ///
-    /// See `MutableList` for the behavioral contract and examples.
+    /// Mutates the shared sequence storage. Vec aliases observe completed edits.
+    /// A committed structural change invalidates existing cursors; active guarded
+    /// operations such as sorting reject conflicting structural edits.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableList<i32> = Vec::from([10, 20]);
+    ///     values.clear();
+    ///     values.is_empty() && values.get(0u64) == None
+    /// }
     /// ```
     fn clear(self);
 
     /// Replace the item at an existing index. An out-of-bounds index traps.
     ///
-    /// See `MutableList` for the behavioral contract and examples.
+    /// The zero-based index must be below len. Returns Unit without changing the
+    /// length. Existing aliases observe the replacement in the same sequence.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableList<i32> = Vec::from([10, 20]);
+    ///     values.set(1u64, 99);
+    ///     values.len() == 2u64 && values.get(0u64) == Some(10) && values.get(1u64) == Some(99)
+    /// }
     /// ```
     fn set(self, arg1: u64, arg2: T);
 
-    /// Stably sort in place using T: Ord. Failure may leave a partial reordering.
+    /// Sorts this list in ascending `Ord` order, returning Unit.
+    ///
+    /// Equal elements keep their relative order. Aliases observe the same storage.
+    /// A failure can leave a partial reordering; completed effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val values = Vec::from([3, 1, 2]);
+    ///     val alias = values;
+    ///     values.sort();
+    ///     alias.get(0u64) == Some(1) && alias.get(2u64) == Some(3)
+    /// }
+    /// ```
     fn sort(self) where T: core::cmp::Ord {
         __default_11_MutableList_sort::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
     }
 
-    /// Stably sort in place using the comparator. Failure stops later callbacks; no rollback is promised.
+    /// Sorts this list in place using `callback(left, right)`, returning Unit.
+    ///
+    /// The callback returns Less, Equal or Greater and must define a consistent order.
+    /// Equal elements retain their relative order. A trap stops later callbacks and
+    /// can leave a partial reordering. Vec rejects structural edits during comparison.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val values = Vec::from([1, 3, 2]);
+    ///     values.sort_by(|left, right| right.cmp(left));
+    ///     values.get(0u64) == Some(3) && values.get(2u64) == Some(1)
+    /// }
+    /// ```
     fn sort_by(self, callback: fn(T, T) -> core::cmp::Ordering) {
         __default_11_MutableList_sort_by::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
     }
 
-    /// Stably sort in place with keys evaluated during comparisons. Failure does not promise rollback.
+    /// Sorts this list in place by `callback` keys, returning Unit.
+    ///
+    /// Keys are evaluated during comparisons, without caching; callbacks can run
+    /// repeatedly for one element. Equal keys preserve element order. A callback trap
+    /// can leave a partial reordering. Vec rejects structural edits during comparison.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val values = Vec::from([1, 3, 2]);
+    ///     values.sort_by_key(|value| -value);
+    ///     values.get(0u64) == Some(3) && values.get(2u64) == Some(1)
+    /// }
+    /// ```
     fn sort_by_key<M>(self, callback: fn(T) -> M) where M: core::cmp::Ord {
         __default_11_MutableList_sort_by_key::<Self, T, M, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
     }
 
-    /// Reverse the list in place. Custom receiver failures may leave completed writes.
+    /// Reverses this list in place, returning Unit.
+    ///
+    /// Aliases observe the same storage. Empty and single-element inputs are unchanged.
+    /// If a custom receiver fails during a write, earlier writes remain committed.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     values.reverse();
+    ///     values.get(0u64) == Some(3) && values.get(2u64) == Some(1)
+    /// }
+    /// ```
     fn reverse(self) {
         __default_11_MutableList_reverse::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
     }
 
-    /// Keep matching elements in input order. Failure preserves completed removals and callback effects.
+    /// Keeps elements for which `callback` returns true, returning Unit.
+    ///
+    /// Visits elements in input order and preserves the order of retained elements.
+    /// A trap stops later callbacks and retains completed removals and callback
+    /// effects.
+    /// Vec rejects structural edits from the predicate while retaining.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val values = Vec::from([1, 2, 3, 4]);
+    ///     values.retain(|value| value % 2 == 0);
+    ///     values.len() == 2u64 && values.get(0u64) == Some(2) && values.get(1u64) == Some(4)
+    /// }
+    /// ```
     fn retain(self, callback: fn(T) -> bool) {
         __default_11_MutableList_retain::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
     }
 
-    /// Remove consecutive equal elements using T: Eq, preserving the first in each run. Failure preserves completed removals.
+    /// Removes consecutive equal elements, keeping the first in each run.
+    ///
+    /// Returns Unit and compares through `Eq`, without requiring Hash. Nonadjacent
+    /// duplicates remain; use `distinct` to remove them in a new List. A failure
+    /// preserves earlier removals and equality-callback effects.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     val values = Vec::from([1, 1, 2, 1]);
+    ///     values.dedup();
+    ///     values.len() == 3u64 && values.get(0u64) == Some(1) && values.get(1u64) == Some(2) && values.get(2u64) == Some(1)
+    /// }
+    /// ```
     fn dedup(self) where T: core::cmp::Eq {
         __default_11_MutableList_dedup::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
     }
 }
 
-/// A readonly key/value interface. Lookup returns `None` for a missing key. Readonly views share storage with other aliases.
+/// A readonly key/value interface. Lookup returns `None` for a missing key.
+/// Readonly views share storage with other aliases.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+/// fn main() -> bool {
+///     val storage: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+///     storage.insert(1, "one");
+///     val view: std::collections::Map<i32, String> = storage;
+///     view.get(1) == Some("one") && view.get(2) == None
+/// }
 /// ```
 pub trait Map<T1, T2>: core::iter::Iterable<Item = (T1, T2)> {
     /// Return the number of entries.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     data.insert(1, 10).insert(1, 20);
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     view.len() == 1u64
+    /// }
     /// ```
     fn len(self) -> u64;
 
     /// Return whether the collection has no entries.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     val before = view.is_empty();
+    ///     data.insert(7, 10);
+    ///     before && !view.is_empty()
+    /// }
     /// ```
     fn is_empty(self) -> bool;
 
     /// Test membership without changing collection storage.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     data.insert(7, 42);
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     view.contains_key(7) && !view.contains_key(42)
+    /// }
     /// ```
     fn contains_key(self, arg1: T1) -> bool;
 
     /// Return the requested value, or None if the index or key is absent.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// Returns the value associated with an equal key. None means the key is absent;
+    /// it does not remove an entry. HashMap invokes the key's Hash and Eq operations
+    /// synchronously and rejects structural mutation during that lookup.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+    ///     data.insert(1, "one");
+    ///     val view: std::collections::Map<i32, String> = data;
+    ///     view.get(1) == Some("one") && view.get(2) == None
+    /// }
     /// ```
     fn get(self, arg1: T1) -> core::option::Option<T2>;
 }
 
-/// A mutable key/value interface. Insert replaces the value of an equal key. Hash and equality callbacks must not structurally mutate a collection under lookup.
+/// A mutable key/value interface. Insert replaces the value of an equal key. Hash
+/// and equality callbacks must not structurally mutate a collection under lookup.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+/// fn main() -> bool {
+///     val storage: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+///     val view: std::collections::MutableMap<i32, String> = storage;
+///     view.insert(1, "first");
+///     view.insert(1, "replacement");
+///     view.len() == 1u64 && view.get(1) == Some("replacement")
+/// }
 /// ```
 pub trait MutableMap<T1, T2>: Map<T1, T2> {
     /// Insert a key/value entry, replacing the value of an equal key.
     ///
-    /// See `MutableMap` for the behavioral contract and examples.
+    /// This interface method returns Unit; HashMap's inherent insert instead returns
+    /// the same map for chaining. Inserting an equal key replaces its value without
+    /// increasing len. HashMap iteration order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+    ///     val values: std::collections::MutableMap<i32, String> = storage;
+    ///     values.insert(1, "first");
+    ///     values.insert(1, "replacement");
+    ///     values.len() == 1u64 && values.get(1) == Some("replacement")
+    /// }
     /// ```
     fn insert(self, arg1: T1, arg2: T2);
 
     /// Remove and return the entry, or None if it is absent.
     ///
-    /// See `MutableMap` for the behavioral contract and examples.
+    /// Returns the removed value in Some, or None when no equal key exists. Other
+    /// entries remain. HashMap aliases observe the removal; entry order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     val values: std::collections::MutableMap<i32, i32> = storage;
+    ///     values.insert(7, 42);
+    ///     values.remove(7) == Some(42) && values.remove(7) == None && values.is_empty()
+    /// }
     /// ```
     fn remove(self, arg1: T1) -> core::option::Option<T2>;
 
     /// Remove all entries after validating structural mutation guards.
     ///
-    /// See `MutableMap` for the behavioral contract and examples.
+    /// This interface method returns Unit; the concrete hash collection's inherent
+    /// clear returns the same storage. Aliases observe the empty collection and live
+    /// cursors reject reads after a committed structural change.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     val values: std::collections::MutableMap<i32, i32> = storage;
+    ///     values.insert(7, 42);
+    ///     values.clear();
+    ///     values.is_empty() && values.get(7) == None
+    /// }
     /// ```
     fn clear(self);
 }
 
-/// A readonly membership interface. Equal values represent the same member. Readonly views share storage with other aliases.
+/// A readonly membership interface. Equal values represent the same member.
+/// Readonly views share storage with other aliases.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+/// fn main() -> bool {
+///     val values: std::collections::Set<i32> = std::collections::HashSet::from([1, 1, 2]);
+///     values.len() == 2u64 && values.contains(1) && !values.contains(3)
+/// }
 /// ```
 pub trait Set<T>: core::iter::Iterable<Item = T> {
     /// Return the number of entries.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val values: std::collections::Set<i32> = std::collections::HashSet::from([1, 1, 2]);
+    ///     values.len() == 2u64
+    /// }
     /// ```
     fn len(self) -> u64;
 
     /// Return whether the collection has no entries.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    ///     val values: std::collections::Set<i32> = storage;
+    ///     values.is_empty()
+    /// }
     /// ```
     fn is_empty(self) -> bool;
 
     /// Test membership without changing collection storage.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val values: std::collections::Set<i32> = std::collections::HashSet::from([1, 2]);
+    ///     values.contains(1) && !values.contains(3)
+    /// }
     /// ```
     fn contains(self, arg1: T) -> bool;
 }
 
-/// A mutable membership interface. Insertion retains one representative of each equal value. Structural edits honor active borrow and lookup guards.
+/// A mutable membership interface. Insertion retains one representative of each
+/// equal value. Structural edits honor active borrow and lookup guards.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+/// fn main() -> bool {
+///     val storage: std::collections::HashSet<i32> = std::collections::HashSet::new();
+///     val view: std::collections::MutableSet<i32> = storage;
+///     view.insert(7);
+///     view.insert(7);
+///     view.len() == 1u64 && view.contains(7)
+/// }
 /// ```
 pub trait MutableSet<T>: Set<T> {
     /// Insert a member, preserving the uniqueness of equal members.
     ///
-    /// See `MutableSet` for the behavioral contract and examples.
+    /// This interface method returns Unit; HashSet's inherent insert returns the
+    /// same set for chaining. Repeated insertion of an equal member does not increase
+    /// len. HashSet iteration order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    ///     val values: std::collections::MutableSet<i32> = storage;
+    ///     values.insert(7);
+    ///     values.insert(7);
+    ///     values.len() == 1u64 && values.contains(7)
+    /// }
     /// ```
     fn insert(self, arg1: T);
 
     /// Remove a member and report whether it was present.
     ///
-    /// See `MutableSet` for the behavioral contract and examples.
+    /// Returns true only when an equal member was present and removed. Removing an
+    /// absent member returns false and leaves membership unchanged.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableSet<i32> = std::collections::HashSet::from([7]);
+    ///     values.remove(7) && !values.remove(7) && values.is_empty()
+    /// }
     /// ```
     fn remove(self, arg1: T) -> bool;
 
     /// Remove all entries after validating structural mutation guards.
     ///
-    /// See `MutableSet` for the behavioral contract and examples.
+    /// This interface method returns Unit; the concrete hash collection's inherent
+    /// clear returns the same storage. Aliases observe the empty collection and live
+    /// cursors reject reads after a committed structural change.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableSet<i32> = std::collections::HashSet::from([1, 2]);
+    ///     values.clear();
+    ///     values.is_empty() && !values.contains(1)
+    /// }
     /// ```
     fn clear(self);
 }
 
 impl<T1, T2> HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
-    /// Remove all entries after validating structural mutation guards and return the same collection.
+    /// Removes all entries and returns this same collection. Existing aliases observe
+    /// the empty storage. Structural mutation checks run before the edit; live cursors
+    /// become invalid after a committed structural change.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: std::collections::HashMap<i32, i32>) { val result = values.clear(); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     values.insert(1, 10);
+    ///     val returned = values.clear();
+    ///     returned.insert(2, 20);
+    ///     values.len() == 1u64 && values.get(1) == None && values.get(2) == Some(20)
+    /// }
     /// ```
     pub fn clear(self) -> HashMap<T1, T2>;
 
-    /// Insert a key/value entry, replacing the value of an equal key, and return the same map.
+    /// Inserts or replaces the value of an equal key and returns this same map.
+    /// Existing aliases observe the change. Key equality and hashing use the declared
+    /// protocols; iteration order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: std::collections::HashMap<i32, i32>) { val result = values.insert(0, 1); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     val returned = values.insert(1, 10).insert(1, 20);
+    ///     returned.insert(2, 30);
+    ///     values.len() == 2u64 && values.get(1) == Some(20) && values.get(2) == Some(30)
+    /// }
     /// ```
     pub fn insert(self, arg1: T1, arg2: T2) -> HashMap<T1, T2>;
 
-    /// Create fresh empty hash collection storage.
+    /// Creates fresh empty mutable hash storage. Independently created collections do
+    /// not share entries.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn create() -> std::collections::HashMap<i32, i32> { std::collections::HashMap::new() }
+    /// fn main() -> bool {
+    ///     val values: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     values.is_empty() && values.get(1) == None
+    /// }
     /// ```
     pub fn new() -> HashMap<T1, T2>;
 }
@@ -407,45 +759,74 @@ impl<T1, T2> HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + co
 impl<T1, T2> Map<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
     /// Return the number of entries.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     data.insert(1, 10).insert(1, 20);
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     view.len() == 1u64
+    /// }
     /// ```
     pub fn len(self) -> u64;
 
     /// Return whether the collection has no entries.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     val before = view.is_empty();
+    ///     data.insert(7, 10);
+    ///     before && !view.is_empty()
+    /// }
     /// ```
     pub fn is_empty(self) -> bool;
 
     /// Test membership without changing collection storage.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     data.insert(7, 42);
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     view.contains_key(7) && !view.contains_key(42)
+    /// }
     /// ```
     pub fn contains_key(self, arg1: T1) -> bool;
 
     /// Return the requested value, or None if the index or key is absent.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// Returns the value associated with an equal key. None means the key is absent;
+    /// it does not remove an entry. HashMap invokes the key's Hash and Eq operations
+    /// synchronously and rejects structural mutation during that lookup.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+    ///     data.insert(1, "one");
+    ///     val view: std::collections::Map<i32, String> = data;
+    ///     view.get(1) == Some("one") && view.get(2) == None
+    /// }
     /// ```
     pub fn get(self, arg1: T1) -> core::option::Option<T2>;
 }
@@ -457,7 +838,8 @@ impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + 
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -465,11 +847,11 @@ impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + 
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<(T1, T2)>;
@@ -478,45 +860,74 @@ impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + 
 impl<T1, T2> Map<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
     /// Return the number of entries.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     data.insert(1, 10).insert(1, 20);
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     view.len() == 1u64
+    /// }
     /// ```
     pub fn len(self) -> u64;
 
     /// Return whether the collection has no entries.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     val before = view.is_empty();
+    ///     data.insert(7, 10);
+    ///     before && !view.is_empty()
+    /// }
     /// ```
     pub fn is_empty(self) -> bool;
 
     /// Test membership without changing collection storage.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     data.insert(7, 42);
+    ///     val view: std::collections::Map<i32, i32> = data;
+    ///     view.contains_key(7) && !view.contains_key(42)
+    /// }
     /// ```
     pub fn contains_key(self, arg1: T1) -> bool;
 
     /// Return the requested value, or None if the index or key is absent.
     ///
-    /// See `Map` for the behavioral contract and examples.
+    /// Returns the value associated with an equal key. None means the key is absent;
+    /// it does not remove an entry. HashMap invokes the key's Hash and Eq operations
+    /// synchronously and rejects structural mutation during that lookup.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// fn main() -> bool {
+    ///     val data: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+    ///     data.insert(1, "one");
+    ///     val view: std::collections::Map<i32, String> = data;
+    ///     view.get(1) == Some("one") && view.get(2) == None
+    /// }
     /// ```
     pub fn get(self, arg1: T1) -> core::option::Option<T2>;
 }
@@ -528,7 +939,8 @@ impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + 
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -536,11 +948,11 @@ impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + 
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<(T1, T2)>;
@@ -549,34 +961,56 @@ impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + 
 impl<T1, T2> MutableMap<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
     /// Insert a key/value entry, replacing the value of an equal key.
     ///
-    /// See `MutableMap` for the behavioral contract and examples.
+    /// This interface method returns Unit; HashMap's inherent insert instead returns
+    /// the same map for chaining. Inserting an equal key replaces its value without
+    /// increasing len. HashMap iteration order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+    ///     val values: std::collections::MutableMap<i32, String> = storage;
+    ///     values.insert(1, "first");
+    ///     values.insert(1, "replacement");
+    ///     values.len() == 1u64 && values.get(1) == Some("replacement")
+    /// }
     /// ```
     pub fn insert(self, arg1: T1, arg2: T2);
 
     /// Remove and return the entry, or None if it is absent.
     ///
-    /// See `MutableMap` for the behavioral contract and examples.
+    /// Returns the removed value in Some, or None when no equal key exists. Other
+    /// entries remain. HashMap aliases observe the removal; entry order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     val values: std::collections::MutableMap<i32, i32> = storage;
+    ///     values.insert(7, 42);
+    ///     values.remove(7) == Some(42) && values.remove(7) == None && values.is_empty()
+    /// }
     /// ```
     pub fn remove(self, arg1: T1) -> core::option::Option<T2>;
 
     /// Remove all entries after validating structural mutation guards.
     ///
-    /// See `MutableMap` for the behavioral contract and examples.
+    /// This interface method returns Unit; the concrete hash collection's inherent
+    /// clear returns the same storage. Aliases observe the empty collection and live
+    /// cursors reject reads after a committed structural change.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    ///     val values: std::collections::MutableMap<i32, i32> = storage;
+    ///     values.insert(7, 42);
+    ///     values.clear();
+    ///     values.is_empty() && values.get(7) == None
+    /// }
     /// ```
     pub fn clear(self);
 }
@@ -592,48 +1026,69 @@ impl<T1, T2> core::iter::FromIterator<(T1, T2)> for HashMap<T1, T2> where T1: co
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2))
-    ///     // Contains [2, 4, 6].
+    /// fn main() -> bool {
+    ///     val result = Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2));
+    ///     result.len() == 3u64 && result.get(1u64) == Some(4)
     /// }
     /// ```
     pub fn from_iter<M>(source: M) -> HashMap<T1, T2> where M: core::iter::Iterable<Item = (T1, T2)>;
 }
 
 impl<T> HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
-    /// Remove all entries after validating structural mutation guards and return the same collection.
+    /// Removes all entries and returns this same collection. Existing aliases observe
+    /// the empty storage. Structural mutation checks run before the edit; live cursors
+    /// become invalid after a committed structural change.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: std::collections::HashSet<i32>) { val result = values.clear(); }
+    /// fn main() -> bool {
+    ///     val values = std::collections::HashSet::from([1, 2]);
+    ///     val returned = values.clear();
+    ///     returned.insert(3);
+    ///     values.len() == 1u64 && !values.contains(1) && values.contains(3)
+    /// }
     /// ```
     pub fn clear(self) -> HashSet<T>;
 
-    /// Construct a hash set from an array, preserving uniqueness of equal members.
+    /// Copies array members into a fresh set, retaining only one entry for equal
+    /// members. Iteration order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn create() -> std::collections::HashSet<i32> { std::collections::HashSet::from([1, 2]) }
+    /// fn main() -> bool {
+    ///     val values = std::collections::HashSet::from([1, 1, 2]);
+    ///     values.len() == 2u64 && values.contains(1) && values.contains(2)
+    /// }
     /// ```
     pub fn from(array: [T]) -> HashSet<T>;
 
-    /// Insert a member, preserving uniqueness of equal members, and return the same set.
+    /// Inserts a member and returns this same set. Equal members occupy one entry.
+    /// Existing aliases observe the change; iteration order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: std::collections::HashSet<i32>) { val result = values.insert(1); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    ///     val returned = values.insert(7).insert(7);
+    ///     returned.insert(8);
+    ///     values.len() == 2u64 && values.contains(7) && values.contains(8)
+    /// }
     /// ```
     pub fn insert(self, arg1: T) -> HashSet<T>;
 
-    /// Create fresh empty hash collection storage.
+    /// Creates fresh empty mutable hash storage. Independently created collections do
+    /// not share entries.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn create() -> std::collections::HashSet<i32> { std::collections::HashSet::new() }
+    /// fn main() -> bool {
+    ///     val values: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    ///     values.is_empty() && !values.contains(1)
+    /// }
     /// ```
     pub fn new() -> HashSet<T>;
 }
@@ -641,34 +1096,50 @@ impl<T> HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::H
 impl<T> Set<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
     /// Return the number of entries.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val values: std::collections::Set<i32> = std::collections::HashSet::from([1, 1, 2]);
+    ///     values.len() == 2u64
+    /// }
     /// ```
     pub fn len(self) -> u64;
 
     /// Return whether the collection has no entries.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    ///     val values: std::collections::Set<i32> = storage;
+    ///     values.is_empty()
+    /// }
     /// ```
     pub fn is_empty(self) -> bool;
 
     /// Test membership without changing collection storage.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val values: std::collections::Set<i32> = std::collections::HashSet::from([1, 2]);
+    ///     values.contains(1) && !values.contains(3)
+    /// }
     /// ```
     pub fn contains(self, arg1: T) -> bool;
 }
@@ -680,7 +1151,8 @@ impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -688,11 +1160,11 @@ impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<T>;
@@ -701,34 +1173,50 @@ impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::
 impl<T> Set<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
     /// Return the number of entries.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val values: std::collections::Set<i32> = std::collections::HashSet::from([1, 1, 2]);
+    ///     values.len() == 2u64
+    /// }
     /// ```
     pub fn len(self) -> u64;
 
     /// Return whether the collection has no entries.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    ///     val values: std::collections::Set<i32> = storage;
+    ///     values.is_empty()
+    /// }
     /// ```
     pub fn is_empty(self) -> bool;
 
     /// Test membership without changing collection storage.
     ///
-    /// See `Set` for the behavioral contract and examples.
+    /// The view retains shared storage, so another alias can change later results.
+    /// Hash collection key equality and hashing must remain consistent while stored.
+    /// Iteration order is unspecified for HashMap and HashSet.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// fn main() -> bool {
+    ///     val values: std::collections::Set<i32> = std::collections::HashSet::from([1, 2]);
+    ///     values.contains(1) && !values.contains(3)
+    /// }
     /// ```
     pub fn contains(self, arg1: T) -> bool;
 }
@@ -740,7 +1228,8 @@ impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -748,11 +1237,11 @@ impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<T>;
@@ -761,34 +1250,52 @@ impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::
 impl<T> MutableSet<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
     /// Insert a member, preserving the uniqueness of equal members.
     ///
-    /// See `MutableSet` for the behavioral contract and examples.
+    /// This interface method returns Unit; HashSet's inherent insert returns the
+    /// same set for chaining. Repeated insertion of an equal member does not increase
+    /// len. HashSet iteration order is unspecified.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// fn main() -> bool {
+    ///     val storage: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    ///     val values: std::collections::MutableSet<i32> = storage;
+    ///     values.insert(7);
+    ///     values.insert(7);
+    ///     values.len() == 1u64 && values.contains(7)
+    /// }
     /// ```
     pub fn insert(self, arg1: T);
 
     /// Remove a member and report whether it was present.
     ///
-    /// See `MutableSet` for the behavioral contract and examples.
+    /// Returns true only when an equal member was present and removed. Removing an
+    /// absent member returns false and leaves membership unchanged.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableSet<i32> = std::collections::HashSet::from([7]);
+    ///     values.remove(7) && !values.remove(7) && values.is_empty()
+    /// }
     /// ```
     pub fn remove(self, arg1: T) -> bool;
 
     /// Remove all entries after validating structural mutation guards.
     ///
-    /// See `MutableSet` for the behavioral contract and examples.
+    /// This interface method returns Unit; the concrete hash collection's inherent
+    /// clear returns the same storage. Aliases observe the empty collection and live
+    /// cursors reject reads after a committed structural change.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// fn main() -> bool {
+    ///     val values: std::collections::MutableSet<i32> = std::collections::HashSet::from([1, 2]);
+    ///     values.clear();
+    ///     values.is_empty() && !values.contains(1)
+    /// }
     /// ```
     pub fn clear(self);
 }
@@ -804,23 +1311,24 @@ impl<T> core::iter::FromIterator<T> for HashSet<T> where T: core::cmp::Eq + core
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2))
-    ///     // Contains [2, 4, 6].
+    /// fn main() -> bool {
+    ///     val result = Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2));
+    ///     result.len() == 3u64 && result.get(1u64) == Some(4)
     /// }
     /// ```
     pub fn from_iter<M>(source: M) -> HashSet<T> where M: core::iter::Iterable<Item = T>;
 }
 
 impl<T> core::cmp::PartialEq for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
-    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
-    ///
-    /// See `PartialEq` for the behavioral contract and examples.
+    /// Equality comparison. Implementations should be symmetric and transitive where
+    /// defined. Equal keys must also have equal hashes when used in a hash collection.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// fn main() -> bool {
+    ///     7.eq(7) && !7.eq(8)
+    /// }
     /// ```
     pub fn eq(self, arg1: HashSet<T>) -> bool;
 }
@@ -829,27 +1337,32 @@ impl<T> core::cmp::Eq for HashSet<T> where T: core::cmp::Eq + core::cmp::Partial
 }
 
 impl<T> core::hash::Hash for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
-    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
-    ///
-    /// See `Hash` for the behavioral contract and examples.
+    /// Computes a stable hash for the duration of a collection operation. Equal keys
+    /// must hash equally. Hash and equality callbacks run synchronously; recursive
+    /// structural mutation during lookup traps.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// fn main() -> bool {
+    ///     val original = "café";
+    ///     val copy = original.replace("fé", "fé");
+    ///     original == copy && original.hash() == copy.hash()
+    /// }
     /// ```
     pub fn hash(self) -> i64;
 }
 
 impl<T> core::cmp::PartialEq for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
-    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
-    ///
-    /// See `PartialEq` for the behavioral contract and examples.
+    /// Equality comparison. Implementations should be symmetric and transitive where
+    /// defined. Equal keys must also have equal hashes when used in a hash collection.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// fn main() -> bool {
+    ///     7.eq(7) && !7.eq(8)
+    /// }
     /// ```
     pub fn eq(self, arg1: HashSet<T>) -> bool;
 }
@@ -858,27 +1371,32 @@ impl<T> core::cmp::Eq for HashSet<T> where T: core::cmp::Eq + core::cmp::Partial
 }
 
 impl<T> core::hash::Hash for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
-    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
-    ///
-    /// See `Hash` for the behavioral contract and examples.
+    /// Computes a stable hash for the duration of a collection operation. Equal keys
+    /// must hash equally. Hash and equality callbacks run synchronously; recursive
+    /// structural mutation during lookup traps.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// fn main() -> bool {
+    ///     val original = "café";
+    ///     val copy = original.replace("fé", "fé");
+    ///     original == copy && original.hash() == copy.hash()
+    /// }
     /// ```
     pub fn hash(self) -> i64;
 }
 
 impl<T1, T2> core::cmp::PartialEq for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::PartialEq {
-    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
-    ///
-    /// See `PartialEq` for the behavioral contract and examples.
+    /// Equality comparison. Implementations should be symmetric and transitive where
+    /// defined. Equal keys must also have equal hashes when used in a hash collection.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// fn main() -> bool {
+    ///     7.eq(7) && !7.eq(8)
+    /// }
     /// ```
     pub fn eq(self, arg1: HashMap<T1, T2>) -> bool;
 }
@@ -887,27 +1405,32 @@ impl<T1, T2> core::cmp::Eq for HashMap<T1, T2> where T1: core::cmp::Eq + core::c
 }
 
 impl<T1, T2> core::hash::Hash for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
-    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
-    ///
-    /// See `Hash` for the behavioral contract and examples.
+    /// Computes a stable hash for the duration of a collection operation. Equal keys
+    /// must hash equally. Hash and equality callbacks run synchronously; recursive
+    /// structural mutation during lookup traps.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// fn main() -> bool {
+    ///     val original = "café";
+    ///     val copy = original.replace("fé", "fé");
+    ///     original == copy && original.hash() == copy.hash()
+    /// }
     /// ```
     pub fn hash(self) -> i64;
 }
 
 impl<T1, T2> core::cmp::PartialEq for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::PartialEq {
-    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
-    ///
-    /// See `PartialEq` for the behavioral contract and examples.
+    /// Equality comparison. Implementations should be symmetric and transitive where
+    /// defined. Equal keys must also have equal hashes when used in a hash collection.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// fn main() -> bool {
+    ///     7.eq(7) && !7.eq(8)
+    /// }
     /// ```
     pub fn eq(self, arg1: HashMap<T1, T2>) -> bool;
 }
@@ -916,103 +1439,159 @@ impl<T1, T2> core::cmp::Eq for HashMap<T1, T2> where T1: core::cmp::Eq + core::c
 }
 
 impl<T1, T2> core::hash::Hash for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
-    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
-    ///
-    /// See `Hash` for the behavioral contract and examples.
+    /// Computes a stable hash for the duration of a collection operation. Equal keys
+    /// must hash equally. Hash and equality callbacks run synchronously; recursive
+    /// structural mutation during lookup traps.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// fn main() -> bool {
+    ///     val original = "café";
+    ///     val copy = original.replace("fé", "fé");
+    ///     original == copy && original.hash() == copy.hash()
+    /// }
     /// ```
     pub fn hash(self) -> i64;
 }
 
 impl<T> core::fmt::Debug for List<T> {
-    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
-    ///
-    /// See `Debug` for the behavioral contract and examples.
+    /// Produces a diagnostic string representation through `debug`. Formatting does not
+    /// permit reflective access outside declared members.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// fn main() -> bool {
+    ///     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+    /// }
     /// ```
     pub fn debug(self) -> alloc::string::String;
 }
 
 impl<T> core::fmt::Debug for MutableList<T> {
-    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
-    ///
-    /// See `Debug` for the behavioral contract and examples.
+    /// Produces a diagnostic string representation through `debug`. Formatting does not
+    /// permit reflective access outside declared members.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// fn main() -> bool {
+    ///     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+    /// }
     /// ```
     pub fn debug(self) -> alloc::string::String;
 }
 
 impl<T> core::fmt::Debug for Set<T> {
-    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
-    ///
-    /// See `Debug` for the behavioral contract and examples.
+    /// Produces a diagnostic string representation through `debug`. Formatting does not
+    /// permit reflective access outside declared members.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// fn main() -> bool {
+    ///     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+    /// }
     /// ```
     pub fn debug(self) -> alloc::string::String;
 }
 
 impl<T> core::fmt::Debug for MutableSet<T> {
-    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
-    ///
-    /// See `Debug` for the behavioral contract and examples.
+    /// Produces a diagnostic string representation through `debug`. Formatting does not
+    /// permit reflective access outside declared members.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// fn main() -> bool {
+    ///     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+    /// }
     /// ```
     pub fn debug(self) -> alloc::string::String;
 }
 
 impl<T1, T2> core::fmt::Debug for Map<T1, T2> {
-    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
-    ///
-    /// See `Debug` for the behavioral contract and examples.
+    /// Produces a diagnostic string representation through `debug`. Formatting does not
+    /// permit reflective access outside declared members.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// fn main() -> bool {
+    ///     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+    /// }
     /// ```
     pub fn debug(self) -> alloc::string::String;
 }
 
 impl<T1, T2> core::fmt::Debug for MutableMap<T1, T2> {
-    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
-    ///
-    /// See `Debug` for the behavioral contract and examples.
+    /// Produces a diagnostic string representation through `debug`. Formatting does not
+    /// permit reflective access outside declared members.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// fn main() -> bool {
+    ///     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+    /// }
     /// ```
     pub fn debug(self) -> alloc::string::String;
 }
 
-/// Compare list contents across compatible implementations using element protocols. Receiver object equality and lookup policies do not change this comparison. Traversal preserves completed callback effects and iterator invalidation.
+/// Compares list contents across compatible implementations using element
+/// protocols.
+///
+/// This compares contents, not receiver storage identity. Lists compare in order;
+/// sets and maps compare their members or key/value entries independently of
+/// iteration order. Completed callback effects remain visible on failure.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() -> bool {
+///     val left = Vec::from([1, 2]);
+///     val same = Vec::from([1, 2]);
+///     val reversed = Vec::from([2, 1]);
+///     std::collections::list_content_equal(left, same) && !std::collections::list_content_equal(left, reversed)
+/// }
+/// ```
 pub fn list_content_equal<T>(left: List<T>, right: List<T>) -> bool where T: core::cmp::PartialEq;
 
-/// Compare set contents across compatible implementations using element protocols. Receiver object equality and lookup policies do not change this comparison. Traversal preserves completed callback effects and iterator invalidation.
+/// Compares set contents across compatible implementations using element protocols.
+///
+/// This compares contents, not receiver storage identity. Lists compare in order;
+/// sets and maps compare their members or key/value entries independently of
+/// iteration order. Completed callback effects remain visible on failure.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() -> bool {
+///     val left = std::collections::HashSet::from([1, 2]);
+///     val right = std::collections::HashSet::from([2, 1, 1]);
+///     std::collections::set_content_equal(left, right)
+/// }
+/// ```
 pub fn set_content_equal<T>(left: Set<T>, right: Set<T>) -> bool where T: core::cmp::Eq;
 
-/// Compare map contents across compatible implementations using element protocols. Receiver object equality and lookup policies do not change this comparison. Traversal preserves completed callback effects and iterator invalidation.
+/// Compares map contents across compatible implementations using element protocols.
+///
+/// This compares contents, not receiver storage identity. Lists compare in order;
+/// sets and maps compare their members or key/value entries independently of
+/// iteration order. Completed callback effects remain visible on failure.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn main() -> bool {
+///     val left: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+///     val right: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+///     left.insert(1, 10).insert(2, 20);
+///     right.insert(2, 20).insert(1, 10);
+///     std::collections::map_content_equal(left, right)
+/// }
+/// ```
 pub fn map_content_equal<T1, T2>(left: Map<T1, T2>, right: Map<T1, T2>) -> bool where T1: core::cmp::Eq, T2: core::cmp::PartialEq;
 
 fn __default_4_List_sorted<T1, T2, T3>(__receiver: T1) -> List<T2> where T1: core::iter::Iterable<Item = T2, Iter = T3> + List<T2>, T2: core::cmp::Ord, T3: core::iter::Iterator<Item = T2>;

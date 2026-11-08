@@ -1,4 +1,5 @@
 //! Unicode scalar construction and conversions, independent of numeric policies.
+use crate::catalog::documentation::example;
 use crate::foundation::{
     Entry, default_impl, enumeration,
     enumerations::value::{self as enums, EnumSymbols},
@@ -31,16 +32,18 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         "Return the NUL Unicode scalar U+0000.",
     )?;
     let from = interface(module, "From", 1)?;
-    for (target, callback, documentation) in [
+    for (target, callback, documentation, code) in [
         (
             Type::scalar(BuiltinType::U32),
             to_u32 as Entry,
             "Return the Unicode scalar value as u32.",
+            "fn main() -> bool {\n    u32::from('é') == 233u32 && u32::from('🙂') == 128578u32\n}",
         ),
         (
             Type::scalar(BuiltinType::String),
             to_string as Entry,
             "Encode the character as an immutable UTF-8 String.",
+            "fn main() -> bool {\n    String::from('é') == \"é\" && String::from('é').len() == 2u64\n}",
         ),
     ] {
         let entry = override_entry(
@@ -54,7 +57,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 callback,
             )),
         )?
-        .documentation(documentation);
+        .documentation(example(documentation, code));
         module.trait_implementation_with(0, |_| {
             Ok(TraitImplementation {
                 receiver: target,
@@ -83,7 +86,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             try_from_u32,
         ),
     )?
-    .documentation("Convert a Unicode scalar value to char. Surrogates U+D800 through U+DFFF and values above U+10FFFF return CharTryFromError::InvalidScalar.");
+    .documentation(example("Converts a Unicode scalar value to `char`.\n\nSurrogates U+D800 through U+DFFF and values above U+10FFFF return\n`CharTryFromError::InvalidScalar`. This is a checked conversion, not a numeric cast.",
+        "use core::char::CharTryFromError;\nfn main() -> bool {\n    (match char::try_from(233u32) { Ok(value) => value == 'é', Err(_) => false, }) &&\n        (match char::try_from(0xD800u32) { Err(CharTryFromError::InvalidScalar) => true, _ => false, }) &&\n        (match char::try_from(0x110000u32) { Err(CharTryFromError::InvalidScalar) => true, _ => false, })\n}"));
     module.trait_implementation_with(0, |_| {
         Ok(TraitImplementation {
             receiver: character,
@@ -143,5 +147,5 @@ fn try_from_u32(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
     "Unicode scalar values, distinct from integers. char has scalar-value equality, ordering and hashing, UTF-8 Display, escaped single-quoted Debug and a NUL default. Explicit conversions provide char to u32 or String and checked u32 to char; Into and TryInto use the corresponding forward implementations. No numeric parsing, arithmetic, aggregation or character-range iteration is provided.",
-    "fn scalar(value: u32) -> Result<char, core::char::CharTryFromError> { char::try_from(value) }",
+    "use core::char::CharTryFromError;\nfn main() -> bool {\n    (match char::try_from(0xE9u32) { Ok(value) => value == 'é', Err(_) => false, }) &&\n        (match char::try_from(0xD800u32) { Err(CharTryFromError::InvalidScalar) => true, _ => false, })\n}",
 );

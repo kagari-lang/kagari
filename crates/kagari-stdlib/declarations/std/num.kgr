@@ -1,9 +1,40 @@
-//! Numeric parsing, aggregation, explicit fixed-width integer policies and width-matched float utilities and math. Ordinary arithmetic remains checked and traps on overflow; integer methods explicitly select wrapping, checked Option, overflowing tuple or saturating results. Rotations use u32 counts modulo the receiver's width. Float utilities include classification, rounding, correctly rounded square root and exact bit reinterpretation; invalid clamp bounds trap. Extended trigonometric, exponential, logarithmic and power methods return ordinary numeric exceptional results, use radians for angles and have unspecified precision with no universal ULP bound or cross-platform or repeated-result bit-identity guarantee. Parsing and conversion failures use the declared Result error.
+//! Numeric parsing, aggregation, explicit fixed-width integer policies and
+//! width-matched float utilities and math. Ordinary arithmetic remains checked and
+//! traps on overflow; integer methods explicitly select wrapping, checked Option,
+//! overflowing tuple or saturating results. Rotations use u32 counts modulo the
+//! receiver's width. Float utilities include classification, rounding, correctly
+//! rounded square root and exact bit reinterpretation; invalid clamp bounds trap.
+//! Extended trigonometric, exponential, logarithmic and power methods return
+//! ordinary numeric exceptional results, use radians for angles and have
+//! unspecified precision with no universal ULP bound or cross-platform or
+//! repeated-result bit-identity guarantee. Parsing and conversion failures use the
+//! declared Result error.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+//! use core::num::ParseError;
+//!
+//! fn main() -> bool {
+//!     (
+//!         match i32::from_str("42") {
+//!             Ok(value) => value == 42,
+//!             Err(_) => false,
+//!         }
+//!     ) &&
+//!         (
+//!         match i32::from_str("") {
+//!             Err(ParseError::Empty) => true,
+//!             _ => false,
+//!         }
+//!     ) &&
+//!         (
+//!         match i32::from_str("12x") {
+//!             Err(ParseError::InvalidDigit) => true,
+//!             _ => false,
+//!         }
+//!     )
+//! }
 //! ```
 
 pub use core::num::ParseError as ParseError;

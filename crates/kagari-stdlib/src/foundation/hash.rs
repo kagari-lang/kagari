@@ -371,16 +371,16 @@ fn from_iterator(
 
 const MAP_DOCS: (&str, &str) = (
     "A shared hash map with invariant key and value types. Equal keys must hash equally. Insert replaces an existing value; get returns None for an absent key.",
-    "fn find(values: std::collections::HashMap<i32, String>) -> Option<String> { values.get(1) }",
+    "fn main() -> bool {\n    val values: std::collections::HashMap<i32, String> = std::collections::HashMap::new();\n    values.insert(1, \"first\").insert(1, \"replacement\");\n    values.len() == 1u64 && values.get(1) == Some(\"replacement\") && values.get(2) == None\n}",
 );
 const SET_DOCS: (&str, &str) = (
     "A shared hash set. Equal members occupy one entry, and must hash equally. Lookup and structural mutation use checked synchronous guards.",
-    "fn has(values: std::collections::HashSet<i32>) -> bool { values.contains(1) }",
+    "fn main() -> bool {\n    val values = std::collections::HashSet::from([1, 1, 2]);\n    values.len() == 2u64 && values.contains(1) && !values.contains(3)\n}",
 );
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
     "Sequence, map and set interfaces, concrete hash collections and lazy mapping. Callbacks run synchronously with explicit borrow, root and mutation guards.",
-    "fn length(values: Vec<i32>) -> u64 { values.len() }",
+    "fn main() -> bool {\n    val values = Vec::from([10, 20]);\n    values.len() == 2u64 && values.get(0u64) == Some(10) && values.get(2u64) == None\n}",
 );
 
 fn inherent_docs(map: bool, name: &str) -> String {
@@ -389,33 +389,33 @@ fn inherent_docs(map: bool, name: &str) -> String {
     } else {
         "std::collections::HashSet<i32>"
     };
-    let (description, arguments) = match name {
-        "new" => ("Create fresh empty hash collection storage.", ""),
-        "from" => (
-            "Construct a hash set from an array, preserving uniqueness of equal members.",
-            "[1, 2]",
-        ),
-        "insert" if map => (
-            "Insert a key/value entry, replacing the value of an equal key, and return the same map.",
-            "0, 1",
-        ),
-        "insert" => (
-            "Insert a member, preserving uniqueness of equal members, and return the same set.",
-            "1",
-        ),
-        "clear" => (
-            "Remove all entries after validating structural mutation guards and return the same collection.",
-            "",
-        ),
+    let description = match name {
+        "new" => {
+            "Creates fresh empty mutable hash storage. Independently created collections do not share entries."
+        }
+        "from" => {
+            "Copies array members into a fresh set, retaining only one entry for equal members. Iteration order is unspecified."
+        }
+        "insert" if map => {
+            "Inserts or replaces the value of an equal key and returns this same map. Existing aliases observe the change. Key equality and hashing use the declared protocols; iteration order is unspecified."
+        }
+        "insert" => {
+            "Inserts a member and returns this same set. Equal members occupy one entry. Existing aliases observe the change; iteration order is unspecified."
+        }
+        "clear" => {
+            "Removes all entries and returns this same collection. Existing aliases observe the empty storage. Structural mutation checks run before the edit; live cursors become invalid after a committed structural change."
+        }
         _ => unreachable!("hash collection inherent inventory"),
     };
-    let code = if matches!(name, "new" | "from") {
-        format!(
-            "fn create() -> {ty} {{ {}::{name}({arguments}) }}",
-            ty.split('<').next().unwrap()
-        )
-    } else {
-        format!("fn example(values: {ty}) {{ val result = values.{name}({arguments}); }}")
+    let code = match (map, name) {
+        (true, "new") => format!("fn main() -> bool {{\n    val values: {ty} = std::collections::HashMap::new();\n    values.is_empty() && values.get(1) == None\n}}"),
+        (false, "new") => format!("fn main() -> bool {{\n    val values: {ty} = std::collections::HashSet::new();\n    values.is_empty() && !values.contains(1)\n}}"),
+        (false, "from") => "fn main() -> bool {\n    val values = std::collections::HashSet::from([1, 1, 2]);\n    values.len() == 2u64 && values.contains(1) && values.contains(2)\n}".into(),
+        (true, "insert") => format!("fn main() -> bool {{\n    val values: {ty} = std::collections::HashMap::new();\n    val returned = values.insert(1, 10).insert(1, 20);\n    returned.insert(2, 30);\n    values.len() == 2u64 && values.get(1) == Some(20) && values.get(2) == Some(30)\n}}"),
+        (false, "insert") => format!("fn main() -> bool {{\n    val values: {ty} = std::collections::HashSet::new();\n    val returned = values.insert(7).insert(7);\n    returned.insert(8);\n    values.len() == 2u64 && values.contains(7) && values.contains(8)\n}}"),
+        (true, "clear") => format!("fn main() -> bool {{\n    val values: {ty} = std::collections::HashMap::new();\n    values.insert(1, 10);\n    val returned = values.clear();\n    returned.insert(2, 20);\n    values.len() == 1u64 && values.get(1) == None && values.get(2) == Some(20)\n}}"),
+        (false, "clear") => "fn main() -> bool {\n    val values = std::collections::HashSet::from([1, 2]);\n    val returned = values.clear();\n    returned.insert(3);\n    values.len() == 1u64 && !values.contains(1) && values.contains(3)\n}".into(),
+        _ => unreachable!("hash collection witness"),
     };
     documentation::example(description, &code)
 }

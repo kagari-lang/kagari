@@ -1,6 +1,7 @@
 //! List defaults and Vec overrides share one algorithm inventory, not a semantic lowerer.
 pub(super) mod algorithms;
 use crate::{
+    catalog::documentation::example,
     foundation::{
         bound, enumeration,
         enumerations::value::{self as enums, Entry, EnumSymbols},
@@ -314,35 +315,78 @@ pub(super) fn vector(module: &mut ModuleDraft<'_>) -> NativeResult<DraftReferenc
     )
 }
 
-fn documentation(name: &str) -> &'static str {
-    match name {
-        "sorted" => "Return a stably sorted List using T: Ord; preserve the original slots.",
+fn documentation(name: &str) -> String {
+    let description = match name {
+        "sorted" => {
+            "Returns a new List in ascending `Ord` order.\n\nEqual elements keep their relative order. The original slots are unchanged;\nelements themselves are copied as values, so referenced objects remain shared."
+        }
         "sorted_by" => {
-            "Return a stably sorted List using the comparator; preserve the original slots."
+            "Returns a new List ordered by `callback(left, right)`.\n\nThe callback returns Less, Equal or Greater and must define a consistent order.\nEqual elements keep their relative order. Original slots are unchanged, but\ncompleted callback effects survive a later trap."
         }
         "sorted_by_key" => {
-            "Return a stably sorted List. Evaluate keys during comparisons without caching them."
+            "Returns a new List ordered by the keys produced by `callback`.\n\nKeys are evaluated during comparisons, without caching. A callback can run\nmore than once for an element; it must yield a consistent ordering. Equal keys\nkeep their original element order. Original slots are unchanged."
         }
-        "reversed" => "Return a reversed List without changing the original slots.",
+        "reversed" => {
+            "Returns a new List in reverse input order.\n\nOriginal slots are unchanged. Empty and single-element lists retain their\ncontents. Referenced elements are shared rather than deeply cloned."
+        }
         "distinct" => {
-            "Return first occurrences in input order using T: Eq; no Hash bound is required."
+            "Returns the first occurrence of each equal element in input order.\n\nEquality uses `Eq`; no Hash bound is required. Unlike `dedup`, nonadjacent\nduplicates are removed too. Original slots are unchanged; callback effects\nfrom equality checks are not rolled back on failure."
         }
-        "sort" => "Stably sort in place using T: Ord. Failure may leave a partial reordering.",
+        "sort" => {
+            "Sorts this list in ascending `Ord` order, returning Unit.\n\nEqual elements keep their relative order. Aliases observe the same storage.\nA failure can leave a partial reordering; completed effects are not rolled back."
+        }
         "sort_by" => {
-            "Stably sort in place using the comparator. Failure stops later callbacks; no rollback is promised."
+            "Sorts this list in place using `callback(left, right)`, returning Unit.\n\nThe callback returns Less, Equal or Greater and must define a consistent order.\nEqual elements retain their relative order. A trap stops later callbacks and\ncan leave a partial reordering. Vec rejects structural edits during comparison."
         }
         "sort_by_key" => {
-            "Stably sort in place with keys evaluated during comparisons. Failure does not promise rollback."
+            "Sorts this list in place by `callback` keys, returning Unit.\n\nKeys are evaluated during comparisons, without caching; callbacks can run\nrepeatedly for one element. Equal keys preserve element order. A callback trap\ncan leave a partial reordering. Vec rejects structural edits during comparison."
         }
         "reverse" => {
-            "Reverse the list in place. Custom receiver failures may leave completed writes."
+            "Reverses this list in place, returning Unit.\n\nAliases observe the same storage. Empty and single-element inputs are unchanged.\nIf a custom receiver fails during a write, earlier writes remain committed."
         }
         "retain" => {
-            "Keep matching elements in input order. Failure preserves completed removals and callback effects."
+            "Keeps elements for which `callback` returns true, returning Unit.\n\nVisits elements in input order and preserves the order of retained elements.\nA trap stops later callbacks and retains completed removals and callback effects.\nVec rejects structural edits from the predicate while retaining."
         }
         "dedup" => {
-            "Remove consecutive equal elements using T: Eq, preserving the first in each run. Failure preserves completed removals."
+            "Removes consecutive equal elements, keeping the first in each run.\n\nReturns Unit and compares through `Eq`, without requiring Hash. Nonadjacent\nduplicates remain; use `distinct` to remove them in a new List. A failure\npreserves earlier removals and equality-callback effects."
         }
         _ => unreachable!("declared list method"),
-    }
+    };
+    let code = match name {
+        "sorted" => {
+            "fn main() -> bool {\n    val input = Vec::from([3, 1, 2]);\n    val result = input.sorted();\n    result.get(0u64) == Some(1) && result.get(2u64) == Some(3) && input.get(0u64) == Some(3)\n}"
+        }
+        "sorted_by" => {
+            "fn main() -> bool {\n    val input = Vec::from([1, 3, 2]);\n    val result = input.sorted_by(|left, right| right.cmp(left));\n    result.get(0u64) == Some(3) && result.get(2u64) == Some(1) && input.get(0u64) == Some(1)\n}"
+        }
+        "sorted_by_key" => {
+            "fn main() -> bool {\n    val input = Vec::from([1, 3, 2]);\n    val result = input.sorted_by_key(|value| -value);\n    result.get(0u64) == Some(3) && result.get(2u64) == Some(1) && input.get(0u64) == Some(1)\n}"
+        }
+        "reversed" => {
+            "fn main() -> bool {\n    val input = Vec::from([1, 2, 3]);\n    val result = input.reversed();\n    result.get(0u64) == Some(3) && result.get(2u64) == Some(1) && input.get(0u64) == Some(1)\n}"
+        }
+        "distinct" => {
+            "fn main() -> bool {\n    val input = Vec::from([2, 1, 2, 1, 3]);\n    val result = input.distinct();\n    result.len() == 3u64 && result.get(0u64) == Some(2) && result.get(1u64) == Some(1) && input.len() == 5u64\n}"
+        }
+        "sort" => {
+            "fn main() -> bool {\n    val values = Vec::from([3, 1, 2]);\n    val alias = values;\n    values.sort();\n    alias.get(0u64) == Some(1) && alias.get(2u64) == Some(3)\n}"
+        }
+        "sort_by" => {
+            "fn main() -> bool {\n    val values = Vec::from([1, 3, 2]);\n    values.sort_by(|left, right| right.cmp(left));\n    values.get(0u64) == Some(3) && values.get(2u64) == Some(1)\n}"
+        }
+        "sort_by_key" => {
+            "fn main() -> bool {\n    val values = Vec::from([1, 3, 2]);\n    values.sort_by_key(|value| -value);\n    values.get(0u64) == Some(3) && values.get(2u64) == Some(1)\n}"
+        }
+        "reverse" => {
+            "fn main() -> bool {\n    val values = Vec::from([1, 2, 3]);\n    values.reverse();\n    values.get(0u64) == Some(3) && values.get(2u64) == Some(1)\n}"
+        }
+        "retain" => {
+            "fn main() -> bool {\n    val values = Vec::from([1, 2, 3, 4]);\n    values.retain(|value| value % 2 == 0);\n    values.len() == 2u64 && values.get(0u64) == Some(2) && values.get(1u64) == Some(4)\n}"
+        }
+        "dedup" => {
+            "fn main() -> bool {\n    val values = Vec::from([1, 1, 2, 1]);\n    values.dedup();\n    values.len() == 3u64 && values.get(0u64) == Some(1) && values.get(1u64) == Some(2) && values.get(2u64) == Some(1)\n}"
+        }
+        _ => unreachable!("list operation example"),
+    };
+    example(description, code)
 }

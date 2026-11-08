@@ -1,84 +1,198 @@
-//! Scope-owned asynchronous jobs with retained terminal results and host-controlled scheduling.
+//! Host-driven asynchronous jobs with retained terminal results.
+//!
+//! The host creates and owns TaskScope and drives the runtime scheduler. Script
+//! receives only the admission capability. The example requires an open scope
+//! provided by that host; it observes that admission does not run the factory.
+//! Dropping a script Task handle does not cancel its job.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn retain(value: Task<i32>) -> core::task::Task<i32> { value }
+//! pub async fn main(scope: TaskScope) -> bool {
+//!     val calls: Vec<i32> = Vec::new();
+//!     val task = match scope.spawn(|| {
+//!         calls.push(1);
+//!         async { 42 }
+//!     }) {
+//!         Ok(task) => task,
+//!         Err(_) => { return false; },
+//!     };
+//!     val cold = calls.is_empty();
+//!     val result = task.await;
+//!     cold && result == 42 && calls.len() == 1u64
+//! }
 //! ```
 
-/// A scope-owned execution handle. Dropping a handle does not cancel the task. Completed values are retained by live handles and pending host reports.
+/// A scope-owned execution handle. Dropping a handle does not cancel the task.
+/// Completed values are retained by live handles and pending host reports.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn retain(value: Task<i32>) -> core::task::Task<i32> { value }
+/// pub async fn main(scope: TaskScope) -> bool {
+///     val calls: Vec<i32> = Vec::new();
+///     val task = match scope.spawn(|| {
+///         calls.push(1);
+///         async { 42 }
+///     }) {
+///         Ok(task) => task,
+///         Err(_) => { return false; },
+///     };
+///     val alias = task;
+///     val first = task.await;
+///     val again = alias.await;
+///     first == 42 && again == 42 && calls.len() == 1u64
+/// }
 /// ```
 pub type Task<T>;
 
-/// A host-created capability for admitting independent tasks into one host-owned scope. Only the host owner controls driving and scope closure.
+/// A host-created capability for admitting independent tasks into one host-owned
+/// scope. Only the host owner controls driving and scope closure.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn retain(value: TaskScope) -> core::task::TaskScope { value }
+/// pub async fn main(scope: TaskScope) -> bool {
+///     val calls: Vec<i32> = Vec::new();
+///     val task = match scope.spawn(|| {
+///         calls.push(1);
+///         async { 42 }
+///     }) {
+///         Ok(task) => task,
+///         Err(_) => { return false; },
+///     };
+///     val cold = calls.is_empty();
+///     val result = task.await;
+///     cold && result == 42 && calls.len() == 1u64
+/// }
 /// ```
 pub type TaskScope;
 
-/// A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
+/// An admission failure: no Task is returned and the factory does not run.
+///
+/// ScopeClosed means the host closed the scope; CapacityExceeded means admission
+/// capacity is exhausted; DispatchUnavailable means the host notification route
+/// is unavailable. Execution failures after admission belong to the Task outcome.
+/// The example receives a scope that its host has already closed.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn closed() -> SpawnError { SpawnError::ScopeClosed }
+/// pub fn main(closed_scope: TaskScope) -> bool {
+///     match closed_scope.spawn(|| async { 42 }) {
+///         Err(SpawnError::ScopeClosed) => true,
+///         _ => false,
+///     }
+/// }
 /// ```
 pub enum SpawnError {
-    /// The `ScopeClosed` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
+    /// The host has closed the scope. No factory is queued and no Task is admitted.
     ScopeClosed,
 
-    /// The `CapacityExceeded` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
+    /// The scope or runtime has no remaining Task admission capacity. No factory is
+    /// queued.
     CapacityExceeded,
 
-    /// The `DispatchUnavailable` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
+    /// The host notification route cannot accept the admission. No Task is published to
+    /// the caller.
     DispatchUnavailable,
 }
 
 impl TaskScope {
-    /// Admit a zero-argument factory returning Future<T>. The factory runs once on the first host drive, after admission. Closures and checked Fn implementations use ordinary callable coercion. Admission failures return SpawnError; execution failures terminate the Task.
+    /// Host-driven asynchronous jobs with retained terminal results.
+    ///
+    /// The host creates and owns TaskScope and drives the runtime scheduler. Script
+    /// receives only the admission capability. The example requires an open scope
+    /// provided by that host; it observes that admission does not run the factory.
+    /// Dropping a script Task handle does not cancel its job.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// async fn answer() -> i32 { 42 }
-    /// fn submit(scope: TaskScope) -> Result<Task<i32>, SpawnError> { scope.spawn(|| answer()) }
+    /// pub async fn main(scope: TaskScope) -> bool {
+    ///     val calls: Vec<i32> = Vec::new();
+    ///     val task = match scope.spawn(|| {
+    ///         calls.push(1);
+    ///         async { 42 }
+    ///     }) {
+    ///         Ok(task) => task,
+    ///         Err(_) => { return false; },
+    ///     };
+    ///     val cold = calls.is_empty();
+    ///     val result = task.await;
+    ///     cold && result == 42 && calls.len() == 1u64
+    /// }
     /// ```
     pub fn spawn<T>(self, arg1: fn() -> core::future::Future<T>) -> core::result::Result<Task<T>, SpawnError>;
 }
 
 impl<T> Task<T> {
-    /// Request cooperative cancellation of this Task. Completed Tasks are unchanged. Cancelling a waiting Task detaches its wait without cancelling the dependency.
+    /// Requests cooperative cancellation. Already completed Tasks keep their result.
+    /// Cancelling a waiter detaches its wait without cancelling the dependency.
+    /// The host supplies an open scope and drives both the cancellation and probe.
+    /// The cancelled task body in this example never performs its effect.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn stop<T>(task: Task<T>) { task.cancel(); }
+    /// pub async fn main(scope: TaskScope) -> bool {
+    ///     val calls: Vec<i32> = Vec::new();
+    ///     val task = match scope.spawn(|| async { calls.push(1); 42 }) {
+    ///         Ok(task) => task,
+    ///         Err(_) => { return false; },
+    ///     };
+    ///     task.cancel();
+    ///     val probe = match scope.spawn(|| async { true }) {
+    ///         Ok(task) => task,
+    ///         Err(_) => { return false; },
+    ///     };
+    ///     probe.await && calls.is_empty()
+    /// }
     /// ```
     pub fn cancel(self);
 }
 
-/// Compose two cold Futures without starting them. Awaiting runs both cooperatively and returns the input-ordered pair after cleanup. Result values are ordinary outputs; execution failures close the sibling and terminate the parent.
+/// Combines two cold Futures without starting them.
+///
+/// Awaiting drives both cooperatively and returns the input-ordered pair after
+/// branch cleanup. The order of outputs does not prescribe the order of effects.
+/// Result values are ordinary outputs; an execution trap closes the sibling and
+/// terminates the parent. The host drives the example's scheduler.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// async fn sample() -> (i32, i32) { core::task::join(async { 1 }, async { 2 }).await }
+/// async fn main() -> bool {
+///     val calls: Vec<i32> = Vec::new();
+///     val pair = core::task::join(
+///         async { calls.push(1); 10 },
+///         async { calls.push(2); 20 },
+///     );
+///     val cold = calls.is_empty();
+///     val result = pair.await;
+///     cold && result == (10, 20) && calls.len() == 2u64
+/// }
 /// ```
 pub fn join<T1, T2>(left: core::future::Future<T1>, right: core::future::Future<T2>) -> core::future::Future<(T1, T2)>;
 
-/// Compose two cold Futures. Awaiting runs both cooperatively; the first observed Err closes the sibling before returning, retaining its original diagnostic origin. Otherwise return Ok of the input-ordered pair. Execution failures terminate the parent.
+/// Combines two cold Result-producing Futures.
+///
+/// Awaiting drives both cooperatively. Two Ok values produce an input-ordered
+/// pair; the first observed Err closes the sibling before returning that error.
+/// Execution traps are not converted into Err values. Completed effects are not
+/// rolled back, and the error keeps its original diagnostic origin.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// async fn sample() -> Result<(i32, i32), String> { core::task::try_join(async { Ok(1) }, async { Ok(2) }).await }
+/// async fn main() -> bool {
+///     val left: Future<Result<i32, String>> = async { Ok(10) };
+///     val right: Future<Result<i32, String>> = async { Ok(20) };
+///     val success = core::task::try_join(left, right).await;
+///     val bad: Future<Result<i32, String>> = async { Err("stop") };
+///     val other: Future<Result<i32, String>> = async { Ok(20) };
+///     val failure = core::task::try_join(bad, other).await;
+///     success == Ok((10, 20)) && failure == Err("stop")
+/// }
 /// ```
 pub fn try_join<T1, T2, T3>(left: core::future::Future<core::result::Result<T1, T3>>, right: core::future::Future<core::result::Result<T2, T3>>) -> core::future::Future<core::result::Result<(T1, T2), T3>>;

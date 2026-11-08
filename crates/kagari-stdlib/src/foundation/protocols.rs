@@ -1,8 +1,9 @@
 //! Canonical standard trait schemas; required methods use ordinary MethodDecl lowering.
 mod collections;
 mod conversion;
+mod documentation;
 use crate::{
-    catalog::documentation,
+    catalog::documentation::markdown,
     foundation::{enumeration, interface, iteration::documentation as iteration_docs},
     namespaces,
 };
@@ -47,7 +48,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.",
-                    "fn same(left: i32, right: i32) -> bool { left == right }",
+                    "fn main() -> bool {\n    7 == 7 && !(7 == 8)\n}",
                 ),
             ),
             (
@@ -55,7 +56,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "Marks reflexive equality in addition to `PartialEq`. It has no additional methods. Implementations must satisfy the equality laws relied on by collection algorithms.",
-                    "fn unique(values: Vec<i32>) -> std::collections::List<i32> { values.distinct() }",
+                    "fn main() -> bool {\n    val result = Vec::from([2, 1, 2, 1, 3]).distinct();\n    result.len() == 3u64 && result.get(0u64) == Some(2) && result.get(1u64) == Some(1)\n}",
                 ),
             ),
             (
@@ -63,7 +64,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "A partial ordering consistent with equality. `partial_cmp` returns `None` for incomparable values; floating-point NaN is incomparable.",
-                    "fn before(left: i32, right: i32) -> bool { left < right }",
+                    "fn main() -> bool {\n    2 < 3 && !(3 < 2) && !(2 < 2)\n}",
                 ),
             ),
             (
@@ -71,7 +72,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "A total ordering consistent with `Eq` and `PartialOrd`. `cmp` returns Less, Equal or Greater. Sorting relies on a consistent comparator.",
-                    "fn ordered(values: Vec<i32>) -> std::collections::List<i32> { values.sorted() }",
+                    "fn main() -> bool {\n    val input = Vec::from([3, 1, 2]);\n    val result = input.sorted();\n    result.get(0u64) == Some(1) && result.get(2u64) == Some(3) && input.get(0u64) == Some(3)\n}",
                 ),
             ),
         ],
@@ -84,7 +85,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
             0,
             (
                 "Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.",
-                "fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }",
+                "fn main() -> bool {\n    val values: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();\n    values.insert(7, 42);\n    values.get(7) == Some(42) && values.get(8) == None\n}",
             ),
         )],
     ),
@@ -97,7 +98,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.",
-                    "fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }",
+                    "fn main() -> bool {\n    42.debug() == \"42\" && true.debug() == \"true\" && 'é'.debug() == \"'é'\"\n}",
                 ),
             ),
             (
@@ -105,7 +106,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "Produces a user-facing string representation through `display`. Implementations choose their formatting policy.",
-                    "fn render<T: core::fmt::Display>(value: T) -> String { value.display() }",
+                    "fn main() -> bool {\n    42.display() == \"42\" && 'é'.display() == \"é\"\n}",
                 ),
             ),
         ],
@@ -119,7 +120,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Addition with an explicitly declared output type. Built-in integer arithmetic traps on overflow; a user implementation defines its own behavior.",
-                    "fn plus(left: i32, right: i32) -> i32 { left + right }",
+                    "fn main() -> bool {\n    2 + 3 == 5 && -2 + 3 == 1\n}",
                 ),
             ),
             (
@@ -127,7 +128,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Subtraction with an explicitly declared output type. Built-in integer subtraction traps on overflow.",
-                    "fn difference(left: i32, right: i32) -> i32 { left - right }",
+                    "fn main() -> bool {\n    5 - 3 == 2 && 3 - 5 == -2\n}",
                 ),
             ),
             (
@@ -135,7 +136,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Multiplication with an explicitly declared output type. Built-in integer multiplication traps on overflow.",
-                    "fn doubled(value: i32) -> i32 { value * 2 }",
+                    "fn main() -> bool {\n    3 * 4 == 12 && -3 * 4 == -12\n}",
                 ),
             ),
             (
@@ -143,7 +144,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Division. Built-in integer division traps for zero divisors and signed overflow; floating-point division follows its specified numeric semantics.",
-                    "fn half(value: i32) -> i32 { value / 2 }",
+                    "fn main() -> bool {\n    7 / 2 == 3 && -7 / 2 == -3\n}",
                 ),
             ),
             (
@@ -151,7 +152,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "The remainder of division. Built-in integer remainder traps for zero divisors and signed overflow.",
-                    "fn parity(value: i32) -> i32 { value % 2 }",
+                    "fn main() -> bool {\n    7 % 3 == 1 && -7 % 3 == -1\n}",
                 ),
             ),
             (
@@ -159,7 +160,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Bitwise conjunction, with an explicitly declared output type.",
-                    "fn low_bits(value: i32) -> i32 { value & 15 }",
+                    "fn main() -> bool {\n    0b1010 & 0b1100 == 0b1000\n}",
                 ),
             ),
             (
@@ -167,7 +168,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Bitwise disjunction, with an explicitly declared output type.",
-                    "fn set_bit(value: i32) -> i32 { value | 1 }",
+                    "fn main() -> bool {\n    0b1010 | 0b0001 == 0b1011\n}",
                 ),
             ),
             (
@@ -175,7 +176,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Bitwise exclusive disjunction, with an explicitly declared output type.",
-                    "fn toggle(value: i32) -> i32 { value ^ 1 }",
+                    "fn main() -> bool {\n    0b1010 ^ 0b0011 == 0b1001\n}",
                 ),
             ),
             (
@@ -183,7 +184,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Left shift. Built-in integer shifts validate the shift count and checked result.",
-                    "fn shift(value: i32) -> i32 { value << 1 }",
+                    "fn main() -> bool {\n    3 << 2u32 == 12\n}",
                 ),
             ),
             (
@@ -191,7 +192,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Right shift. Built-in integer shifts validate the shift count.",
-                    "fn shift(value: i32) -> i32 { value >> 1 }",
+                    "fn main() -> bool {\n    12 >> 2u32 == 3\n}",
                 ),
             ),
             (
@@ -199,7 +200,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "Arithmetic negation. Negating the minimum signed integer traps on overflow.",
-                    "fn negative(value: i32) -> i32 { -value }",
+                    "fn main() -> bool {\n    val value = 7;\n    -value == -7\n}",
                 ),
             ),
             (
@@ -207,7 +208,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "Logical or bitwise inversion, depending on the receiver type. The output is declared by the implementation.",
-                    "fn invert(value: bool) -> bool { !value }",
+                    "fn main() -> bool {\n    !false && !!true\n}",
                 ),
             ),
             (
@@ -215,7 +216,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.",
-                    "fn head(values: Vec<i32>) -> i32 { values[0] }",
+                    "fn main() -> bool {\n    val values = Vec::from([4, 5]);\n    values[0u64] == 4 && values[1u64] == 5\n}",
                 ),
             ),
             (
@@ -223,7 +224,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "A checked callable signature. Calls evaluate arguments left to right exactly once. Stored callable values retain their selected generation across reload.",
-                    "fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 { f(value) }",
+                    "fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 {\n    f(value)\n}\nfn main() -> bool {\n    apply(|value| value * 2, 21) == 42\n}",
                 ),
             ),
             (
@@ -231,7 +232,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Exposes the start and end bounds of a range as Included, Excluded or Unbounded. Constructing bounds does not iterate the range.",
-                    "fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }",
+                    "use core::ops::Bound;\nfn main() -> bool {\n    (1..4).start_bound() == Bound::Included(1) &&\n        (1..4).end_bound() == Bound::Excluded(4)\n}",
                 ),
             ),
             (
@@ -239,7 +240,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 0,
                 (
                     "Defines the successful Output and distinct Residual of a carrier. Question-mark evaluates the value and branch once: Continue produces Output, while Break passes Residual to the enclosing return type's FromResidual implementation. Traps are not converted to residuals.",
-                    "fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }",
+                    "fn doubled(value: Option<i32>) -> Option<i32> {\n    Some(value? * 2)\n}\nfn main() -> bool {\n    doubled(Some(21)) == Some(42) && doubled(None) == None\n}",
                 ),
             ),
             (
@@ -247,7 +248,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Constructs the enclosing return value on early propagation. Residual types distinguish Option, Result and ControlFlow. Result converts only the error through one infallible From implementation, preserving its original failure trace.",
-                    "fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }",
+                    "fn widen(value: Result<i32, String>) -> Result<i64, String> {\n    Ok(i64::from(value?))\n}\nfn main() -> bool {\n    widen(Ok(42)) == Ok(42i64) && widen(Err(\"missing\")) == Err(\"missing\")\n}",
                 ),
             ),
         ],
@@ -261,7 +262,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Constructs a target value from a source. The conversion is infallible in its declared signature. Result propagation can use `From` to convert an error type.",
-                    "fn widen(value: i32) -> i64 { i64::from(value) }",
+                    "fn main() -> bool {\n    i64::from(42i32) == 42i64 && i64::from(-7i32) == -7i64\n}",
                 ),
             ),
             (
@@ -269,7 +270,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "Converts the receiver into a target. A matching `From` implementation supplies the reverse adapter without another body.",
-                    "fn widen(value: i32) -> i64 { value.into() }",
+                    "fn main() -> bool {\n    val result: i64 = 42i32.into();\n    result == 42i64\n}",
                 ),
             ),
             (
@@ -277,7 +278,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.",
-                    "fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { i32::try_from(value) }",
+                    "use core::num::TryFromIntError;\nfn main() -> bool {\n    (match i32::try_from(42i64) { Ok(value) => value == 42i32, Err(_) => false, }) &&\n        (match i32::try_from(2147483648i64) { Err(TryFromIntError::OutOfRange) => true, _ => false, })\n}",
                 ),
             ),
             (
@@ -285,7 +286,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "A checked conversion of the receiver into a target. The reverse adapter uses the corresponding `TryFrom` declaration and error type.",
-                    "fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { value.try_into() }",
+                    "use core::num::TryFromIntError;\n\nfn main() -> bool {\n    val success: Result<i32, TryFromIntError> = 42i64.try_into();\n    val failure: Result<i32, TryFromIntError> = 2147483648i64.try_into();\n    (\n        match success {\n            Ok(value) => value == 42,\n            Err(_) => false,\n        }\n    ) &&\n        (\n        match failure {\n            Err(TryFromIntError::OutOfRange) => true,\n            _ => false,\n        }\n    )\n}",
                 ),
             ),
         ],
@@ -298,7 +299,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
             0,
             (
                 "Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.",
-                "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+                "use core::num::ParseError;\n\nfn main() -> bool {\n    (\n        match i32::from_str(\"42\") {\n            Ok(value) => value == 42,\n            Err(_) => false,\n        }\n    ) &&\n        (\n        match i32::from_str(\"\") {\n            Err(ParseError::Empty) => true,\n            _ => false,\n        }\n    ) &&\n        (\n        match i32::from_str(\"12x\") {\n            Err(ParseError::InvalidDigit) => true,\n            _ => false,\n        }\n    )\n}",
             ),
         )],
     ),
@@ -310,7 +311,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
             0,
             (
                 "Constructs an implementation-defined value through the required static `default() -> Self` method, with no receiver or arguments. The canonical trait is `core::default::Default`; the prelude and `std::default::Default` expose the same declaration. Implementations are explicit: this contract neither zeroes storage nor recursively initializes fields, and user structs receive no automatic implementation. It is static-only and cannot be used as an interface value type. Calls use ordinary trait selection, including concrete, qualified and generic bound forms; a trait-qualified call needs result context to determine Self, not merely an available implementation.\n\n# Standard implementations\n\nUnit returns (); bool returns false. The eight integer types i8, i16, i32, i64, u8, u16, u32 and u64 return correctly typed zero; f32 and f64 return positive zero. String returns an empty string. Vec<T> returns fresh empty mutable storage on every call; Option<T> returns None. Neither container requires T: Default. Tuples, builtin arrays, maps, sets, ranges, Result, other enums and host/scoped values have no standard implementation.",
-                "struct Player { val health: i32 }\nimpl Default for Player { fn default() -> Self { Player { health: 100 } } }\nfn player() -> Player { Player::default() }\nfn qualified() -> Player { <Player as core::default::Default>::default() }\nfn make<T: Default>() -> T { T::default() }\nstruct Element {}\nfn empty_vec() -> Vec<Element> { Vec<Element>::default() }\nfn absent() -> Option<Element> { Option<Element>::default() }\nfn zero() -> i32 { Default::default() }\nfn empty_string() -> String { String::default() }",
+                "struct Player { val health: i32 }\nimpl Default for Player {\n    fn default() -> Self { Player { health: 100 } }\n}\nfn main() -> bool {\n    Player::default().health == 100 &&\n        <Player as core::default::Default>::default().health == 100 &&\n        i32::default() == 0 && String::default() == \"\"\n}",
             ),
         )],
     ),
@@ -323,7 +324,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "A readonly sequence interface. Element types are invariant. A readonly view retains shared identity, so another alias can mutate the underlying sequence.",
-                    "fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }",
+                    "fn main() -> bool {\n    val values: std::collections::List<i32> = Vec::from([10, 20]);\n    values.get(0u64) == Some(10) && values.get(2u64) == None\n}",
                 ),
             ),
             (
@@ -331,7 +332,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "A mutable sequence interface. Structural edits validate active borrows and invalidate existing cursors. Completed writes and callback effects survive later failures.",
-                    "fn append(values: std::collections::MutableList<i32>) { values.push(3); }",
+                    "fn main() -> bool {\n    val storage = Vec::from([1, 2]);\n    val view: std::collections::MutableList<i32> = storage;\n    view.push(3);\n    storage.get(2u64) == Some(3) && view.len() == 3u64\n}",
                 ),
             ),
             (
@@ -339,7 +340,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 2,
                 (
                     "A readonly key/value interface. Lookup returns `None` for a missing key. Readonly views share storage with other aliases.",
-                    "fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }",
+                    "fn main() -> bool {\n    val storage: std::collections::HashMap<i32, String> = std::collections::HashMap::new();\n    storage.insert(1, \"one\");\n    val view: std::collections::Map<i32, String> = storage;\n    view.get(1) == Some(\"one\") && view.get(2) == None\n}",
                 ),
             ),
             (
@@ -347,7 +348,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 2,
                 (
                     "A mutable key/value interface. Insert replaces the value of an equal key. Hash and equality callbacks must not structurally mutate a collection under lookup.",
-                    "fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, \"one\"); }",
+                    "fn main() -> bool {\n    val storage: std::collections::HashMap<i32, String> = std::collections::HashMap::new();\n    val view: std::collections::MutableMap<i32, String> = storage;\n    view.insert(1, \"first\");\n    view.insert(1, \"replacement\");\n    view.len() == 1u64 && view.get(1) == Some(\"replacement\")\n}",
                 ),
             ),
             (
@@ -355,7 +356,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "A readonly membership interface. Equal values represent the same member. Readonly views share storage with other aliases.",
-                    "fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }",
+                    "fn main() -> bool {\n    val values: std::collections::Set<i32> = std::collections::HashSet::from([1, 1, 2]);\n    values.len() == 2u64 && values.contains(1) && !values.contains(3)\n}",
                 ),
             ),
             (
@@ -363,7 +364,7 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
                 1,
                 (
                     "A mutable membership interface. Insertion retains one representative of each equal value. Structural edits honor active borrow and lookup guards.",
-                    "fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }",
+                    "fn main() -> bool {\n    val storage: std::collections::HashSet<i32> = std::collections::HashSet::new();\n    val view: std::collections::MutableSet<i32> = storage;\n    view.insert(7);\n    view.insert(7);\n    view.len() == 1u64 && view.contains(7)\n}",
                 ),
             ),
         ],
@@ -418,13 +419,8 @@ impl Contract {
         declaration: FnDecl,
         description: &str,
     ) -> NativeResult<()> {
-        let text = documentation::example(
-            &format!(
-                "{description}\n\nSee `{}` for the behavioral contract and examples.",
-                self.name
-            ),
-            self.overview.1,
-        );
+        let text =
+            documentation::method(self.name, &declaration.name, description, self.overview.1);
         self.submit_documented(module, declaration, text)
     }
 
@@ -435,7 +431,7 @@ impl Contract {
         document: (&str, &str),
     ) -> NativeResult<()> {
         let declaration = module.trait_method(self.owner.id(), declaration)?;
-        self.submit_documented(module, declaration, documentation::markdown(document))
+        self.submit_documented(module, declaration, markdown(document))
     }
 
     fn submit_documented(
@@ -485,7 +481,7 @@ impl Contract {
     }
 
     fn finish(self, module: &mut ModuleDraft<'_>) -> NativeResult<()> {
-        module.document(self.owner.id(), documentation::markdown(self.overview))?;
+        module.document(self.owner.id(), markdown(self.overview))?;
         for (id, text) in self.documents {
             module.document(id, text)?;
         }
@@ -696,30 +692,30 @@ fn propagation(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeR
 
 pub(super) const CMP_MODULE_DOCS: (&str, &str) = (
     "Equality and ordering contracts. Comparisons must obey the laws required by collection algorithms.",
-    "fn same(left: i32, right: i32) -> bool { left == right }",
+    "fn main() -> bool {\n    7 == 7 && !(7 == 8)\n}",
 );
 
 pub(super) const HASH_MODULE_DOCS: (&str, &str) = (
     "Hash contracts used by key-based collections. Equal keys must hash equally, and key lookup blocks recursive structural mutation.",
-    "fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }",
+    "fn main() -> bool {\n    val values: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();\n    values.insert(7, 42);\n    values.get(7) == Some(42) && values.get(8) == None\n}",
 );
 
 pub(super) const FMT_MODULE_DOCS: (&str, &str) = (
     "Diagnostic and display formatting through declared interfaces.",
-    "fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }",
+    "fn main() -> bool {\n    42.debug() == \"42\" && true.debug() == \"true\" && 'é'.debug() == \"'é'\"\n}",
 );
 
 pub(super) const CONVERT_MODULE_DOCS: (&str, &str) = (
     "Explicit infallible and checked conversions, including reverse adapters and error conversion.",
-    "fn widen(value: i32) -> i64 { i64::from(value) }",
+    "fn main() -> bool {\n    i64::from(42i32) == 42i64 && i64::from(-7i32) == -7i64\n}",
 );
 
 pub(super) const DEFAULT_MODULE_DOCS: (&str, &str) = (
     "Explicit implementation-defined construction through the ordinary Default trait. No automatic struct, field or enum initialization is implied.",
-    "struct Player { val health: i32 }\nimpl Default for Player { fn default() -> Self { Player { health: 100 } } }\nfn player() -> Player { Player::default() }\nfn qualified() -> Player { <Player as core::default::Default>::default() }\nfn make<T: Default>() -> T { T::default() }\nstruct Element {}\nfn empty_vec() -> Vec<Element> { Vec<Element>::default() }\nfn absent() -> Option<Element> { Option<Element>::default() }\nfn zero() -> i32 { Default::default() }\nfn empty_string() -> String { String::default() }",
+    "struct Player { val health: i32 }\nimpl Default for Player {\n    fn default() -> Self { Player { health: 100 } }\n}\nfn main() -> bool {\n    Player::default().health == 100 &&\n        <Player as core::default::Default>::default().health == 100 &&\n        i32::default() == 0 && String::default() == \"\"\n}",
 );
 
 pub(super) const STR_MODULE_DOCS: (&str, &str) = (
     "String parsing contracts with an explicit error type and complete input validation.",
-    "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+    "use core::num::ParseError;\n\nfn main() -> bool {\n    (\n        match i32::from_str(\"42\") {\n            Ok(value) => value == 42,\n            Err(_) => false,\n        }\n    ) &&\n        (\n        match i32::from_str(\"\") {\n            Err(ParseError::Empty) => true,\n            _ => false,\n        }\n    ) &&\n        (\n        match i32::from_str(\"12x\") {\n            Err(ParseError::InvalidDigit) => true,\n            _ => false,\n        }\n    )\n}",
 );

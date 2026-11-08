@@ -1,9 +1,20 @@
-//! Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries. Explicit lazy chars, char_indices and bytes cursors traverse scalars, byte-offset/scalar pairs and encoded bytes respectively.
+//! Immutable UTF-8 strings.
+//!
+//! Lengths and positions are byte counts. Use `chars` for Unicode scalar values,
+//! `char_indices` for their byte positions, and `bytes` for the UTF-8 encoding.
+//! A scalar is not necessarily a whole displayed character: combining marks are
+//! separate scalars. String itself is not Iterable and has no indexing operator.
+//!
+//! Transformations return strings and leave the input unchanged. `slice` requires
+//! ordered offsets on UTF-8 boundaries; `find` returns a byte offset or `None`.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn clean(text: String) -> String { text.trim() }
+//! fn main() -> bool {
+//!     val input = "  café  ";
+//!     input.trim() == "café" && input == "  café  " && "é".len() == 2u64
+//! }
 //! ```
 
 pub use alloc::string::String as String;

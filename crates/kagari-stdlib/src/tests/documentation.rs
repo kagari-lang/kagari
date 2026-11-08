@@ -1,121 +1,151 @@
-use crate::{catalog, sources as standard_sources};
-use kagari_common::identity::DefinitionKind;
-use kagari_hir::{analysis::AnalysisDatabase, native::NativeSource};
+//! Documentation inventory and executable observations use their actual source blocks.
+mod execution;
+mod inventory;
+
+use crate::tests::documentation::inventory::{Example, Inventory};
+use kagari_runtime::{error::RuntimeErrorKind, native::installation::NativeInstallation};
 use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
-use kagari_types::declaration::module::ModuleDecl;
-use std::{collections::BTreeSet, sync::Arc};
+use kagari_vm::error::VmError;
+use rstest::rstest;
+use std::{
+    cmp::Reverse,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 #[test]
-fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
-    let providers = catalog::shared().unwrap();
-    let mut examples = BTreeSet::new();
-    let mut traits = 0;
-    for provider in &providers {
-        let module = provider.records();
-        let definitions = provider.definitions();
-        assert!(
-            !module.module_documentation.is_empty(),
-            "{}",
-            module.identity
-        );
-        for ty in &module.types {
-            let owner = module
-                .definition(ty.kind.definition_kind(), &ty.name, definitions)
-                .unwrap();
-            assert!(
-                module.documentation[&owner].contains("```kgr"),
-                "{}::{}",
-                module.identity,
-                ty.name
-            );
-            for variant in &ty.variants {
-                let id = ModuleDecl::variant_id(owner, &variant.name, definitions).unwrap();
-                assert!(!module.documentation[&id].is_empty());
-            }
-        }
-        for (index, implementation) in module.implementations.iter().enumerate() {
-            let owner = module.implementation_id(index, definitions).unwrap();
-            for method in &implementation.methods {
-                let id = ModuleDecl::method_id(owner, &method.name, definitions).unwrap();
-                assert!(
-                    !module.documentation[&id].is_empty(),
-                    "{}::{}",
-                    module.identity,
-                    method.name
-                );
-            }
-        }
-        for contract in &module.traits {
-            traits += 1;
-            let owner = module
-                .definition(DefinitionKind::Trait, &contract.name, definitions)
-                .unwrap();
-            assert!(module.documentation[&owner].contains("```kgr"), "{owner:?}");
-            for method in &contract.methods {
-                assert!(
-                    !module.documentation
-                        [&ModuleDecl::method_id(owner, &method.name, definitions).unwrap()]
-                        .is_empty()
-                );
-            }
-            for member in &contract.associated_types {
-                assert!(!module.documentation[&member.declaration].is_empty());
-            }
-        }
-        for text in
-            std::iter::once(&module.module_documentation).chain(module.documentation.values())
-        {
-            collect_examples(text, &mut examples);
+fn documentation_inventory_matches_registration_and_schema_examples() {
+    let inventory = inventory::collect();
+    assert!(inventory.items > 0);
+    for example in &inventory.examples {
+        if !example.code.contains("fn main(") {
+            analyze(&inventory, example, 0);
         }
     }
-    for source in standard_sources::DECLARATIONS {
-        let documentation = source
-            .text
-            .lines()
-            .filter_map(|line| {
-                let line = line.trim_start();
-                line.strip_prefix("///")
-                    .or_else(|| line.strip_prefix("//!"))
-                    .map(|line| line.strip_prefix(' ').unwrap_or(line))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        collect_examples(&documentation, &mut examples);
-    }
-    assert_eq!(traits, 41);
-    let mut baseline = AnalysisDatabase::default();
-    assert_eq!(providers.len(), standard_sources::DECLARATIONS.len());
-    let inputs = providers
+    println!(
+        "{} documented items, {} distinct source examples",
+        inventory.items,
+        inventory.examples.len()
+    );
+}
+
+#[test]
+fn displayed_string_witnesses_detect_wrong_offsets_and_typed_slice_traps() {
+    let inventory = inventory::collect();
+    let installation = NativeInstallation::prepare(&crate::modules().unwrap()).unwrap();
+    let indices = inventory
+        .examples
         .iter()
-        .map(|provider| {
-            let source = standard_sources::declaration(&provider.records().identity).unwrap();
-            NativeSource {
-                uri: format!("bundled-stdlib:///{}", source.path),
-                text: source.text.into(),
-            }
-        })
-        .collect();
-    baseline.set_native_sources(providers, inputs).unwrap();
-    let native = baseline
-        .snapshot(SourceSnapshot::default(), &Default::default())
+        .find(|example| example.code.contains("Some((3u64, '🙂'))"))
         .unwrap();
-    for declaration in native.declaration_snapshot().files() {
-        let file = native.file(declaration.source().id()).unwrap();
-        assert!(
-            file.result().diagnostics().is_empty(),
-            "{:?}",
-            file.result().diagnostics()
-        );
-    }
-    drop(native);
+    let wrong = indices
+        .code
+        .replace("Some((3u64, '🙂'))", "Some((2u64, '🙂'))");
+    assert_ne!(wrong, indices.code);
+    let source = Arc::new(SourceFile::new("wrong-offset.kgr", wrong));
+    let snapshot = inventory
+        .baseline
+        .clone()
+        .snapshot(
+            SourceSnapshot::single_file(source.clone()),
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(
+        snapshot
+            .file(source.id())
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+    assert!(
+        !execution::run(&snapshot, source.id(), &installation, Default::default())
+            .unwrap()
+            .value
+    );
+
+    let slice = inventory
+        .examples
+        .iter()
+        .find(|example| example.code.contains("pub fn invalid_boundary()"))
+        .unwrap();
+    let source = Arc::new(SourceFile::new("slice-boundary.kgr", &slice.code));
+    let snapshot = inventory
+        .baseline
+        .clone()
+        .snapshot(
+            SourceSnapshot::single_file(source.clone()),
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(
+        snapshot
+            .file(source.id())
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+    let error = execution::run(
+        &snapshot,
+        source.id(),
+        &installation,
+        execution::Setup {
+            export: Some("invalid_boundary"),
+            scope: None,
+        },
+    )
+    .unwrap_err();
+    let execution::Failure::Execution(error) = error else {
+        panic!("expected execution failure: {error:?}");
+    };
+    let VmError::RuntimeError(error) = error.cause() else {
+        panic!("expected runtime error: {error:?}");
+    };
+    assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
+}
+
+#[rstest]
+#[case::strings("strings")]
+#[case::vectors("vectors")]
+#[case::arrays("arrays")]
+#[case::characters("characters")]
+#[case::comparison("comparison")]
+#[case::conversions("conversions")]
+#[case::iteration("iteration")]
+#[case::numbers("numbers")]
+#[case::operators("operators")]
+#[case::carriers("carriers")]
+#[case::futures("futures")]
+#[case::tasks("tasks")]
+#[case::collections("collections")]
+fn documentation_examples_execute(#[case] group: &str) {
+    let mut inventory = inventory::collect();
+    let installation = NativeInstallation::prepare(&crate::modules().unwrap()).unwrap();
+    let examples = std::mem::take(&mut inventory.examples);
     let mut failures = Vec::new();
+    let started = Instant::now();
+    let mut analysis_time = Duration::ZERO;
+    let mut compilation_time = Duration::ZERO;
+    let mut execution_time = Duration::ZERO;
+    let mut slowest = Vec::new();
+    let mut count = 0;
     for (index, example) in examples.iter().enumerate() {
+        if group_for(example.group()) != group {
+            continue;
+        }
+        if !example.code.contains("fn main(") {
+            continue;
+        }
+        count += 1;
+        let analysis_started = Instant::now();
         let source = Arc::new(SourceFile::new(
-            format!("standard-example-{index}.kgr"),
-            example,
+            format!("documentation-{index}.kgr"),
+            &example.code,
         ));
-        // Start from the sealed provider inputs, never another example's sources.
-        let snapshot = baseline
+        let snapshot = inventory
+            .baseline
             .clone()
             .snapshot(
                 SourceSnapshot::single_file(source.clone()),
@@ -123,18 +153,97 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
             )
             .unwrap();
         let analyzed = snapshot.file(source.id()).unwrap().result();
+        analysis_time += analysis_started.elapsed();
         if !analyzed.diagnostics().is_empty() {
-            failures.push(format!("{example}\n{:?}", analyzed.diagnostics()));
+            failures.push(format!(
+                "{}\n{}\n{:?}",
+                example.label(),
+                example.code,
+                analyzed.diagnostics()
+            ));
+            continue;
         }
+        let scope = if example.code.contains("main(closed_scope:") {
+            Some(true)
+        } else if example.code.contains("main(scope:") {
+            Some(false)
+        } else {
+            None
+        };
+        match execution::run(
+            &snapshot,
+            source.id(),
+            &installation,
+            execution::Setup {
+                scope,
+                export: None,
+            },
+        ) {
+            Ok(observed) if observed.value => {
+                compilation_time += observed.compilation;
+                execution_time += observed.execution;
+                let origin = &example.origins[0];
+                slowest.push((
+                    observed.compilation + observed.execution,
+                    format!("{}:{} {:?}", origin.file, origin.line, origin.owner),
+                ));
+            }
+            observed => failures.push(format!(
+                "{}\n{}\nObserved: {observed:?}",
+                example.label(),
+                example.code
+            )),
+        }
+    }
+    assert!(count > 0, "empty documentation group: {group}");
+    println!(
+        "{group}: {count} examples, analysis {analysis_time:?}, compilation/load {compilation_time:?}, execution/cleanup {execution_time:?}, total {:?}",
+        started.elapsed()
+    );
+    slowest.sort_by_key(|entry| Reverse(entry.0));
+    for (duration, owner) in slowest.iter().take(3) {
+        println!("slow {duration:?}: {owner}");
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-fn collect_examples(documentation: &str, examples: &mut BTreeSet<String>) {
-    for block in documentation.split("```kgr\n").skip(1) {
-        let (example, _) = block
-            .split_once("```")
-            .expect("closed Kagari example fence");
-        examples.insert(example.into());
+fn analyze(inventory: &Inventory, example: &Example, index: usize) {
+    let source = Arc::new(SourceFile::new(
+        format!("schema-{index}.kgr"),
+        &example.code,
+    ));
+    let snapshot = inventory
+        .baseline
+        .clone()
+        .snapshot(
+            SourceSnapshot::single_file(source.clone()),
+            &Default::default(),
+        )
+        .unwrap();
+    let diagnostics = snapshot.file(source.id()).unwrap().result().diagnostics();
+    assert!(
+        diagnostics.is_empty(),
+        "{}: {diagnostics:?}",
+        example.label()
+    );
+}
+
+fn group_for(file: &str) -> &'static str {
+    match file {
+        "alloc/string.kgr" => "strings",
+        "alloc/vec.kgr" => "vectors",
+        "core/array.kgr" => "arrays",
+        "core/char.kgr" => "characters",
+        "core/cmp.kgr" | "core/fmt.kgr" | "core/hash.kgr" => "comparison",
+        "core/convert.kgr" | "core/default.kgr" | "core/str.kgr" => "conversions",
+        "core/iter.kgr" => "iteration",
+        "core/num.kgr" => "numbers",
+        "core/ops.kgr" => "operators",
+        "core/option.kgr" | "core/result.kgr" => "carriers",
+        "core/future.kgr" => "futures",
+        "core/task.kgr" => "tasks",
+        "core/host.kgr" => "host schemas",
+        file if file.starts_with("std/") => "collections",
+        _ => panic!("unclassified documentation owner: {file}"),
     }
 }

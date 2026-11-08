@@ -41,8 +41,8 @@ fn hover_contains(response: &Value, text: &str) {
             .iter()
             .any(|content| {
                 content
-                    .get("value")
-                    .and_then(Value::as_str)
+                    .as_str()
+                    .or_else(|| content.get("value").and_then(Value::as_str))
                     .is_some_and(|value| value.contains(text))
             }),
         "expected hover {text}: {response}"
@@ -163,6 +163,14 @@ fn pilot_features_preserve_request_inputs_and_cancel_without_waiting_for_worker_
         let text = fs::read_to_string(source_name(&native_uri).unwrap()).expect("validated native destination is published before queries run");
         assert!(text.contains("fn new"));
         assert_ne!(uri,lib.as_str());
+        let hover = peer.request(26,"textDocument/hover",site(lib.as_str(),LIB,"char_indices();")).await;
+        hover_contains(&hover,"(byte_offset, scalar)");
+        hover_contains(&hover,"Some((3u64, '🙂'))");
+        let indices = peer.request(27,"textDocument/definition",site(lib.as_str(),LIB,"char_indices();")).await;
+        let native_uri = indices["result"]["uri"].as_str().unwrap_or_else(||panic!("{indices}")).parse().unwrap();
+        let text = fs::read_to_string(source_name(&native_uri).unwrap()).unwrap();
+        assert!(text.contains("Some((3u64, '🙂'))"));
+        assert_eq!(indices["result"]["range"]["start"],position(&text,"char_indices(self)"));
         peer.shutdown().await;
     });
 }

@@ -3,47 +3,57 @@
 //! # Examples
 //!
 //! ```kgr
-//! fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+//! fn main() -> bool {
+//!     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+//! }
 //! ```
 
-/// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+/// Produces a diagnostic string representation through `debug`. Formatting does not
+/// permit reflective access outside declared members.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+/// fn main() -> bool {
+///     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+/// }
 /// ```
 #[lang = "debug"]
 pub trait Debug {
-    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
-    ///
-    /// See `Debug` for the behavioral contract and examples.
+    /// Produces a diagnostic string representation through `debug`. Formatting does not
+    /// permit reflective access outside declared members.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// fn main() -> bool {
+    ///     42.debug() == "42" && true.debug() == "true" && 'é'.debug() == "'é'"
+    /// }
     /// ```
     fn debug(self) -> alloc::string::String;
 }
 
-/// Produces a user-facing string representation through `display`. Implementations choose their formatting policy.
+/// Produces a user-facing string representation through `display`. Implementations
+/// choose their formatting policy.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn render<T: core::fmt::Display>(value: T) -> String { value.display() }
+/// fn main() -> bool {
+///     42.display() == "42" && 'é'.display() == "é"
+/// }
 /// ```
 #[lang = "display"]
 pub trait Display {
-    /// Produces a user-facing string representation through `display`. Implementations choose their formatting policy.
-    ///
-    /// See `Display` for the behavioral contract and examples.
+    /// Produces a user-facing string representation through `display`. Implementations
+    /// choose their formatting policy.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn render<T: core::fmt::Display>(value: T) -> String { value.display() }
+    /// fn main() -> bool {
+    ///     42.display() == "42" && 'é'.display() == "é"
+    /// }
     /// ```
     fn display(self) -> alloc::string::String;
 }

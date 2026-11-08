@@ -1,9 +1,12 @@
-//! Equality and ordering contracts. Comparisons must obey the laws required by collection algorithms.
+//! Equality and ordering contracts. Comparisons must obey the laws required by
+//! collection algorithms.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn same(left: i32, right: i32) -> bool { left == right }
+//! fn main() -> bool {
+//!     7 == 7 && !(7 == 8)
+//! }
 //! ```
 
 pub use core::cmp::Eq as Eq;

@@ -1,153 +1,286 @@
-//! Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries. Explicit lazy chars, char_indices and bytes cursors traverse scalars, byte-offset/scalar pairs and encoded bytes respectively.
+//! Immutable UTF-8 strings.
+//!
+//! Lengths and positions are byte counts. Use `chars` for Unicode scalar values,
+//! `char_indices` for their byte positions, and `bytes` for the UTF-8 encoding.
+//! A scalar is not necessarily a whole displayed character: combining marks are
+//! separate scalars. String itself is not Iterable and has no indexing operator.
+//!
+//! Transformations return strings and leave the input unchanged. `slice` requires
+//! ordered offsets on UTF-8 boundaries; `find` returns a byte offset or `None`.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn clean(text: String) -> String { text.trim() }
+//! fn main() -> bool {
+//!     val input = "  café  ";
+//!     input.trim() == "café" && input == "  café  " && "é".len() == 2u64
+//! }
 //! ```
 
-/// An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver. Explicit chars, char_indices and bytes methods return lazy cursors; String itself is not Iterable and has no indexing operator.
+/// Immutable UTF-8 strings.
+///
+/// Lengths and positions are byte counts. Use `chars` for Unicode scalar values,
+/// `char_indices` for their byte positions, and `bytes` for the UTF-8 encoding.
+/// A scalar is not necessarily a whole displayed character: combining marks are
+/// separate scalars. String itself is not Iterable and has no indexing operator.
+///
+/// Transformations return strings and leave the input unchanged. `slice` requires
+/// ordered offsets on UTF-8 boundaries; `find` returns a byte offset or `None`.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn greeting() -> String { "  hello  ".trim() }
+/// fn main() -> bool {
+///     val input = "  café  ";
+///     input.trim() == "café" && input == "  café  " && "é".len() == 2u64
+/// }
 /// ```
 pub type String;
 
 impl String {
-    /// Traverse UTF-8 encoded bytes as u8. For aé🙂 there are seven bytes but three Unicode scalars. Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.
+    /// Returns a lazy iterator over the UTF-8 encoding as `u8` values.
+    ///
+    /// A non-ASCII scalar can occupy several bytes. Each call creates a fresh cursor
+    /// retaining the string; cursor copies share progress. Empty or exhausted cursors
+    /// return `None`. Use `chars` when the desired items are Unicode scalars.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.bytes(); }
+    /// fn main() -> bool {
+    ///     val cursor = "é".bytes();
+    ///     cursor.next() == Some(195u8) && cursor.next() == Some(169u8) &&
+    ///         cursor.next() == None && "".bytes().next() == None
+    /// }
     /// ```
     pub fn bytes(self) -> core::iter::CollectionCursor<u8>;
 
-    /// Traverse (u64, char) pairs of UTF-8 byte offsets and Unicode scalars. For aé🙂 the offsets are 0, 1 and 3, not scalar ordinals. Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.
+    /// Returns a lazy iterator of `(byte_offset, scalar)` pairs.
+    ///
+    /// Offsets are zero-based UTF-8 byte positions, not scalar ordinals. Combining
+    /// marks remain separate scalars rather than being joined into grapheme clusters.
+    /// An empty string yields no pairs.
+    ///
+    /// Each call creates a fresh cursor retaining this immutable string. Cursor
+    /// copies share progress. Exhaustion returns `None` without creating a List.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.char_indices(); }
+    /// fn main() -> bool {
+    ///     val cursor = "aé🙂".char_indices();
+    ///     cursor.next() == Some((0u64, 'a')) &&
+    ///         cursor.next() == Some((1u64, 'é')) &&
+    ///         cursor.next() == Some((3u64, '🙂')) && cursor.next() == None &&
+    ///         "".char_indices().next() == None
+    /// }
     /// ```
     pub fn char_indices(self) -> core::iter::CollectionCursor<(u64, char)>;
 
-    /// Traverse Unicode scalars as char, not grapheme clusters. Combining marks and NUL are separate scalar items. Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.
+    /// Returns a lazy iterator over Unicode scalar values.
+    ///
+    /// Combining marks and NUL are separate items. Each call creates a fresh cursor
+    /// retaining this immutable string. Cursor copies share progress; exhausted
+    /// cursors return `None`. No intermediate collection is created.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.chars(); }
+    /// fn main() -> bool {
+    ///     val cursor = "e\u{301}🙂".chars();
+    ///     cursor.next() == Some('e') && cursor.next() == Some('\u{301}') &&
+    ///         cursor.next() == Some('🙂') && cursor.next() == None
+    /// }
     /// ```
     pub fn chars(self) -> core::iter::CollectionCursor<char>;
 
-    /// Test for a literal substring; the empty pattern matches.
+    /// Returns whether `pattern` occurs as a literal substring.
+    ///
+    /// Patterns are case-sensitive strings, not regular expressions. An empty
+    /// pattern matches every string, including the empty string.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.contains("a"); }
+    /// fn main() -> bool {
+    ///     "café".contains("fé") && !"café".contains("FÉ") && "".contains("")
+    /// }
     /// ```
     pub fn contains(self, pattern: String) -> bool;
 
-    /// Test for a literal suffix; the empty pattern matches.
+    /// Returns whether this string ends with the literal `pattern`.
+    ///
+    /// The match is case-sensitive. An empty pattern matches every string.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.ends_with("a"); }
+    /// fn main() -> bool {
+    ///     "café".ends_with("fé") && !"café".ends_with("ca") && "".ends_with("")
+    /// }
     /// ```
     pub fn ends_with(self, pattern: String) -> bool;
 
-    /// Return the first matching byte offset, or None. An empty pattern matches at zero.
+    /// Returns the first literal match's byte offset, or `None`.
+    ///
+    /// The returned `u64` is a UTF-8 byte position, not a scalar ordinal. An empty
+    /// pattern returns `Some(0u64)`, even for an empty receiver.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.find("a"); }
+    /// fn main() -> bool {
+    ///     "aé🙂é".find("🙂") == Some(3u64) &&
+    ///         "aé🙂é".find("é") == Some(1u64) &&
+    ///         "aé🙂é".find("x") == None && "".find("") == Some(0u64)
+    /// }
     /// ```
     pub fn find(self, pattern: String) -> core::option::Option<u64>;
 
-    /// Return whether the string has no bytes.
+    /// Returns whether the string contains no bytes.
+    ///
+    /// Whitespace and the NUL scalar are content, so neither makes a string empty.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.is_empty(); }
+    /// fn main() -> bool {
+    ///     "".is_empty() && !" ".is_empty() && !"\0".is_empty()
+    /// }
     /// ```
     pub fn is_empty(self) -> bool;
 
-    /// Return the UTF-8 byte length.
+    /// Returns the number of UTF-8 bytes.
+    ///
+    /// This is not the number of Unicode scalars or displayed characters. Empty
+    /// strings have length zero. Use `chars().count()` to count scalars.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.len(); }
+    /// fn main() -> bool {
+    ///     "aé🙂".len() == 7u64 && "aé🙂".chars().count() == 3u64 && "".len() == 0u64
+    /// }
     /// ```
     pub fn len(self) -> u64;
 
-    /// Replace all non-overlapping literal matches. An empty pattern inserts at Unicode scalar boundaries, including both ends.
+    /// Replaces every non-overlapping literal `from` match with `to`.
+    ///
+    /// Returns a string without modifying the receiver. Matches are case-sensitive.
+    /// An empty `from` inserts `to` at every Unicode scalar boundary, including both
+    /// ends. Replacements are not searched again.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.replace("a", "b"); }
+    /// fn main() -> bool {
+    ///     val input = "aaaaa";
+    ///     input.replace("aa", "b") == "bba" && input == "aaaaa" &&
+    ///         "é".replace("", "-") == "-é-" && "abc".replace("x", "y") == "abc"
+    /// }
     /// ```
     pub fn replace(self, from: String, to: String) -> String;
 
-    /// Copy the half-open byte range. Invalid order, bounds or UTF-8 boundaries trap.
+    /// Copies the half-open byte range `start..end` into a string.
+    ///
+    /// The receiver is unchanged. Equal valid offsets produce an empty string.
+    ///
+    /// # Traps
+    ///
+    /// Traps when `start > end`, either offset exceeds the byte length, or either
+    /// offset lies inside a multibyte UTF-8 scalar. `None` is not returned for these
+    /// invalid ranges. Calling `invalid_boundary` below traps with IndexOutOfBounds:
+    /// byte 2 lies inside the encoding of é. The normal main checks valid slices.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.slice(0, 1); }
+    /// fn main() -> bool {
+    ///     val input = "aé🙂";
+    ///     input.slice(1u64, 3u64) == "é" && input.slice(3u64, 7u64) == "🙂" &&
+    ///         input.slice(1u64, 1u64) == "" && input == "aé🙂"
+    /// }
+    ///
+    /// pub fn invalid_boundary() -> bool {
+    ///     val invalid = "aé🙂".slice(2u64, 3u64);
+    ///     invalid.is_empty()
+    /// }
     /// ```
     pub fn slice(self, start: u64, end: u64) -> String;
 
-    /// Return an eager List<String> of literal-separated fields, preserving endpoint empties. An empty separator splits at Unicode scalar boundaries with endpoint empties.
+    /// Splits on a literal separator and returns an eager `List<String>`.
+    ///
+    /// Fields retain source order. Adjacent separators and separators at either end
+    /// produce empty fields. An empty separator splits at Unicode scalar boundaries
+    /// and includes an empty field at each end. This operation is not lazy.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.split("a"); }
+    /// fn main() -> bool {
+    ///     val fields = ",a,,b,".split(",");
+    ///     val scalars = "é🙂".split("");
+    ///     fields.len() == 5u64 && fields.get(0u64) == Some("") &&
+    ///         fields.get(2u64) == Some("") && fields.get(4u64) == Some("") &&
+    ///         scalars.len() == 4u64 && scalars.get(1u64) == Some("é") &&
+    ///         scalars.get(2u64) == Some("🙂")
+    /// }
     /// ```
     pub fn split(self, separator: String) -> std::collections::List<String>;
 
-    /// Test for a literal prefix; the empty pattern matches.
+    /// Returns whether this string begins with the literal `pattern`.
+    ///
+    /// The match is case-sensitive. An empty pattern matches; a longer pattern
+    /// cannot match a shorter string.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.starts_with("a"); }
+    /// fn main() -> bool {
+    ///     "café".starts_with("ca") && !"café".starts_with("fé") && "".starts_with("")
+    /// }
     /// ```
     pub fn starts_with(self, pattern: String) -> bool;
 
-    /// Remove Unicode whitespace from both ends.
+    /// Removes Unicode whitespace from both ends.
+    ///
+    /// Interior whitespace is retained and the receiver is unchanged. Empty strings
+    /// and strings consisting only of whitespace produce an empty string.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.trim(); }
+    /// fn main() -> bool {
+    ///     val input = "\t café au lait \n";
+    ///     input.trim() == "café au lait" && input.starts_with("\t") &&
+    ///         " \t".trim() == ""
+    /// }
     /// ```
     pub fn trim(self) -> String;
 
-    /// Remove trailing Unicode whitespace.
+    /// Removes trailing Unicode whitespace.
+    ///
+    /// Interior and leading whitespace are retained. The receiver is unchanged.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.trim_end(); }
+    /// fn main() -> bool {
+    ///     " \t café \n".trim_end() == " \t café" && "".trim_end() == ""
+    /// }
     /// ```
     pub fn trim_end(self) -> String;
 
-    /// Remove leading Unicode whitespace.
+    /// Removes leading Unicode whitespace.
+    ///
+    /// Interior and trailing whitespace are retained. The receiver is unchanged.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: String) { val result = values.trim_start(); }
+    /// fn main() -> bool {
+    ///     " \t café \n".trim_start() == "café \n" && "".trim_start() == ""
+    /// }
     /// ```
     pub fn trim_start(self) -> String;
 }
@@ -155,6 +288,12 @@ impl String {
 impl core::default::Default for String {
     /// Return an empty immutable String.
     ///
-    /// See `core::default::Default` for the construction contract.
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn main() -> bool {
+    ///     String::default() == ""
+    /// }
+    /// ```
     pub fn default() -> String;
 }

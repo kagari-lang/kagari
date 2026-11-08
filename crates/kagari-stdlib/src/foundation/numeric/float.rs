@@ -1,5 +1,9 @@
 //! Width-matched float utilities use ordinary exact scalar native bindings.
-use crate::foundation::numeric::binding::{binary, unary};
+mod documentation;
+use crate::{
+    catalog::documentation::example,
+    foundation::numeric::binding::{binary, unary},
+};
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
@@ -11,10 +15,8 @@ use kagari_runtime::{
     },
 };
 
-fn documentation(description: &str, parameters: &str, expression: &str) -> String {
-    format!(
-        "{description}\n\nOperands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.\n\n# Examples\n\n```kgr\nfn example({parameters}) {{ val result = {expression}; }}\n```"
-    )
+fn documentation(description: &str, receiver: &str, method: &str) -> String {
+    example(description, &documentation::example(receiver, method))
 }
 
 macro_rules! declare_float {
@@ -66,8 +68,8 @@ macro_rules! declare_float {
                         .returns(scalar.clone())
                         .documentation(documentation(
                             description,
-                            &format!("value: {receiver}"),
-                            &format!("value.{name}()"),
+                            receiver,
+                            name,
                         ))
                         .implementation_send(binding),
                 )?;
@@ -94,8 +96,8 @@ macro_rules! declare_float {
                         .returns(Type::bool())
                         .documentation(documentation(
                             description,
-                            &format!("value: {receiver}"),
-                            &format!("value.{name}()"),
+                            receiver,
+                            name,
                         ))
                         .implementation_send(binding),
                 )?;
@@ -118,8 +120,8 @@ macro_rules! declare_float {
                         .returns(scalar.clone())
                         .documentation(documentation(
                             description,
-                            &format!("value: {receiver}, other: {receiver}"),
-                            &format!("value.{name}(other)"),
+                            receiver,
+                            name,
                         ))
                         .implementation_send(binding),
                 )?;
@@ -131,8 +133,8 @@ macro_rules! declare_float {
                     .returns(scalar.clone())
                     .documentation(documentation(
                         "Restrict the receiver to the inclusive bounds using Rust's float clamp. A NaN bound or min > max returns ScriptTrap, never a host panic; bounds are validated even when the receiver is NaN. Infinite bounds are legal. With valid bounds a NaN receiver returns NaN, and an in-range receiver is retained, including negative zero. Equal opposite-signed zero bounds are valid. This is not a max/min composition.",
-                        &format!("value: {receiver}, min: {receiver}, max: {receiver}"),
-                        "value.clamp(min, max)",
+                        receiver,
+                        "clamp",
                     ))
                     .implementation_send(NativeBinding::new(
                         vec![Codec::Exact(scalar.clone()); 3],
@@ -156,8 +158,8 @@ macro_rules! declare_float {
                     .returns(bits.clone())
                     .documentation(documentation(
                         &format!("Reinterpret the receiver's IEEE 754 bit pattern as {bit_width}, without a numeric cast. Every bit is retained, including zero signs, subnormals, infinities and quiet/signaling NaN signs and payloads. An immediate {receiver}::from_bits(bits).to_bits() round trip preserves bits exactly; subsequent arithmetic, casts, formatting and math need not preserve NaN payloads. No signaling-NaN exception mode is introduced."),
-                        &format!("value: {receiver}"),
-                        "value.to_bits()",
+                        receiver,
+                        "to_bits",
                     ))
                     .implementation_send(unary($float::to_bits)),
             )?;
@@ -167,8 +169,8 @@ macro_rules! declare_float {
                     .returns(scalar)
                     .documentation(documentation(
                         &format!("Reinterpret {bit_width} bits as an IEEE 754 {receiver}, without a numeric cast. Every bit pattern is accepted, including signed zeros, subnormals, infinities and quiet/signaling NaNs. An immediate {receiver}::from_bits(bits).to_bits() round trip preserves every sign and payload bit; subsequent arithmetic, casts, formatting and math need not preserve NaN payloads. No signaling-NaN exception mode is introduced."),
-                        &format!("bits: {bit_width}"),
-                        &format!("{receiver}::from_bits(bits)"),
+                        receiver,
+                        "from_bits",
                     ))
                     .implementation_send(unary($float::from_bits)),
             )?;

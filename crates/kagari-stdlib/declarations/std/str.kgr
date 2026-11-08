@@ -1,9 +1,31 @@
-//! String parsing contracts with an explicit error type and complete input validation.
+//! String parsing contracts with an explicit error type and complete input
+//! validation.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+//! use core::num::ParseError;
+//!
+//! fn main() -> bool {
+//!     (
+//!         match i32::from_str("42") {
+//!             Ok(value) => value == 42,
+//!             Err(_) => false,
+//!         }
+//!     ) &&
+//!         (
+//!         match i32::from_str("") {
+//!             Err(ParseError::Empty) => true,
+//!             _ => false,
+//!         }
+//!     ) &&
+//!         (
+//!         match i32::from_str("12x") {
+//!             Err(ParseError::InvalidDigit) => true,
+//!             _ => false,
+//!         }
+//!     )
+//! }
 //! ```
 
 pub use core::str::FromStr as FromStr;

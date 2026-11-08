@@ -1,9 +1,26 @@
-//! Scope-owned asynchronous jobs with retained terminal results and host-controlled scheduling.
+//! Host-driven asynchronous jobs with retained terminal results.
+//!
+//! The host creates and owns TaskScope and drives the runtime scheduler. Script
+//! receives only the admission capability. The example requires an open scope
+//! provided by that host; it observes that admission does not run the factory.
+//! Dropping a script Task handle does not cancel its job.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn retain(value: Task<i32>) -> core::task::Task<i32> { value }
+//! pub async fn main(scope: TaskScope) -> bool {
+//!     val calls: Vec<i32> = Vec::new();
+//!     val task = match scope.spawn(|| {
+//!         calls.push(1);
+//!         async { 42 }
+//!     }) {
+//!         Ok(task) => task,
+//!         Err(_) => { return false; },
+//!     };
+//!     val cold = calls.is_empty();
+//!     val result = task.await;
+//!     cold && result == 42 && calls.len() == 1u64
+//! }
 //! ```
 
 pub use core::task::SpawnError as SpawnError;

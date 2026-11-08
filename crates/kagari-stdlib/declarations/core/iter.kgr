@@ -1,13 +1,15 @@
 //! Iteration over collections and user-defined sequences.
 //!
 //! `Iterable::iter` obtains a cursor; `Iterator::next` advances it. Collections
-//! normally create a fresh cursor on each `iter` call. Calling `iter` on an existing
+//! normally create a fresh cursor on each `iter` call. Calling `iter` on an
+//! existing
 //! iterator preserves that cursor and its progress. Assigning a cursor to another
 //! variable also shares its progress.
 //!
 //! Adapters such as `map`, `filter` and `take` are lazy: construction obtains the
 //! source cursor but does not read items or invoke the item callback. Methods such
-//! as `count`, `find` and `fold` start consuming immediately. A consumer stops at the
+//! as `count`, `find` and `fold` start consuming immediately. A consumer stops at
+//! the
 //! first `None`; a custom iterator may produce more items on a later `next` call.
 //!
 //! Built-in collection cursors reject reads after structural source mutation.
@@ -21,10 +23,10 @@
 //! # Examples
 //!
 //! ```kgr
-//! fn example() -> i32 {
+//! fn main() -> bool {
 //!     val values = Vec::from([1, -2, 3]);
-//!     values.filter(|item| item > 0).map(|item| item * 2).sum()
-//!     // Returns 8. Creating the adapters does not run either callback.
+//!     val result: i32 = values.filter(|item| item > 0).map(|item| item * 2).sum();
+//!     result == 8
 //! }
 //! ```
 
@@ -41,10 +43,10 @@
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> (Option<i32>, Option<i32>) {
+/// fn main() -> bool {
 ///     val cursor = Vec::from([10, 20]).iter();
 ///     val alias = cursor;
-///     (cursor.next(), alias.next()) // (Some(10), Some(20)).
+///     cursor.next() == Some(10) && alias.next() == Some(20) && cursor.next() == None
 /// }
 /// ```
 pub type CollectionCursor<T>;
@@ -58,9 +60,9 @@ pub type CollectionCursor<T>;
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> Vec<i32> {
-///     Vec::from([1, 2, 3]).map(|item| item * 2).collect()
-///     // Contains [2, 4, 6].
+/// fn main() -> bool {
+///     val result: Vec<i32> = Vec::from([1, 2, 3]).map(|item| item * 2).collect();
+///     result.len() == 3u64 && result.get(0u64) == Some(2) && result.get(2u64) == Some(6)
 /// }
 /// ```
 pub type MapIterator<T1, T2>;
@@ -73,9 +75,9 @@ pub type MapIterator<T1, T2>;
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> Vec<i32> {
-///     Vec::from([1, 2, 3, 4]).filter(|item| item % 2 == 0).collect()
-///     // Contains [2, 4].
+/// fn main() -> bool {
+///     val result: Vec<i32> = Vec::from([1, 2, 3, 4]).filter(|item| item % 2 == 0).collect();
+///     result.len() == 2u64 && result.get(0u64) == Some(2) && result.get(1u64) == Some(4)
 /// }
 /// ```
 pub type FilterIterator<T>;
@@ -88,10 +90,10 @@ pub type FilterIterator<T>;
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> (Vec<i32>, Option<i32>) {
+/// fn main() -> bool {
 ///     val cursor = Vec::from([1, 2, 3]).iter();
 ///     val prefix: Vec<i32> = cursor.take(2u64).collect();
-///     (prefix, cursor.next()) // ([1, 2], Some(3)).
+///     prefix.len() == 2u64 && prefix.get(1u64) == Some(2) && cursor.next() == Some(3)
 /// }
 /// ```
 pub type TakeIterator<T>;
@@ -99,16 +101,18 @@ pub type TakeIterator<T>;
 /// An iterator that yields the `Some` results of a callback.
 ///
 /// Created by `Iterable::filter_map`. `T1` is the source item type and `T2` is the
-/// unwrapped callback result type. Copies share progress. See `Iterable::filter_map`
+/// unwrapped callback result type. Copies share progress. See
+/// `Iterable::filter_map`
 /// for an example and the distinction between callback and source exhaustion.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> Vec<i32> {
-///     Vec::from([1, 2, 3]).filter_map(|item| {
+/// fn main() -> bool {
+///     val result: Vec<i32> = Vec::from([1, 2, 3]).filter_map(|item| {
 ///         if item > 1 { Some(item * 10) } else { None }
-///     }).collect() // Contains [20, 30].
+///     }).collect();
+///     result.len() == 2u64 && result.get(0u64) == Some(20) && result.get(1u64) == Some(30)
 /// }
 /// ```
 pub type FilterMapIterator<T1, T2>;
@@ -121,8 +125,9 @@ pub type FilterMapIterator<T1, T2>;
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> Vec<i32> {
-///     Vec::from([1, 2, 3, 4]).skip(2u64).collect() // Contains [3, 4].
+/// fn main() -> bool {
+///     val result: Vec<i32> = Vec::from([1, 2, 3, 4]).skip(2u64).collect();
+///     result.len() == 2u64 && result.get(0u64) == Some(3)
 /// }
 /// ```
 pub type SkipIterator<T>;
@@ -135,8 +140,9 @@ pub type SkipIterator<T>;
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> Vec<(u64, i32)> {
-///     Vec::from([10, 20]).enumerate().collect() // Contains [(0u64, 10), (1u64, 20)].
+/// fn main() -> bool {
+///     val result: Vec<(u64, i32)> = Vec::from([10, 20]).enumerate().collect();
+///     result.get(0u64) == Some((0u64, 10)) && result.get(1u64) == Some((1u64, 20))
 /// }
 /// ```
 pub type EnumerateIterator<T>;
@@ -149,9 +155,9 @@ pub type EnumerateIterator<T>;
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> Vec<(i32, i32)> {
-///     Vec::from([1, 2, 3]).zip(Vec::from([10, 20])).collect()
-///     // Contains [(1, 10), (2, 20)]. The unpaired left item 3 is also consumed.
+/// fn main() -> bool {
+///     val result: Vec<(i32, i32)> = Vec::from([1, 2, 3]).zip(Vec::from([10, 20])).collect();
+///     result.len() == 2u64 && result.get(0u64) == Some((1, 10)) && result.get(1u64) == Some((2, 20))
 /// }
 /// ```
 pub type ZipIterator<T1, T2>;
@@ -164,8 +170,9 @@ pub type ZipIterator<T1, T2>;
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> Vec<i32> {
-///     Vec::from([1, 2]).chain(Vec::from([3, 4])).collect() // Contains [1, 2, 3, 4].
+/// fn main() -> bool {
+///     val result: Vec<i32> = Vec::from([1, 2]).chain(Vec::from([3, 4])).collect();
+///     result.len() == 4u64 && result.get(0u64) == Some(1) && result.get(3u64) == Some(4)
 /// }
 /// ```
 pub type ChainIterator<T>;
@@ -183,10 +190,10 @@ pub type ChainIterator<T>;
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> (Option<i32>, Option<i32>) {
+/// fn main() -> bool {
 ///     val cursor = Vec::from([10, 20]).iter();
 ///     val alias = cursor;
-///     (cursor.next(), alias.next()) // (Some(10), Some(20)).
+///     cursor.next() == Some(10) && alias.next() == Some(20) && cursor.next() == None
 /// }
 /// ```
 #[lang = "iterator"]
@@ -209,10 +216,10 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (Option<i32>, Option<i32>) {
+    /// fn main() -> bool {
     ///     val cursor = Vec::from([10, 20]).iter();
     ///     val alias = cursor;
-    ///     (cursor.next(), alias.next()) // (Some(10), Some(20)).
+    ///     cursor.next() == Some(10) && alias.next() == Some(20) && cursor.next() == None
     /// }
     /// ```
     fn next(self) -> core::option::Option<<Self as Iterator>::Item>;
@@ -232,11 +239,11 @@ pub trait Iterator {
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> (u64, u64) {
+/// fn main() -> bool {
 ///     val values = Vec::from([1, 2, 3]);
 ///     val cursor = values.iter();
 ///     cursor.next();
-///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+///     cursor.count() == 2u64 && values.count() == 3u64
 /// }
 /// ```
 #[lang = "iterable"]
@@ -249,7 +256,8 @@ pub trait Iterable {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -257,11 +265,11 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     fn iter(self) -> <Self as Iterable>::Iter;
@@ -269,7 +277,8 @@ pub trait Iterable {
     /// Returns a lazy iterator that transforms each item with `callback`.
     ///
     /// Construction obtains the source cursor once without reading items or calling
-    /// `callback`. Each advance reads one item, invokes `callback(item)` once and yields
+    /// `callback`. Each advance reads one item, invokes `callback(item)` once and
+    /// yields
     /// its result. Source order is preserved. Copies share progress.
     ///
     /// # Traps
@@ -280,9 +289,9 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec::from([1, 2, 3]).map(|item| item * 2).collect()
-    ///     // Contains [2, 4, 6].
+    /// fn main() -> bool {
+    ///     val result: Vec<i32> = Vec::from([1, 2, 3]).map(|item| item * 2).collect();
+    ///     result.len() == 3u64 && result.get(0u64) == Some(2) && result.get(2u64) == Some(6)
     /// }
     /// ```
     fn map<T>(self, callback: fn(<Self as Iterable>::Item) -> T) -> MapIterator<<Self as Iterable>::Item, T> {
@@ -302,9 +311,9 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec::from([1, 2, 3, 4]).filter(|item| item % 2 == 0).collect()
-    ///     // Contains [2, 4].
+    /// fn main() -> bool {
+    ///     val result: Vec<i32> = Vec::from([1, 2, 3, 4]).filter(|item| item % 2 == 0).collect();
+    ///     result.len() == 2u64 && result.get(0u64) == Some(2) && result.get(1u64) == Some(4)
     /// }
     /// ```
     fn filter(self, callback: fn(<Self as Iterable>::Item) -> bool) -> FilterIterator<<Self as Iterable>::Item> {
@@ -321,10 +330,10 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (Vec<i32>, Option<i32>) {
+    /// fn main() -> bool {
     ///     val cursor = Vec::from([1, 2, 3]).iter();
     ///     val prefix: Vec<i32> = cursor.take(2u64).collect();
-    ///     (prefix, cursor.next()) // ([1, 2], Some(3)).
+    ///     prefix.len() == 2u64 && prefix.get(1u64) == Some(2) && cursor.next() == Some(3)
     /// }
     /// ```
     fn take(self, limit: u64) -> TakeIterator<<Self as Iterable>::Item> {
@@ -334,7 +343,8 @@ pub trait Iterable {
     /// Returns a lazy iterator over the `Some` results of `callback`.
     ///
     /// For each source item, calls `callback(item)` once. `Some(value)` yields `value`;
-    /// callback `None` skips that item and continues searching. A source `None` ends the
+    /// callback `None` skips that item and continues searching. A source `None` ends
+    /// the
     /// current advance instead. It does not permanently exhaust a resumable custom
     /// source. Creating the adapter runs no item callback.
     ///
@@ -345,10 +355,11 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec::from([1, 2, 3]).filter_map(|item| {
+    /// fn main() -> bool {
+    ///     val result: Vec<i32> = Vec::from([1, 2, 3]).filter_map(|item| {
     ///         if item > 1 { Some(item * 10) } else { None }
-    ///     }).collect() // Contains [20, 30].
+    ///     }).collect();
+    ///     result.len() == 2u64 && result.get(0u64) == Some(20) && result.get(1u64) == Some(30)
     /// }
     /// ```
     fn filter_map<T>(self, callback: fn(<Self as Iterable>::Item) -> core::option::Option<T>) -> FilterMapIterator<<Self as Iterable>::Item, T> {
@@ -365,8 +376,9 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec::from([1, 2, 3, 4]).skip(2u64).collect() // Contains [3, 4].
+    /// fn main() -> bool {
+    ///     val result: Vec<i32> = Vec::from([1, 2, 3, 4]).skip(2u64).collect();
+    ///     result.len() == 2u64 && result.get(0u64) == Some(3)
     /// }
     /// ```
     fn skip(self, count: u64) -> SkipIterator<<Self as Iterable>::Item> {
@@ -386,8 +398,9 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<(u64, i32)> {
-    ///     Vec::from([10, 20]).enumerate().collect() // Contains [(0u64, 10), (1u64, 20)].
+    /// fn main() -> bool {
+    ///     val result: Vec<(u64, i32)> = Vec::from([10, 20]).enumerate().collect();
+    ///     result.get(0u64) == Some((0u64, 10)) && result.get(1u64) == Some((1u64, 20))
     /// }
     /// ```
     fn enumerate(self) -> EnumerateIterator<<Self as Iterable>::Item> {
@@ -405,9 +418,9 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<(i32, i32)> {
-    ///     Vec::from([1, 2, 3]).zip(Vec::from([10, 20])).collect()
-    ///     // Contains [(1, 10), (2, 20)]. The unpaired left item 3 is also consumed.
+    /// fn main() -> bool {
+    ///     val result: Vec<(i32, i32)> = Vec::from([1, 2, 3]).zip(Vec::from([10, 20])).collect();
+    ///     result.len() == 2u64 && result.get(0u64) == Some((1, 10)) && result.get(1u64) == Some((2, 20))
     /// }
     /// ```
     fn zip<T>(self, other: T) -> ZipIterator<<Self as Iterable>::Item, <T as Iterable>::Item> where T: Iterable {
@@ -425,8 +438,9 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec::from([1, 2]).chain(Vec::from([3, 4])).collect() // Contains [1, 2, 3, 4].
+    /// fn main() -> bool {
+    ///     val result: Vec<i32> = Vec::from([1, 2]).chain(Vec::from([3, 4])).collect();
+    ///     result.len() == 4u64 && result.get(0u64) == Some(1) && result.get(3u64) == Some(4)
     /// }
     /// ```
     fn chain<T>(self, other: T) -> ChainIterator<<Self as Iterable>::Item> where T: Iterable<Item = <Self as Iterable>::Item> {
@@ -448,9 +462,9 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec::from([1, 2, 3]).map(|item| item * 2).collect()
-    ///     // Contains [2, 4, 6].
+    /// fn main() -> bool {
+    ///     val result: Vec<i32> = Vec::from([1, 2, 3]).map(|item| item * 2).collect();
+    ///     result.len() == 3u64 && result.get(0u64) == Some(2) && result.get(2u64) == Some(6)
     /// }
     /// ```
     fn collect<T>(self) -> T where T: FromIterator<<Self as Iterable>::Item> {
@@ -471,8 +485,11 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> i32 {
-    ///     Vec::from([2, 3, 4]).sum() // Returns 9.
+    /// fn main() -> bool {
+    ///     val result: i32 = Vec::from([2, 3, 4]).sum();
+    ///     val empty: Vec<i32> = Vec::new();
+    ///     val identity: i32 = empty.sum();
+    ///     result == 9 && identity == 0
     /// }
     /// ```
     fn sum<T>(self) -> T where T: Sum<<Self as Iterable>::Item> {
@@ -494,8 +511,11 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> i32 {
-    ///     Vec::from([2, 3, 4]).product() // Returns 24.
+    /// fn main() -> bool {
+    ///     val result: i32 = Vec::from([2, 3, 4]).product();
+    ///     val empty: Vec<i32> = Vec::new();
+    ///     val identity: i32 = empty.product();
+    ///     result == 24 && identity == 1
     /// }
     /// ```
     fn product<T>(self) -> T where T: Product<<Self as Iterable>::Item> {
@@ -516,8 +536,8 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> i32 {
-    ///     Vec::from([1, 2, 3]).fold(10, |total, item| total + item) // Returns 16.
+    /// fn main() -> bool {
+    ///     Vec::from([1, 2, 3]).fold(10, |total, item| total + item) == 16
     /// }
     /// ```
     fn fold<T>(self, initial: T, callback: fn(T, <Self as Iterable>::Item) -> T) -> T {
@@ -539,10 +559,10 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> u64 {
+    /// fn main() -> bool {
     ///     val cursor = Vec::from([10, 20, 30]).iter();
     ///     cursor.next();
-    ///     cursor.count() // Returns 2.
+    ///     cursor.count() == 2u64 && cursor.next() == None
     /// }
     /// ```
     fn count(self) -> u64 {
@@ -564,10 +584,10 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (Option<i32>, Option<i32>) {
+    /// fn main() -> bool {
     ///     val cursor = Vec::from([1, 2, 3]).iter();
     ///     val found = cursor.find(|item| item % 2 == 0);
-    ///     (found, cursor.next()) // (Some(2), Some(3)).
+    ///     found == Some(2) && cursor.next() == Some(3)
     /// }
     /// ```
     fn find(self, callback: fn(<Self as Iterable>::Item) -> bool) -> core::option::Option<<Self as Iterable>::Item> {
@@ -588,10 +608,10 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (bool, Option<i32>) {
+    /// fn main() -> bool {
     ///     val cursor = Vec::from([1, 2, 3]).iter();
     ///     val found = cursor.any(|item| item == 2);
-    ///     (found, cursor.next()) // (true, Some(3)).
+    ///     found && cursor.next() == Some(3)
     /// }
     /// ```
     fn any(self, callback: fn(<Self as Iterable>::Item) -> bool) -> bool {
@@ -612,10 +632,10 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (bool, Option<i32>) {
+    /// fn main() -> bool {
     ///     val cursor = Vec::from([1, 0, 3]).iter();
     ///     val positive = cursor.all(|item| item > 0);
-    ///     (positive, cursor.next()) // (false, Some(3)).
+    ///     !positive && cursor.next() == Some(3)
     /// }
     /// ```
     fn all(self, callback: fn(<Self as Iterable>::Item) -> bool) -> bool {
@@ -635,10 +655,10 @@ pub trait Iterable {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> u64 {
+    /// fn main() -> bool {
     ///     val output: Vec<i32> = Vec::new();
     ///     Vec::from([1, 2, 3]).for_each(|item| { output.push(item * 2); });
-    ///     output.len() // Returns 3; output contains [2, 4, 6].
+    ///     output.len() == 3u64 && output.get(0u64) == Some(2) && output.get(2u64) == Some(6)
     /// }
     /// ```
     fn for_each(self, callback: fn(<Self as Iterable>::Item) -> ()) {
@@ -656,9 +676,9 @@ pub trait Iterable {
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> Vec<i32> {
-///     Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2))
-///     // Contains [2, 4, 6].
+/// fn main() -> bool {
+///     val result = Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2));
+///     result.len() == 3u64 && result.get(1u64) == Some(4)
 /// }
 /// ```
 pub trait FromIterator<T> {
@@ -672,9 +692,9 @@ pub trait FromIterator<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Vec<i32> {
-    ///     Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2))
-    ///     // Contains [2, 4, 6].
+    /// fn main() -> bool {
+    ///     val result = Vec<i32>::from_iter(Vec::from([1, 2, 3]).map(|item| item * 2));
+    ///     result.len() == 3u64 && result.get(1u64) == Some(4)
     /// }
     /// ```
     fn from_iter<M>(source: M) -> Self where M: Iterable<Item = T>;
@@ -682,7 +702,8 @@ pub trait FromIterator<T> {
 
 /// Constructs a sum from an iterable source.
 ///
-/// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+/// `Iterable::sum` delegates to this implementation. Built-in numeric
+/// implementations
 /// add items in source order and return zero for an empty input. Integer addition
 /// is checked and traps on overflow; floating-point addition follows the declared
 /// floating-point type's arithmetic. Custom implementations define their own rules.
@@ -690,14 +711,15 @@ pub trait FromIterator<T> {
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> i32 {
-///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+/// fn main() -> bool {
+///     i32::sum(Vec::from([2, 3, 4])) == 9
 /// }
 /// ```
 pub trait Sum<T> {
     /// Constructs a sum from an iterable source.
     ///
-    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric
+    /// implementations
     /// add items in source order and return zero for an empty input. Integer addition
     /// is checked and traps on overflow; floating-point addition follows the declared
     /// floating-point type's arithmetic. Custom implementations define their own rules.
@@ -705,8 +727,8 @@ pub trait Sum<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> i32 {
-    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// fn main() -> bool {
+    ///     i32::sum(Vec::from([2, 3, 4])) == 9
     /// }
     /// ```
     fn sum<M>(source: M) -> Self where M: Iterable<Item = T>;
@@ -715,7 +737,8 @@ pub trait Sum<T> {
 /// Constructs a product from an iterable source.
 ///
 /// `Iterable::product` delegates to this implementation. Built-in numeric
-/// implementations multiply items in source order and return one for an empty input.
+/// implementations multiply items in source order and return one for an empty
+/// input.
 /// Integer multiplication is checked and traps on overflow; floating-point
 /// multiplication follows the declared type's arithmetic. Custom implementations
 /// define their own rules.
@@ -723,15 +746,16 @@ pub trait Sum<T> {
 /// # Examples
 ///
 /// ```kgr
-/// fn example() -> i32 {
-///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+/// fn main() -> bool {
+///     i32::product(Vec::from([2, 3, 4])) == 24
 /// }
 /// ```
 pub trait Product<T> {
     /// Constructs a product from an iterable source.
     ///
     /// `Iterable::product` delegates to this implementation. Built-in numeric
-    /// implementations multiply items in source order and return one for an empty input.
+    /// implementations multiply items in source order and return one for an empty
+    /// input.
     /// Integer multiplication is checked and traps on overflow; floating-point
     /// multiplication follows the declared type's arithmetic. Custom implementations
     /// define their own rules.
@@ -739,8 +763,8 @@ pub trait Product<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> i32 {
-    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// fn main() -> bool {
+    ///     i32::product(Vec::from([2, 3, 4])) == 24
     /// }
     /// ```
     fn product<M>(source: M) -> Self where M: Iterable<Item = T>;
@@ -764,10 +788,10 @@ impl<T> Iterator for CollectionCursor<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (Option<i32>, Option<i32>) {
+    /// fn main() -> bool {
     ///     val cursor = Vec::from([10, 20]).iter();
     ///     val alias = cursor;
-    ///     (cursor.next(), alias.next()) // (Some(10), Some(20)).
+    ///     cursor.next() == Some(10) && alias.next() == Some(20) && cursor.next() == None
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<T>;
@@ -791,8 +815,8 @@ impl<T1, T2> Iterator for MapIterator<T1, T2> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Option<i32> {
-    ///     Vec::from([1, 2]).map(|item| item * 2).next() // Some(2).
+    /// fn main() -> bool {
+    ///     Vec::from([1, 2]).map(|item| item * 2).next() == Some(2)
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<T2>;
@@ -816,8 +840,8 @@ impl<T> Iterator for FilterIterator<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Option<i32> {
-    ///     Vec::from([1, 2, 3]).filter(|item| item > 1).next() // Some(2).
+    /// fn main() -> bool {
+    ///     Vec::from([1, 2, 3]).filter(|item| item > 1).next() == Some(2)
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<T>;
@@ -841,8 +865,9 @@ impl<T> Iterator for TakeIterator<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Option<i32> {
-    ///     Vec::from([1, 2]).take(0u64).next() // None.
+    /// fn main() -> bool {
+    ///     val cursor = Vec::from([1, 2]).iter();
+    ///     cursor.take(0u64).next() == None && cursor.next() == Some(1)
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<T>;
@@ -866,10 +891,10 @@ impl<T1, T2> Iterator for FilterMapIterator<T1, T2> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Option<i32> {
+    /// fn main() -> bool {
     ///     Vec::from([1, 2]).filter_map(|item| {
     ///         if item > 1 { Some(item * 10) } else { None }
-    ///     }).next() // Some(20).
+    ///     }).next() == Some(20)
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<T2>;
@@ -893,8 +918,8 @@ impl<T> Iterator for SkipIterator<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Option<i32> {
-    ///     Vec::from([1, 2, 3]).skip(2u64).next() // Some(3).
+    /// fn main() -> bool {
+    ///     Vec::from([1, 2, 3]).skip(2u64).next() == Some(3)
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<T>;
@@ -918,8 +943,8 @@ impl<T> Iterator for EnumerateIterator<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Option<(u64, i32)> {
-    ///     Vec::from([10, 20]).enumerate().next() // Some((0u64, 10)).
+    /// fn main() -> bool {
+    ///     Vec::from([10, 20]).enumerate().next() == Some((0u64, 10))
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<(u64, T)>;
@@ -943,8 +968,8 @@ impl<T1, T2> Iterator for ZipIterator<T1, T2> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Option<(i32, i32)> {
-    ///     Vec::from([1, 2]).zip(Vec::from([10, 20])).next() // Some((1, 10)).
+    /// fn main() -> bool {
+    ///     Vec::from([1, 2]).zip(Vec::from([10, 20])).next() == Some((1, 10))
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<(T1, T2)>;
@@ -968,9 +993,9 @@ impl<T> Iterator for ChainIterator<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> Option<i32> {
+    /// fn main() -> bool {
     ///     val empty: Vec<i32> = Vec::new();
-    ///     empty.chain(Vec::from([3, 4])).next() // Some(3).
+    ///     empty.chain(Vec::from([3, 4])).next() == Some(3)
     /// }
     /// ```
     pub fn next(self) -> core::option::Option<T>;
@@ -983,7 +1008,8 @@ impl<T> Iterable for Iterator<Item = T> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -991,11 +1017,11 @@ impl<T> Iterable for Iterator<Item = T> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> Iterator<Item = T>;

@@ -1,9 +1,12 @@
-//! Operator contracts, range values and boundary policies. Operators dispatch through checked implementations and preserve evaluation order.
+//! Operator contracts, range values and boundary policies. Operators dispatch
+//! through checked implementations and preserve evaluation order.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn plus(left: i32, right: i32) -> i32 { left + right }
+//! fn main() -> bool {
+//!     2 + 3 == 5 && -2 + 3 == 1
+//! }
 //! ```
 
 /// A range endpoint: Included(value), Excluded(value) or Unbounded.
@@ -11,206 +14,281 @@
 /// # Examples
 ///
 /// ```kgr
-/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// use core::ops::Bound;
+/// fn main() -> bool {
+///     (1..=4).start_bound() == Bound::Included(1) &&
+///         (1..=4).end_bound() == Bound::Included(4)
+/// }
 /// ```
 pub enum Bound<T> {
-    /// The `Included` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
+    /// The endpoint value belongs to the range.
     Included(T),
 
-    /// The `Excluded` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
+    /// The endpoint value does not belong to the range.
     Excluded(T),
 
-    /// The `Unbounded` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
+    /// There is no endpoint on this side of the range; no value is stored.
     Unbounded,
 }
 
 pub use self::Bound::{Included, Excluded, Unbounded};
 
-/// Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.
+/// Continue contains a successful value; Break contains an early-exit value. Try
+/// uses ControlFlow<B, Infallible> as its distinct residual, preserving the break
+/// value without conversion.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn success() -> core::ops::ControlFlow<String, i32> { core::ops::ControlFlow::Continue(42) }
+/// use core::ops::ControlFlow;
+/// fn main() -> bool {
+///     val value: ControlFlow<String, i32> = ControlFlow::Continue(42);
+///     match value {
+///         ControlFlow::Continue(item) => item == 42,
+///         ControlFlow::Break(_) => false,
+///     }
+/// }
 /// ```
 pub enum ControlFlow<T1, T2> {
-    /// The `Break` case of `ControlFlow`. Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.
+    /// Contains the early-exit value of type `B`.
     Break(T1),
 
-    /// The `Continue` case of `ControlFlow`. Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.
+    /// Contains the normal continuation value of type `T`.
     Continue(T2),
 }
 
-/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+/// A half-open range `start..end`, including start and excluding end. Integer
+/// iteration is empty when start is at least end. The value stores endpoints;
+/// iteration creates a fresh cursor.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// fn main() -> bool {
+///     val cursor = (2..4).iter();
+///     cursor.next() == Some(2) && cursor.next() == Some(3) && cursor.next() == None &&
+///         (4..2).iter().next() == None
+/// }
 /// ```
 pub type Range<T>;
 
-/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+/// A closed range `start..=end`, including both endpoints. Integer iteration yields
+/// the last representable endpoint once and then stops without overflowing.
+/// Reversed ranges are empty.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// fn main() -> bool {
+///     val cursor = (254u8..=255u8).iter();
+///     cursor.next() == Some(254u8) && cursor.next() == Some(255u8) && cursor.next() == None
+/// }
 /// ```
 pub type RangeInclusive<T>;
 
-/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+/// A range `start..` with an included start and no end bound. Each iteration
+/// creates a fresh ascending integer cursor.
+///
+/// # Traps
+///
+/// Open-ended iteration traps when advancing would exceed the integer type; it does
+/// not wrap or become a finite inclusive range. Use `take` or a bounded range when
+/// the consumer needs a finite sequence.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// use core::ops::Bound;
+/// fn main() -> bool {
+///     val range = 2..;
+///     val cursor = range.take(3u64);
+///     range.end_bound() == Bound::Unbounded && cursor.next() == Some(2) &&
+///         cursor.next() == Some(3) && cursor.next() == Some(4) && cursor.next() == None
+/// }
 /// ```
 pub type RangeFrom<T>;
 
-/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+/// A range `..end` with no start bound and an excluded end. It implements
+/// RangeBounds, but has no integer iteration because no start value is specified.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// use core::ops::Bound;
+/// fn main() -> bool {
+///     val range = ..4;
+///     range.start_bound() == Bound::Unbounded && range.end_bound() == Bound::Excluded(4)
+/// }
 /// ```
 pub type RangeTo<T>;
 
-/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+/// A range `..=end` with no start bound and an included end. It implements
+/// RangeBounds, but has no integer iteration because no start value is specified.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// use core::ops::Bound;
+/// fn main() -> bool {
+///     val range = ..=4;
+///     range.start_bound() == Bound::Unbounded && range.end_bound() == Bound::Included(4)
+/// }
 /// ```
 pub type RangeToInclusive<T>;
 
-/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+/// The fully unbounded range `..`. It has no endpoint element type of its own.
+/// RangeBounds can be selected for a caller's element type; this value is not an
+/// integer iterator.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// use core::ops::Bound;
+/// fn inspect(value: core::ops::RangeBounds<i32>) -> bool {
+///     value.start_bound() == Bound::Unbounded && value.end_bound() == Bound::Unbounded
+/// }
+/// fn main() -> bool {
+///     inspect(..)
+/// }
 /// ```
 pub type RangeFull;
 
-/// Addition with an explicitly declared output type. Built-in integer arithmetic traps on overflow; a user implementation defines its own behavior.
+/// Addition with an explicitly declared output type. Built-in integer arithmetic
+/// traps on overflow; a user implementation defines its own behavior.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn plus(left: i32, right: i32) -> i32 { left + right }
+/// fn main() -> bool {
+///     2 + 3 == 5 && -2 + 3 == 1
+/// }
 /// ```
 #[lang = "add"]
 pub trait Add<T> {
     /// The result type of the declared operation.
     type Output;
 
-    /// Addition with an explicitly declared output type. Built-in integer arithmetic traps on overflow; a user implementation defines its own behavior.
-    ///
-    /// See `Add` for the behavioral contract and examples.
+    /// Addition with an explicitly declared output type. Built-in integer arithmetic
+    /// traps on overflow; a user implementation defines its own behavior.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn plus(left: i32, right: i32) -> i32 { left + right }
+    /// fn main() -> bool {
+    ///     2 + 3 == 5 && -2 + 3 == 1
+    /// }
     /// ```
     fn add(self, arg1: T) -> <Self as Add<T>>::Output;
 }
 
-/// Subtraction with an explicitly declared output type. Built-in integer subtraction traps on overflow.
+/// Subtraction with an explicitly declared output type. Built-in integer
+/// subtraction traps on overflow.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn difference(left: i32, right: i32) -> i32 { left - right }
+/// fn main() -> bool {
+///     5 - 3 == 2 && 3 - 5 == -2
+/// }
 /// ```
 #[lang = "sub"]
 pub trait Sub<T> {
     /// The result type of the declared operation.
     type Output;
 
-    /// Subtraction with an explicitly declared output type. Built-in integer subtraction traps on overflow.
-    ///
-    /// See `Sub` for the behavioral contract and examples.
+    /// Subtraction with an explicitly declared output type. Built-in integer
+    /// subtraction traps on overflow.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn difference(left: i32, right: i32) -> i32 { left - right }
+    /// fn main() -> bool {
+    ///     5 - 3 == 2 && 3 - 5 == -2
+    /// }
     /// ```
     fn sub(self, arg1: T) -> <Self as Sub<T>>::Output;
 }
 
-/// Multiplication with an explicitly declared output type. Built-in integer multiplication traps on overflow.
+/// Multiplication with an explicitly declared output type. Built-in integer
+/// multiplication traps on overflow.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn doubled(value: i32) -> i32 { value * 2 }
+/// fn main() -> bool {
+///     3 * 4 == 12 && -3 * 4 == -12
+/// }
 /// ```
 #[lang = "mul"]
 pub trait Mul<T> {
     /// The result type of the declared operation.
     type Output;
 
-    /// Multiplication with an explicitly declared output type. Built-in integer multiplication traps on overflow.
-    ///
-    /// See `Mul` for the behavioral contract and examples.
+    /// Multiplication with an explicitly declared output type. Built-in integer
+    /// multiplication traps on overflow.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn doubled(value: i32) -> i32 { value * 2 }
+    /// fn main() -> bool {
+    ///     3 * 4 == 12 && -3 * 4 == -12
+    /// }
     /// ```
     fn mul(self, arg1: T) -> <Self as Mul<T>>::Output;
 }
 
-/// Division. Built-in integer division traps for zero divisors and signed overflow; floating-point division follows its specified numeric semantics.
+/// Division. Built-in integer division traps for zero divisors and signed overflow;
+/// floating-point division follows its specified numeric semantics.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn half(value: i32) -> i32 { value / 2 }
+/// fn main() -> bool {
+///     7 / 2 == 3 && -7 / 2 == -3
+/// }
 /// ```
 #[lang = "div"]
 pub trait Div<T> {
     /// The result type of the declared operation.
     type Output;
 
-    /// Division. Built-in integer division traps for zero divisors and signed overflow; floating-point division follows its specified numeric semantics.
-    ///
-    /// See `Div` for the behavioral contract and examples.
+    /// Division. Built-in integer division traps for zero divisors and signed overflow;
+    /// floating-point division follows its specified numeric semantics.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn half(value: i32) -> i32 { value / 2 }
+    /// fn main() -> bool {
+    ///     7 / 2 == 3 && -7 / 2 == -3
+    /// }
     /// ```
     fn div(self, arg1: T) -> <Self as Div<T>>::Output;
 }
 
-/// The remainder of division. Built-in integer remainder traps for zero divisors and signed overflow.
+/// The remainder of division. Built-in integer remainder traps for zero divisors
+/// and signed overflow.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn parity(value: i32) -> i32 { value % 2 }
+/// fn main() -> bool {
+///     7 % 3 == 1 && -7 % 3 == -1
+/// }
 /// ```
 #[lang = "rem"]
 pub trait Rem<T> {
     /// The result type of the declared operation.
     type Output;
 
-    /// The remainder of division. Built-in integer remainder traps for zero divisors and signed overflow.
-    ///
-    /// See `Rem` for the behavioral contract and examples.
+    /// The remainder of division. Built-in integer remainder traps for zero divisors
+    /// and signed overflow.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn parity(value: i32) -> i32 { value % 2 }
+    /// fn main() -> bool {
+    ///     7 % 3 == 1 && -7 % 3 == -1
+    /// }
     /// ```
     fn rem(self, arg1: T) -> <Self as Rem<T>>::Output;
 }
@@ -220,7 +298,9 @@ pub trait Rem<T> {
 /// # Examples
 ///
 /// ```kgr
-/// fn low_bits(value: i32) -> i32 { value & 15 }
+/// fn main() -> bool {
+///     0b1010 & 0b1100 == 0b1000
+/// }
 /// ```
 #[lang = "bit_and"]
 pub trait BitAnd<T> {
@@ -229,12 +309,12 @@ pub trait BitAnd<T> {
 
     /// Bitwise conjunction, with an explicitly declared output type.
     ///
-    /// See `BitAnd` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn low_bits(value: i32) -> i32 { value & 15 }
+    /// fn main() -> bool {
+    ///     (0b1010 & 0b1100) == 0b1000
+    /// }
     /// ```
     fn bitand(self, arg1: T) -> <Self as BitAnd<T>>::Output;
 }
@@ -244,7 +324,9 @@ pub trait BitAnd<T> {
 /// # Examples
 ///
 /// ```kgr
-/// fn set_bit(value: i32) -> i32 { value | 1 }
+/// fn main() -> bool {
+///     0b1010 | 0b0001 == 0b1011
+/// }
 /// ```
 #[lang = "bit_or"]
 pub trait BitOr<T> {
@@ -253,12 +335,12 @@ pub trait BitOr<T> {
 
     /// Bitwise disjunction, with an explicitly declared output type.
     ///
-    /// See `BitOr` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn set_bit(value: i32) -> i32 { value | 1 }
+    /// fn main() -> bool {
+    ///     (0b1010 | 0b0001) == 0b1011
+    /// }
     /// ```
     fn bitor(self, arg1: T) -> <Self as BitOr<T>>::Output;
 }
@@ -268,7 +350,9 @@ pub trait BitOr<T> {
 /// # Examples
 ///
 /// ```kgr
-/// fn toggle(value: i32) -> i32 { value ^ 1 }
+/// fn main() -> bool {
+///     0b1010 ^ 0b0011 == 0b1001
+/// }
 /// ```
 #[lang = "bit_xor"]
 pub trait BitXor<T> {
@@ -277,12 +361,12 @@ pub trait BitXor<T> {
 
     /// Bitwise exclusive disjunction, with an explicitly declared output type.
     ///
-    /// See `BitXor` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn toggle(value: i32) -> i32 { value ^ 1 }
+    /// fn main() -> bool {
+    ///     (0b1010 ^ 0b0011) == 0b1001
+    /// }
     /// ```
     fn bitxor(self, arg1: T) -> <Self as BitXor<T>>::Output;
 }
@@ -292,7 +376,9 @@ pub trait BitXor<T> {
 /// # Examples
 ///
 /// ```kgr
-/// fn shift(value: i32) -> i32 { value << 1 }
+/// fn main() -> bool {
+///     3 << 2u32 == 12
+/// }
 /// ```
 #[lang = "shl"]
 pub trait Shl<T> {
@@ -301,12 +387,12 @@ pub trait Shl<T> {
 
     /// Left shift. Built-in integer shifts validate the shift count and checked result.
     ///
-    /// See `Shl` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn shift(value: i32) -> i32 { value << 1 }
+    /// fn main() -> bool {
+    ///     (3 << 2) == 12
+    /// }
     /// ```
     fn shl(self, arg1: T) -> <Self as Shl<T>>::Output;
 }
@@ -316,7 +402,9 @@ pub trait Shl<T> {
 /// # Examples
 ///
 /// ```kgr
-/// fn shift(value: i32) -> i32 { value >> 1 }
+/// fn main() -> bool {
+///     12 >> 2u32 == 3
+/// }
 /// ```
 #[lang = "shr"]
 pub trait Shr<T> {
@@ -325,12 +413,12 @@ pub trait Shr<T> {
 
     /// Right shift. Built-in integer shifts validate the shift count.
     ///
-    /// See `Shr` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn shift(value: i32) -> i32 { value >> 1 }
+    /// fn main() -> bool {
+    ///     (12 >> 2) == 3
+    /// }
     /// ```
     fn shr(self, arg1: T) -> <Self as Shr<T>>::Output;
 }
@@ -340,7 +428,10 @@ pub trait Shr<T> {
 /// # Examples
 ///
 /// ```kgr
-/// fn negative(value: i32) -> i32 { -value }
+/// fn main() -> bool {
+///     val value = 7;
+///     -value == -7
+/// }
 /// ```
 #[lang = "neg"]
 pub trait Neg {
@@ -349,125 +440,161 @@ pub trait Neg {
 
     /// Arithmetic negation. Negating the minimum signed integer traps on overflow.
     ///
-    /// See `Neg` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn negative(value: i32) -> i32 { -value }
+    /// fn main() -> bool {
+    ///     val value = 7;
+    ///     -value == -7
+    /// }
     /// ```
     fn neg(self) -> <Self as Neg>::Output;
 }
 
-/// Logical or bitwise inversion, depending on the receiver type. The output is declared by the implementation.
+/// Logical or bitwise inversion, depending on the receiver type. The output is
+/// declared by the implementation.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn invert(value: bool) -> bool { !value }
+/// fn main() -> bool {
+///     !false && !!true
+/// }
 /// ```
 #[lang = "not"]
 pub trait Not {
     /// The result type of the declared operation.
     type Output;
 
-    /// Logical or bitwise inversion, depending on the receiver type. The output is declared by the implementation.
-    ///
-    /// See `Not` for the behavioral contract and examples.
+    /// Logical or bitwise inversion, depending on the receiver type. The output is
+    /// declared by the implementation.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn invert(value: bool) -> bool { !value }
+    /// fn main() -> bool {
+    ///     !false && !!true
+    /// }
     /// ```
     fn not(self) -> <Self as Not>::Output;
 }
 
-/// Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.
+/// Indexed read access. Built-in sequence indexing traps when the index is out of
+/// bounds; `get` provides an optional result instead.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn head(values: Vec<i32>) -> i32 { values[0] }
+/// fn main() -> bool {
+///     val values = Vec::from([4, 5]);
+///     values[0u64] == 4 && values[1u64] == 5
+/// }
 /// ```
 #[lang = "index"]
 pub trait Index<T> {
     /// The result type of the declared operation.
     type Output;
 
-    /// Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.
-    ///
-    /// See `Index` for the behavioral contract and examples.
+    /// Indexed read access. Built-in sequence indexing traps when the index is out of
+    /// bounds; `get` provides an optional result instead.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn head(values: Vec<i32>) -> i32 { values[0] }
+    /// fn main() -> bool {
+    ///     val values = Vec::from([10, 20]);
+    ///     values[0u64] == 10 && values[1u64] == 20
+    /// }
     /// ```
     fn index(self, arg1: T) -> <Self as Index<T>>::Output;
 }
 
-/// A checked callable signature. Calls evaluate arguments left to right exactly once. Stored callable values retain their selected generation across reload.
+/// A checked callable signature. Calls evaluate arguments left to right exactly
+/// once. Stored callable values retain their selected generation across reload.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 { f(value) }
+/// fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 {
+///     f(value)
+/// }
+/// fn main() -> bool {
+///     apply(|value| value * 2, 21) == 42
+/// }
 /// ```
 #[lang = "fn"]
 pub trait Fn<T> {
     /// The result type of the declared operation.
     type Output;
 
-    /// A checked callable signature. Calls evaluate arguments left to right exactly once. Stored callable values retain their selected generation across reload.
-    ///
-    /// See `Fn` for the behavioral contract and examples.
+    /// A checked callable signature. Calls evaluate arguments left to right exactly
+    /// once. Stored callable values retain their selected generation across reload.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 { f(value) }
+    /// fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 {
+    ///     f(value)
+    /// }
+    /// fn main() -> bool {
+    ///     apply(|value| value * 2, 21) == 42
+    /// }
     /// ```
     fn call(self, arg1: T) -> <Self as Fn<T>>::Output;
 }
 
-/// Exposes the start and end bounds of a range as Included, Excluded or Unbounded. Constructing bounds does not iterate the range.
+/// Exposes the start and end bounds of a range as Included, Excluded or Unbounded.
+/// Constructing bounds does not iterate the range.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// use core::ops::Bound;
+/// fn main() -> bool {
+///     (1..4).start_bound() == Bound::Included(1) &&
+///         (1..4).end_bound() == Bound::Excluded(4)
+/// }
 /// ```
 pub trait RangeBounds<T> {
     /// Return the lower bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).start_bound() == Bound::Included(1) && (..4).start_bound() == Bound::Unbounded
+    /// }
     /// ```
     fn start_bound(self) -> Bound<T>;
 
     /// Return the upper bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).end_bound() == Bound::Excluded(4) && (1..=4).end_bound() == Bound::Included(4)
+    /// }
     /// ```
     fn end_bound(self) -> Bound<T>;
 }
 
-/// Defines the successful Output and distinct Residual of a carrier. Question-mark evaluates the value and branch once: Continue produces Output, while Break passes Residual to the enclosing return type's FromResidual implementation. Traps are not converted to residuals.
+/// Defines the successful Output and distinct Residual of a carrier. Question-mark
+/// evaluates the value and branch once: Continue produces Output, while Break
+/// passes Residual to the enclosing return type's FromResidual implementation.
+/// Traps are not converted to residuals.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+/// fn doubled(value: Option<i32>) -> Option<i32> {
+///     Some(value? * 2)
+/// }
+/// fn main() -> bool {
+///     doubled(Some(21)) == Some(42) && doubled(None) == None
+/// }
 /// ```
 #[lang = "try"]
 pub trait Try: FromResidual<<Self as Try>::Residual> {
@@ -479,44 +606,59 @@ pub trait Try: FromResidual<<Self as Try>::Residual> {
 
     /// Construct a successful carrier from Output.
     ///
-    /// See `Try` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// fn main() -> bool {
+    ///     Option<i32>::from_output(42) == Some(42)
+    /// }
     /// ```
     fn from_output(output: <Self as Try>::Output) -> Self;
 
     /// Consume the carrier once and return Continue(Output) or Break(Residual).
     ///
-    /// See `Try` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// use core::ops::ControlFlow;
+    /// fn main() -> bool {
+    ///     val value: Option<i32> = Some(42);
+    ///     match value.branch() {
+    ///         ControlFlow::Continue(item) => item == 42,
+    ///         ControlFlow::Break(_) => false,
+    ///     }
+    /// }
     /// ```
     fn branch(self) -> ControlFlow<<Self as Try>::Residual, <Self as Try>::Output>;
 }
 
-/// Constructs the enclosing return value on early propagation. Residual types distinguish Option, Result and ControlFlow. Result converts only the error through one infallible From implementation, preserving its original failure trace.
+/// Constructs the enclosing return value on early propagation. Residual types
+/// distinguish Option, Result and ControlFlow. Result converts only the error
+/// through one infallible From implementation, preserving its original failure
+/// trace.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }
+/// fn widen(value: Result<i32, String>) -> Result<i64, String> {
+///     Ok(i64::from(value?))
+/// }
+/// fn main() -> bool {
+///     widen(Ok(42)) == Ok(42i64) && widen(Err("missing")) == Err("missing")
+/// }
 /// ```
 #[lang = "from_residual"]
 pub trait FromResidual<T> {
     /// Construct the enclosing early-return value from a compatible Residual.
     ///
-    /// See `FromResidual` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }
+    /// fn main() -> bool {
+    ///     val residual: Option<core::convert::Infallible> = None;
+    ///     val result: Option<i32> = Option<i32>::from_residual(residual);
+    ///     result == None
+    /// }
     /// ```
     fn from_residual(residual: T) -> Self;
 }
@@ -524,23 +666,25 @@ pub trait FromResidual<T> {
 impl<T> RangeBounds<T> for Range<T> {
     /// Return the lower bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).start_bound() == Bound::Included(1) && (..4).start_bound() == Bound::Unbounded
+    /// }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
 
     /// Return the upper bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).end_bound() == Bound::Excluded(4) && (1..=4).end_bound() == Bound::Included(4)
+    /// }
     /// ```
     pub fn end_bound(self) -> Bound<T>;
 }
@@ -552,7 +696,8 @@ impl core::iter::Iterable for Range<i8> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -560,11 +705,11 @@ impl core::iter::Iterable for Range<i8> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i8>;
@@ -577,7 +722,8 @@ impl core::iter::Iterable for Range<i16> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -585,11 +731,11 @@ impl core::iter::Iterable for Range<i16> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i16>;
@@ -602,7 +748,8 @@ impl core::iter::Iterable for Range<i32> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -610,11 +757,11 @@ impl core::iter::Iterable for Range<i32> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i32>;
@@ -627,7 +774,8 @@ impl core::iter::Iterable for Range<i64> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -635,11 +783,11 @@ impl core::iter::Iterable for Range<i64> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i64>;
@@ -652,7 +800,8 @@ impl core::iter::Iterable for Range<u8> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -660,11 +809,11 @@ impl core::iter::Iterable for Range<u8> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u8>;
@@ -677,7 +826,8 @@ impl core::iter::Iterable for Range<u16> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -685,11 +835,11 @@ impl core::iter::Iterable for Range<u16> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u16>;
@@ -702,7 +852,8 @@ impl core::iter::Iterable for Range<u32> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -710,11 +861,11 @@ impl core::iter::Iterable for Range<u32> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u32>;
@@ -727,7 +878,8 @@ impl core::iter::Iterable for Range<u64> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -735,11 +887,11 @@ impl core::iter::Iterable for Range<u64> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u64>;
@@ -748,23 +900,25 @@ impl core::iter::Iterable for Range<u64> {
 impl<T> RangeBounds<T> for RangeInclusive<T> {
     /// Return the lower bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).start_bound() == Bound::Included(1) && (..4).start_bound() == Bound::Unbounded
+    /// }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
 
     /// Return the upper bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).end_bound() == Bound::Excluded(4) && (1..=4).end_bound() == Bound::Included(4)
+    /// }
     /// ```
     pub fn end_bound(self) -> Bound<T>;
 }
@@ -776,7 +930,8 @@ impl core::iter::Iterable for RangeInclusive<i8> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -784,11 +939,11 @@ impl core::iter::Iterable for RangeInclusive<i8> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i8>;
@@ -801,7 +956,8 @@ impl core::iter::Iterable for RangeInclusive<i16> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -809,11 +965,11 @@ impl core::iter::Iterable for RangeInclusive<i16> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i16>;
@@ -826,7 +982,8 @@ impl core::iter::Iterable for RangeInclusive<i32> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -834,11 +991,11 @@ impl core::iter::Iterable for RangeInclusive<i32> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i32>;
@@ -851,7 +1008,8 @@ impl core::iter::Iterable for RangeInclusive<i64> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -859,11 +1017,11 @@ impl core::iter::Iterable for RangeInclusive<i64> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i64>;
@@ -876,7 +1034,8 @@ impl core::iter::Iterable for RangeInclusive<u8> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -884,11 +1043,11 @@ impl core::iter::Iterable for RangeInclusive<u8> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u8>;
@@ -901,7 +1060,8 @@ impl core::iter::Iterable for RangeInclusive<u16> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -909,11 +1069,11 @@ impl core::iter::Iterable for RangeInclusive<u16> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u16>;
@@ -926,7 +1086,8 @@ impl core::iter::Iterable for RangeInclusive<u32> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -934,11 +1095,11 @@ impl core::iter::Iterable for RangeInclusive<u32> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u32>;
@@ -951,7 +1112,8 @@ impl core::iter::Iterable for RangeInclusive<u64> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -959,11 +1121,11 @@ impl core::iter::Iterable for RangeInclusive<u64> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u64>;
@@ -972,23 +1134,25 @@ impl core::iter::Iterable for RangeInclusive<u64> {
 impl<T> RangeBounds<T> for RangeFrom<T> {
     /// Return the lower bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).start_bound() == Bound::Included(1) && (..4).start_bound() == Bound::Unbounded
+    /// }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
 
     /// Return the upper bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).end_bound() == Bound::Excluded(4) && (1..=4).end_bound() == Bound::Included(4)
+    /// }
     /// ```
     pub fn end_bound(self) -> Bound<T>;
 }
@@ -1000,7 +1164,8 @@ impl core::iter::Iterable for RangeFrom<i8> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -1008,11 +1173,11 @@ impl core::iter::Iterable for RangeFrom<i8> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i8>;
@@ -1025,7 +1190,8 @@ impl core::iter::Iterable for RangeFrom<i16> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -1033,11 +1199,11 @@ impl core::iter::Iterable for RangeFrom<i16> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i16>;
@@ -1050,7 +1216,8 @@ impl core::iter::Iterable for RangeFrom<i32> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -1058,11 +1225,11 @@ impl core::iter::Iterable for RangeFrom<i32> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i32>;
@@ -1075,7 +1242,8 @@ impl core::iter::Iterable for RangeFrom<i64> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -1083,11 +1251,11 @@ impl core::iter::Iterable for RangeFrom<i64> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i64>;
@@ -1100,7 +1268,8 @@ impl core::iter::Iterable for RangeFrom<u8> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -1108,11 +1277,11 @@ impl core::iter::Iterable for RangeFrom<u8> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u8>;
@@ -1125,7 +1294,8 @@ impl core::iter::Iterable for RangeFrom<u16> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -1133,11 +1303,11 @@ impl core::iter::Iterable for RangeFrom<u16> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u16>;
@@ -1150,7 +1320,8 @@ impl core::iter::Iterable for RangeFrom<u32> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -1158,11 +1329,11 @@ impl core::iter::Iterable for RangeFrom<u32> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u32>;
@@ -1175,7 +1346,8 @@ impl core::iter::Iterable for RangeFrom<u64> {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -1183,11 +1355,11 @@ impl core::iter::Iterable for RangeFrom<u64> {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u64>;
@@ -1196,23 +1368,25 @@ impl core::iter::Iterable for RangeFrom<u64> {
 impl<T> RangeBounds<T> for RangeTo<T> {
     /// Return the lower bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).start_bound() == Bound::Included(1) && (..4).start_bound() == Bound::Unbounded
+    /// }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
 
     /// Return the upper bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).end_bound() == Bound::Excluded(4) && (1..=4).end_bound() == Bound::Included(4)
+    /// }
     /// ```
     pub fn end_bound(self) -> Bound<T>;
 }
@@ -1220,23 +1394,25 @@ impl<T> RangeBounds<T> for RangeTo<T> {
 impl<T> RangeBounds<T> for RangeToInclusive<T> {
     /// Return the lower bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).start_bound() == Bound::Included(1) && (..4).start_bound() == Bound::Unbounded
+    /// }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
 
     /// Return the upper bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).end_bound() == Bound::Excluded(4) && (1..=4).end_bound() == Bound::Included(4)
+    /// }
     /// ```
     pub fn end_bound(self) -> Bound<T>;
 }
@@ -1244,23 +1420,25 @@ impl<T> RangeBounds<T> for RangeToInclusive<T> {
 impl<T> RangeBounds<T> for RangeFull {
     /// Return the lower bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).start_bound() == Bound::Included(1) && (..4).start_bound() == Bound::Unbounded
+    /// }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
 
     /// Return the upper bound with its inclusion policy.
     ///
-    /// See `RangeBounds` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// use core::ops::Bound;
+    /// fn main() -> bool {
+    ///     (1..4).end_bound() == Bound::Excluded(4) && (1..=4).end_bound() == Bound::Included(4)
+    /// }
     /// ```
     pub fn end_bound(self) -> Bound<T>;
 }
@@ -1272,23 +1450,28 @@ impl<T1, T2> Try for ControlFlow<T1, T2> {
 
     /// Construct a successful carrier from Output.
     ///
-    /// See `Try` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// fn main() -> bool {
+    ///     Option<i32>::from_output(42) == Some(42)
+    /// }
     /// ```
     pub fn from_output(output: T2) -> ControlFlow<T1, T2>;
 
     /// Consume the carrier once and return Continue(Output) or Break(Residual).
     ///
-    /// See `Try` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// use core::ops::ControlFlow;
+    /// fn main() -> bool {
+    ///     val value: Option<i32> = Some(42);
+    ///     match value.branch() {
+    ///         ControlFlow::Continue(item) => item == 42,
+    ///         ControlFlow::Break(_) => false,
+    ///     }
+    /// }
     /// ```
     pub fn branch(self) -> ControlFlow<ControlFlow<T1, core::convert::Infallible>, T2>;
 }
@@ -1296,12 +1479,14 @@ impl<T1, T2> Try for ControlFlow<T1, T2> {
 impl<T1, T2> FromResidual<ControlFlow<T1, core::convert::Infallible>> for ControlFlow<T1, T2> {
     /// Construct the enclosing early-return value from a compatible Residual.
     ///
-    /// See `FromResidual` for the behavioral contract and examples.
-    ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }
+    /// fn main() -> bool {
+    ///     val residual: Option<core::convert::Infallible> = None;
+    ///     val result: Option<i32> = Option<i32>::from_residual(residual);
+    ///     result == None
+    /// }
     /// ```
     pub fn from_residual(residual: ControlFlow<T1, core::convert::Infallible>) -> ControlFlow<T1, T2>;
 }

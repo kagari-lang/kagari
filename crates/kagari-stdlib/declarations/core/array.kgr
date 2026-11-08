@@ -1,9 +1,15 @@
-//! Builtin shared arrays have construction-time fixed length and checked element access.
+//! Builtin shared arrays have construction-time fixed length and checked element
+//! access.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! fn main() -> bool {
+//!     val values = [10, 20];
+//!     val alias = values;
+//!     alias[1u64] = 42;
+//!     values.len() == 2u64 && values[1u64] == 42
+//! }
 //! ```
 
 impl<T> [T] {
@@ -12,7 +18,10 @@ impl<T> [T] {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: [i32]) { val result = values.is_empty(); }
+    /// fn main() -> bool {
+    ///     val empty: [i32] = [];
+    ///     empty.is_empty() && ![10].is_empty()
+    /// }
     /// ```
     pub fn is_empty(self) -> bool;
 
@@ -21,7 +30,9 @@ impl<T> [T] {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example(values: [i32]) { val result = values.len(); }
+    /// fn main() -> bool {
+    ///     [10, 20, 30].len() == 3u64
+    /// }
     /// ```
     pub fn len(self) -> u64;
 }
@@ -29,14 +40,16 @@ impl<T> [T] {
 impl<T> core::ops::Index<u64> for [T] {
     type Output = T;
 
-    /// Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.
-    ///
-    /// See `Index` for the behavioral contract and examples.
+    /// Indexed read access. Built-in sequence indexing traps when the index is out of
+    /// bounds; `get` provides an optional result instead.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn head(values: Vec<i32>) -> i32 { values[0] }
+    /// fn main() -> bool {
+    ///     val values = Vec::from([10, 20]);
+    ///     values[0u64] == 10 && values[1u64] == 20
+    /// }
     /// ```
     pub fn index(self, arg1: u64) -> T;
 }
@@ -48,7 +61,8 @@ impl<T> core::iter::Iterable for [T] {
 
     /// Returns a cursor over this value's items.
     ///
-    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection
+    /// implementations
     /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
     /// returns that iterator with its current progress; it does not rewind or clone it.
     /// Custom implementations choose how to obtain their cursor.
@@ -56,25 +70,26 @@ impl<T> core::iter::Iterable for [T] {
     /// # Examples
     ///
     /// ```kgr
-    /// fn example() -> (u64, u64) {
+    /// fn main() -> bool {
     ///     val values = Vec::from([1, 2, 3]);
     ///     val cursor = values.iter();
     ///     cursor.next();
-    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    ///     cursor.count() == 2u64 && values.count() == 3u64
     /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<T>;
 }
 
 impl<T> core::cmp::PartialEq for [T] where T: core::cmp::PartialEq {
-    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
-    ///
-    /// See `PartialEq` for the behavioral contract and examples.
+    /// Equality comparison. Implementations should be symmetric and transitive where
+    /// defined. Equal keys must also have equal hashes when used in a hash collection.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// fn main() -> bool {
+    ///     7.eq(7) && !7.eq(8)
+    /// }
     /// ```
     pub fn eq(self, arg1: [T]) -> bool;
 }

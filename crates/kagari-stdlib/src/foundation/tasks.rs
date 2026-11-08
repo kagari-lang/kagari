@@ -1,6 +1,8 @@
 //! Task storage, fluent methods and callbacks share the canonical core::task owner.
 mod composition;
+pub(super) mod documentation;
 use crate::{
+    catalog::documentation::{example, markdown},
     foundation::{
         enumeration,
         enumerations::value::{self as enums, EnumSymbols},
@@ -25,8 +27,8 @@ use kagari_runtime::{
 use kagari_types::declaration::{TypeDefKind, VariantDef, native::NativeStorageLayout};
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
-    "Scope-owned asynchronous jobs with retained terminal results and host-controlled scheduling.",
-    "fn retain(value: Task<i32>) -> core::task::Task<i32> { value }",
+    "Host-driven asynchronous jobs with retained terminal results.\n\nThe host creates and owns TaskScope and drives the runtime scheduler. Script\nreceives only the admission capability. The example requires an open scope\nprovided by that host; it observes that admission does not run the factory.\nDropping a script Task handle does not cancel its job.",
+    documentation::SCOPE_EXAMPLE,
 );
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
@@ -44,7 +46,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         "Task",
         (
             "A scope-owned execution handle. Dropping a handle does not cancel the task. Completed values are retained by live handles and pending host reports.",
-            MODULE_DOCS.1,
+            documentation::TASK_EXAMPLE,
         ),
         &[],
     )?;
@@ -61,7 +63,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         "TaskScope",
         (
             "A host-created capability for admitting independent tasks into one host-owned scope. Only the host owner controls driving and scope closure.",
-            "fn retain(value: TaskScope) -> core::task::TaskScope { value }",
+            documentation::SCOPE_EXAMPLE,
         ),
         &[],
     )?;
@@ -82,8 +84,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         &error,
         "SpawnError",
         (
-            "A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.",
-            "fn closed() -> SpawnError { SpawnError::ScopeClosed }",
+            "An admission failure: no Task is returned and the factory does not run.\n\nScopeClosed means the host closed the scope; CapacityExceeded means admission\ncapacity is exhausted; DispatchUnavailable means the host notification route\nis unavailable. Execution failures after admission belong to the Task outcome.\nThe example receives a scope that its host has already closed.",
+            documentation::CLOSED_EXAMPLE,
         ),
         &variants,
     )?;
@@ -95,26 +97,39 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let result = enumeration(module, "Result", 2)?;
     let spawned = task.clone();
     module.inherent(scope.apply([])?, |methods| {
-        methods.define(MethodDecl::instance("spawn")
-            .documentation("Admit a zero-argument factory returning Future<T>. The factory runs once on the first host drive, after admission. Closures and checked Fn implementations use ordinary callable coercion. Admission failures return SpawnError; execution failures terminate the Task.\n\n# Examples\n\n```kgr\nasync fn answer() -> i32 { 42 }\nfn submit(scope: TaskScope) -> Result<Task<i32>, SpawnError> { scope.spawn(|| answer()) }\n```")
-            .configure(move |function| {
-                let output = function.type_parameter("T")?.ty();
-                function.parameter("arg1", Type::function([], future.apply([output.clone()])?)?)?;
-                function.returns(result.apply([spawned.apply([output])?, error.apply([])?])?)?;
-                Ok(())
-            })
-            .implementation_with_send(|view| {
-                let symbols = EnumSymbols::new(view.catalog(), &[
-                    enums::RESULT,
-                    ("SpawnError", &["ScopeClosed", "CapacityExceeded", "DispatchUnavailable"]),
-                ])?;
-                Ok(NativeBinding::new(vec![Codec::Value; 2], Codec::Value,
-                    move |cx| spawn(&symbols, cx)))
-            }))
+        methods.define(
+            MethodDecl::instance("spawn")
+                .documentation(markdown(MODULE_DOCS))
+                .configure(move |function| {
+                    let output = function.type_parameter("T")?.ty();
+                    function
+                        .parameter("arg1", Type::function([], future.apply([output.clone()])?)?)?;
+                    function
+                        .returns(result.apply([spawned.apply([output])?, error.apply([])?])?)?;
+                    Ok(())
+                })
+                .implementation_with_send(|view| {
+                    let symbols = EnumSymbols::new(
+                        view.catalog(),
+                        &[
+                            enums::RESULT,
+                            (
+                                "SpawnError",
+                                &["ScopeClosed", "CapacityExceeded", "DispatchUnavailable"],
+                            ),
+                        ],
+                    )?;
+                    Ok(NativeBinding::new(
+                        vec![Codec::Value; 2],
+                        Codec::Value,
+                        move |cx| spawn(&symbols, cx),
+                    ))
+                }),
+        )
     })?;
     module.inherent_generic(&task, |_, methods| {
         methods.define(MethodDecl::instance("cancel").returns(Type::unit())
-            .documentation("Request cooperative cancellation of this Task. Completed Tasks are unchanged. Cancelling a waiting Task detaches its wait without cancelling the dependency.\n\n# Examples\n\n```kgr\nfn stop<T>(task: Task<T>) { task.cancel(); }\n```")
+            .documentation(example("Requests cooperative cancellation. Already completed Tasks keep their result.\nCancelling a waiter detaches its wait without cancelling the dependency.\nThe host supplies an open scope and drives both the cancellation and probe.\nThe cancelled task body in this example never performs its effect.", documentation::CANCEL_EXAMPLE))
             .implementation_send(NativeBinding::new(vec![Codec::Value], Codec::Value, cancel)))?;
         Ok(())
     })

@@ -537,13 +537,27 @@ engine and prepared program when the exercised callbacks are stateless; each
 attempt still creates a new runtime, observer and cancellation token. Captured
 application state needs separate preparation when it is part of the scenario.
 
-The standard documentation owner validates bundled declaration sources against
-provider records once, then forks that native-only analysis for each example
-extracted from registration Markdown and bundled doc comments. Equivalent examples
-are deduplicated; each sees only its own source snapshot. It retains documentation
-coverage and complete diagnostic reporting without converting checked facts back
-to an unused portable representation. Runtime routes are not needed for this
-analysis-only contract.
+The [standard documentation owner](../crates/kagari-stdlib/src/tests/documentation.rs)
+compares bundled comments and registration Markdown using complete portable
+declaration paths, including implementation occurrences. The public inventory
+requires operation examples; implementation associated-type bindings inherit the
+trait contract. Re-exports use the canonical item. Extracted programs retain all
+source/API locations and are deduplicated before execution. Ordinary boolean main
+programs must compile and return true. A wrong expected String byte offset must
+return false; a displayed invalid slice helper must fail with IndexOutOfBounds.
+The only analysis-only exceptions are the two Ref/RefMut visitor declarations,
+which demonstrate forwarding a Host-supplied view rather than constructing one.
+
+Each named module group reuses a bounded native analysis baseline and prepared
+installation. Each example gets its own source snapshot, compilation, runtime and
+heap. Compiler-verified bytecode loads through the ordinary verified-program API.
+TaskScope examples receive an actual open or closing scheduled scope; the VM drives
+Future/Task work and closes runtime resources before retiring the example.
+Cooperative cancellation bounds runaway execution. Analysis, compilation/load and
+execution/cleanup timings are reported separately, along with the slowest examples.
+Use a case filter for local authoring; the complete documentation inventory is a
+focused stdlib contract, not a workspace/backend/editor matrix. Detailed scheduler,
+borrow, forced-GC and reload contracts remain at their semantic test owners.
 
 Analysis forks retain an append-only identity context. Dropping a session releases
 its query state, but its new interned identities can remain until the last owner

@@ -1,9 +1,13 @@
-//! Scope-bound shared and mutable host locations with checked target and access capabilities. These views retain no host ownership.
+//! Scope-bound shared and mutable host locations with checked target and access
+//! capabilities. These views retain no host ownership.
 //!
 //! # Examples
 //!
 //! ```kgr
-//! struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }
+//! struct Player {}
+//! fn inspect(value: Ref<Player>, visitor: fn(Ref<Player>) -> i32) -> i32 {
+//!     visitor(value)
+//! }
 //! ```
 
 pub use core::host::Ref as Ref;

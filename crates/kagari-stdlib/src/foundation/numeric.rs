@@ -2,6 +2,7 @@
 pub(super) mod aggregation;
 mod binding;
 pub(super) mod conversion;
+mod documentation;
 mod float;
 mod integer;
 mod math;
@@ -88,7 +89,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     &[enums::RESULT, enums::CONVERSION_ERROR],
                     conversion::try_from,
                 ),
-            )?;
+            )?
+            .documentation(documentation::conversion(source, target, can_fail));
             module.trait_implementation_with(0, |_| {
                 Ok(TraitImplementation {
                     receiver: Type::scalar(target),
@@ -115,7 +117,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 &[enums::RESULT, enums::PARSE_ERROR],
                 conversion::from_str,
             ),
-        )?;
+        )?
+        .documentation(documentation::parsing(target));
         module.trait_implementation_with(0, |_| {
             Ok(TraitImplementation {
                 receiver: Type::scalar(target),
@@ -181,5 +184,5 @@ fn aggregate(
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
     "Numeric parsing, aggregation, explicit fixed-width integer policies and width-matched float utilities and math. Ordinary arithmetic remains checked and traps on overflow; integer methods explicitly select wrapping, checked Option, overflowing tuple or saturating results. Rotations use u32 counts modulo the receiver's width. Float utilities include classification, rounding, correctly rounded square root and exact bit reinterpretation; invalid clamp bounds trap. Extended trigonometric, exponential, logarithmic and power methods return ordinary numeric exceptional results, use radians for angles and have unspecified precision with no universal ULP bound or cross-platform or repeated-result bit-identity guarantee. Parsing and conversion failures use the declared Result error.",
-    "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+    "use core::num::ParseError;\n\nfn main() -> bool {\n    (\n        match i32::from_str(\"42\") {\n            Ok(value) => value == 42,\n            Err(_) => false,\n        }\n    ) &&\n        (\n        match i32::from_str(\"\") {\n            Err(ParseError::Empty) => true,\n            _ => false,\n        }\n    ) &&\n        (\n        match i32::from_str(\"12x\") {\n            Err(ParseError::InvalidDigit) => true,\n            _ => false,\n        }\n    )\n}",
 );

@@ -1,7 +1,11 @@
 //! Installed fixed-width integer policies reuse the shared runtime arithmetic.
-use crate::foundation::{
-    enumeration,
-    enumerations::value::{self as enums, EnumSymbols},
+mod documentation;
+use crate::{
+    catalog::documentation::example,
+    foundation::{
+        enumeration,
+        enumerations::value::{self as enums, EnumSymbols},
+    },
 };
 use kagari_contract::numeric::method::IntegerMethodContract;
 use kagari_runtime::{
@@ -16,7 +20,7 @@ use kagari_runtime::{
     numeric,
     value::Value,
 };
-use kagari_types::{integer::IntegerMethod, scalar::BuiltinType, surface::builtin_type_spec};
+use kagari_types::{integer::IntegerMethod, scalar::BuiltinType};
 
 const INTEGERS: [BuiltinType; 8] = [
     BuiltinType::I8,
@@ -120,9 +124,6 @@ const METHODS: [(IntegerMethod, &str, &str); 17] = [
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let option = enumeration(module, "Option", 1)?;
     for receiver in INTEGERS {
-        let receiver_name = builtin_type_spec(receiver)
-            .ok_or_else(|| RuntimeError::module_validation("integer receiver spelling"))?
-            .name;
         let scalar = Type::scalar(receiver);
         let checked_result = option.apply([scalar.clone()])?;
         let overflowing_result = Type::tuple([scalar.clone(), Type::bool()])?;
@@ -144,20 +145,12 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     IntegerMethod::RotateLeft | IntegerMethod::RotateRight
                 );
                 let parameter = if rotating { "count" } else { "rhs" };
-                let example = if rotating { "1u32" } else { "rhs" };
-                let rhs_name = builtin_type_spec(contract.rhs())
-                    .ok_or_else(|| RuntimeError::module_validation("integer operand spelling"))?
-                    .name;
-                let example_parameters = if rotating {
-                    format!("value: {receiver_name}")
-                } else {
-                    format!("value: {receiver_name}, rhs: {rhs_name}")
-                };
                 let declaration = MethodDecl::instance(name)
                     .parameter(parameter, rhs.clone())
                     .returns(result.clone())
-                    .documentation(format!(
-                        "{description}\n\nOperands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.\n\n# Examples\n\n```kgr\nfn example({example_parameters}) {{ val result = value.{name}({example}); }}\n```"
+                    .documentation(example(
+                        &format!("{description}\n\nThe receiver and operand use the exact declared integer types; no width or\nsignedness conversion is implicit. Ordinary arithmetic operators keep their\nchecked overflow behavior."),
+                        &documentation::example(operation, receiver, name),
                     ));
                 let parameters = vec![Codec::Exact(scalar.clone()), Codec::Exact(rhs)];
                 let result = Codec::Exact(result);
