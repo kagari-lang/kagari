@@ -1,5 +1,4 @@
 //! Typed feature admission retains the exact input barrier until its terminal decision.
-pub(crate) mod messages;
 mod progress;
 
 #[cfg(test)]
@@ -11,7 +10,7 @@ use crate::{
         features::{FeatureInput, FeatureOutput, FeatureQuery, QueryStep},
     },
     protocol::{ErrorCode, Request, source_name},
-    session::{Lifecycle, SessionActor, features::progress::ProgressStreams},
+    session::{Lifecycle, SessionActor, feature_scheduler::progress::ProgressStreams},
     workspace::{ContextKey, WorkspaceCapture},
 };
 #[cfg(all(test, feature = "verification"))]
@@ -51,7 +50,7 @@ struct FeatureTask {
 }
 
 #[derive(Default)]
-pub(crate) struct FeatureHost {
+pub(crate) struct FeatureScheduler {
     pending: VecDeque<FeatureTask>,
     active: Option<Arc<WorkspaceCapture>>,
     served: BTreeMap<Option<ContextKey>, u64>,
@@ -65,7 +64,7 @@ pub(crate) struct FeatureHost {
     pub started: watch::Sender<(u64, u64)>,
 }
 
-impl FeatureHost {
+impl FeatureScheduler {
     fn next_ready(&mut self) -> io::Result<Option<FeatureTask>> {
         let Some((index, key)) = self
             .pending

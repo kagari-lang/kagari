@@ -290,203 +290,113 @@ responsibility is implemented; do not add empty modules for later phases. A
 there are no `mod.rs` files or forwarding re-exports.
 
 ```text
-crates/kagari-analyzer/
-  Cargo.toml
-  src/
-    main.rs                         # Small executable entry and final exit status
-    lib.rs                          # Analyzer composition entry; private production modules
-    server.rs                       # Lattice ActorRuntime construction and component wiring
-    server/
-      options.rs                    # Stdio/TCP options and validated server limits
-      executors.rs                  # Process observer, worker threads and bounded shutdown
-
-    transport.rs                    # Endpoint ports and transport construction
-    transport/
-      codec.rs                      # Shared bounded Content-Length state machine
-      tcp.rs                        # Connect/listen and async socket drivers
-      stdio.rs                      # Dedicated blocking stdin/stdout bridges
-      writer.rs                     # WriteFrame, encoding/progress and acknowledgements
-
-    protocol.rs                     # Existing URI validation and child declarations
-    protocol/
-      rpc.rs                        # JSON-RPC envelopes, IDs and shape validation
-      router.rs                     # Frozen method-to-typed-message decoding table
-      positions.rs                  # LSP coordinates through source-owned indexes
-      capabilities.rs               # Capability negotiation and wire representation
-
-    session.rs                      # SessionActor fields and narrow state operations
-    session/
-      tasks.rs                      # Fixed transport/worker bridges using Lattice scoped work
-      lifecycle.rs                  # Initialize/initialized/shutdown/exit handlers
-      inputs.rs                     # Ordered document and capture-completion handlers
-      requests.rs                   # Incoming/outgoing requests, cancellation, one reply
-      scheduler.rs                  # Capture barriers, job metadata, queues and credits
-      publications.rs               # Generation checks and per-URI diagnostic merging
-      outbox.rs                     # Reliable responses and replaceable output intents
-      timers.rs                     # Replaceable deadlines and due-message construction
-      resolve.rs                    # Bounded opaque handles for resolve/hierarchy requests
-      edits.rs                      # Edit-plan input validation and client capability checks
-
-    documents.rs                    # Open metadata and source-owned overlay transactions
-
-    workspace.rs                    # Session-owned roots and context generations
-    workspace/
-      acquisition.rs                # Acquisition worker and its dedicated thread
-      capture.rs                    # Retained input captures and recovery handoff
-      origins.rs                    # Physical URI/package/context source mapping
-
-    analysis.rs                     # Analysis worker, owned jobs and typed result handoff
-    analysis/
-      context.rs                    # Per-context HIR databases and retained query inputs
-      environment.rs                # Native declaration bootstrap and environment epochs
-      indexes.rs                    # Worker-owned coverage, immutable shards and build cursors
-      indexes/
-        declarations.rs             # Workspace symbols and trait/implementation relations
-        occurrences.rs              # HIR-projected occurrences and static call edges
-
-    features.rs                     # Feature registration and supported-capability assembly
+crates/kagari-analyzer/src/
+  main.rs, lib.rs                 # Executable/library composition
+  server.rs, server/options.rs   # Runtime, worker lifetimes and validated limits
+  protocol/
+    codec.rs, envelope.rs        # Shared framing and JSON-RPC validation
+    router.rs                    # Frozen wire method -> concrete Lattice message
+  transport/
+    tcp.rs, stdio.rs             # Transport drivers
+    reader.rs, writer.rs         # Admission, framed IO and acknowledgements
+  session.rs                     # SessionActor state and terminal operations
+  session/
+    handlers.rs
+    handlers/
+      lifecycle.rs               # initialize/initialized/shutdown/exit
+      document_sync.rs           # open/change/close/save/watch/reload
+      control.rs                 # cancellation, client replies, unknown methods
+      completion.rs              # CompletionRequested and its actor handler
+      navigation.rs
+      navigation/
+        hover.rs                 # HoverRequested and its actor handler
+        definition.rs
+        implementation.rs
+    request_registry.rs          # RequestRegistry: wire IDs, serials, state, capacity
+    feature_scheduler.rs         # Shared capture barriers, scheduling, completion
+    feature_scheduler/
+      progress.rs                # Bounded work-done stream lifecycle
+    capture.rs, jobs.rs           # Input capture scheduling and worker credits
+    analysis.rs, analysis/       # Background diagnostics and idle maintenance
+    publications.rs, outbox.rs   # Diagnostic validity and bounded reliable output
+    tasks.rs, timers.rs          # IO completions and deadlines
+  documents.rs                   # Open metadata and source-owned transactions
+  workspace.rs, workspace/       # Acquisition, retained captures, origins, budgets
+  analysis.rs                    # Thread-confined analysis state
+  analysis/
+    editor.rs, environment.rs    # Retained editor queries and native environment
+    features.rs                  # FeatureInput/Output/Query and result bounds
     features/
-      hover.rs                      # Typed messages, handlers and hover presentation
-      definition.rs
-      declaration.rs
-      type_definition.rs
-      implementation.rs
-      references.rs
-      highlights.rs
-      completion.rs
-      symbols.rs
-      signature_help.rs
-      diagnostics.rs                # Diagnostic computation and owned contributions
-      rename.rs                     # Semantic rename query and owned edit-plan presentation
-      code_actions.rs               # Finite quick-fix/refactoring registration
-      formatting.rs
-      semantic_tokens.rs
-      inlay_hints.rs
-      call_hierarchy.rs
-      type_hierarchy.rs
-      document_links.rs
-      folding.rs
-      selection.rs
-      code_lens.rs
-      file_operations.rs
-
-    logging.rs                      # Bounded stderr sink; no protocol/source dumps
-    verification.rs                 # Non-default verification entrypoints; no duplicate engine
-    verification/
-      codec.rs                      # Production codec oracle and corpus replay
-      session.rs                    # Production state owners against an independent model
-      peer.rs                       # Bounded wire peer, response demultiplexing and services
-      control.rs                    # Observation and worker/deadline gates; no wire test API
-    tests.rs                        # Internal contract-test module declarations
-    tests/
-      protocol.rs                   # Existing URI/protocol coverage, extended at its owner
-      session.rs                    # Real actor/codec/worker integration over memory ports
-      features.rs                   # Focused feature scenarios; semantic edge cases stay in HIR
-  tests/
-    stdio.rs                        # Existing process suite; extend transport acceptance
+      completion.rs              # CompletionQuery and completion presentation
+      navigation.rs
+      navigation/
+        hover.rs                 # HoverQuery and hover presentation
+        definition.rs
+        implementation.rs        # ImplementationQuery policy entry
+      projection.rs              # Shared authoritative destinations and conversions
+    indexes.rs, indexes/         # Relations, coverage, traversal and retained cursors
+    diagnostics.rs, worker.rs    # Background diagnostic computation and worker port
+  logging.rs                     # Bounded stderr logging
+  tests.rs, tests/               # Actual actor and semantic integration contracts
 ```
 
-Only the pilot modules are created in LSP00-LSP04. Later modules, occurrence
-indexes, resolve handles and edit validation arrive with their owning feature
-phase. LSP06 adds shared tool configuration at its established owners. Semantic
-occurrence extraction, implementation matching and rename safety belong in HIR;
-the analyzer index modules aggregate their owned projections without re-resolving
-names. Further test files follow actual
-contracts; the tree does not prescribe a new test binary per module. Fixed complete
-Kagari programs go under the owning crate's `tests/fixtures/` when needed.
+This is the implemented pilot layout. Each ordinary request has a handler under
+`session/handlers` and its worker query under the matching `analysis/features`
+domain. The two layers share feature names without combining actor turns and HIR
+work in one module. Navigation contains hover, definition and implementation;
+completion is a separate feature. Lifecycle, document synchronization and control
+messages have distinct handler owners. Diagnostics remain background work under
+`session/analysis` and `analysis/diagnostics`, rather than a fictitious request.
 
-`main.rs`, `lib.rs` and `server.rs` stay orchestration-only. Keep implementation
-modules private; the library exposes the executable composition entry and, under
-the non-default `verification` feature, narrow byte-input/probe entrypoints. Do not
-make SessionActor internals or HIR arenas public merely for a harness. Ordinary
-module tests can exercise the same oracles under `cfg(test)`. Lattice runs the mailbox loop;
-there is no analyzer `actor/` implementation or `session/drive.rs`. `session.rs`
-owns state and focused operations, rather than collecting all feature handlers.
-`session/requests.rs` owns request completion and `session/publications.rs` owns
-diagnostic validity. `session/tasks.rs` wires a finite set of application IO and
-worker bridges using Lattice APIs; it is not another actor scheduler.
+`request_registry.rs` is request state accounting, not a business-handler directory.
+`feature_scheduler.rs` owns admission, capture barriers, context fairness,
+cancellation and typed `FeatureFinished<Q>` completion. Individual handlers select
+`Q`; they do not repeat that lifecycle. Shared feature contracts stay in
+`analysis/features.rs`; each concrete query policy lives beside its presentation.
+Implementation traversal and cursor retention stay in `analysis/indexes/query.rs`,
+where their coverage and lifetime invariants are enforced. Shared coordinate and
+origin conversion stays in `analysis/features/projection.rs`.
+
+Future requests join their feature domain at both layers, for example references
+under navigation at LSP05. Occurrence indexes, resolve handles and semantic edit
+commitment arrive with their owning phase; no empty future-use modules are created.
+HIR owns semantic matching/transformation; analyzer projections do not re-resolve
+names. Fixed complete Kagari programs remain in the owning `tests/fixtures`.
+Modules use ordinary `foo.rs` plus `foo/` children, without forwarding re-exports.
 
 ### Feature placement and dependency direction
 
-A feature module groups its concrete Lattice messages, session handlers, synchronous
-worker query and presentation logic. For example, this is a placement sketch:
+For hover following an edit, the implemented path is:
 
 ```text
-features/hover.rs
-    HoverRequested { wire_id, params, ingress_permits }  // Lattice Message
-    HoverQuery { job_id, retained_input, position, cancellation }
-    HoverFinished { job_id, input_stamp, owned_result }  // Lattice Message
-
-    register(router, supported_capabilities)
-    Handler<HoverRequested> for SessionActor
-    execute_hover(&mut AnalysisState, HoverQuery) -> OwnedHoverResult
-    Handler<HoverFinished> for SessionActor
-    present_hover(owned_result, retained_origins, negotiated_capabilities)
+transport/{tcp,stdio} -> protocol/{codec,envelope,router}
+  -> session/handlers/navigation/hover: HoverRequested
+  -> session/feature_scheduler: admit_feature::<HoverQuery>
+       request registry -> retained capture barrier -> context scheduling
+  -> analysis/features/navigation/hover: HoverQuery::run -> AnalysisState::hover
+       source/HIR query -> bounded owned FeatureOutput
+  -> typed oneshot -> Lattice pipe_to_self -> FeatureFinished<HoverQuery>
+  -> shared scheduler -> session terminal decision -> outbox -> writer -> editor
 ```
 
-The first handler records the request, binds its input and queues work or waits
-for capture. When its worker credit is available, it prepares a bounded owned job
-and a typed oneshot result channel. Register the result wait with
-`ctx.pipe_to_self(..., HoverFinished)` before dispatching the job, so a deferred
-capacity failure cannot leave untracked work running. The session handler returns;
-the synchronous worker borrows its own HIR state and sends the owned result through
-the oneshot. The completion handler resolves JobId to the original request serial
-and calls the single terminal-response operation. It cannot write directly to IO.
-Cancellation may already have won when this completion arrives.
+Register the typed completion wait before dispatching bounded work. The worker
+creates and retains AnalysisState on its dedicated thread; neither its HIR state
+nor a mutable borrow of the actor crosses a mailbox. Cancellation may already
+have committed a terminal when the completion arrives; matching worker completion
+alone releases its credit. Acquisition follows the same bounded handoff with its
+own state. These bridges are application work, not another actor runtime.
 
-The worker job is a bounded, analyzer-owned operation such as an owned
-`FnOnce(&mut AnalysisState) + Send` closure capturing query arguments and the typed
-result sender. The worker creates and retains AnalysisState on its dedicated
-thread; that state never moves through the closure or a Lattice mailbox. This is
-a CPU-work boundary, not a second actor runtime or heterogeneous actor envelope.
-Acquisition follows the same pattern with its own state and capture result.
-
-Handlers outside `session` use focused `pub(crate)` operations. Keep request
-tables, source stores and database maps private. A borrowed HIR query context
-never crosses a mailbox. Larger features may grow children such as
-`features/hover/query.rs` and `features/hover/presentation.rs`; no application-wide
-messages/handlers/results directories are needed.
-
-The scheduler stores identity, priority, context, cancellation and input requirements
-alongside an owned work preparation object. It does not add a global JobKind variant
-for every feature. Preparation constructs the job only after its input capture is
-ready and never retains a mutable borrow of session state while waiting.
-
-Dependency direction and composition are explicit:
-
-* Import Lattice's public types from their owning modules. Do not introduce local
-  Handler, ActorRef, Envelope or Mailbox aliases/re-exports to hide the dependency.
-* Transport knows the codec and injected ingress/status adapters, not SessionActor
-  internals. The protocol router registers typed parameter decoders and send
-  functions that call `ActorHandle::tell`; the heterogeneous method lookup does
-  not implement another actor envelope or dispatch loop.
-* Feature modules register through `features::register`; the composition root
-  also registers lifecycle/document messages. Freeze registration before readers
-  start. The single reader awaits admission of one decoded message before sending
-  the next, preserving wire order. LSP lifecycle checks run in the session handler.
-* Session state owners do not import feature implementations. Features implement
-  Lattice Handler for the session and call existing HIR queries on the worker.
-  Adding a feature changes its module and registration, not a mailbox loop.
-* Documents use `kagari-source`; acquisition uses package/source services; analysis
-  uses HIR projections. These semantic crates do not acquire actor, Tokio or LSP
-  dependencies merely to support the server.
-
-For a hover following an edit, the path is:
-
-```text
-transport/{tcp,stdio} + codec
-  -> protocol router -> ActorHandle<SessionActor>.tell(HoverRequested)
-  -> features/hover: Lattice Handler<HoverRequested>
-  -> session admission + workspace capture barrier
-  -> analysis worker: execute_hover against retained input
-  -> typed oneshot result -> Lattice pipe_to_self -> HoverFinished
-  -> features/hover: Lattice Handler<HoverFinished>
-  -> session/requests terminal decision -> outbox -> transport/writer -> editor
-```
-
-Document/capture handlers live in `session/inputs.rs`. Diagnostic computation
-finishes through `session/publication`, which validates input generations and
-merges root contributions. Runtime dispatch remains entirely Lattice-owned.
+* The router directly imports each concrete handler message from its owner and
+  freezes registration before readers start. Reader admission preserves wire order.
+* `session/handlers` uses shared session admission/scheduling operations.
+  `analysis/features` uses source/HIR/index owners and emits owned protocol values.
+  Adding a request changes its domain files and registration, not a mailbox loop.
+* Scheduling is by retained analysis context, not a queue or actor per feature
+  domain. Implementation yields between complete context shards; that policy does
+  not change merely because its source file moves under navigation.
+* Lattice owns typed dispatch and mailboxes. There are no local Handler/ActorRef/
+  Envelope/Mailbox facades, global feature/job enums or handwritten dispatch loop.
+* Source, package and HIR crates acquire no actor, Tokio or LSP dependency.
 
 ### Dependency inventory
 
@@ -2748,6 +2658,22 @@ Reuse passing evidence for unchanged images/contracts. Each row requires its
 listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
+
+Post-pilot request organization is aligned with functional ownership:
+`session/handlers` groups navigation, completion, lifecycle, document sync and
+control; `analysis/features` mirrors the semantic domains. RequestRegistry and
+FeatureScheduler remain separate shared state owners. The refactor moves existing
+handlers and query bodies without changing routing, queue policy, snapshot
+selection, progress or terminal behavior. Focused actor/scheduler/process tests
+and repository implementation checks validate this maintenance checkpoint.
+Seventeen focused tests pass: three semantic actor cases, context scheduling,
+three registry cases, ordered overlay/workspace input propagation and nine actual
+stdio/TCP process cases. Structure (1,968 Rust files, zero violations), workspace
+all-target Clippy, formatting and diff checks pass. The moved hover/definition/
+completion method bodies match their prior implementation exactly after newline
+normalization. Existing performance/fuzz evidence is retained for unchanged
+mechanisms; full-workspace and exhaustive matrices remain CI-only.
+
 
 LSP04's functional/editor integration, formal performance, retention and bounded
 sanitizer checks pass. Selected local Gate A acceptance is complete; later

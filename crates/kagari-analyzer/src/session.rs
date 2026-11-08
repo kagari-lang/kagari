@@ -2,14 +2,12 @@
 use std::io::Error;
 pub(crate) mod analysis;
 pub(crate) mod capture;
-pub(crate) mod features;
-pub(crate) mod inputs;
+pub(crate) mod feature_scheduler;
+pub(crate) mod handlers;
 pub(crate) mod jobs;
-pub(crate) mod lifecycle;
 pub(crate) mod outbox;
 pub(crate) mod publications;
-pub(crate) mod requests;
-pub(crate) mod requests_messages;
+pub(crate) mod request_registry;
 pub(crate) mod tasks;
 pub(crate) mod timers;
 #[cfg(any(test, feature = "verification"))]
@@ -26,10 +24,10 @@ use crate::{
     session::{
         analysis::AnalysisHost,
         capture::CaptureState,
-        features::FeatureHost,
+        feature_scheduler::FeatureScheduler,
         outbox::{Outbox, WriteFrame},
         publications::Publications,
-        requests::{AdmissionError, Requests},
+        request_registry::{AdmissionError, RequestRegistry},
         timers::{Deadline, Timers},
     },
     transport::{self, IngressBudget},
@@ -67,11 +65,11 @@ pub(crate) struct SessionActor {
     pub state: Lifecycle,
     pub documents: Documents,
     pub captures: CaptureState,
-    pub features: FeatureHost,
+    pub features: FeatureScheduler,
     pub analysis: AnalysisHost,
     pub publications: Publications,
     pub limits: SessionLimits,
-    pub requests: Requests,
+    pub requests: RequestRegistry,
     pub outbox: Outbox,
     pub timers: Timers,
     timer_receiver: Option<watch::Receiver<Option<Instant>>>,
@@ -112,9 +110,9 @@ impl SessionActor {
             documents,
             captures: CaptureState::new(root.to_owned(), limits.retained_input_bytes),
             analysis: AnalysisHost::new(),
-            features: FeatureHost::default(),
+            features: FeatureScheduler::default(),
             publications: Publications::new(&limits),
-            requests: Requests::new(limits.requests),
+            requests: RequestRegistry::new(limits.requests),
             outbox: Outbox::new(limits.clone()),
             budget: IngressBudget::new(&limits),
             limits,

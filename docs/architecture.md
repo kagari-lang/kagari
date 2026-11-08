@@ -2507,6 +2507,15 @@ diagnostics receive a turn after eight reliable frames. Clean completed contexts
 emit an empty result without retaining empty URI tombstones. Publication storage
 has its own finite budget, separate from reliable output and source input leases.
 
+Protocol handlers are grouped under `session/handlers`: navigation (hover,
+definition and implementation), completion, lifecycle, document synchronization
+and control. Corresponding worker query policies and presentation live under
+`analysis/features/navigation` or `analysis/features/completion.rs`.
+`session/request_registry.rs` owns request identity/state accounting;
+`session/feature_scheduler.rs` owns shared admission, capture waits, context fairness
+and typed completions. Functional grouping does not create a queue or actor per
+feature. Index traversal and retained cursors remain with the index owner.
+
 Semantic requests retain their admitted input generation, original URI, immutable
 capture and source lease. Four concrete typed actor messages dispatch through a
 frozen method router. The analysis worker checks only the selected function when

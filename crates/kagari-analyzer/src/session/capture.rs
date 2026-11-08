@@ -1,7 +1,7 @@
 //! Input generation barriers and the single acquisition-worker credit.
 use crate::{
     protocol::{Notification, source_name},
-    session::{Lifecycle, SessionActor, features::FeatureHost, jobs::JobCredit},
+    session::{Lifecycle, SessionActor, feature_scheduler::FeatureScheduler, jobs::JobCredit},
     workspace::{
         CaptureFailure, CaptureRequest, WorkspaceCapture,
         acquisition::{self, AcquisitionPort},
@@ -104,7 +104,7 @@ impl CaptureState {
         self.port = None;
     }
 
-    pub fn cancel_unneeded(&mut self, features: &FeatureHost) {
+    pub fn cancel_unneeded(&mut self, features: &FeatureScheduler) {
         self.barriers
             .retain(|request| features.waiting_for(request.generation));
         if let Some((request, cancel)) = &self.active

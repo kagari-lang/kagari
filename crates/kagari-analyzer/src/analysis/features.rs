@@ -1,4 +1,6 @@
 //! Bounded protocol projections from retained source and HIR query owners.
+pub(crate) mod completion;
+pub(crate) mod navigation;
 pub(crate) mod projection;
 
 use crate::{
@@ -113,61 +115,4 @@ pub(crate) trait FeatureQuery: Send + 'static {
         input: &FeatureInput,
         cancel: &CancellationToken,
     ) -> Result<QueryStep, AnalysisFailure>;
-}
-
-pub(crate) struct HoverQuery;
-
-pub(crate) struct DefinitionQuery;
-
-pub(crate) struct CompletionQuery;
-
-pub(crate) struct ImplementationQuery;
-
-impl FeatureQuery for HoverQuery {
-    const METHOD: &'static str = "textDocument/hover";
-
-    fn run(
-        state: &mut AnalysisState,
-        input: &FeatureInput,
-        cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
-        state.hover(input, cancel).map(QueryStep::Complete)
-    }
-}
-
-impl FeatureQuery for DefinitionQuery {
-    const METHOD: &'static str = "textDocument/definition";
-
-    fn run(
-        state: &mut AnalysisState,
-        input: &FeatureInput,
-        cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
-        state.definition(input, cancel).map(QueryStep::Complete)
-    }
-}
-
-impl FeatureQuery for CompletionQuery {
-    const METHOD: &'static str = "textDocument/completion";
-
-    fn run(
-        state: &mut AnalysisState,
-        input: &FeatureInput,
-        cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
-        state.completion(input, cancel).map(QueryStep::Complete)
-    }
-}
-
-impl FeatureQuery for ImplementationQuery {
-    const METHOD: &'static str = "textDocument/implementation";
-    const WORK_DONE: bool = true;
-
-    fn run(
-        state: &mut AnalysisState,
-        input: &FeatureInput,
-        cancel: &CancellationToken,
-    ) -> Result<QueryStep, AnalysisFailure> {
-        state.implementation(input, cancel)
-    }
 }

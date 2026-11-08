@@ -4,7 +4,7 @@ use crate::{
     server::options::SessionLimits,
     session::{
         outbox::Outbox,
-        requests::{AdmissionError, Requests},
+        request_registry::{AdmissionError, RequestRegistry},
     },
 };
 use kagari_common::cancellation::CancellationToken;
@@ -130,7 +130,7 @@ impl Model {
         }
     }
 
-    fn acknowledge(&mut self, requests: &mut Requests, outbox: &mut Outbox, valid: bool) {
+    fn acknowledge(&mut self, requests: &mut RequestRegistry, outbox: &mut Outbox, valid: bool) {
         let active = self.active();
         let sequence = active.map_or(0, |index| self.publications[index].sequence);
         if active.is_none() || !valid {
@@ -153,7 +153,13 @@ impl Model {
         }
     }
 
-    fn finish(&mut self, requests: &mut Requests, outbox: &mut Outbox, serial: u64, charge: usize) {
+    fn finish(
+        &mut self,
+        requests: &mut RequestRegistry,
+        outbox: &mut Outbox,
+        serial: u64,
+        charge: usize,
+    ) {
         let index = self
             .admissions
             .iter()
@@ -170,7 +176,7 @@ impl Model {
         }
     }
 
-    fn verify(&self, requests: &Requests, outbox: &Outbox) {
+    fn verify(&self, requests: &RequestRegistry, outbox: &Outbox) {
         assert_eq!(requests.len(), self.occupancy());
         assert_eq!(
             requests.unresolved(),
@@ -214,7 +220,7 @@ pub(crate) fn check(input: &[u8]) {
         ..SessionLimits::default()
     };
     limits.validate().unwrap();
-    let mut requests = Requests::new(capacity);
+    let mut requests = RequestRegistry::new(capacity);
     let mut outbox = Outbox::new(limits.clone());
     let mut model = Model {
         capacity,

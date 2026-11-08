@@ -1,7 +1,7 @@
 use crate::{
     documents::DocumentInput,
     protocol::source_name,
-    session::features::{FeatureHost, FeatureTask},
+    session::feature_scheduler::{FeatureScheduler, FeatureTask},
     workspace::{CaptureRequest, WorkspaceCapture, acquisition, budget::InputBudget},
 };
 use kagari_common::cancellation::CancellationToken;
@@ -63,7 +63,7 @@ fn index_continuation_yields_to_another_contexts_already_queued_query() {
         capture.document_contexts[a].context,
         capture.document_contexts[b].context
     );
-    let mut scheduler = FeatureHost::default();
+    let mut scheduler = FeatureScheduler::default();
     scheduler.pending.extend([
         task(1, a, &capture),
         task(2, a, &capture),

@@ -7,7 +7,8 @@ use lattice_actor::{
     context::HandlerContext,
     traits::{Handler, Message},
 };
-use serde_json::Value;
+use lsp_types::{ProgressToken, WorkDoneProgressCancelParams};
+use serde_json::{Value, from_value};
 use std::io;
 
 pub(crate) struct UnknownRequest(pub Request);
@@ -90,6 +91,37 @@ impl Handler<CancelRequested> for SessionActor {
             }
             self.cancel_feature(serial);
             self.reject(serial, ErrorCode::RequestCancelled, "request cancelled")?;
+        }
+        Ok(())
+    }
+}
+
+/// Work-done cancellation addresses the active progress token, not the request ID.
+pub(crate) struct ProgressCancelled(pub Notification);
+
+impl Message for ProgressCancelled {}
+
+impl Handler<ProgressCancelled> for SessionActor {
+    async fn handle(
+        &mut self,
+        _: &mut HandlerContext<'_, Self>,
+        message: ProgressCancelled,
+    ) -> io::Result<()> {
+        let Ok(params) = from_value::<WorkDoneProgressCancelParams>(message.0.params) else {
+            return Ok(());
+        };
+        if matches!(&params.token, ProgressToken::String(token) if token.len() > 256) {
+            return Ok(());
+        }
+        if let Some(serial) = self.features.progress.serial(&params.token)
+            && self.requests.cancel_serial(serial)
+        {
+            self.cancel_feature(serial);
+            self.reject(
+                serial,
+                ErrorCode::RequestCancelled,
+                "request cancelled through work-done progress",
+            )?;
         }
         Ok(())
     }

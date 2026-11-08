@@ -3,13 +3,19 @@ use crate::{
     protocol::{Message as WireMessage, Notification, Request},
     session::{
         SessionActor,
-        features::messages::{
-            CompletionRequested, DefinitionRequested, HoverRequested, ImplementationRequested,
-            ProgressCancelled,
+        handlers::{
+            completion::CompletionRequested,
+            control::{
+                CancelRequested, ClientResponse, ProgressCancelled, UnknownNotification,
+                UnknownRequest,
+            },
+            document_sync::{Changed, Closed, Opened, ReloadRequested, Saved, WatchedFilesChanged},
+            lifecycle::{ExitRequested, InitializeRequested, Initialized, ShutdownRequested},
+            navigation::{
+                definition::DefinitionRequested, hover::HoverRequested,
+                implementation::ImplementationRequested,
+            },
         },
-        inputs::{Changed, Closed, Opened, ReloadRequested, Saved, WatchedFilesChanged},
-        lifecycle::{ExitRequested, InitializeRequested, Initialized, ShutdownRequested},
-        requests_messages::{CancelRequested, ClientResponse, UnknownNotification, UnknownRequest},
     },
     transport::IngressPermit,
 };

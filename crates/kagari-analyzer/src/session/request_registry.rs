@@ -28,14 +28,14 @@ struct Entry {
 
 /// Counts both unresolved requests and committed responses awaiting writer acknowledgement.
 /// A terminal decision releases wire-ID occupancy, never serial ownership or capacity.
-pub(crate) struct Requests {
+pub(crate) struct RequestRegistry {
     capacity: usize,
     next: RequestSerial,
     entries: BTreeMap<RequestSerial, Entry>,
     unresolved: HashMap<RequestId, RequestSerial>,
 }
 
-impl Requests {
+impl RequestRegistry {
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
             capacity,
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn terminal_releases_wire_id_before_acknowledgement_without_reusing_serials() {
-        let mut requests = Requests::new(2);
+        let mut requests = RequestRegistry::new(2);
         let id = RequestId::from("same".to_owned());
         let old = requests.admit(id.clone(), "hover".into()).unwrap();
         let old_token = requests.token(old).unwrap();
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn failed_admission_preserves_existing_ownership_and_checked_serial_exhaustion() {
-        let mut requests = Requests::new(1);
+        let mut requests = RequestRegistry::new(1);
         let first = requests.admit(RequestId::from(1), "first".into()).unwrap();
         assert_eq!(
             requests.admit(RequestId::from(1), "duplicate".into()),
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn lifecycle_slots_remain_serviceable_when_ordinary_responses_are_pending() {
-        let mut requests = Requests::new(1);
+        let mut requests = RequestRegistry::new(1);
         let query = requests.admit(RequestId::from(1), "hover".into()).unwrap();
         requests.terminal(query).unwrap();
         assert_eq!(

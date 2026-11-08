@@ -1,161 +1,12 @@
-//! Protocol presentation uses semantic destinations and source-owned coordinates.
+//! Shared protocol coordinate and authoritative destination projection.
 use crate::{
-    analysis::{
-        AnalysisFailure, AnalysisState,
-        diagnostics::protocol_range,
-        features::{FeatureInput, FeatureOutput},
-    },
+    analysis::{AnalysisFailure, diagnostics::protocol_range, features::FeatureInput},
     workspace::{ContextCapture, origins::file_uri},
 };
-use kagari_common::cancellation::CancellationToken;
-use kagari_hir::{
-    aggregates::implementations::ImplementationSearchError, analysis::signatures::SignatureSnapshot,
-};
-use kagari_source::identity::FileSpan;
-use kagari_source::source::SourceFile;
-use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionList, CompletionTextEdit, Hover, HoverContents,
-    LanguageString, Location, MarkedString, TextEdit, Uri,
-};
-use serde_json::{Error, Value, to_value};
-
-impl AnalysisState {
-    pub fn hover(
-        &mut self,
-        input: &FeatureInput,
-        cancel: &CancellationToken,
-    ) -> Result<FeatureOutput, AnalysisFailure> {
-        let retained = self.editor_for_input(input, cancel)?;
-        let editor = &retained.editor;
-        let mut contents = Vec::new();
-        let documentation = editor.documentation_at(input.offset);
-        if let Some(documentation) = &documentation {
-            if documentation
-                .written_signature
-                .len()
-                .saturating_add(documentation.documentation.len())
-                > input.limit / 4
-            {
-                return Err(AnalysisFailure::Capacity(
-                    "hover documentation exceeds its byte limit".into(),
-                ));
-            }
-            if !documentation.written_signature.is_empty() {
-                contents.push(MarkedString::LanguageString(LanguageString {
-                    language: "kagari".into(),
-                    value: documentation.written_signature.clone(),
-                }));
-            }
-            if !documentation.documentation.is_empty() {
-                contents.push(MarkedString::String(documentation.documentation.clone()));
-            }
-        }
-        if let Some(ty) = editor
-            .type_at(input.offset)
-            .filter(|ty| !ty.is_unresolved())
-        {
-            let spelling = ty.display_name(editor.definitions());
-            let name = editor
-                .definition_at(input.offset)
-                .map(|declaration| declaration.name.as_str());
-            let text = name.map_or_else(|| spelling.clone(), |name| format!("{name}: {spelling}"));
-            contents.push(MarkedString::LanguageString(LanguageString {
-                language: "kagari".into(),
-                value: text,
-            }));
-        }
-        cancel.check()?;
-        let value = if contents.is_empty() {
-            Value::Null
-        } else {
-            to_value(Hover {
-                contents: HoverContents::Array(contents),
-                range: None,
-            })
-            .map_err(conversion)?
-        };
-        FeatureOutput::new(value, input.limit)
-    }
-
-    pub fn definition(
-        &mut self,
-        input: &FeatureInput,
-        cancel: &CancellationToken,
-    ) -> Result<FeatureOutput, AnalysisFailure> {
-        let retained = self.editor_for_input(input, cancel)?;
-        let editor = &retained.editor;
-        let value = match editor.definition_at(input.offset) {
-            Some(declaration) => {
-                let context = selected_context(input)?;
-                to_value(location(
-                    input,
-                    context,
-                    editor.signature_snapshot(),
-                    declaration.location,
-                )?)
-                .map_err(conversion)?
-            }
-            None => Value::Null,
-        };
-        cancel.check()?;
-        FeatureOutput::new(value, input.limit)
-    }
-
-    pub fn completion(
-        &mut self,
-        input: &FeatureInput,
-        cancel: &CancellationToken,
-    ) -> Result<FeatureOutput, AnalysisFailure> {
-        let retained = self.editor_for_input(input, cancel)?;
-        let editor = &retained.editor;
-        let completions = editor
-            .completions(input.offset, 4096, cancel)
-            .map_err(|error| match error {
-                ImplementationSearchError::Cancelled => AnalysisFailure::Cancelled,
-                ImplementationSearchError::LimitExceeded => {
-                    AnalysisFailure::Capacity("completion search limit exceeded".into())
-                }
-            })?;
-        let range = protocol_range(editor.source(), completions.replacement).ok_or_else(|| {
-            AnalysisFailure::Unavailable("completion replacement is outside retained text".into())
-        })?;
-        let mut items = Vec::new();
-        let mut bytes = 0usize;
-        for candidate in completions.candidates {
-            cancel.check()?;
-            let detail = candidate
-                .ty
-                .as_ref()
-                .map(|ty| ty.display_name(editor.definitions()));
-            bytes = bytes.saturating_add(
-                candidate.name.len() * 3 + detail.as_ref().map_or(0, String::len) + 1024,
-            );
-            if bytes > input.limit / 2 {
-                return Err(AnalysisFailure::Capacity(
-                    "completion candidates exceed their byte limit".into(),
-                ));
-            }
-            items.push(CompletionItem {
-                label: candidate.name.clone(),
-                kind: Some(CompletionItemKind::TEXT),
-                detail,
-                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                    range,
-                    new_text: candidate.name,
-                })),
-                ..Default::default()
-            });
-        }
-        FeatureOutput::new(
-            to_value(CompletionList {
-                is_incomplete: false,
-                items,
-            })
-            .map_err(conversion)?,
-            input.limit,
-        )
-    }
-}
+use kagari_hir::analysis::signatures::SignatureSnapshot;
+use kagari_source::{identity::FileSpan, source::SourceFile};
+use lsp_types::{Location, Uri};
+use serde_json::Error;
 
 pub(crate) fn selected_context(input: &FeatureInput) -> Result<&ContextCapture, AnalysisFailure> {
     let selected = input
@@ -257,6 +108,6 @@ fn open_destination(
     Ok(alias)
 }
 
-fn conversion(error: Error) -> AnalysisFailure {
+pub(super) fn conversion(error: Error) -> AnalysisFailure {
     AnalysisFailure::Unavailable(format!("semantic result conversion failed: {error}"))
 }
