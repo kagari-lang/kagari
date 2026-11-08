@@ -473,8 +473,19 @@ but never evaluates a script operand.
 `MethodApplication` retains the receiver, interface, method identity and local type
 arguments. Its `MethodPlan` distinguishes a direct/shared/native/dynamic call,
 primitive operation, callable-tuple unpacking or structural protocol composition.
+Callable syntax such as `f(a, b)` retains flat source operands even though the
+selected `Fn::call` declaration receives one argument tuple. Elaboration validates
+the authored arity from the applied callable interface; MIR emission packs that
+tuple after evaluating each operand once. A script default call retains its
+impl-owned member identity while the instance planner selects the checked body
+from the declaring trait module. Builtin Debug/Display use their runtime primitive
+only after normal explicit/native/dynamic method selection. A result instantiated
+to Never terminates the emitted block, including a symbolic generic result.
+
 `InterfacePlan` separates constructing a selected implementation table from adapting
-its exact associated outputs to the checked view. Neither recipe owns analysis
+its exact associated outputs to the checked view. Construction requirements retain
+the declared constraints; source/target value views fill omitted associated outputs
+such as Iterable's bounded iterator before an upcast. Neither recipe owns analysis
 state or performs a second type check.
 
 Admission also captures authored owners and static-only provenance once using the

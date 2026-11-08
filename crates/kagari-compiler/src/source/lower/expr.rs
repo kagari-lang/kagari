@@ -17,7 +17,6 @@ use kagari_hir::{
         expr::{Condition, ops::BinaryOp as HirBinaryOp},
         ids::{BlockId, ExprId},
     },
-    types::TypeId,
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
@@ -122,7 +121,8 @@ impl FunctionLowerer<'_, '_> {
         let operation = self.source_body().operation(operation).clone();
         let converted = matches!(operation.kind, CheckedExprKind::Convert { .. });
         let value = self.lower_operation_value(operation.source, operation.kind)?;
-        if !self.current_block_terminated() && operation.ty == TypeId::Builtin(BuiltinType::Never) {
+        // A symbolic result can become Never after the instance substitution.
+        if !self.current_block_terminated() && value.ty == ValueType::Never {
             self.set_terminator(Terminator::Unreachable);
         }
         if !self.current_block_terminated() {

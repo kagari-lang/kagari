@@ -540,7 +540,24 @@ impl Builder<'_, '_> {
             operands.push(receiver);
         }
         operands.extend_from_slice(args);
-        if operands.len() != signature.params.len() {
+        let parameter_count = if let CheckedCallTarget::Method {
+            operands: MethodOperands::Callable,
+            interface,
+            ..
+        } = &target
+        {
+            let Some(TypeId::Function { params, .. }) =
+                callable_signature(self.environment.definitions(), interface)
+            else {
+                return Err(self.error(span, "missing callable operand signature"));
+            };
+            // Authored f(a, b) retains flat operands; the selected Fn method takes
+            // the receiver and one tuple. Packing belongs to MIR emission.
+            params.len() + 1
+        } else {
+            signature.params.len()
+        };
+        if operands.len() != parameter_count {
             return Err(self.error(span, "applied call operand count mismatch"));
         }
         self.expressions(&operands)?;
