@@ -1559,6 +1559,27 @@ heading links across affected documents, both new Mermaid diagrams parsed with
 11.12.0 and rendered/visually inspected in headless Chrome, and git diff --check.
 This was documentation-only; no Rust build, tests, Clippy or new benchmarks ran.
 
+On 2026-11-09, the user requested a call-model proposal based on the measured
+overhead. The same [target document](runtime-refactor-design.md#candidate-call-execution-model)
+now records a candidate: install prepared call-site/entry/codec tables, execute
+internal calls on an execution-owned logical slot stack, keep small traceable
+frames, and use one scoped Native boundary. Separate stable type/schema facts
+from per-value authority/loan/result checks and local roots from durable retention.
+Publication updates current entries and retained-caller correspondence; old
+computations keep their own body while ordinary inner calls remain current.
+Warm empty/scalar Native calls should create no type mappings or empty root leases.
+
+The proposal compares Lua 5.4.9 CallInfo/stack transitions and JNI 25 local/global
+root lifetimes, recording their differing typing, reload and thread assumptions
+at the design owner. It preserves generic/interface selection, GC/reentry safety,
+effects/traps, depth/cancellation and observable debugger/slice boundaries. Detailed
+public APIs and physical record/slow-path layouts need review; compiler/bytecode/
+ABI impacts are explicit. This does not activate implementation, native expansion,
+enum layouts or another work queue, and no proposed speedup is claimed.
+Design-only checks passed: relative links/headings and Markdown content, three
+Mermaid diagrams parsed/rendered with the new call-flow image visually inspected,
+and git diff --check. No Rust build, test, Clippy or new timing run was needed.
+
 #### Installation current-lock measurement
 
 The user-authorized 2026-11-08 [current-cell Mutex measurement](performance-baseline.md#installation-current-cell-mutex-measurement-windows-2026-11-08)

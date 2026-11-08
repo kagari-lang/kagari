@@ -4,9 +4,9 @@ Status: target architecture under review, started on 2026-11-08. This document
 records the intended ownership and execution model, beginning with hot reload.
 It does not describe implemented replacement APIs or authorize implementation.
 The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns scope,
-sequencing and acceptance. Future Runtime topics belong here when reviewed;
-the Native API, frame/value representation and stdlib separation are not designed
-by this first section.
+sequencing and acceptance. Hot reload and a candidate synchronous call model are
+covered. Concrete public Native registration APIs, physical value storage and
+stdlib separation remain further review topics.
 
 For the implementation being replaced, read the [Runtime execution map](architecture/runtime.md)
 and [current reload walkthrough](architecture/runtime/reload.md). Existing behavior
@@ -279,6 +279,194 @@ not migrate objects, rerun initializers, roll back effects or rehash collections
 Rolling back business code is another checked publication; assigning an older Arc
 does not bypass declarations/statics introduced in the meantime.
 
+## Candidate call execution model
+
+Proposed on 2026-11-09 after the [empty-call measurements](performance-baseline.md#empty-call-attribution-windows-2026-11-08).
+An ordinary empty script call costs about 531 ns; raw/flat Native about 640-660 ns;
+owned Native about 1,977 ns. The owned path rebuilds type mappings twice and creates
+two empty root leases. These results motivate moving stable preparation out of the
+invocation and using one execution-slot protocol. They do not establish a speedup
+for the proposed implementation or imply that all checks can move to installation.
+
+### Prepare facts, then execute a bound call
+
+| Boundary | Work and validity |
+| --- | --- |
+| Compile/verify Program | Check script types and call contracts; prepare argument/result locations, frame requirements, initialization/liveness facts and GC maps. Source-free verification independently proves the executable contracts. |
+| Bind/install in Runtime | Match declarations/applications, resolve local host/type identities, check Rust mapping against the declared signature and prepare codecs, link dense call-site/entry tables and compatible call ABI. Facts are scoped to this installation and checked body/application. |
+| Enter/resume from host | Check Runtime/installation/handle authority and phase; establish an exclusive activation and its code/root protection; validate actual external arguments. |
+| Internal call | Select the current or retained target through linked tables, check required cancellation/depth/capacity, transfer prepared operands and enter a small logical frame or synchronous Native boundary. |
+| Value access/conversion | Check actual object owner/generation, host availability, loans and value/result validity where required. Custom decoders/encoders still execute per value. |
+| Return | Publish the result while protected, retire only this frame/local scope, restore caller state and release depth. Preserve trap/effect order. |
+
+An internal call is not another host admission. Installation authority and code
+liveness proved for an exclusive activation are reused until a callback, collection,
+suspension or other relevant transition requires specific dynamic revalidation.
+Publication/close cannot intervene in a synchronous activation. Moving Runtime
+between threads is outside that interval. Avoid repeating installation HashMap and
+whole-contract validation merely because another logical function was called.
+
+Prepared code does not authorize arbitrary host-supplied values. A host boundary,
+revoked opaque payload, mutable alias, expired view or changed loan still needs
+the corresponding dynamic checks. Readonly values do not establish deep immutability.
+If existing user-defined mapping hooks mix type description with per-value effects,
+separate those contracts coherently; do not silently hoist arbitrary converter code.
+
+### Core records and hot reload selection
+
+The following are logical records, not finalized Rust types:
+
+```text
+Program
+    CallSiteDescription[]         portable declarations/applications and operands
+    BodyCode[]                    exact code, frame/GC facts and call ABI
+
+Runtime installation
+    LinkedCallSite[]              dense links to local entry slots and transfers
+    current_entries[]             stable entry slot -> current body/implementation
+    PreparedNativeBinding[]       callback/state and installed codec plans
+
+Execution
+    frames[]                      logical frames: exact body, PC, base, saved top,
+                                  return destination, optional applied environment
+    slots                         logical argument/local/result storage
+    local_roots                   scoped temporary roots with checkpoint rollback
+```
+
+Shared Program code contains no Runtime pointers or local table indices. Its
+call-site ordinal indexes a Runtime-linked array, which names an installation-local
+entry slot. Ordinary call selection is an indexed lookup, not a declaration search
+or new publication mapping. Retained body code also keeps its matching local links.
+Interface calls select through checked receiver/witness information; closure calls
+select their retained body/environment. They join the same operand/frame protocol
+after selection, without erasing their distinct selection semantics.
+
+Publication prepares affected entry/binding changes, including retained-caller
+binder/application correspondence, before commit. A compatible call ABI fixes the
+parameter/result contract across body replacement; a body's private temporary
+layout may change. No generic inference or correspondence construction is repeated
+on an ordinary warm call. Closed generic Native applications can prepare a binding
+once per checked application in a Runtime-owned cache with explicit version validity.
+
+Updating helper@v1 to helper@v2 changes its current entry. An old Future keeps its
+resume body@v1 and its environment, while its ordinary helper call reads the
+current helper slot. Never patch a retained closure's own body to the new body or
+cache a transitive old dependency choice across parking. AOT/JIT selection uses the
+same semantic entry and the native eligibility rules below.
+
+### Slots, frames and return
+
+Slots form an execution-owned logical stack. They can initially use the existing
+scalar/managed banks; this proposal does not require Vec<Value>, a new universal
+carrier or the deferred enum-layout cutover. Prepared locations/layouts explain
+how an argument or result is read. Indices and generation checks survive storage
+growth; no Rust slice or payload pointer stays borrowed across reentry/collection.
+Compiled code can use its verified register/native calling convention and root
+maps; logical slots do not require every machine-code call to copy through
+interpreter Value records. Boundary adaptation remains explicit.
+
+```mermaid
+flowchart TD
+    SITE["Prepared call site"] --> TARGET["Select current entry slot<br/>or retained body and environment"]
+    TARGET --> CHECK["Required dynamic checks<br/>cancellation, depth and capacity"]
+    CHECK --> ARGS["Transfer prepared arguments<br/>publish their initialized roots"]
+    ARGS --> KIND{"Execution implementation"}
+    KIND --> SCRIPT["Small script frame<br/>continue interpreter or eligible machine code"]
+    KIND --> HOST["Scoped Native boundary<br/>read/write the same logical slots"]
+    SCRIPT --> RESULT["Publish protected result to caller"]
+    HOST --> RESULT
+    RESULT --> LEAVE["Retire frame/local roots<br/>restore caller and depth"]
+```
+
+The compiler can place arguments directly in a prepared outgoing area or use a
+bounded move plan. Preserve left-to-right once-only evaluation: in f(g(), h()),
+g's result must already be rooted while h can allocate or reenter. Reuse capacity
+in the ordinary stack suffix; do not run generic independent-window compaction
+on a normal tail return. Parked/independently retired executions still need their
+separate checked storage/cleanup policy.
+
+Initialize real arguments and necessary GC state. Definite initialization and
+root maps allow dead/uninitialized temporaries to avoid blanket Value clearing,
+provided the collector/debugger cannot read stale bank contents. Unit requires
+no payload/result slot in the proposed call ABI. A logical empty frame still
+participates in depth, traces, cancellation and reload body selection; it cannot
+be erased merely because it contains no data.
+
+For a managed result, publish the caller's root before releasing callee/local
+protection, through the existing non-collecting return handoff invariant. A failed
+conversion or return does not undo completed callback effects.
+
+### One Native boundary with prepared adapters
+
+The proposed boundary is a scoped view over the same execution storage:
+
+```text
+NativeCall
+    exclusive execution service access
+    installed binding / closed signature / prepared codecs
+    argument locations and caller result destination
+    local-root checkpoint and scoped-loan cleanup
+```
+
+Typed Rust callbacks remain ergonomic; registration generates the thunk that reads
+arguments and writes the declared result. Raw access and typed adapters use this
+boundary, with the same identity, loan, cancellation and cleanup rules. The concrete
+public context name and bind syntax are not settled by this record sketch.
+
+Bind the Rust type mapping and expected script type once for a fixed application.
+Invocation uses that codec; it does not construct a new TypeArgument just to prove
+again that Rust () matches Unit. Custom value conversion, runtime owner/generation
+checks and actual result validation remain where needed. A dynamic script handle
+cannot pass solely because its Rust wrapper type was checked during registration.
+Deep owned DTO conversion may still allocate according to its real data.
+
+Arguments are already protected in their frame/outgoing slots. Decode directly
+from those locations instead of cloning a Vec<Value> pack into two RootSets. New
+temporary managed values use a stack-like local root area, reclaimed to a saved
+mark on every exit. Empty/scalar calls take no root leases, reference-counted scope
+objects or release-channel messages. Actual local-root growth is a fallible slow
+path. A handle explicitly retained beyond the call needs a durable owning root;
+requesting an owning argument representation also pays that ownership cost.
+
+Synchronous Native execution normally invokes the callback and performs the common
+return transition directly. Keep its logical Native frame for tracing/depth and
+release storage borrows before arbitrary Rust/reentry. Do not require three generic
+driver iterations for every callback. Explicit saved return/continuation state is
+still necessary when the existing debugger/slicing contract admits parking after
+the callback but before return. Preserve those observable boundaries and results;
+never suspend a Running Rust callback or remove a poll/trace point without proving
+its required behavior. Async work continues through owned Future/wait machinery.
+
+### Reference mechanisms and acceptance
+
+[Lua 5.4.9 ldo.c](https://github.com/lua/lua/blob/v5.4.9/ldo.c#L495-L528)
+reuses CallInfo records and passes C-function arguments/results through its stack;
+[OP_CALL](https://github.com/lua/lua/blob/v5.4.9/lvm.c) continues script execution
+within the interpreter's existing C frame. Adopt reusable storage and narrow frame
+transitions, not Lua's dynamic typing, missing-argument semantics or error unwinding.
+Kagari retains checked types, current-implementation selection and Rust-safe boundaries.
+
+[JNI 25 local/global references](https://docs.oracle.com/en/java/javase/25/docs/specs/jni/design.html#global-and-local-references)
+separate call-duration protection from longer native retention. Adopt that lifetime
+distinction, not per-reference global leases for synchronous arguments or JNI's
+thread-affine interface contract. Kagari's call scope stays on its active thread;
+Runtime can move only between synchronous activations. Neither source proves an
+expected Kagari speedup or permits dropping its handle/loan checks.
+
+First acceptance witnesses are zero allocator requests for warmed empty/scalar
+internal calls and Native adapters, no repeated static type/schema construction,
+no duplicate empty root leases, table-based warm selection, and correct result/root
+handoff. Also exercise storage growth, malformed source-free calls, custom codec
+failure/effects, host reentry with GC, scoped loans, cancellation/depth, debugger/
+slice exits, and old-body/current-inner-call reload with actual native selection.
+Run the existing empty/control/Lua workloads on the implemented model before
+claiming an improvement; the measured Lua numbers are context, not a promised target.
+
+This design crosses Runtime/VM/SDK and, for call layouts/liveness/Unit storage,
+compiler/bytecode/native ABI boundaries. It is not a Runtime-only patch. Exact
+record layout, generated adapter API, slow-path ownership and observer/slice
+transition details require review before a finite implementation phase is activated.
+
 ## AOT, JIT and deoptimization
 
 Select the semantic body first, then a valid execution implementation of that
@@ -379,8 +567,8 @@ finds a limited call-path contribution under fixed publications. It supports nei
 a lock-only explanation for the call gap nor production snapshot caching.
 The [empty-call attribution](performance-baseline.md#empty-call-attribution-windows-2026-11-08)
 also identifies heavy per-call admission and repeated owned-conversion type/root
-construction. It supplies evidence for the pending Native/frame boundary review,
-without defining or activating its replacement API here.
+construction. It motivates the [candidate call model](#candidate-call-execution-model);
+the public replacement API and implementation remain unactivated.
 
 ## Implementation boundaries and review acceptance
 
