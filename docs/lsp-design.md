@@ -602,6 +602,85 @@ opaque and cause no disk IO. A loose local file can discover declared sibling
 modules within its approved root; an untitled buffer has no implicit project imports.
 Saving it under a new URI is a new association, not a rename of a semantic identity.
 
+### Multi-project isolation: implementation references and queued correction
+
+The 2026-11-08 source review distinguishes four boundaries: editor folders admit
+acquisition roots and configuration; discovered projects supply package/provider
+and build facts; analysis contexts interpret those facts; each query selects a
+search scope with explicit coverage. A folder can contain several projects, and a
+physical file can belong to several contexts. Shared bytes or standard-library
+providers alone do not merge independent projects into one search domain.
+
+The following primary sources were inspected at fixed revisions:
+
+| Implementation and source revision | Mechanism and ownership | Kagari adaptation and differing assumptions |
+| --- | --- | --- |
+| [gopls cache view](https://github.com/golang/tools/blob/4f7264d11672ebf84711112779f8cbb45b1df733/gopls/internal/cache/view.go), [session](https://github.com/golang/tools/blob/4f7264d11672ebf84711112779f8cbb45b1df733/gopls/internal/cache/session.go), [snapshot](https://github.com/golang/tools/blob/4f7264d11672ebf84711112779f8cbb45b1df733/gopls/internal/cache/snapshot.go) | Session shares overlays/caches, Folder records configuration, View represents a logical build, Snapshot provides consistent file reads with explicit acquire/release. SnapshotOf selects a file's view using directory and package metadata. Changes are offered to views, whose snapshot logic determines dependent invalidation/diagnosis. | Separate folder identity, project environment, document-context association and retained capture. Go may create several GOOS/GOARCH builds per folder and uses structural interface matching; do not import those semantics. View invalidation cancels old requests in this source; Kagari keeps its admitted retained-read contract. |
+| [rust-analyzer GlobalState](https://github.com/rust-lang/rust-analyzer/blob/03ae6be57aa063bb373f69eead3b8e15168a45d2/crates/rust-analyzer/src/global_state.rs), [workspace reload](https://github.com/rust-lang/rust-analyzer/blob/03ae6be57aa063bb373f69eead3b8e15168a45d2/crates/rust-analyzer/src/reload.rs) | One AnalysisHost/VFS accompanies several ProjectWorkspaces; project crate graphs are combined into the semantic input graph. Workspace reload has explicit error handling and can retain a previous usable set rather than publish a failed replacement. | Project boundaries can coexist under one session and executor. Retain Kagari's scoped definition identities and existing source owner; do not add another VFS, require a global HIR identity table, or treat an old graph as proof of current completeness after an input failure. |
+| [clangd compilation commands](https://github.com/llvm/clangd-www/blob/ae5866d4552e30a173b8e9c3cec872a82e4c0120/design/compile-commands.md), [index layers](https://github.com/llvm/clangd-www/blob/ae5866d4552e30a173b8e9c3cec872a82e4c0120/design/indexing.md) | Compilation databases supply per-file build commands; open-file FileIndex data overlays BackgroundIndex through MergedIndex. Indexing/caching is factored into per-file contributions and background work. | Keep interactive document queries independent of unrelated background indexing and bound relation shards. C++ translation units and SymbolID merging differ from Kagari package/provider identity. Available index results during background loading cannot establish exhaustive implementation/reference coverage under Kagari's contract. |
+| [JDT LS folder changes](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/63dd5190f22dd97bfbe450a42cd52b8216061410/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/handlers/WorkspaceFolderChangeHandler.java), [ProjectsManager](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/63dd5190f22dd97bfbe450a42cd52b8216061410/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/managers/ProjectsManager.java), [ImplementationCollector](https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/63dd5190f22dd97bfbe450a42cd52b8216061410/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/handlers/ImplementationCollector.java) | Folder events update canonical root paths and drive project import/removal plus watcher refresh through workspace jobs. Implementation collection constructs type-hierarchy search scopes. | Keep root lifecycle, project discovery and feature search scope as distinct owners. Eclipse resource projects/classpaths and workspace jobs are platform mechanisms, not reasons to duplicate Kagari package resolution or Lattice dispatch. |
+
+The [gopls workspace guide](https://go.dev/gopls/workspace) documents automatic
+build selection since v0.15.0: references/implementations run in the requesting
+file's default build rather than every possible loaded build. This supports an
+explicit search-scope policy, not a promise that another server never performs
+session-wide bookkeeping, cancellation or reload. The sources establish
+mechanisms, not measured Kagari performance or blanket fault isolation.
+
+The current pilot is narrower than the intended scope contract below:
+`WorkspaceCapture` groups all admitted contexts under one generation,
+`ImplementationIndex::new` checks the entire capture, and input changes invalidate
+all diagnostic contributions. Consequently an unrelated broken project can block
+implementation search, and an unrelated edit can trigger capture/diagnostic work.
+Successful same-name-provider isolation tests do not prove fault or invalidation
+isolation. This review records the gap without claiming it is implemented.
+
+The finite follow-up is:
+
+1. **LSP05 scope/coverage owner (`analysis/features` and `analysis/indexes`),
+   before extending occurrence/reference indexing:** derive the request's required context set before creating an index scope.
+   Search admitted project/member and reverse-dependent contexts using the actual
+   selected package/provider identity, with the dependency closures needed to
+   interpret them. Do not limit the search to the defining package's imports,
+   join unrelated physical copies by display name, or merge projects merely
+   because both use native declarations. Missing discovery that could affect the
+   selected search remains a coverage gap; it cannot be filtered away as unrelated
+   without evidence. Cache identity and pins must include the selected scope and
+   its input/provider stamp vector, not only the session generation.
+2. **LSP08 lifecycle/invalidation owner (`workspace` and `session`):** maintain
+   explicit folder-to-project and physical-source-to-context associations. Keep
+   global event order for admission, but use affected context/provider stamps for
+   cache and diagnostic validity. A shared dependency change reaches every
+   consuming context; an independent project edit does not withdraw unchanged
+   contributions elsewhere. Folder add/remove recomputes discovered ownership and
+   watches; shared providers and still-open documents survive while another valid
+   owner needs them. New work uses the replacement environment while admitted reads
+   retain their original capture and all source leases.
+3. **Scheduling owner:** keep SessionActor as the coordinator and preserve bounded
+   worker credits and context fairness. Logical project state does not require a
+   worker or actor per folder. Evaluate bounded worker parallelism only from the
+   existing interactive-load/cancellation measurements; logical scope isolation
+   alone does not establish CPU or memory isolation.
+
+For example, open projects A and B and query implementations in A. If B is proven
+outside A's selected search scope, a missing B module does not make A incomplete.
+If A and C use the same selected user-package provider and C can supply reverse
+implementors, C remains in scope and a missing relevant C unit prevents an
+exhaustive result. A request admitted before either edit keeps its original scope
+and stamp vector. These rules preserve complete answers and existing cancellation
+semantics while narrowing the correctness dependency.
+
+Strengthen the existing multi-root actor/index scenarios with three distinct
+witnesses: unrelated malformed B leaves A's exact result available; a shared
+provider edit reaches all relevant consumers; and a missing required reverse
+consumer remains an explicit incomplete result. Sample live folder removal while
+an old read is held at LSP08. Extend B03/B04/B07 with increasing unrelated project
+count, affected-context/work counters, exact result/coverage assertions and retained
+old captures. Performance targets and seed replay must distinguish scope
+selection from indexing work; no new latency or memory win is claimed here.
+This is documentation-only research; runtime validation remains the existing
+pilot evidence until the owning phase implements these contracts.
+
 ### Overlay-aware capture
 
 Build an immutable overlay adapter implementing the existing `SourceInput` and
