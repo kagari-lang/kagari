@@ -3,10 +3,7 @@ use crate::{
     protocol::{ErrorCode, Notification, Request},
     session::{Lifecycle, SessionActor, timers::Deadline},
 };
-use lattice_actor::{
-    context::HandlerContext,
-    traits::{Handler, Message},
-};
+use lattice_actor::{context::HandlerContext, traits::Handler};
 use lsp_types::{
     CompletionOptions, ExecuteCommandOptions, HoverProviderCapability,
     ImplementationProviderCapability, InitializeParams, InitializeResult, InitializedParams, OneOf,
@@ -16,21 +13,17 @@ use lsp_types::{
 use serde_json::{Value, from_value, to_value};
 use std::io::{self, Error};
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct InitializeRequested(pub Request);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct Initialized(pub Notification);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct ShutdownRequested(pub Request);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct ExitRequested(pub Notification);
-
-impl Message for InitializeRequested {}
-
-impl Message for Initialized {}
-
-impl Message for ShutdownRequested {}
-
-impl Message for ExitRequested {}
 
 impl Handler<InitializeRequested> for SessionActor {
     async fn handle(

@@ -11,11 +11,12 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use lattice_actor::{
     context::{ActorContext, HandlerContext},
-    traits::{Handler, Message},
+    traits::Handler,
 };
 use std::io::{self, Error};
 use tokio::sync::{oneshot, oneshot::error::RecvError};
 
+#[derive(lattice_actor::Message)]
 struct DiagnosticsFinished {
     job: u64,
     epoch: u64,
@@ -25,8 +26,6 @@ struct DiagnosticsFinished {
     retry: DiagnosticTask,
     result: Result<Result<DiagnosticsResult, AnalysisFailure>, RecvError>,
 }
-
-impl Message for DiagnosticsFinished {}
 
 impl SessionActor {
     pub fn schedule_analysis(&mut self, ctx: &mut ActorContext<Self>) -> io::Result<()> {

@@ -18,7 +18,7 @@ use kagari_hir::analysis::work::milestone::{self, BodyCheckGate};
 use kagari_source::line_index::{Position, PositionEncoding};
 use lattice_actor::{
     context::{ActorContext, HandlerContext},
-    traits::{Handler, Message},
+    traits::Handler,
 };
 use lsp_types::{ProgressToken, TextDocumentPositionParams};
 use serde_json::from_value;
@@ -142,14 +142,13 @@ impl FeatureScheduler {
     }
 }
 
-struct FeatureFinished<Q> {
+#[derive(lattice_actor::Message)]
+struct FeatureFinished<Q: FeatureQuery> {
     job: u64,
     input: FeatureInput,
     result: Result<Result<QueryStep, AnalysisFailure>, RecvError>,
     query: PhantomData<Q>,
 }
-
-impl<Q: FeatureQuery> Message for FeatureFinished<Q> {}
 
 impl SessionActor {
     pub fn admit_feature<Q: FeatureQuery>(

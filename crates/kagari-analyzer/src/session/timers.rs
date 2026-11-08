@@ -2,7 +2,7 @@
 use crate::session::SessionActor;
 use lattice_actor::{
     context::{ActorContext, HandlerContext},
-    traits::{Handler, Message},
+    traits::Handler,
 };
 use std::{collections::BTreeMap, io, time::Instant};
 use tokio::{
@@ -66,9 +66,8 @@ impl Timers {
     }
 }
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct DeadlineElapsed(oneshot::Sender<()>);
-
-impl Message for DeadlineElapsed {}
 
 pub(crate) fn start(
     ctx: &mut ActorContext<SessionActor>,

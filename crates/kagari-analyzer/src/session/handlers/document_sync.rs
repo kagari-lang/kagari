@@ -3,38 +3,29 @@ use crate::{
     protocol::{ErrorCode, Notification, Request},
     session::{Lifecycle, SessionActor},
 };
-use lattice_actor::{
-    context::HandlerContext,
-    traits::{Handler, Message},
-};
+use lattice_actor::{context::HandlerContext, traits::Handler};
 use lsp_types::{DidChangeWatchedFilesParams, DidSaveTextDocumentParams, ExecuteCommandParams};
 use serde_json::Value;
 use serde_json::from_value;
 use std::io;
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct Opened(pub Notification);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct Changed(pub Notification);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct Closed(pub Notification);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct Saved(pub Notification);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct WatchedFilesChanged(pub Notification);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct ReloadRequested(pub Request);
-
-impl Message for Opened {}
-
-impl Message for Changed {}
-
-impl Message for Closed {}
-
-impl Message for Saved {}
-
-impl Message for WatchedFilesChanged {}
-
-impl Message for ReloadRequested {}
 
 impl Handler<Opened> for SessionActor {
     async fn handle(

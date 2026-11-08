@@ -4,41 +4,33 @@ use crate::{
     session::{Lifecycle, SessionActor, timers::Deadline},
     transport::{self, ReadyEndpoint},
 };
-use lattice_actor::{
-    context::HandlerContext,
-    traits::{Handler, Message},
-};
+use lattice_actor::{context::HandlerContext, traits::Handler};
 use std::{
     io::{self, Error},
     time::Instant,
 };
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct TransportReady(pub io::Result<ReadyEndpoint>);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct ProtocolFailure(pub DecodeError);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct DriverExited {
     pub name: &'static str,
     pub result: io::Result<()>,
 }
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct FrameWritten(pub u64);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct EncodeRejected {
     pub sequence: u64,
     pub id: Option<RequestId>,
     pub reason: String,
 }
-
-impl Message for TransportReady {}
-
-impl Message for ProtocolFailure {}
-
-impl Message for DriverExited {}
-
-impl Message for FrameWritten {}
-
-impl Message for EncodeRejected {}
 
 impl Handler<TransportReady> for SessionActor {
     async fn handle(

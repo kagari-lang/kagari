@@ -2,15 +2,11 @@
 use crate::{
     analysis::features::navigation::hover::HoverQuery, protocol::Request, session::SessionActor,
 };
-use lattice_actor::{
-    context::HandlerContext,
-    traits::{Handler, Message},
-};
+use lattice_actor::{context::HandlerContext, traits::Handler};
 use std::io;
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct HoverRequested(pub Request);
-
-impl Message for HoverRequested {}
 
 impl Handler<HoverRequested> for SessionActor {
     async fn handle(

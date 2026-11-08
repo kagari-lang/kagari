@@ -11,7 +11,7 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use lattice_actor::{
     context::{ActorContext, HandlerContext},
-    traits::{Handler, Message},
+    traits::Handler,
 };
 use lsp_types::{InitializeParams, LogMessageParams, MessageType, Uri};
 use serde_json::to_value;
@@ -138,17 +138,15 @@ impl CaptureState {
     }
 }
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct CaptureFinished {
     job: u64,
     generation: u64,
     result: Result<Result<WorkspaceCapture, CaptureFailure>, RecvError>,
 }
 
-impl Message for CaptureFinished {}
-
+#[derive(lattice_actor::Message)]
 pub(crate) struct AcquisitionExited(Result<Result<(), String>, RecvError>);
-
-impl Message for AcquisitionExited {}
 
 impl SessionActor {
     pub fn start_acquisition(&mut self, ctx: &mut ActorContext<Self>) -> io::Result<()> {

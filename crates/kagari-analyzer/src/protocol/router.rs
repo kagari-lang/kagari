@@ -33,12 +33,11 @@ type RequestRoute =
 type NotificationRoute =
     Box<dyn Fn(ActorHandle<SessionActor>, Notification, IngressPermit) -> Dispatch + Send + Sync>;
 
-pub(crate) struct Ingress<M> {
+#[derive(lattice_actor::Message)]
+pub(crate) struct Ingress<M: Message> {
     message: M,
     permit: IngressPermit,
 }
-
-impl<M: Message> Message for Ingress<M> {}
 
 impl<M: Message> Handler<Ingress<M>> for SessionActor
 where

@@ -2,15 +2,11 @@
 use crate::{
     analysis::features::completion::CompletionQuery, protocol::Request, session::SessionActor,
 };
-use lattice_actor::{
-    context::HandlerContext,
-    traits::{Handler, Message},
-};
+use lattice_actor::{context::HandlerContext, traits::Handler};
 use std::io;
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct CompletionRequested(pub Request);
-
-impl Message for CompletionRequested {}
 
 impl Handler<CompletionRequested> for SessionActor {
     async fn handle(

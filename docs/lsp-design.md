@@ -2659,6 +2659,14 @@ listed new boundary, not a rerun of every earlier timing or fuzz matrix.
 
 ### Current implementation checkpoint
 
+Message marker implementations use Lattice's `#[derive(lattice_actor::Message)]`
+from the pinned revision, including generic ingress/completion messages. Generic
+`Message`/`FeatureQuery` constraints stay on their owning structs. No local derive
+wrapper or additional actor dependency is introduced.
+All 35 empty marker implementations are replaced. Verification-enabled target
+checking, three semantic actor tests, structure, workspace all-target Clippy,
+formatting and diff checks pass for this mechanical maintenance change.
+
 Post-pilot request organization is aligned with functional ownership:
 `session/handlers` groups navigation, completion, lifecycle, document sync and
 control; `analysis/features` mirrors the semantic domains. RequestRegistry and

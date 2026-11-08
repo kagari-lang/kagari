@@ -3,29 +3,22 @@ use crate::{
     protocol::{ErrorCode, MAX_REQUEST_ID_BYTES, Notification, Request, RequestId, Response},
     session::SessionActor,
 };
-use lattice_actor::{
-    context::HandlerContext,
-    traits::{Handler, Message},
-};
+use lattice_actor::{context::HandlerContext, traits::Handler};
 use lsp_types::{ProgressToken, WorkDoneProgressCancelParams};
 use serde_json::{Value, from_value};
 use std::io;
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct UnknownRequest(pub Request);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct UnknownNotification(pub Notification);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct ClientResponse(pub Response);
 
+#[derive(lattice_actor::Message)]
 pub(crate) struct CancelRequested(pub Notification);
-
-impl Message for UnknownRequest {}
-
-impl Message for UnknownNotification {}
-
-impl Message for ClientResponse {}
-
-impl Message for CancelRequested {}
 
 impl Handler<UnknownRequest> for SessionActor {
     async fn handle(
@@ -97,9 +90,8 @@ impl Handler<CancelRequested> for SessionActor {
 }
 
 /// Work-done cancellation addresses the active progress token, not the request ID.
+#[derive(lattice_actor::Message)]
 pub(crate) struct ProgressCancelled(pub Notification);
-
-impl Message for ProgressCancelled {}
 
 impl Handler<ProgressCancelled> for SessionActor {
     async fn handle(

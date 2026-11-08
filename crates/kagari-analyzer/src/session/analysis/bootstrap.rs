@@ -8,7 +8,7 @@ use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
 use kagari_source::generated::{GeneratedDocument, GeneratedDocuments};
 use lattice_actor::{
     context::{ActorContext, HandlerContext},
-    traits::{Handler, Message},
+    traits::Handler,
 };
 use std::{
     env,
@@ -18,33 +18,29 @@ use std::{
 };
 use tokio::sync::{oneshot, oneshot::error::RecvError};
 
+#[derive(lattice_actor::Message)]
 struct StoreOpened {
     job: u64,
     epoch: u64,
     result: Result<Result<GeneratedDocuments, String>, RecvError>,
 }
 
+#[derive(lattice_actor::Message)]
 struct EnvironmentPrepared {
     job: u64,
     epoch: u64,
     result: Result<Result<Arc<[GeneratedDocument]>, AnalysisFailure>, RecvError>,
 }
 
+#[derive(lattice_actor::Message)]
 struct EnvironmentPublished {
     job: u64,
     epoch: u64,
     result: Result<Result<(), String>, RecvError>,
 }
 
+#[derive(lattice_actor::Message)]
 struct AnalysisExited(Result<Result<(), String>, RecvError>);
-
-impl Message for StoreOpened {}
-
-impl Message for EnvironmentPrepared {}
-
-impl Message for EnvironmentPublished {}
-
-impl Message for AnalysisExited {}
 
 fn cache_root() -> PathBuf {
     #[cfg(windows)]

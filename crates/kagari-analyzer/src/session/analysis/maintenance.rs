@@ -3,7 +3,7 @@ use crate::session::SessionActor;
 use kagari_common::cancellation::CancellationToken;
 use lattice_actor::{
     context::{ActorContext, HandlerContext},
-    traits::{Handler, Message},
+    traits::Handler,
 };
 use std::io::{self, Error};
 use tokio::sync::{oneshot, oneshot::error::RecvError};
@@ -14,12 +14,11 @@ type MaintenanceOutput = usize;
 #[cfg(not(test))]
 type MaintenanceOutput = ();
 
+#[derive(lattice_actor::Message)]
 struct MaintenanceFinished {
     job: u64,
     result: Result<MaintenanceOutput, RecvError>,
 }
-
-impl Message for MaintenanceFinished {}
 
 impl SessionActor {
     pub(super) fn schedule_maintenance(
