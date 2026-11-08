@@ -33,6 +33,10 @@ below; the public Pages site has not been activated by this work.
 - [Runtime ownership and host object API](runtime-ownership-and-host-api-design.md),
   [async execution contracts](async-execution-design.md) and
   [host task scopes](host-task-scope-design.md).
+- [Runtime execution map](architecture/runtime.md): current physical ownership,
+  data structures, value roots, suspension and cleanup; complete
+  [bytecode Call](architecture/runtime/calls.md) and
+  [hot reload](architecture/runtime/reload.md) diagrams expose locks and repeated work.
 - [Runnable examples](../examples/README.md), [structure checks](structure-checks.md)
   and [engineering rules](../AGENTS.md).
 - [Native module authoring](native-registration.md): complete fluent definitions,
@@ -59,6 +63,12 @@ below; the public Pages site has not been activated by this work.
 ## Active and queued work
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
+
+- [Runtime refactor architecture](runtime-refactor-design.md): target ownership and
+  execution model, beginning with hot reload. Covers centralized preparation,
+  shared immutable Programs, per-Runtime publication, cache ownership, old-body
+  retention and AOT/JIT invalidation/deoptimization boundaries. Design review only;
+  API sketches and production cutover are not implemented.
 
 - [Enum layouts](enum-layout-design.md): deferred pending Runtime execution and
   ownership review. EL00 baseline/models are retained; EL01-EL04 remain unstarted.

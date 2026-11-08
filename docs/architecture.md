@@ -7,6 +7,14 @@ explicitly marked and do not describe implemented behavior.
 
 For source-level data structures and ID lookup, start with the
 [HIR reading guide](architecture/hir.md).
+For Runtime ownership, concrete data structures, value lifetimes and operation
+costs, start with the [Runtime execution map](architecture/runtime.md). Its
+[bytecode call](architecture/runtime/calls.md) and
+[hot reload](architecture/runtime/reload.md) walkthroughs expose actual locks,
+validation, allocation/transfer and publication boundaries for architecture review.
+The [Runtime refactor architecture](runtime-refactor-design.md) separately records
+the target model, beginning with centralized update preparation and independent
+Runtime publication; its API sketches are not implemented contracts.
 
 ## Architectural Principles
 

@@ -11,6 +11,10 @@ Static typing, checked identities, GC roots, scoped access and exact computation
 ownership remain enforced; ordinary calls select current implementations.
 This reference describes ownership and API contracts;
 [architecture](architecture.md) owns their implementation boundaries.
+The [Runtime execution map](architecture/runtime.md) separately shows current
+physical containment, concrete data structures and full call/reload paths,
+including Mutex/RefCell boundaries and differences from the requested exclusive
+Runtime model. It is an implementation inventory, not a replacement API contract.
 
 ## Relationship to existing proposals
 

@@ -1495,6 +1495,127 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 ## Open review and documentation work
 
+### Runtime execution model review
+
+Documentation review authorized on 2026-11-08 on `design/runtime-execution-model`.
+The [Runtime execution map](architecture/runtime.md) records the current
+`48d79b2a` ownership/data model and full bytecode Call and hot-reload walkthroughs.
+Locks, RefCell loans, lookups, validation, allocation/initialization, root transfer,
+callbacks, commits, suspension and cleanup are explicit rather than hidden behind
+logical subsystem names. Semantic requirements, observed implementation and
+candidate design changes are distinguished; source-path counts are not timing
+attribution. No production behavior or ABI changes in this documentation step.
+
+The requested design direction is an immutable compiled Program, exclusive
+Runtime driving/update access, Send for Tokio thread migration rather than
+concurrent heap access, and independent stdlib providers. Shared/owned Program
+storage is conditional on measured value; removing Arc dereference alone is not
+a demonstrated speedup. Current live Program/Module metadata handles and their
+Mutex-backed current cell are implementation facts, not new requirements.
+
+Next review decisions belong to this existing roadmap entry: current-version
+ownership and activation validity; frame versus persistent computation retention;
+argument/result windows and the Native provider boundary. Preserve checked
+source-free inputs, error/effect order, reentry/GC protection and old-body/current-
+inner-call reload semantics. Runtime/VM/SDK consumers must be reviewed together;
+bytecode or native ABI changes require explicit cross-layer scope. This does not
+activate MIR/compiler reorganization, collector replacement or the deferred enum
+layout cutover. The existing interpreter, NC and GC plans retain their finite
+work/acceptance owners; do not create a second rewrite queue here.
+
+Documentation checks pass: relative file/heading links, whitespace/fence checks,
+all ten diagrams parsed with Mermaid 11.12.0 and rendered in headless Chrome, and
+visual inspection of the ownership, ordinary Call and publication diagrams.
+No Rust build, test or Clippy run is required for this documentation-only change;
+no new throughput or cost-attribution result is claimed.
+
+#### Runtime refactor target architecture
+
+The user requested a separate target-architecture document on 2026-11-08, starting
+with hot reload. The [Runtime refactor architecture](runtime-refactor-design.md)
+now owns the reviewed model, concrete ownership records, proposed API usage and
+publication diagrams. It consolidates the earlier reload/native proposal here;
+current specifications and the as-built execution map remain separate.
+
+Preparation builds one immutable transferable Program outside Runtime. Each
+recipient performs local admission/publication with mutable Runtime access.
+Runtime owns hotness, selected entries, JIT results and native validity; compiler
+workers may retain thread-local scratch, and final executable products can be
+shared. This corrects the earlier overly broad assignment of compilation caches
+to preparation alone. Preserve exact old computations, current ordinary inner
+calls, frozen contracts, historical-demand coverage and independent installations.
+The design records OpenJDK 25/JVMTI comparison and differing publication assumptions.
+
+Next decisions remain in this entry: immutable product/installation APIs,
+source-context and historical-demand preparation, local identity/binding recipes,
+activation validity, frame retention, argument/result windows and Native providers.
+The existing [sharing plan](multi-runtime-sharing-plan.md) and deferred native API
+review retain their implementation/measurement owners. No production cutover,
+independent-module format, optimizing native tier, stack deoptimization, frontend
+reorganization or enum-layout implementation is activated by this documentation.
+
+Target-document validation passed: Markdown whitespace/fences, relative file and
+heading links across affected documents, both new Mermaid diagrams parsed with
+11.12.0 and rendered/visually inspected in headless Chrome, and git diff --check.
+This was documentation-only; no Rust build, tests, Clippy or new benchmarks ran.
+
+#### Installation current-lock measurement
+
+The user-authorized 2026-11-08 [current-cell Mutex measurement](performance-baseline.md#installation-current-cell-mutex-measurement-windows-2026-11-08)
+is complete as a diagnostic, with no production optimization/cutover. Uncontended
+state read/lock/unlock is 9.14 ns; Arc capture/drop is 16.12 ns with the lock versus
+11.49 ns without it. These are tight-loop costs, not additive latency guarantees.
+
+First compare same-layout locked and frozen-publication images, retaining Arc
+clones and other admission work. Unchanged Lua changes substantially, motivating
+a separate follow-up using one image with a process-selected locked/frozen mode.
+Seven alternating pairs, three warmups and eleven samples per route give median
+elapsed-time reductions of 2.45% for 10k ordinary calls, 4.23% for 5k matched host
+callbacks and 6.35%/6.86% for interface/shared-generic rows. Arithmetic is nearly
+unchanged. Preserve pair ranges, identical-image A/A controls, original experiment,
+environment, reproduction source and attribution limits in the report. This does
+not explain the remaining order-of-magnitude call gap or authorize snapshot caching.
+
+The experiments assume fixed publications and do not preserve reload/close
+semantics. Rust sources were restored byte-for-byte, production rebuilt, and all
+original/form workload checksum checks passed. Only documentation remains changed;
+links/content/whitespace and diff checks pass. No Clippy, workspace tests, contended
+lock, multi-Runtime throughput, empty Native or full CI result is claimed.
+
+#### Empty-call cost attribution
+
+The user-authorized 2026-11-08 [empty-call attribution](performance-baseline.md#empty-call-attribution-windows-2026-11-08)
+is complete as a diagnostic. Seven ordinary processes with three warmups and eleven
+samples give incremental costs of 531 ns for script, 661 ns for raw Native, 638 ns
+for flat CallContext and 1,977 ns for owned NativeContext, after loop subtraction.
+Host entry is measured separately. Calls are zero-argument/Unit and remain present;
+source preparation, building and diagnostics are excluded from ordinary timing.
+
+Separate diagnostics use exact allocation/event counts and calibrated sampled
+scopes. WPR could not enable its performance policy (0xc5585011), so no CPU-stack
+sample is claimed. Replace exploratory 1/32 timing with a final full 1/31 pass to
+avoid aliasing two/three-entry paths. Script preparation is about 386 ns in that
+diagnostic image, including selection 155 ns and admission 198 ns; driver/region/
+return are separately measured. Diagnostic perturbation and nested scopes preclude
+assigning these as exact production percentages. Complete methods/limits remain
+in the report; no forced residual or sum of overlapping scopes is used.
+
+Owned conversion creates the known Rust result mapping twice: 16 requests/896 bytes
+per call. Two empty root registrations add two requests/112 bytes, with additional
+periodic allocation outside those construction scopes. The total is about 18.06
+requests/1.05 KiB per invocation; raw/flat have no proportional allocation growth.
+Review callable/type preparation versus invocation authority and frame-local versus
+escaping roots in the existing Runtime refactor. This does not authorize a fix.
+
+All 18 instrumented Runtime/VM sources were restored byte-for-byte, temporary
+probe/fixtures removed, production rebuilt, and original/form checksum checks
+passed. Only documentation remains changed. Sample matrices, restoration hashes,
+links/content/whitespace and diff checks pass. No workspace tests, Clippy, general
+Native-call/GC/reload correctness or full CI acceptance is claimed for discarded
+diagnostic code; no production optimization or API migration was committed.
+
+### Existing architecture and documentation review
+
 The [HIR architecture and module review](review.md#hir-architecture-and-module-organization)
 at `75a8b7ee` on `refactor/hir-architecture` is complete. It inventoried all source
 modules and traced representative dependencies, stage/public interfaces, file

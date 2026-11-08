@@ -6373,3 +6373,637 @@ Neither ablation is an accepted implementation or a change to BO19's production
 performance claim; production retains both polling guarantees.
 Source and the default release benchmark were restored; the arithmetic checksum
 check passes with both guarantees enabled.
+
+## Installation current-cell Mutex measurement (Windows, 2026-11-08)
+
+User-requested diagnosis on `design/runtime-execution-model`, production source
+`48d79b2a`. The initial worktree changes were documentation only. This measures
+the `Installation.current` lock identified in the [ordinary Call walkthrough](architecture/runtime/calls.md#selection-and-frame-entry-including-locks).
+It is not a production optimization, reload implementation or native-tier change.
+
+### Environment and estimator
+
+Windows 11 Pro 10.0.26300, i9-12900K (16 cores, 24 logical processors),
+66,843,692 KiB visible RAM. Rust 1.99.1 (58cf8f9c3, 2026-10-13), Cargo 1.99.1,
+LLVM 23.1.1, x86_64-pc-windows-msvc. Runtime workloads use workspace release
+defaults/opt-level 3, default Cargo parallelism/target, Kagari source/native and
+mlua 0.12.2 with lua54,vendored (lua-src 551.0.2). Execution is interpreter-only;
+native preparation/compilation, source preparation, verification, loading, linking
+and build time are outside execution timers. GC/cancellation and the remaining
+admission checks remain enabled. No diagnostic allocator, profiler, affinity or
+performance environment override is used. Processes run sequentially; no builds,
+tests or profiling overlap their timed execution. OS background activity and core
+placement are not controlled.
+
+For each workload experiment/control, freeze seven alternating process pairs in
+advance, three warmups and eleven checked samples per route. Reverse engine and
+workload order every two pairs, following the [existing benchmark protocol](../benchmarks/lua-comparison/README.md#beforeafter-workflow).
+Normalize batch durations, take each process's sample median, then report the
+median of seven candidate/baseline ratios. Time columns are medians of process
+medians, so their quotient need not equal the paired-ratio estimator. Ranges retain
+all pairs/outliers and are not confidence intervals. All independent workload
+checksums pass. Entry uses batch 1,000; other rows use batch 1.
+
+### Uncontended operation cost
+
+A separate std-only executable models `Mutex<Option<Arc<u64>>>`, with the Arc
+allocation outside all timers. It measures the pointer/state operations, not the
+actual ProgramDescriptor's graph or full Runtime. Each case executes 2,000,000
+operations per cycle, three warmup and eleven measured cycles in each of seven
+sequential processes. Alternate forward/reverse case order each cycle/process.
+Use optimization barriers on each access/result, independent checksum assertions,
+and rustc edition 2024 with opt-level 3. No other thread accesses the cell.
+
+| Operation | Median ns/operation | Process median range |
+| --- | ---: | --- |
+| plain_live | 0.376 | 0.354..0.415 |
+| mutex_live | 9.141 | 8.946..9.189 |
+| once_live | 0.397 | 0.369..0.413 |
+| plain_capture | 11.489 | 11.372..11.572 |
+| mutex_capture | 16.124 | 16.007..16.244 |
+| once_capture | 11.523 | 11.472..11.607 |
+| mutex_live_minus_plain_live | 8.726 | 8.535..8.823 |
+| mutex_capture_minus_plain_capture | 4.586 | 4.512..4.815 |
+
+The lock's incremental cost is about 8.73 ns for a state read, and about 4.59 ns
+when added around Arc capture. These are paired per-process differences. A mutex
+operation and Arc reference-count operation do not compose as independent additive
+timers. The 16.12 ns capture row includes the Arc clone/drop and cannot all be
+attributed to locking. A read uses one lock acquisition/release pair. This is
+uncontended throughput on this machine, not a latency guarantee under contention.
+
+To reproduce this microbenchmark, save the following as an ignored temporary Rust
+file, compile with `rustc --edition=2024 -C opt-level=3 FILE -o IMAGE`, then run
+IMAGE with process indices 0 through 6 sequentially. Keep compilation outside
+timing. All imports, loop bounds, barriers and case bodies are included:
+
+```rust
+use std::{env, hint::black_box, sync::{Arc, Mutex, OnceLock}, time::Instant};
+
+const ITERATIONS: u64 = 2_000_000;
+
+fn timed(mut action: impl FnMut() -> bool) -> (u128, u64) {
+    let mut checksum = 0;
+    let start = Instant::now();
+    for _ in 0..ITERATIONS {
+        checksum += u64::from(black_box(action()));
+    }
+    let ns = start.elapsed().as_nanos();
+    assert_eq!(checksum, ITERATIONS);
+    (ns, checksum)
+}
+
+fn main() {
+    let process: usize = env::args().nth(1).unwrap().parse().unwrap();
+    let plain = Some(Arc::new(42_u64));
+    let locked = Mutex::new(plain.clone());
+    let once = OnceLock::new();
+    once.set(plain.as_ref().unwrap().clone()).unwrap();
+    let cases = ["plain_live", "mutex_live", "once_live", "plain_capture", "mutex_capture", "once_capture"];
+    println!("process,phase,sample,case,iterations,ns,checksum");
+    for cycle in 0..14 {
+        let phase = if cycle < 3 { "warmup" } else { "sample" };
+        for ordinal in 0..cases.len() {
+            let index = if (cycle + process) % 2 == 0 { ordinal } else { cases.len() - ordinal - 1 };
+            let name = cases[index];
+            let (ns, checksum) = match name {
+                "plain_live" => timed(|| black_box(&plain).is_some()),
+                "mutex_live" => timed(|| black_box(&locked).lock().unwrap().is_some()),
+                "once_live" => timed(|| black_box(&once).get().is_some()),
+                "plain_capture" => timed(|| {
+                    let value = black_box(&plain).as_ref().unwrap().clone();
+                    black_box(Arc::as_ptr(&value));
+                    true
+                }),
+                "mutex_capture" => timed(|| {
+                    let value = black_box(&locked).lock().unwrap().as_ref().unwrap().clone();
+                    black_box(Arc::as_ptr(&value));
+                    true
+                }),
+                "once_capture" => timed(|| {
+                    let value = black_box(&once).get().unwrap().clone();
+                    black_box(Arc::as_ptr(&value));
+                    true
+                }),
+                _ => unreachable!(),
+            };
+            println!("{process},{phase},{cycle},{name},{ITERATIONS},{ns},{checksum}");
+        }
+    }
+}
+```
+
+### First experiment: two separately linked images
+
+Freeze the unchanged production image first. Build a locked control with an unused
+`measurement_snapshot: OnceLock<Arc<ProgramDescriptor>>` field in Installation,
+initialized with OnceLock::new. Import OnceLock in module.rs/installation.rs.
+This keeps the control and experimental Installation layouts equal. The control
+retains the original lock paths. The experimental image changes only these reads:
+
+```text
+Installation::capture_current:
+    if measurement_snapshot has a descriptor:
+        return that descriptor's root, cloning its Arc as before
+    otherwise run the original locked capture
+    store a cloned successful descriptor in measurement_snapshot
+
+ModuleStore::validate_executable_installation:
+    retain installation registration/owner checks
+    live = measurement_snapshot.get().is_some()
+           OR the original locked current.is_some() check
+    retain the original handling of a non-live installation
+```
+
+The fixed-version process prewarms the snapshot; timed reads avoid the mutex.
+Remaining parameter, depth, window, type, GC and other admission work stays in
+place. The snapshot deliberately cannot follow reload/close: it is a diagnostic
+for fixed-publication fixtures, never a valid production replacement.
+
+Build/freeze each suite with `uv run python scripts/benchmark_lua.py
+--freeze-baseline BASELINE` and `--source-forms` for forms. After the temporary
+change, run each suite using `--baseline-executable BASELINE --runs 7`; both routes
+are interpreter-only. The original and source-form scripts/fixtures are unchanged.
+
+| Workload | Locked us | Frozen-read us | Paired ratio | Pair ratio range |
+| --- | ---: | ---: | ---: | --- |
+| calls | 5500.100 | 5305.400 | 0.97686 | 0.95390..0.99980 |
+| forms_helper | 2674.700 | 2596.700 | 0.97466 | 0.89459..0.99925 |
+| forms_host_callback | 3386.700 | 3388.100 | 1.00410 | 0.97608..1.02111 |
+| forms_interface | 8972.500 | 8556.800 | 0.94512 | 0.93516..1.03401 |
+| forms_shared_generic | 12884.300 | 12166.500 | 0.94406 | 0.91739..0.96379 |
+
+These small Kagari changes cannot be assigned purely to locking: unchanged Lua
+logic changes as well. In particular, Lua host_callback changes 442.8 -> 215.5 us,
+paired ratio 0.48577. Lua helper changes 111.1 -> 98.6 us, ratio 0.88569.
+Different code generation/link layout is a concrete confound. Preserve this first
+experiment, but use a separate same-image follow-up for the call-path estimate.
+
+### Identical-image A/A control
+
+Before the follow-up, run the original frozen production image for both roles,
+using the same seven-pair original/forms protocol and no build between roles.
+
+| Workload | A us | A us | Paired ratio | Pair ratio range |
+| --- | ---: | ---: | ---: | --- |
+| arithmetic | 468.400 | 471.300 | 1.00212 | 0.98463..1.91690 |
+| calls | 5501.000 | 5504.300 | 0.99698 | 0.96905..1.01863 |
+| fibonacci | 12493.900 | 12340.700 | 1.00211 | 0.96059..1.03881 |
+| forms_direct | 65.800 | 66.000 | 1.00152 | 0.97710..1.03605 |
+| forms_helper | 2683.000 | 2671.500 | 0.99132 | 0.95493..1.04433 |
+| forms_host_callback | 3341.400 | 3375.000 | 1.01006 | 0.96202..1.07970 |
+| forms_interface | 8982.000 | 9078.200 | 1.00021 | 0.98056..1.05361 |
+| forms_shared_generic | 12756.500 | 12906.700 | 1.00240 | 0.99218..1.02634 |
+
+The arithmetic pair range reaches 1.91690 despite its near-one median; that outlier
+is retained. A/A checks process-order/environment variability but is not a bound
+on separately linked images' layout effects. It does not repair the first
+experiment's attribution problem.
+
+### Follow-up: one image, process-selected read mode
+
+Build one switchable executable containing both paths, with the same snapshot
+field plus an immutable `measurement_enabled: bool`. Set that flag once when
+reserving each Installation, using the presence of the diagnostic environment
+variable `KAGARI_MEASURE_CURRENT_SNAPSHOT`. Never read the environment inside a
+timed call. Mode selection is additional benchmark-only machinery in both roles.
+
+```text
+capture_current:
+    if measurement_enabled AND snapshot is initialized:
+        return snapshot root with the original Arc clone
+    run original locked capture
+    if measurement_enabled: initialize snapshot from successful capture
+
+validate_executable_installation:
+    live = (measurement_enabled AND snapshot is initialized)
+           OR original locked current.is_some()
+```
+
+Run the exact same image with the variable absent for the locked role, present
+for the frozen-read role. All other inputs/flags are identical. Fix seven
+alternating process pairs separately for original and forms, again three warmups
+and eleven samples, with the same reverse schedule. Before timing, run both modes
+with `--check --interpreter-only` and also with `--source-forms`. Assert exactly
+14 processes x 11 execution samples x 2 engines x 7 or 12 workloads, and verify
+the image hash after each suite. This follow-up was selected because the earlier
+unchanged Lua rows exposed a layout confound, not because a desired speedup was
+missed. Neither experiment changes the other one's estimator or samples.
+
+| Workload | Locked us | Frozen-read us | Paired ratio | Pair ratio range |
+| --- | ---: | ---: | ---: | --- |
+| arithmetic | 466.200 | 462.700 | 0.99955 | 0.90520..1.10017 |
+| arrays | 7473.800 | 7364.800 | 0.98963 | 0.93335..1.02006 |
+| branches | 879.700 | 885.400 | 0.99908 | 0.98080..1.01958 |
+| calls | 5475.700 | 5302.500 | 0.97548 | 0.94617..1.01321 |
+| entry | 1.945 | 1.905 | 0.97741 | 0.95782..1.00886 |
+| fibonacci | 12551.300 | 12157.600 | 0.96554 | 0.95163..1.04585 |
+| maps | 5774.200 | 5704.900 | 0.98800 | 0.93617..1.02019 |
+| forms_byte_state | 14198.400 | 13986.600 | 0.98329 | 0.97048..0.99668 |
+| forms_capture_cell | 6117.100 | 5965.600 | 0.97981 | 0.95349..0.99128 |
+| forms_concrete_generic | 2777.300 | 2646.300 | 0.95298 | 0.88617..1.04991 |
+| forms_direct | 67.400 | 67.100 | 0.98822 | 0.96582..1.05085 |
+| forms_field | 677.000 | 674.900 | 0.99747 | 0.96220..1.01472 |
+| forms_helper | 2698.900 | 2577.900 | 0.95517 | 0.87353..1.00423 |
+| forms_host_callback | 3359.900 | 3205.400 | 0.95770 | 0.92365..0.97844 |
+| forms_interface | 8998.500 | 8422.700 | 0.93646 | 0.91901..0.98639 |
+| forms_native | 3396.800 | 3189.100 | 0.93726 | 0.90151..0.98803 |
+| forms_shared_generic | 12864.600 | 11926.600 | 0.93143 | 0.91214..0.94578 |
+| forms_string_calls | 6984.000 | 6731.400 | 0.95675 | 0.93754..0.98483 |
+| forms_string_constants | 3979.100 | 3881.000 | 0.98123 | 0.94530..1.00068 |
+
+Median paired elapsed-time reductions are calls: 2.45%, forms_helper: 4.48%,
+forms_host_callback: 4.23%, forms_interface: 6.35%, forms_shared_generic: 6.86%.
+Arithmetic's ratio is 0.99955 and direct's is 0.98822; neither establishes a
+meaningful per-instruction lock cost. Lua controls remain much closer to one in
+the same image: calls 0.99659, direct 1.00348 and host_callback 1.00624. These
+controls support the fixed-image comparison while pair variability remains
+visible; no statistical confidence or universal speedup is claimed.
+
+This is the net effect of substituting an immutable snapshot read for the current
+lock paths in one fixed-version image. The mode branch, OnceLock read and
+compiler/CPU interactions remain; it is not an isolated mutex timer. It removes
+reads in all reached capture/liveness paths, not only the three statically
+identified acquisitions. No exact dynamic lock-count claim is made.
+
+The ordinary-call workload still amortizes to hundreds of nanoseconds per iteration
+(including the call, arithmetic and loop control), and matched
+Kagari/Lua calls remain far apart with the frozen path. Lock removal alone cannot
+explain or eliminate the observed order-of-magnitude call overhead. Frame
+admission, argument/result transfer, metadata/environment work and ownership paths
+remain candidates for separate architectural diagnosis, not measured time shares
+in this experiment. Contended metadata queries, concurrent multi-Runtime throughput,
+reload latency and empty Native bodies were not measured.
+
+### Build provenance, restoration and remaining scope
+
+Build wall times, excluded from execution: initial production 90.946 s (reused
+available dependencies), locked-layout control 28.628 s, frozen-read image
+28.483 s, switchable image 28.923 s, final production restoration 29.732 s.
+Additional suite builds were cache hits. Cargo.lock SHA-256:
+b7e97eeadc9e6d58b129b207206e0f1e1d984984802804a56b7cf742fdfa98cd.
+
+| Image | SHA-256 |
+| --- | --- |
+| production.exe | 075d05795c7e3ce6e94cbabc21e4bb6c0e8fcca24bd4715cea4ced0430e83c64 |
+| locked-control.exe | e7d9b281923224e108de0daa5d1e202f9af292b93f6e3a9e7548b80c7321d299 |
+| frozen-read.exe | 37dff14559857a0a749d26060d33f245bd575017733b625cdd36c65e4386f95c |
+| switchable.exe | 674eebff8b95e0a4a68b110151f5cc5dd0f0177f9878054a4f7b80e8b2c4c323 |
+| lock_micro.exe | c7358812c457ad25a84cad5063f97fb4651c7c8d840d5005926f1104761efcf0 |
+| restored production | 59d22425df28083831cf6da5511d56b32b7e520e9fd57d288d9750d835cd61c8 |
+
+Restored production source SHA-256:
+
+- [module.rs](../crates/kagari-runtime/src/module.rs): 6b0c35feabc4747af91cbc500e2d8ed4cad126bb77939eb70a9367a30b805242
+- [module/installation.rs](../crates/kagari-runtime/src/module/installation.rs): 359ac7217325eb1f33cd6f60668b09db37c68e2bc01919c377d0e07bc4cbcd27
+
+After each temporary experiment, restore module.rs and module/installation.rs
+byte-for-byte and rebuild the normal release benchmark. The final production
+image passes `--check --interpreter-only` for all original workloads and the
+source-form suite. No Rust, Cargo or fixture edits remain. The only retained work
+is this report and documentation links/roadmap updates; experimental sources,
+images, CSVs and JSON are disposable ignored artifacts. The methods and conclusions
+above do not depend on those artifacts remaining available.
+
+Documentation link/content/whitespace and git diff --check validation pass. No
+workspace tests or Clippy run is claimed for these discarded experiments. No
+reload correctness, production optimization, full CI acceptance or Lua-parity
+claim follows from their passing checksums.
+
+## Empty-call attribution (Windows, 2026-11-08)
+
+User-requested diagnosis on production `48d79b2a`, following the
+[current-cell lock measurement](#installation-current-cell-mutex-measurement-windows-2026-11-08).
+Measure zero-argument, Unit-returning script and host-native functions, rather than
+reusing an arithmetic-helper or host-entry result as an empty-call estimate.
+The [Call walkthrough](architecture/runtime/calls.md) owns the source-path map;
+this report adds measured throughput, scoped times and allocation counts.
+No production optimization, public API change or implementation cutover is retained.
+
+### Workload, environment and ordinary throughput
+
+Environment is the same i9-12900K / Windows 11 Pro 10.0.26300 / Rust-Cargo 1.99.1 /
+LLVM 23.1.1 / x86_64-pc-windows-msvc machine as the preceding measurement. Use
+workspace release defaults/opt-level 3, default target/build parallelism, Kagari
+source/native and mlua 0.12.2 with lua54,vendored (lua-src 551.0.2). Execution is
+interpreter-only; Native below means a Rust host callback, not script AOT/JIT.
+No affinity override, profiler or counting allocator is present in ordinary runs.
+Automatic GC, checked operations and cooperative cancellation remain enabled.
+Builds/setup and diagnostics do not overlap ordinary execution timing.
+
+Prepare one complete program and one Runtime per process, then reuse them.
+Native callback bodies are exactly:
+
+```text
+raw:
+    NativeBinding::new(Vec::<Codec>::new(), Codec::Value, |_| Ok(Value::Unit))
+flat:
+    fn flat_empty(_: &mut CallContext<'_>) -> NativeResult<()> { Ok(()) }
+owned:
+    fn owned_empty(_: &mut NativeContext<'_>, (): ()) -> NativeResult<()> { Ok(()) }
+```
+
+Register all three through ModuleBuilder::define_function/bind, with zero parameters
+and the default Unit result, then install the module in the engine. The script
+fixtures are complete fixed functions, not timed source generation:
+
+```text
+use probe::empty::{raw_empty, flat_empty, owned_empty};
+
+pub fn empty() {}
+
+pub fn loop_only(n: i32) -> i32 {
+    var i = 0;
+    while i < n { i += 1; }
+    i
+}
+
+pub fn script_calls(n: i32) -> i32 {
+    var i = 0;
+    while i < n { empty(); i += 1; }
+    i
+}
+
+pub fn raw_calls(n: i32) -> i32 {
+    var i = 0;
+    while i < n { raw_empty(); i += 1; }
+    i
+}
+
+pub fn flat_calls(n: i32) -> i32 {
+    var i = 0;
+    while i < n { flat_empty(); i += 1; }
+    i
+}
+
+pub fn owned_calls(n: i32) -> i32 {
+    var i = 0;
+    while i < n { owned_empty(); i += 1; }
+    i
+}
+```
+
+The matched Lua chunk defines a local empty script function and equivalent while
+loops. Its native loop calls `host_empty`, installed by
+`lua.create_function(|_, (): ()| Ok(()))`. The three native rows deliberately use
+the same Lua operation; their small Lua differences reflect measurement/context,
+not distinct native contracts. Neither runtime delegates the loop to Rust.
+
+Loop entries use `execute_typed::<_, i32>(..., (n,), ...)` with n=50,000. The SDK
+Value-slice execute route does not implement argument passing; an initial harness
+check rejected that route before timing, and the benchmark was corrected to the
+supported typed entry. Inner measured callees still have zero arguments. Assert
+the returned loop counter equals n; check all warmups and samples independently.
+Runtime diagnostic event counts additionally verify 50,000 selections/returns,
+so the compiler did not remove the empty calls.
+
+Fix seven fresh sequential processes, three warmups and eleven samples per case.
+Reverse case order by process and engine order by sample/process. For each process,
+subtract its loop-only sample median from its call-loop median and divide by
+50,000. Report the median of those seven differences; ranges are process estimates,
+not confidence intervals. This estimates incremental amortized call cost, not
+cold latency or an individual invocation's distribution.
+
+| Route | Kagari incremental ns/call | Process range | Lua incremental ns/call |
+| --- | ---: | --- | ---: |
+| Script empty | 531.22 | 518.90..543.72 | 6.95 |
+| Native raw | 661.49 | 647.16..667.02 | 14.94 |
+| Native flat CallContext | 638.42 | 617.55..648.13 | 14.53 |
+| Native owned NativeContext | 1977.47 | 1930.68..2027.16 | 14.42 |
+
+Loop-only totals are 299.9 us for Kagari and 168.1 us for Lua per 50,000 iterations.
+They are subtracted within each process, not pooled across processes. The extra
+owned-adapter cost over the flat entry is about 1.34 us per call. A separate
+1,000-call host-entry batch gives 2.096 us per Kagari empty entry, including live
+lookup, session/root setup, result inspection and cleanup. Its Lua harness includes
+table lookup and gives 0.088 us; neither is the internal empty-call measurement.
+
+### Diagnostic timing method and its limits
+
+Use a separately built diagnostic image with execution-diagnostics and its counting
+allocator, retaining all original semantics/checks. Temporary RAII probes bracket
+the function scopes below. Only one selected stage is timed in a run: other probes
+do not read clocks. Reentrant paths are absent from these empty fixtures.
+
+Sample one in 31 entries, recording call count, sampled count and elapsed ns in
+fixed thread-local counters. Seven processes, three warmups and eleven measured
+iterations per selected stage use n=10,000. Calibrate each process with 100,000
+empty probe scopes per cycle, using the same sample period and protocol. Subtract
+the process's median empty-scope ns/sample, multiply by actual stage entries/n,
+then take process and cross-process medians. Multiple entries, such as two root
+registrations, are therefore reported as their aggregate per script iteration.
+
+The final median empty-scope correction is 22.95 ns/sample (process medians 22.60..23.22 ns). Aggregate many samples because Windows Instant observations here are quantized; small corrected scopes remain approximate.
+
+An exploratory pass used a period of 32. Reviewing the two/three-entry driver and
+conversion paths exposed deterministic sampling aliasing: every 32nd event can
+always select the same half of a two-event pattern. Its timing results are not
+used below. A coarse driver follow-up preceded the final full pass. The final
+1/31 pass includes all stages in one image and cycles across those patterns;
+ordinary throughput and full-count allocation attribution were unaffected.
+These are diagnosis corrections, not extra favorable throughput samples.
+
+Windows WPR CPU capture could not enable its performance policy (0xc5585011);
+no trace remained active. These measurements are explicit scoped timers, not
+sampled CPU stacks or hardware-counter attribution. Clocks, extra TLS/branches,
+changed code layout and compiler register allocation perturb the diagnostic
+image. Calibration removes its empty-scope timer baseline, not all perturbation.
+Do not equate these times to exact production CPU shares or add nested scopes.
+
+### Coarse stages in the final diagnostic image
+
+The following scopes are disjoint within each row's call cycle. RegionCore includes
+caller loop/control work and, for script calls, the empty callee's return operation;
+it is not pure empty-body arithmetic. DriverPreparation includes action selection,
+polling, frame instruction preparation, safepoint and observer checks before region
+or native execution. Ordinary script cycles enter the driver/region about twice;
+native cycles enter the driver about three times and the script region once.
+
+| Stage, ns per iteration | Script | Native raw | Native flat | Native owned |
+| --- | ---: | ---: | ---: | ---: |
+| CallPreparation | 386.31 | 389.73 | 386.15 | 416.12 |
+| DriverPreparation | 59.41 | 67.98 | 64.23 | 96.18 |
+| RegionCore | 88.44 | 53.98 | 53.55 | 60.69 |
+| NativeEntry | n/a | 137.52 | 110.94 | 1385.75 |
+| NativeReturn | n/a | 111.53 | 106.03 | 123.98 |
+| Return | 76.07 | Included in NativeReturn | Included in NativeReturn | Included in NativeReturn |
+
+Diagnostic totals are around 0.61 us per script iteration, 0.71-0.75 us for flat/raw
+native, and 2.06 us for owned native, including the loop. They are slower than the
+ordinary image, especially for the shortest calls. Summed medians need not equal
+the separately timed total exactly; no residual is forced into a named bucket.
+The stage comparison identifies preparation as the largest script-call component
+and the owned conversion path as the largest added native component.
+
+### Nested call preparation and return
+
+These scopes are included in the coarse stages, not additional costs:
+
+| Included scope | Script ns/iteration | Process range | Included by |
+| --- | ---: | --- | --- |
+| Selection | 155.05 | 151.23..158.75 | CallPreparation |
+| Admission | 197.60 | 192.23..204.62 | CallPreparation |
+| Depth | 7.49 | 5.87..9.69 | Admission |
+| FrameMetadata | 56.28 | 55.72..63.61 | Admission |
+| WindowAllocate | 42.59 | 39.82..46.35 | Admission |
+| WindowRetire | 17.02 | 12.77..20.26 | Return |
+
+CallPreparation reads the caller/prepared call, retains required owners, selects
+the current target and admits the callee. Selection includes current-version
+capture, installation validation, target lookup and publication mapping.
+Admission includes argument/entry checks, frame capacity/depth, metadata checks,
+window creation and frame publication. WindowAllocate validates source/destination
+banks, reserves reusable capacity, initializes slots and publishes dependencies.
+It is only part of admission. Return includes window retirement, frame/owner drops,
+depth cleanup and caller continuation/result handling.
+
+For script calls, CurrentCapture is about 15 ns per iteration and the two whole
+installation-liveness validations aggregate to about 83 ns. The latter includes
+installation-table/owner/registration checks, not just Mutex lock/unlock. Comparing
+it to the previous 9 ns primitive lock measurement does not make the difference
+another lock cost. Other nested scopes overlap those validations.
+
+### Owned Native conversion and allocation origin
+
+The owned adapter's measured scope is about 1.24 us per call. Its nested operations
+show why a zero-argument Unit callback is materially more expensive:
+
+| Scope | ns per owned call | Entries per call, excluding host constants | Inclusion |
+| --- | ---: | ---: | --- |
+| NativeInvoke | 1281.65 | 1 | Inside NativeEntry |
+| OwnedAdapter | 1237.24 | 1 | Inside NativeInvoke |
+| ConversionContext | 63.95 | 1 | Inside OwnedAdapter |
+| CheckRustType | 839.73 | 2 | Inside OwnedAdapter; includes encode check |
+| NativeTypeArgument | 679.33 | 2 | Inside CheckRustType |
+| RootArguments | 169.20 | 2 | Inside OwnedAdapter |
+| EncodeResult | 471.42 | 1 | Inside OwnedAdapter; includes one CheckRustType |
+
+CheckRustType executes twice: once before the callback and once in encode_value.
+KagariType's default mapping calls check_declared_type, which obtains a fresh
+native_type_argument through resolve_type_arguments/type_arguments. The fixed Unit
+mapping therefore traverses the generic scoped-type construction path on every
+call. NativeTypeArgument is included in CheckRustType. EncodeResult includes the
+second CheckRustType; adding all three rows would double count it.
+
+The [owned invocation](../crates/kagari-runtime/src/native/typed.rs) creates one
+RootSet for its values pack, then [FromKagariArguments](../crates/kagari-runtime/src/native/conversion/arguments.rs)
+creates another RootSet for decoding. Both packs are empty here. Root creation
+allocates an Arc RootLease and later sends a release ID through the
+[root table's queue](../crates/kagari-runtime/src/gc/roots.rs). No argument values
+need copying, and Vec::new/empty Vec cloning is not the allocation source.
+
+Scoped allocation attribution times no clocks: enable the existing global
+allocation counter, count every selected scope, and subtract the raw route's
+one-time host-entry conversions from owned totals. Nested allocation scopes are
+again overlapping. The measured differences over 50,000 calls are:
+
+| Attribution | Extra requests | Extra requested bytes | Per-call interpretation |
+| --- | ---: | ---: | --- |
+| Total inside owned invocation | 903,226 | 53,626,000 | 18.06452 requests, 1072.52 bytes |
+| Two result mapping checks | 800,000 | 44,800,000 | 16 requests, 896 bytes |
+| Two empty root registrations | 100,000 | 5,600,000 | 2 requests, 112 bytes |
+| ConversionContext creation | 0 | 0 | 0 requests |
+
+The 16 type-mapping and two root-lease requests are directly attributed. The
+remaining 3,226 requests of 1,000 bytes each occur outside those construction
+scopes. The source release path sends IDs through mpsc and can allocate; attributing
+the entire residual to its queue is a source-based inference, not an allocation
+stack trace. Total owned-allocation attribution is inside OwnedAdapter itself.
+ConversionContext construction makes no allocation in this empty case.
+
+Raw and flat Native loops have no allocation growth proportional to the number
+of inner calls. The script loop has one extra 1,000-byte request in the sampled
+count run, not one allocation per invocation. Root queue blocks can cross these
+host-call measurement boundaries; raw/flat net-byte differences of +/-1,000 are
+not per-call leaks. Each measured ordinary execution also has about 58 fixed host
+entry/conversion/root requests; those are excluded by the n=0 or loop control.
+
+All four inner routes have one selection, admission, return and window per call,
+zero argument transfers and zero moved bank bytes. They initialize nine scalar
+bank bytes per call (payload plus initialized flag). Frame/window allocation events
+mean logical window creation, not a System allocator request. These observations
+distinguish fixed frame machinery from actual owned-adapter allocation traffic.
+
+### Architectural diagnosis and remaining limits
+
+An empty script call still traverses the complete current-target and frame
+admission protocol. Zero arguments do not remove module/metadata/depth/window
+preparation. Return and driver transitions remain, while the function does no
+business work. Removing the current-cell Mutex alone leaves most of that work.
+
+The owned Native adapter additionally reconstructs the known Rust result mapping
+twice and uses persistent root-lease machinery twice for an empty argument pack.
+The measured allocation count, about 1.05 KiB of requested Rust bytes per call and
+roughly 1.34 us extra ordinary cost over flat Native identify a separate boundary
+defect to review. This is not evidence that all Native registration forms allocate
+per call, nor that a script GC object is created for each Unit result.
+
+Future refactoring should distinguish immutable callable/type preparation from
+per-invocation dynamic authority, and frame-scoped protection from escaping host
+retention. Any replacement must preserve reload selection, scoped loans, GC roots,
+checked results, cancellation, trap/effect order and cleanup. No check is removed
+by this diagnosis, and no speedup for a proposed replacement is asserted.
+
+This is a warmed, synchronous, non-generic, zero-argument/Unit case. Cold entry,
+managed arguments/results, reentry, traps, async suspension, contention and
+cross-thread/multi-Runtime throughput need their own bounded evidence. The probe's
+exact results are not a universal function-call cost.
+
+### Reproduction and restoration
+
+The temporary probe was an example in the existing kagari-lua-benchmark package.
+Build ordinary with `cargo build --release --locked -p kagari-lua-benchmark
+--example empty_call_probe`; diagnostics add `--features diagnostics`. The example
+registers the callbacks above and loads the complete fixture. For ordinary runs,
+use the protocol above and Rust Instant around the execution only. For timing,
+add the listed RAII scope probes and a thread-local selected-stage recorder; the
+essential algorithm is:
+
+```text
+enter(stage):
+    if stage is not selected: return inactive guard
+    increment stage call count
+    if count mod 31 != 0: return inactive guard
+    return guard with Instant::now()
+
+drop(active guard):
+    elapsed = start.elapsed()       // Before updating counters.
+    add elapsed and one sample to fixed thread-local counters
+
+corrected ns per iteration =
+    (sum_elapsed / samples - empty_scope_baseline) * calls / n
+```
+
+Guard construction is before a scoped function's locals so it drops after their
+cleanup. For DriverPreparation, start at each drive loop and drop before
+finish_native_return, start_native_entry or execute_region. RegionCore covers
+execute_admitted_region and excludes complete_transition. Scope owners are
+[frame calls/admission](../crates/kagari-runtime/src/frame/admission.rs),
+[selection](../crates/kagari-runtime/src/module/dispatch.rs),
+[frame storage](../crates/kagari-runtime/src/frame/values.rs),
+[returns](../crates/kagari-runtime/src/frame/returns.rs),
+[Native entry](../crates/kagari-runtime/src/frame/native.rs),
+[Native binding](../crates/kagari-runtime/src/native/binding.rs),
+[conversion](../crates/kagari-runtime/src/native/conversion/context.rs),
+[type preparation](../crates/kagari-runtime/src/native/context/enums.rs),
+[driver](../crates/kagari-vm/src/executor/driver.rs) and
+[cursor](../crates/kagari-runtime/src/frame/cursor.rs).
+
+| Image | SHA-256 |
+| --- | --- |
+| Ordinary empty probe | 324149d3770cb1d9ff1289d950d6a73f85b1def3c5294c3b73288b7547b7c54a |
+| Fine diagnostic / allocation scope image | 609971228a824c56a979a1509f63913d51d2263b540191cd5be51fa0bb741e2f |
+| Final 1/31 diagnostic | f0497451bd8941c925593e84ed7843c63356182cd3e552a9e4a600713cd1896b |
+| Restored production benchmark | fc38605b449791d5c7e84e4ed3003fe0e64e1faba4fead8cba819974c3ce53e9 |
+
+Temporary Runtime/VM diagnostic builds used the same workspace profile. The final
+production restoration build took 32.440 s, outside execution timers.
+No dependency or Cargo configuration change was needed.
+
+Restore all 18 instrumented Runtime/VM source files byte-for-byte and remove the
+temporary diagnostic module/example/fixtures after archiving the measurements.
+Rebuild the normal release benchmark; all original and source-form checksum
+checks pass. Only documentation remains changed. Relative links, content/fences,
+whitespace, source restoration hashes, complete sample matrices and git diff
+--check pass. No workspace test/Clippy or full CI acceptance is claimed for
+discarded diagnostic code; no production code was committed.
