@@ -507,6 +507,13 @@ separately proposed debug/DAP modes.
 
 ## Language server
 
+Process options now use clap derive for mutually exclusive stdio/TCP modes,
+help/version and startup diagnostics. Numeric loopback validation remains at the
+application boundary; invalid arguments exit with code 2 before actor startup.
+Nine selected command-line/transport process cases and a default-stdio lifecycle
+probe pass. Structure, formatting, workspace all-target Clippy and diff checks
+pass; full-workspace testing remains CI scope.
+
 The multi-project query-isolation correction is authorized before LSP05 feature
 expansion. Acquisition owns physical provider/consumer facts, scoped discovery
 failures and stable context input revisions. Implementation search selects an

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 kagari-common.workspace = true
 kagari-hir.workspace = true
 kagari-package.workspace = true

@@ -861,7 +861,7 @@ and bounded, independently of actor/scoped-task termination.
 
 ### Transport ports, stdio and TCP
 
-The executable accepts these proposed mutually exclusive modes:
+The executable uses clap derive to parse mutually exclusive transport modes:
 
 ```text
 kagari-analyzer                         # same as --stdio
@@ -869,6 +869,11 @@ kagari-analyzer --stdio
 kagari-analyzer --tcp-connect 127.0.0.1:9257
 kagari-analyzer --tcp-listen 127.0.0.1:9257
 ```
+
+Clap owns `--help`/`--version` output and argument diagnostics before any session
+or runtime is created. Informational options exit successfully; invalid options,
+conflicting modes and invalid TCP addresses exit with code 2 and write diagnostics
+to stderr. Numeric loopback validation remains an application-owned value parser.
 
 `tcp-connect` connects to an editor-owned listener. `tcp-listen` binds, accepts one
 client, closes the listener and runs one session; disconnect ends the process.

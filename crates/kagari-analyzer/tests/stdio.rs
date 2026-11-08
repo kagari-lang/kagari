@@ -638,20 +638,43 @@ fn stalled_stdout_expires_write_deadline_with_stdin_still_open() {
     }
 }
 
-#[test]
-fn version_is_a_bounded_non_protocol_operation() {
+#[rstest]
+#[case::version(&["--version"], 0, "kagari-analyzer ")]
+#[case::help(&["--help"], 0, "Usage:")]
+#[case::stdio_conflict(&["--stdio", "--tcp-connect", "127.0.0.1:9257"], 2, "cannot be used with")]
+#[case::tcp_conflict(&["--tcp-listen", "127.0.0.1:9257", "--tcp-connect", "127.0.0.1:9257"], 2, "cannot be used with")]
+#[case::non_loopback(&["--tcp-listen", "0.0.0.0:9257"], 2, "numeric loopback address")]
+#[case::hostname(&["--tcp-connect", "localhost:9257"], 2, "invalid socket address")]
+fn command_line_operations_exit_before_starting_a_protocol_session(
+    #[case] args: &[&str],
+    #[case] exit_code: i32,
+    #[case] expected: &str,
+) {
     let mut pending = PendingChild(Some(
         Command::new(env!("CARGO_BIN_EXE_kagari-analyzer"))
-            .arg("--version")
+            .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap(),
     ));
-    assert!(wait(pending.0.as_mut().unwrap(), Instant::now() + TIMEOUT).success());
+    assert_eq!(
+        wait(pending.0.as_mut().unwrap(), Instant::now() + TIMEOUT).code(),
+        Some(exit_code)
+    );
     let output = pending.0.take().unwrap().wait_with_output().unwrap();
-    let version = String::from_utf8(output.stdout).unwrap();
-    assert!(version.starts_with("kagari-analyzer "), "{version}");
-    assert!(version.len() < 256 && version.ends_with('\n'));
-    assert!(output.stderr.is_empty());
+    let text = if exit_code == 0 {
+        assert!(output.stderr.is_empty());
+        String::from_utf8(output.stdout).unwrap()
+    } else {
+        assert!(
+            output.stdout.is_empty(),
+            "argument errors must not pollute protocol output"
+        );
+        String::from_utf8(output.stderr).unwrap()
+    };
+    assert!(text.contains(expected) && text.ends_with('\n'), "{text}");
+    if args == ["--version"] {
+        assert!(text.starts_with(expected) && text.len() < 256, "{text}");
+    }
 }

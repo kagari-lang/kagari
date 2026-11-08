@@ -29,8 +29,9 @@ mod tests;
 
 /// Runs one server session using command-line transport options.
 ///
-/// Standard output is reserved for protocol frames. IO and malformed startup
-/// options return an error; protocol termination determines the process status.
+/// Clap prints help/version or argument diagnostics and exits before startup.
+/// During a session, stdout is reserved for protocol frames. Startup IO failures
+/// return an error; protocol termination determines the returned process status.
 pub fn run() -> io::Result<ExitCode> {
     server::run()
 }

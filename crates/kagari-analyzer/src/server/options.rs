@@ -2,8 +2,12 @@
 use crate::protocol::output::{
     MESSAGE_BASE_CHARGE_BYTES, REQUEST_LIFECYCLE_FRAMES, SESSION_CONTROL_RESERVE_FRAMES,
 };
-use std::io::Error;
-use std::{env, io, net::SocketAddr, time::Duration};
+use clap::Parser;
+use std::{
+    io::{self, Error},
+    net::SocketAddr,
+    time::Duration,
+};
 #[cfg(test)]
 use tokio::io::DuplexStream;
 
@@ -98,28 +102,43 @@ impl SessionLimits {
     }
 }
 
-pub(crate) fn command_line() -> io::Result<Option<Endpoint>> {
-    let args: Vec<String> = env::args().skip(1).collect();
-    match args.as_slice() {
-        [] => Ok(Some(Endpoint::Stdio)),
-        [flag] if flag == "--stdio" => Ok(Some(Endpoint::Stdio)),
-        [flag] if flag == "--version" => {
-            println!("kagari-analyzer {}", env!("CARGO_PKG_VERSION"));
-            Ok(None)
-        }
-        [flag, address] if flag == "--tcp-connect" || flag == "--tcp-listen" => {
-            let address: SocketAddr = address.parse().map_err(Error::other)?;
-            if !address.ip().is_loopback() {
-                return Err(Error::other("TCP requires a numeric loopback address"));
-            }
-            Ok(Some(if flag == "--tcp-connect" {
-                Endpoint::Connect(address)
-            } else {
-                Endpoint::Listen(address)
-            }))
-        }
-        _ => Err(Error::other(
-            "usage: kagari-analyzer [--stdio | --tcp-connect ADDRESS | --tcp-listen ADDRESS | --version]",
-        )),
+#[derive(Parser)]
+#[command(name = "kagari-analyzer", version, about = "Kagari language server")]
+#[group(id = "transport", multiple = false)]
+struct Options {
+    /// Communicate over standard input/output (the default).
+    #[arg(long)]
+    stdio: bool,
+    /// Connect to an editor-owned TCP listener.
+    #[arg(long, value_name = "ADDRESS", value_parser = loopback_address)]
+    tcp_connect: Option<SocketAddr>,
+    /// Accept one TCP client and run one session.
+    #[arg(long, value_name = "ADDRESS", value_parser = loopback_address)]
+    tcp_listen: Option<SocketAddr>,
+}
+
+pub(crate) fn command_line() -> Endpoint {
+    match Options::parse() {
+        Options { stdio: true, .. } => Endpoint::Stdio,
+        Options {
+            tcp_connect: Some(address),
+            ..
+        } => Endpoint::Connect(address),
+        Options {
+            tcp_listen: Some(address),
+            ..
+        } => Endpoint::Listen(address),
+        _ => Endpoint::Stdio,
+    }
+}
+
+fn loopback_address(value: &str) -> Result<SocketAddr, String> {
+    let address = value
+        .parse::<SocketAddr>()
+        .map_err(|error| error.to_string())?;
+    if address.ip().is_loopback() {
+        Ok(address)
+    } else {
+        Err("TCP requires a numeric loopback address".into())
     }
 }

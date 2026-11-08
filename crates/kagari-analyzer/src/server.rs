@@ -1,5 +1,4 @@
 //! Process composition; Lattice owns the sole asynchronous executor.
-use std::io::Error;
 pub(crate) mod options;
 
 use crate::{
@@ -13,7 +12,8 @@ use lattice_actor::{
     runtime::{ActorRuntime, ActorRuntimeConfig, ActorSpawnOptions},
 };
 use std::{
-    env, io,
+    env,
+    io::{self, Error},
     process::ExitCode,
     sync::{
         Arc, Mutex,
@@ -48,10 +48,7 @@ impl ActorObserver for Observer {
 pub(crate) type ThreadOwners = Arc<Mutex<Vec<JoinHandle<()>>>>;
 
 pub(crate) fn run() -> io::Result<ExitCode> {
-    let Some(endpoint) = options::command_line()? else {
-        return Ok(ExitCode::SUCCESS);
-    };
-    run_endpoint(endpoint, SessionLimits::default())
+    run_endpoint(options::command_line(), SessionLimits::default())
 }
 
 pub(crate) fn run_endpoint(endpoint: Endpoint, limits: SessionLimits) -> io::Result<ExitCode> {
