@@ -1,20 +1,45 @@
 //! Debounced context work returns owned diagnostics through one typed completion.
 use crate::{
     analysis::{AnalysisFailure, diagnostics::DiagnosticsResult},
+    documents::DocumentInput,
     session::{
-        Lifecycle, SessionActor,
-        analysis::{DiagnosticTask, Environment},
-        publications::ContributionOwner,
+        Lifecycle, SessionActor, analysis::Environment, publications::ContributionOwner,
+        timers::Deadline,
     },
-    workspace::ContextKey,
+    workspace::{ContextKey, WorkspaceCapture},
 };
 use kagari_common::cancellation::CancellationToken;
 use lattice_actor::{
     context::{ActorContext, HandlerContext},
     traits::Handler,
 };
-use std::io::{self, Error};
+use std::{
+    collections::VecDeque,
+    io::{self, Error},
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::{oneshot, oneshot::error::RecvError};
+
+#[derive(Clone)]
+struct DiagnosticTask {
+    capture: Arc<WorkspaceCapture>,
+    context: Option<ContextKey>,
+    documents: Arc<[DocumentInput]>,
+}
+
+#[derive(Default)]
+pub(crate) struct DiagnosticScheduler {
+    pending: VecDeque<DiagnosticTask>,
+    pub due: bool,
+}
+
+impl DiagnosticScheduler {
+    pub fn shutdown(&mut self) {
+        self.pending.clear();
+        self.due = false;
+    }
+}
 
 #[derive(lattice_actor::Message)]
 struct DiagnosticsFinished {
@@ -28,29 +53,11 @@ struct DiagnosticsFinished {
 }
 
 impl SessionActor {
-    pub fn schedule_analysis(&mut self, ctx: &mut ActorContext<Self>) -> io::Result<()> {
-        if self.state != Lifecycle::Running || !self.analysis.credit.is_idle() {
+    pub(super) fn schedule_diagnostics(&mut self, ctx: &mut ActorContext<Self>) -> io::Result<()> {
+        if !self.diagnostics.due {
             return Ok(());
         }
-        if self.schedule_environment_analysis(ctx)? {
-            return Ok(());
-        }
-        if !matches!(
-            self.analysis.environment,
-            Environment::Ready | Environment::Failed
-        ) {
-            return Ok(());
-        }
-        if self.schedule_feature(ctx)? {
-            return Ok(());
-        }
-        if self.schedule_maintenance(ctx)? {
-            return Ok(());
-        }
-        if !self.analysis.due {
-            return Ok(());
-        }
-        let Some(task) = self.analysis.pending.pop_front() else {
+        let Some(task) = self.diagnostics.pending.pop_front() else {
             return Ok(());
         };
         let token = CancellationToken::default();
@@ -92,7 +99,7 @@ impl SessionActor {
         .map_err(Error::other)?;
         let live_serials = self.requests.unresolved().into_iter().collect();
         let input_generation = self.captures.generation;
-        let mut retained = self.features.retained_contexts();
+        let mut retained = self.operations.retained_contexts();
         retained.extend(self.analysis.live_contexts.iter().cloned());
         self.analysis.maintenance = false;
         retained.extend(
@@ -132,7 +139,7 @@ impl SessionActor {
                 sender,
             )
             .map_err(Error::other)?;
-        self.analysis.background = true;
+        self.analysis.preemptible = true;
         Ok(())
     }
 }
@@ -144,7 +151,7 @@ impl Handler<DiagnosticsFinished> for SessionActor {
         message: DiagnosticsFinished,
     ) -> io::Result<()> {
         self.analysis.credit.complete(message.job)?;
-        self.analysis.background = false;
+        self.analysis.preemptible = false;
         #[cfg(test)]
         self.analysis
             .completed
@@ -179,10 +186,46 @@ impl Handler<DiagnosticsFinished> for SessionActor {
                     self.report_problem(issue)?;
                 }
             }
-            Err(AnalysisFailure::Cancelled) => self.analysis.pending.push_front(message.retry),
+            Err(AnalysisFailure::Cancelled) => self.diagnostics.pending.push_front(message.retry),
             Err(AnalysisFailure::Capacity(message)) => return Err(Error::other(message)),
             Err(error) => self.report_problem(format!("diagnostic analysis failed: {error}"))?,
         }
         Ok(())
+    }
+}
+
+impl SessionActor {
+    pub fn invalidate_diagnostics(&mut self) -> io::Result<()> {
+        self.diagnostics.pending.clear();
+        self.diagnostics.due = false;
+        self.analysis.maintenance = true;
+        if self.analysis.preemptible {
+            self.analysis.credit.cancel();
+        }
+        self.publications
+            .invalidate(self.captures.generation, &self.documents.inputs())?;
+        self.timers.set(
+            Deadline::Diagnostics,
+            Instant::now() + Duration::from_millis(150),
+        );
+        Ok(())
+    }
+
+    pub fn accept_diagnostic_capture(&mut self, capture: Arc<WorkspaceCapture>) {
+        let documents: Arc<[DocumentInput]> = self.documents.inputs().into();
+        self.diagnostics.pending.clear();
+        // Acquisition errors have their own contribution, including an empty workspace.
+        self.diagnostics.pending.push_back(DiagnosticTask {
+            capture: capture.clone(),
+            context: None,
+            documents: documents.clone(),
+        });
+        for context in &capture.contexts {
+            self.diagnostics.pending.push_back(DiagnosticTask {
+                capture: capture.clone(),
+                context: Some(context.key.clone()),
+                documents: documents.clone(),
+            });
+        }
     }
 }

@@ -1,39 +1,12 @@
 //! Hover query policy and protocol presentation.
-use crate::analysis::{
-    AnalysisFailure, AnalysisState,
-    features::{FeatureInput, FeatureQuery, QueryParams, QueryResult, QueryStep},
-};
+use crate::analysis::{AnalysisFailure, AnalysisState, features::DocumentQueryInput};
 use kagari_common::cancellation::CancellationToken;
 use lsp_types::{Hover, HoverContents, LanguageString, MarkedString};
-use lsp_types::{ProgressToken, TextDocumentPositionParams, request::HoverRequest};
-
-pub(crate) struct HoverQuery;
-
-impl FeatureQuery for HoverQuery {
-    type Request = HoverRequest;
-
-    fn position(params: &QueryParams<Self>) -> &TextDocumentPositionParams {
-        &params.text_document_position_params
-    }
-
-    fn work_done(params: &QueryParams<Self>) -> Option<&ProgressToken> {
-        params.work_done_progress_params.work_done_token.as_ref()
-    }
-
-    fn run(
-        state: &mut AnalysisState,
-        input: &FeatureInput,
-        _params: &QueryParams<Self>,
-        cancel: &CancellationToken,
-    ) -> Result<QueryStep<QueryResult<Self>>, AnalysisFailure> {
-        state.hover(input, cancel).map(QueryStep::Complete)
-    }
-}
 
 impl AnalysisState {
     pub fn hover(
         &mut self,
-        input: &FeatureInput,
+        input: &DocumentQueryInput,
         cancel: &CancellationToken,
     ) -> Result<Option<Hover>, AnalysisFailure> {
         let retained = self.editor_for_input(input, cancel)?;

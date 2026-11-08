@@ -6,7 +6,9 @@ use crate::{
         AnalysisFailure, AnalysisState,
         diagnostics::ProjectionLimits,
         environment::prepare,
-        features::{FeatureInput, FeatureOutput, QueryStep},
+        features::{
+            DocumentQueryInput, ProtocolOutput, navigation::implementation::ImplementationStep,
+        },
     },
     documents::DocumentInput,
     protocol::source_name,
@@ -210,7 +212,7 @@ impl Worlds {
         edits: &Edits,
         version: i32,
         incarnation: u64,
-    ) -> (FeatureInput, Vec<Answer>) {
+    ) -> (DocumentQueryInput, Vec<Answer>) {
         let mut text = BASE.to_owned();
         if edits.boolean {
             text = text.replace("local = 31", "local = true");
@@ -247,7 +249,7 @@ impl Worlds {
         };
         let documents: Arc<[DocumentInput]> = vec![document.clone()].into();
         let capture = self.capture(vec![document]);
-        let input = FeatureInput {
+        let input = DocumentQueryInput {
             serial: self.generation,
             capture,
             documents,
@@ -300,7 +302,7 @@ impl Worlds {
     }
 }
 
-fn queries(state: &mut AnalysisState, input: &FeatureInput) -> Vec<Answer> {
+fn queries(state: &mut AnalysisState, input: &DocumentQueryInput) -> Vec<Answer> {
     state.retain_input_generation(input.capture.generation);
     let live = state
         .contexts
@@ -328,8 +330,8 @@ fn queries(state: &mut AnalysisState, input: &FeatureInput) -> Vec<Answer> {
     let mut complete = None;
     for _ in 0..=input.capture.contexts.len() + 1 {
         match state.implementation(&at, &token) {
-            Ok(QueryStep::Continue) => {}
-            Ok(QueryStep::Complete(output)) => {
+            Ok(ImplementationStep::Continue) => {}
+            Ok(ImplementationStep::Complete(output)) => {
                 complete = Some(answer(Ok(output)));
                 break;
             }
@@ -346,7 +348,7 @@ fn queries(state: &mut AnalysisState, input: &FeatureInput) -> Vec<Answer> {
 }
 
 fn answer<T: Serialize>(result: Result<T, AnalysisFailure>) -> Answer {
-    let result = result.and_then(|value| FeatureOutput::encode(value, 1024 * 1024));
+    let result = result.and_then(|value| ProtocolOutput::encode(value, 1024 * 1024));
     match result {
         Ok(output) => Answer::Complete(output.value),
         Err(AnalysisFailure::Cancelled) => Answer::Cancelled,

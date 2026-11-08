@@ -16,7 +16,8 @@ mod tests;
 use crate::{
     analysis::{
         environment::{PreparedEnvironment, prepare_standard},
-        indexes::query::IndexCache,
+        features::navigation::implementation::ImplementationSearches,
+        indexes::cache::IndexCache,
     },
     workspace::{
         ContextCapture, ContextKey,
@@ -91,6 +92,7 @@ pub(crate) struct AnalysisState {
     environment_lease: Option<InputLease>,
     contexts: BTreeMap<ContextKey, ContextAnalysis>,
     indexes: IndexCache,
+    implementation: ImplementationSearches,
 }
 
 impl AnalysisState {
@@ -107,6 +109,7 @@ impl AnalysisState {
             environment_lease: None,
             contexts: BTreeMap::new(),
             indexes: IndexCache::default(),
+            implementation: ImplementationSearches::default(),
         }
     }
 
@@ -141,6 +144,7 @@ impl AnalysisState {
     /// Retire a baseline whose publication failed. A validated but unpublished
     /// native source cannot become a semantic or navigation dependency.
     pub fn discard_environment(&mut self) {
+        self.implementation = ImplementationSearches::default();
         self.indexes = IndexCache::default();
         self.contexts.clear();
         self.environment = None;
@@ -165,5 +169,21 @@ impl AnalysisState {
             snapshot,
             _lease: lease,
         })
+    }
+}
+
+impl AnalysisState {
+    pub fn retain_input_generation(&mut self, generation: u64) {
+        self.indexes.retain_generation(generation);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn index_cursor_count(&self) -> usize {
+        self.implementation.len()
+    }
+
+    pub fn retain_requests(&mut self, live: &BTreeSet<u64>) {
+        self.implementation.retain_requests(live);
+        self.indexes.retain_pins(self.implementation.pins());
     }
 }

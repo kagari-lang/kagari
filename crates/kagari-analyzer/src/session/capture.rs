@@ -1,7 +1,7 @@
 //! Input generation barriers and the single acquisition-worker credit.
 use crate::{
     protocol::{Notification, source_name},
-    session::{Lifecycle, SessionActor, feature_scheduler::FeatureScheduler, jobs::JobCredit},
+    session::{Lifecycle, SessionActor, jobs::JobCredit},
     workspace::{
         CaptureFailure, CaptureRequest, WorkspaceCapture,
         acquisition::{self, AcquisitionPort},
@@ -16,7 +16,7 @@ use lattice_actor::{
 use lsp_types::{InitializeParams, LogMessageParams, MessageType, Uri};
 use serde_json::to_value;
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{BTreeSet, HashSet, VecDeque},
     io::{self, Error},
     sync::Arc,
 };
@@ -104,12 +104,12 @@ impl CaptureState {
         self.port = None;
     }
 
-    pub fn cancel_unneeded(&mut self, features: &FeatureScheduler) {
+    pub fn cancel_unneeded(&mut self, waiting: &BTreeSet<u64>) {
         self.barriers
-            .retain(|request| features.waiting_for(request.generation));
+            .retain(|request| waiting.contains(&request.generation));
         if let Some((request, cancel)) = &self.active
             && request.generation != self.generation
-            && !features.waiting_for(request.generation)
+            && !waiting.contains(&request.generation)
         {
             cancel.cancel();
         }
@@ -171,14 +171,14 @@ impl SessionActor {
             .checked_add(1)
             .ok_or_else(|| Error::other("input generation exhausted"))?;
         self.captures.latest = None;
-        self.invalidate_analysis()?;
+        self.invalidate_diagnostics()?;
         if let Some((request, cancel)) = &self.captures.active
-            && !self.features.waiting_for(request.generation)
+            && !self.operations.waiting_for(request.generation)
         {
             cancel.cancel();
         }
         if let Some(request) = self.captures.pending.take()
-            && self.features.waiting_for(request.generation)
+            && self.operations.waiting_for(request.generation)
         {
             self.captures.barriers.push_back(request);
         }
@@ -203,7 +203,7 @@ impl SessionActor {
         }
         self.captures
             .barriers
-            .retain(|request| self.features.waiting_for(request.generation));
+            .retain(|request| self.operations.waiting_for(request.generation));
         let Some(request) = self
             .captures
             .barriers
@@ -335,7 +335,7 @@ impl Handler<CaptureFinished> for SessionActor {
                         capture.contexts.len(), capture.retained_bytes(),
                     ));
                     let capture = Arc::new(capture);
-                    self.features.accept_capture(&capture);
+                    self.operations.accept_capture(&capture);
                     if generation == self.captures.generation {
                         self.captures.latest = Some(capture.clone());
                         self.accept_analysis_capture(capture.clone());
@@ -349,8 +349,8 @@ impl Handler<CaptureFinished> for SessionActor {
                         self.analysis.maintenance = true;
                     }
                     let relevant = generation == self.captures.generation
-                        || self.features.waiting_for(generation);
-                    self.fail_feature_capture(generation, &error.to_string())?;
+                        || self.operations.waiting_for(generation);
+                    self.fail_input_waiters(generation, &error.to_string())?;
                     if relevant {
                         self.report_problem(error.to_string())?;
                     }

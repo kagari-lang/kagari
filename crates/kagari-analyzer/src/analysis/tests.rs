@@ -1,7 +1,7 @@
 use crate::{
     analysis::{
-        AnalysisFailure, AnalysisState, diagnostics::ProjectionLimits, features::FeatureInput,
-        worker,
+        AnalysisFailure, AnalysisState, diagnostics::ProjectionLimits,
+        features::DocumentQueryInput, worker,
     },
     documents::DocumentInput,
     protocol::source_name,
@@ -179,7 +179,7 @@ fn full_analysis_projects_inline_ranges_reuses_context_and_retains_leases_until_
         let text = include_str!("../../../kagari-hir/tests/fixtures/editor/static-positions.kgr");
         let initializer = document("untitled:initializer-lease".parse().unwrap(), text, 1);
         let captured = capture(&worker.port, &budget, 4, from_ref(&initializer));
-        let input = FeatureInput {
+        let input = DocumentQueryInput {
             serial: 7,
             capture: Arc::new(captured),
             documents: Arc::from([initializer.clone()]),
@@ -345,7 +345,7 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
         original.document_origins[&exact.source_name],
         generated.source_name()
     );
-    let input = FeatureInput {
+    let input = DocumentQueryInput {
         serial: 1,
         capture: Arc::new(original.clone()),
         documents: Arc::from([exact.clone()]),
@@ -445,7 +445,7 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
                 == Some(NumberOrString::String("KG_RESOLVE_UNKNOWN_NAME".into())))),
         "restored native alias re-enables real dependent semantic diagnostics"
     );
-    let changed_input = FeatureInput {
+    let changed_input = DocumentQueryInput {
         capture: Arc::new(changed.clone()),
         documents: Arc::from(documents.clone()),
         ..input.clone()

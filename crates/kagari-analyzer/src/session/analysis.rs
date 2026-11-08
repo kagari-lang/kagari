@@ -1,7 +1,8 @@
 //! Analysis scheduling owns jobs and publication eligibility, never HIR databases.
 mod bootstrap;
-mod diagnostics;
+pub(crate) mod diagnostics;
 mod maintenance;
+mod scheduling;
 #[cfg(test)]
 pub(crate) mod testing;
 
@@ -9,17 +10,11 @@ pub(crate) mod testing;
 use crate::session::analysis::testing::CompletionGate;
 use crate::{
     analysis::worker::AnalysisPort,
-    documents::DocumentInput,
-    session::{SessionActor, jobs::JobCredit, timers::Deadline},
+    session::{SessionActor, jobs::JobCredit},
     workspace::{ContextKey, WorkspaceCapture},
 };
 use kagari_source::generated::{GeneratedDocument, GeneratedDocuments};
-use std::{
-    collections::{BTreeSet, VecDeque},
-    io,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeSet, sync::Arc};
 #[cfg(test)]
 use tokio::sync::watch;
 
@@ -34,21 +29,12 @@ pub(super) enum Environment {
     Failed,
 }
 
-#[derive(Clone)]
-struct DiagnosticTask {
-    capture: Arc<WorkspaceCapture>,
-    context: Option<ContextKey>,
-    documents: Arc<[DocumentInput]>,
-}
-
 pub(crate) struct AnalysisHost {
     pub port: Option<AnalysisPort>,
     pub credit: JobCredit,
     environment: Environment,
     epoch: u64,
-    pending: VecDeque<DiagnosticTask>,
-    pub(crate) background: bool,
-    pub due: bool,
+    pub(crate) preemptible: bool,
     pub(crate) maintenance: bool,
     pub(crate) live_contexts: BTreeSet<ContextKey>,
     #[cfg(test)]
@@ -66,9 +52,7 @@ impl AnalysisHost {
             credit: JobCredit::default(),
             environment: Environment::NeedStore,
             epoch: 1,
-            pending: VecDeque::new(),
-            background: false,
-            due: false,
+            preemptible: false,
             maintenance: false,
             live_contexts: BTreeSet::new(),
             #[cfg(test)]
@@ -83,7 +67,6 @@ impl AnalysisHost {
     pub fn shutdown(&mut self) {
         self.credit.cancel();
         self.port = None;
-        self.pending.clear();
         self.maintenance = false;
         self.live_contexts.clear();
         self.environment = Environment::Failed;
@@ -91,22 +74,6 @@ impl AnalysisHost {
 }
 
 impl SessionActor {
-    pub fn invalidate_analysis(&mut self) -> io::Result<()> {
-        self.analysis.pending.clear();
-        self.analysis.due = false;
-        self.analysis.maintenance = true;
-        if self.analysis.background {
-            self.analysis.credit.cancel();
-        }
-        self.publications
-            .invalidate(self.captures.generation, &self.documents.inputs())?;
-        self.timers.set(
-            Deadline::Diagnostics,
-            Instant::now() + Duration::from_millis(150),
-        );
-        Ok(())
-    }
-
     pub fn accept_analysis_capture(&mut self, capture: Arc<WorkspaceCapture>) {
         self.analysis.live_contexts = capture
             .contexts
@@ -114,20 +81,6 @@ impl SessionActor {
             .map(|context| context.key.clone())
             .collect();
         self.analysis.maintenance = true;
-        let documents: Arc<[DocumentInput]> = self.documents.inputs().into();
-        self.analysis.pending.clear();
-        // Acquisition errors have their own contribution, including an empty workspace.
-        self.analysis.pending.push_back(DiagnosticTask {
-            capture: capture.clone(),
-            context: None,
-            documents: documents.clone(),
-        });
-        for context in &capture.contexts {
-            self.analysis.pending.push_back(DiagnosticTask {
-                capture: capture.clone(),
-                context: Some(context.key.clone()),
-                documents: documents.clone(),
-            });
-        }
+        self.accept_diagnostic_capture(capture);
     }
 }

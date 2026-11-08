@@ -2,7 +2,7 @@ use crate::{
     analysis::{
         AnalysisState,
         diagnostics::ProjectionLimits,
-        features::{FeatureInput, QueryStep},
+        features::{DocumentQueryInput, navigation::implementation::ImplementationStep},
         indexes::{ImplementationIndex, IndexFailure},
     },
     documents::DocumentInput,
@@ -274,7 +274,7 @@ fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance
             .collect(),
     );
     state.retain_input_generation(capture.generation);
-    let input = FeatureInput {
+    let input = DocumentQueryInput {
         serial: 7,
         capture: capture.clone(),
         documents: vec![document].into(),
@@ -285,7 +285,7 @@ fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance
     };
     let mut completed = false;
     for _ in 0..=capture.contexts.len() + 1 {
-        if let QueryStep::Complete(result) =
+        if let ImplementationStep::Complete(result) =
             state.implementation(&input, &Default::default()).unwrap()
         {
             assert!(

@@ -1,6 +1,6 @@
 //! Shared protocol coordinate and authoritative destination projection.
 use crate::{
-    analysis::{AnalysisFailure, diagnostics::protocol_range, features::FeatureInput},
+    analysis::{AnalysisFailure, diagnostics::protocol_range, features::DocumentQueryInput},
     workspace::{ContextCapture, origins::file_uri},
 };
 use kagari_hir::analysis::signatures::SignatureSnapshot;
@@ -8,7 +8,9 @@ use kagari_source::{identity::FileSpan, source::SourceFile};
 use lsp_types::{Location, Uri};
 use serde_json::Error;
 
-pub(crate) fn selected_context(input: &FeatureInput) -> Result<&ContextCapture, AnalysisFailure> {
+pub(crate) fn selected_context(
+    input: &DocumentQueryInput,
+) -> Result<&ContextCapture, AnalysisFailure> {
     let selected = input
         .capture
         .document_contexts
@@ -27,7 +29,7 @@ pub(crate) fn selected_context(input: &FeatureInput) -> Result<&ContextCapture, 
 /// A declaration's FileSpan already names its authoritative physical/copy origin.
 /// Original open URI spelling wins when the same provider is the queried document.
 pub(crate) fn location(
-    input: &FeatureInput,
+    input: &DocumentQueryInput,
     context: &ContextCapture,
     signatures: &SignatureSnapshot,
     span: FileSpan,
@@ -60,7 +62,7 @@ pub(crate) fn location(
 }
 
 fn open_destination(
-    input: &FeatureInput,
+    input: &DocumentQueryInput,
     provider: Option<&str>,
     source: &SourceFile,
 ) -> Result<Option<Uri>, AnalysisFailure> {

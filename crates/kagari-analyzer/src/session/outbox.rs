@@ -56,7 +56,7 @@ impl Outbox {
     }
 
     /// Large results preserve the small terminal-response allowance for every request.
-    pub fn can_push_feature(&self, charge: usize, reserved_errors: usize) -> bool {
+    pub fn can_push_payload(&self, charge: usize, reserved_errors: usize) -> bool {
         self.queue.len() + usize::from(self.active.is_some()) < self.limits.outbox_count
             && charge
                 <= self

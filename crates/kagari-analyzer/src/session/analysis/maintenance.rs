@@ -32,7 +32,7 @@ impl SessionActor {
         let job = self.analysis.credit.reserve(token.clone())?;
         let live_serials = self.requests.unresolved().into_iter().collect();
         let input_generation = self.captures.generation;
-        let mut retained = self.features.retained_contexts();
+        let mut retained = self.operations.retained_contexts();
         retained.extend(self.analysis.live_contexts.iter().cloned());
         let (sender, receiver) = oneshot::channel();
         ctx.pipe_to_self(receiver, move |result| MaintenanceFinished { job, result })

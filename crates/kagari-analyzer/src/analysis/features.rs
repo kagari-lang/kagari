@@ -4,19 +4,16 @@ pub(crate) mod navigation;
 pub(crate) mod projection;
 
 use crate::{
-    analysis::{AnalysisFailure, AnalysisState},
-    documents::DocumentInput,
-    protocol::typed::check_encoded_size,
+    analysis::AnalysisFailure, documents::DocumentInput, protocol::typed::check_encoded_size,
     workspace::WorkspaceCapture,
 };
-use kagari_common::cancellation::CancellationToken;
-use lsp_types::{ProgressToken, TextDocumentPositionParams, Uri, request::Request as LspRequest};
+use lsp_types::{Uri, request::Request as LspRequest};
 use serde::Serialize;
 use serde_json::{Value, to_value};
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub(crate) struct FeatureInput {
+pub(crate) struct DocumentQueryInput {
     pub serial: u64,
     pub capture: Arc<WorkspaceCapture>,
     pub documents: Arc<[DocumentInput]>,
@@ -26,12 +23,19 @@ pub(crate) struct FeatureInput {
     pub limit: usize,
 }
 
-pub(crate) struct FeatureOutput {
+pub(crate) struct ProtocolOutput {
     pub value: Value,
     pub charge: usize,
 }
 
-impl FeatureOutput {
+impl ProtocolOutput {
+    pub fn for_request<R: LspRequest>(
+        value: R::Result,
+        limit: usize,
+    ) -> Result<Self, AnalysisFailure> {
+        Self::encode(value, limit)
+    }
+
     /// Erase a method-bound result only at the bounded protocol output boundary.
     pub fn encode<T: Serialize>(value: T, limit: usize) -> Result<Self, AnalysisFailure> {
         let value = to_value(value).map_err(projection::conversion)?;
@@ -81,28 +85,4 @@ fn retained_value_bytes(value: &Value) -> usize {
         }
         _ => 0,
     }
-}
-
-pub(crate) enum QueryStep<T> {
-    Complete(T),
-    Continue,
-}
-
-pub(crate) type QueryParams<Q> = <<Q as FeatureQuery>::Request as LspRequest>::Params;
-pub(crate) type QueryResult<Q> = <<Q as FeatureQuery>::Request as LspRequest>::Result;
-
-pub(crate) trait FeatureQuery: Send + Sized + 'static {
-    type Request: LspRequest;
-    const WORK_DONE: bool = false;
-
-    fn position(params: &QueryParams<Self>) -> &TextDocumentPositionParams;
-
-    fn work_done(params: &QueryParams<Self>) -> Option<&ProgressToken>;
-
-    fn run(
-        state: &mut AnalysisState,
-        input: &FeatureInput,
-        params: &QueryParams<Self>,
-        cancel: &CancellationToken,
-    ) -> Result<QueryStep<QueryResult<Self>>, AnalysisFailure>;
 }

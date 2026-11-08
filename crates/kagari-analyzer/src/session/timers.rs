@@ -105,7 +105,7 @@ impl Handler<DeadlineElapsed> for SessionActor {
     ) -> io::Result<()> {
         for deadline in self.timers.take_due() {
             if deadline == Deadline::Diagnostics {
-                self.analysis.due = true;
+                self.diagnostics.due = true;
             } else {
                 self.fail(ctx, format!("{deadline:?} deadline expired"));
             }

@@ -8,6 +8,7 @@ use crate::{
 };
 use lattice_actor::{context::HandlerContext, traits::Handler};
 use lsp_types::{
+    ExecuteCommandOptions, ServerCapabilities, TextDocumentSyncKind, TextDocumentSyncOptions,
     notification::{
         DidChangeTextDocument, DidChangeWatchedFiles, DidCloseTextDocument, DidOpenTextDocument,
         DidSaveTextDocument,
@@ -171,4 +172,20 @@ impl Handler<ReloadRequested> for SessionActor {
         // Null acknowledges scheduling; semantic reads use the resulting input barrier.
         self.finish_lsp::<ExecuteCommand>(serial, None)
     }
+}
+
+pub(crate) fn capabilities(capabilities: &mut ServerCapabilities) {
+    capabilities.text_document_sync = Some(
+        TextDocumentSyncOptions {
+            open_close: Some(true),
+            change: Some(TextDocumentSyncKind::FULL),
+            save: Some(true.into()),
+            ..Default::default()
+        }
+        .into(),
+    );
+    capabilities.execute_command_provider = Some(ExecuteCommandOptions {
+        commands: vec!["kagari.reloadWorkspace".into()],
+        ..Default::default()
+    });
 }

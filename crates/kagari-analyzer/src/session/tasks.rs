@@ -124,7 +124,7 @@ impl Handler<EncodeRejected> for SessionActor {
         self.timers.remove(Deadline::Write);
         self.logger.write(message.reason);
         if let Some(serial) = progress {
-            self.features.progress.disable_reports(serial);
+            self.progress.disable_reports(serial);
             return Ok(());
         }
         if publication.is_some() {

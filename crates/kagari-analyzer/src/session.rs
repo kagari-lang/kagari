@@ -2,12 +2,13 @@
 use std::io::Error;
 pub(crate) mod analysis;
 pub(crate) mod capture;
-pub(crate) mod feature_scheduler;
 pub(crate) mod handlers;
 pub(crate) mod jobs;
 pub(crate) mod outbox;
+pub(crate) mod progress;
 pub(crate) mod publications;
 pub(crate) mod request_registry;
+pub(crate) mod request_tasks;
 pub(crate) mod tasks;
 pub(crate) mod timers;
 #[cfg(any(test, feature = "verification"))]
@@ -24,12 +25,13 @@ use crate::{
         options::{Endpoint, SessionLimits},
     },
     session::{
-        analysis::AnalysisHost,
+        analysis::{AnalysisHost, diagnostics::DiagnosticScheduler},
         capture::CaptureState,
-        feature_scheduler::FeatureScheduler,
         outbox::{Outbox, WriteFrame},
+        progress::ProgressStreams,
         publications::Publications,
         request_registry::{AdmissionError, RequestRegistry},
+        request_tasks::RequestTasks,
         timers::{Deadline, Timers},
     },
     transport::{self, IngressBudget},
@@ -68,8 +70,10 @@ pub(crate) struct SessionActor {
     pub state: Lifecycle,
     pub documents: Documents,
     pub captures: CaptureState,
-    pub features: FeatureScheduler,
+    pub operations: RequestTasks,
+    pub progress: ProgressStreams,
     pub analysis: AnalysisHost,
+    pub diagnostics: DiagnosticScheduler,
     pub publications: Publications,
     pub limits: SessionLimits,
     pub requests: RequestRegistry,
@@ -113,7 +117,9 @@ impl SessionActor {
             documents,
             captures: CaptureState::new(root.to_owned(), limits.retained_input_bytes),
             analysis: AnalysisHost::new(),
-            features: FeatureScheduler::default(),
+            diagnostics: DiagnosticScheduler::default(),
+            operations: RequestTasks::default(),
+            progress: ProgressStreams::default(),
             publications: Publications::new(&limits),
             requests: RequestRegistry::new(limits.requests),
             outbox: Outbox::new(limits.clone()),
@@ -189,7 +195,7 @@ impl SessionActor {
         charge: usize,
     ) -> io::Result<()> {
         if let Some(id) = self.requests.terminal(serial) {
-            if let Some(notification) = self.features.progress.end(serial) {
+            if let Some(notification) = self.progress.end(serial) {
                 self.outbox.push(notification.into(), None, 4096)?;
             }
             self.outbox.push(
@@ -244,9 +250,10 @@ impl SessionActor {
         self.state = Lifecycle::Stopping;
         self.budget.close();
         self.stop.send_replace(true);
-        self.features.shutdown();
+        self.operations.shutdown();
         self.captures.shutdown();
         self.analysis.shutdown();
+        self.diagnostics.shutdown();
         self.publications.shutdown();
         for serial in self.requests.unresolved() {
             if let Some(token) = self.requests.token(serial) {
@@ -272,12 +279,12 @@ impl SessionActor {
         self.schedule_analysis(ctx)?;
         if self.writer_ready && self.outbox.active.is_none() {
             let optional_capacity = self.outbox.can_grant_publication()
-                && self.outbox.can_push_feature(
+                && self.outbox.can_push_payload(
                     self.limits.result_bytes,
                     self.requests.unresolved().len() * 3 * 4096,
                 );
             let report = if !self.outbox.has_queued() && optional_capacity {
-                self.features.progress.take_report()
+                self.progress.take_report()
             } else {
                 None
             };

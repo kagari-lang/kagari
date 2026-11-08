@@ -5,7 +5,7 @@ use crate::{
     analysis::{
         AnalysisState,
         diagnostics::ProjectionLimits,
-        features::{FeatureInput, QueryStep},
+        features::{DocumentQueryInput, navigation::implementation::ImplementationStep},
     },
     documents::DocumentInput,
     protocol::source_name,
@@ -145,8 +145,8 @@ pub(crate) fn run(mut checkpoint: impl FnMut(RetentionCheckpoint)) {
             let mut complete = false;
             for _ in 0..=input.capture.contexts.len() + 1 {
                 match state.implementation(&search, &Default::default()).unwrap() {
-                    QueryStep::Continue => {}
-                    QueryStep::Complete(result) => {
+                    ImplementationStep::Continue => {}
+                    ImplementationStep::Complete(result) => {
                         assert!(
                             matches!(result, Some(GotoDefinitionResponse::Array(locations)) if locations.len() == 1)
                         );
@@ -257,7 +257,7 @@ fn input(
     budget: &InputBudget,
     generation: &mut u64,
     edit: EditInput<'_>,
-) -> FeatureInput {
+) -> DocumentQueryInput {
     let EditInput {
         provider,
         app,
@@ -295,7 +295,7 @@ fn input(
     let name = ["first", "second", "third", "fourth"][body];
     let start = app.find(&format!("fn {name}()")).unwrap();
     let offset = start + app[start..].find("    local\n").unwrap() + 4;
-    FeatureInput {
+    DocumentQueryInput {
         serial: *generation,
         capture,
         documents: documents.into(),

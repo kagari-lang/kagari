@@ -2510,20 +2510,31 @@ has its own finite budget, separate from reliable output and source input leases
 The protocol router registers known methods using `lsp-types` descriptors, binding
 method name, parameters and response type. Known actor messages contain a typed
 request/notification rather than raw JSON. Invalid-parameter markers preserve
-session admission and lifecycle error precedence. Semantic parameters remain
-typed across capture waits and worker continuations, with a 64 KiB retained
-parameter cap. Feature queries return their descriptor's Result; worker-side
-bounded serialization is the common JSON output boundary. Unknown methods and
-uncorrelated client responses remain wire envelopes.
+session admission and lifecycle error precedence. Semantic parameters have a
+64 KiB encoded-size admission cap. Each feature
+interprets its typed Params and retains the normalized source input and feature
+state required for its waits and continuations. Its worker closure binds the
+result to the method descriptor before bounded JSON serialization. Unknown methods
+and uncorrelated client responses remain wire envelopes.
 
 Protocol handlers are grouped under `session/handlers`: navigation (hover,
 definition and implementation), completion, lifecycle, document synchronization
 and control. Corresponding worker query policies and presentation live under
 `analysis/features/navigation` or `analysis/features/completion.rs`.
 `session/request_registry.rs` owns request identity/state accounting;
-`session/feature_scheduler.rs` owns shared admission, capture waits, context fairness
-and typed completions. Functional grouping does not create a queue or actor per
-feature. Index traversal and retained cursors remain with the index owner.
+`session/request_tasks.rs` owns input waits, context fairness, credit reservation
+and matching completion retirement. Each feature owns its submitted worker closure,
+concrete finished message, result interpretation and continuation. Implementation
+supplies progress titles/messages to the separate bounded `session/progress.rs`
+stream owner. Feature capability options compose explicitly in `handlers.rs`.
+Capture state receives neutral waiting generation IDs. The shared worker's producer
+priority belongs to `session/analysis/scheduling.rs`; debounce, diagnostic queues
+and retry belong to its diagnostic owner. Functional grouping retains one actor
+and one worker. The worker's implementation feature owns target selection,
+selected receivers, search lifetime and LSP projection; `analysis/indexes/cache.rs`
+owns cached coverage, finite rows and neutral scope pins. AnalysisState reconciles
+live request IDs into search retention and resource pins during ordinary jobs or
+idle maintenance.
 
 Semantic requests retain their admitted input generation, original URI, immutable
 capture and source lease. Four concrete typed actor messages dispatch through a

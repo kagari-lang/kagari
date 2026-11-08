@@ -1,7 +1,7 @@
 use crate::{
     documents::DocumentInput,
     protocol::source_name,
-    session::feature_scheduler::{FeatureScheduler, FeatureTask},
+    session::request_tasks::{RequestTask, RequestTasks},
     workspace::{CaptureRequest, WorkspaceCapture, acquisition, budget::InputBudget},
 };
 use kagari_common::cancellation::CancellationToken;
@@ -10,8 +10,8 @@ use lsp_types::Uri;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
-fn task(serial: u64, name: &str, capture: &Arc<WorkspaceCapture>) -> FeatureTask {
-    FeatureTask {
+fn task(serial: u64, name: &str, capture: &Arc<WorkspaceCapture>) -> RequestTask {
+    RequestTask {
         serial,
         generation: capture.generation,
         source_name: name.into(),
@@ -63,7 +63,7 @@ fn index_continuation_yields_to_another_contexts_already_queued_query() {
         capture.document_contexts[a].context,
         capture.document_contexts[b].context
     );
-    let mut scheduler = FeatureScheduler::default();
+    let mut scheduler = RequestTasks::default();
     scheduler.pending.extend([
         task(1, a, &capture),
         task(2, a, &capture),

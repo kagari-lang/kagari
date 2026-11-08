@@ -180,7 +180,7 @@ Gate A's review of the implemented pilot leaves concrete follow-up boundaries:
   body units; copying the signature index's whole-context turn into a full root
   body scan would lose interactive scheduling.
 * **LSP06, HIR transformations, acquisition and session edit validation:** pilot
-  `FeatureOutput` is owned JSON for retained read results; an admitted older capture
+  `ProtocolOutput` is owned JSON for retained read results; an admitted older capture
   can legitimately finish after a newer capture. That route does not validate an
   edit against live text. Rename needs an owned semantic `EditPlan`, complete
   affected coverage, alias/trait/shorthand handling and collision checks, followed
@@ -314,11 +314,11 @@ crates/kagari-analyzer/src/
         definition.rs
         implementation.rs
     request_registry.rs          # RequestRegistry: wire IDs, serials, state, capacity
-    feature_scheduler.rs         # Shared capture barriers, scheduling, completion
-    feature_scheduler/
-      progress.rs                # Bounded work-done stream lifecycle
+    request_tasks.rs             # Input waits, fair admission, worker credit retirement
+    request_tasks/input.rs        # Source-owned document coordinate preparation
+    progress.rs                  # Bounded token/begin/report/end lifecycle
     capture.rs, jobs.rs           # Input capture scheduling and worker credits
-    analysis.rs, analysis/       # Background diagnostics and idle maintenance
+    analysis.rs, analysis/       # Worker environment, arbitration, diagnostics, maintenance
     publications.rs, outbox.rs   # Diagnostic validity and bounded reliable output
     tasks.rs, timers.rs          # IO completions and deadlines
   documents.rs                   # Open metadata and source-owned transactions
@@ -326,16 +326,16 @@ crates/kagari-analyzer/src/
   analysis.rs                    # Thread-confined analysis state
   analysis/
     editor.rs, environment.rs    # Retained editor queries and native environment
-    features.rs                  # FeatureInput/Output/Query and result bounds
+    features.rs                  # DocumentQueryInput, ProtocolOutput and result bounds
     features/
-      completion.rs              # CompletionQuery and completion presentation
+      completion.rs              # Completion facts and presentation
       navigation.rs
       navigation/
-        hover.rs                 # HoverQuery and hover presentation
+        hover.rs                 # Hover facts and presentation
         definition.rs
-        implementation.rs        # ImplementationQuery policy entry
+        implementation.rs        # Target selection, request searches and projection
       projection.rs              # Shared authoritative destinations and conversions
-    indexes.rs, indexes/         # Relations, coverage, traversal and retained cursors
+    indexes.rs, indexes/         # Relation rows, coverage, bounded cache and resource pins
     diagnostics.rs, worker.rs    # Background diagnostic computation and worker port
   logging.rs                     # Bounded stderr logging
   tests.rs, tests/               # Actual actor and semantic integration contracts
@@ -349,14 +349,34 @@ completion is a separate feature. Lifecycle, document synchronization and contro
 messages have distinct handler owners. Diagnostics remain background work under
 `session/analysis` and `analysis/diagnostics`, rather than a fictitious request.
 
-`request_registry.rs` is request state accounting, not a business-handler directory.
-`feature_scheduler.rs` owns admission, capture barriers, context fairness,
-cancellation and typed `FeatureFinished<Q>` completion. Individual handlers select
-`Q`; they do not repeat that lifecycle. Shared feature contracts stay in
-`analysis/features.rs`; each concrete query policy lives beside its presentation.
-Implementation traversal and cursor retention stay in `analysis/indexes/query.rs`,
-where their coverage and lifetime invariants are enforced. Shared coordinate and
-origin conversion stays in `analysis/features/projection.rs`.
+`request_registry.rs` accounts for request identity, cancellation and one terminal.
+`request_tasks.rs` owns capture waits, context fairness, worker credit reservation
+and matching completion retirement. Its callback is queued application work;
+Lattice still owns actor messaging and dispatch. It neither selects a feature nor
+interprets a query result. A feature handler interprets its typed parameters,
+submits an explicit worker closure and receives its own concrete completion
+message. Hover, definition and completion decide their own terminal responses;
+implementation additionally owns its context-sized continuation and progress text.
+
+`progress.rs` owns token uniqueness, bounded coalesced reports and reliable
+begin/end. Callers provide titles and messages. Capability options live beside
+feature handlers; `handlers.rs` explicitly assembles initialization, including the
+implementation owner's lsp-types 0.97 wire-field patch. Capture state receives
+waiting generation IDs, without depending on a feature scheduler type.
+
+`session/analysis/scheduling.rs` arbitrates the shared worker in this order:
+environment preparation, ready foreground request, idle maintenance, debounced
+diagnostics. `session/analysis/diagnostics.rs` owns diagnostic work
+queues, retry and publication eligibility. This remains one actor and one analysis
+worker; domains do not get separate actors or independent worker queues.
+
+Worker-side implementation target selection, request search lifetime and bounded
+LSP projection live in `analysis/features/navigation/implementation.rs`.
+`analysis/indexes/cache.rs` owns bounded cached scopes and neutral scope pins;
+it does not retain request serials, selected receivers or LSP progress state.
+The feature search state supplies pins and removes them on completion/error or
+request retirement. Shared coordinate/origin conversion remains in
+`analysis/features/projection.rs`.
 
 Future requests join their feature domain at both layers, for example references
 under navigation at LSP05. Occurrence indexes, resolve handles and semantic edit
@@ -371,13 +391,14 @@ For hover following an edit, the implemented path is:
 
 ```text
 transport/{tcp,stdio} -> protocol/{codec,envelope,router}
-  -> session/handlers/navigation/hover: HoverRequested
-  -> session/feature_scheduler: admit_feature::<HoverQuery>
-       request registry -> retained capture barrier -> context scheduling
-  -> analysis/features/navigation/hover: HoverQuery::run -> Option<Hover>
-       source/HIR query -> typed result -> bounded owned FeatureOutput
-  -> typed oneshot -> Lattice pipe_to_self -> FeatureFinished<HoverQuery>
-  -> shared scheduler -> session terminal decision -> outbox -> writer -> editor
+  -> session/handlers/navigation/hover: HoverRequested(TypedRequest<HoverRequest>)
+       admit_read -> prepare_document -> wait_for_document
+  -> request_tasks: capture barrier -> fair worker credit admission
+  -> hover::start_hover: explicit closure -> AnalysisState::hover
+       source/HIR query -> Option<Hover> -> ProtocolOutput::for_request<HoverRequest>
+  -> oneshot -> Lattice pipe_to_self -> HoverFinished
+  -> accept_request_work: retire matching credit, check live request ownership
+  -> hover handler: respond_request -> terminal -> outbox -> writer -> editor
 ```
 
 Register the typed completion wait before dispatching bounded work. The worker
@@ -2670,17 +2691,19 @@ uncorrelated client responses retain their wire envelope because no method
 contract is available. The router has no independent method-name string for a
 known registration.
 
-Each FeatureQuery selects its protocol Request. Its associated Params survive
-capture waits and continuations through a shared Arc, and its worker returns
-`QueryStep<Request::Result>`. Hover returns `Option<Hover>`, definition and
-implementation their Goto responses, completion `Option<CompletionResponse>`.
-The worker's shared output adapter performs bounded serialization before sending
-owned JSON to the actor. Lifecycle/command responses also use descriptor-bound
-result serialization; initialize retains the documented lsp-types 0.97 wire-field
-patch at that boundary. There is no second JSON decode inside business handlers
-or a common-position decoder that skips method-specific fields.
+Each feature consumes its own descriptor's Params in its actor handler and keeps
+only the normalized source input and feature state needed across waits. The full
+method shape is validated before this conversion. Hover returns `Option<Hover>`,
+definition and implementation their Goto responses, completion
+`Option<CompletionResponse>`. Each feature's worker closure binds the returned
+value to its descriptor through `ProtocolOutput::for_request<R>` and performs
+bounded serialization before sending owned JSON to its concrete finished message.
+Lifecycle/command responses likewise use descriptor-bound result serialization.
+There is no second business JSON decode or common decoder that skips optional
+method-specific fields. No generic query trait, generic query-step protocol or
+feature-tag dispatch remains in the shared request machinery.
 
-Retained semantic parameters have a 64 KiB serialized-size cap, checked without
+Semantic parameters have a 64 KiB serialized-size admission cap, checked without
 an encoded allocation before scheduling; source leases and output budgets remain
 separate. Full declared parameter shapes are validated even for currently unused
 optional fields. The existing held-worker actor scenario now asserts invalid
@@ -2689,18 +2712,54 @@ an undecodable pre-initialize hover still reports ServerNotInitialized first.
 This extends distinct decoding/lifecycle/retention contracts without a new test
 binary or mirroring private implementation state.
 
+The ownership correction keeps request parameters, submitted query closures,
+concrete finished messages and continuation decisions at each feature. Shared
+request tasks own resource mechanics, progress owns stream delivery, diagnostic
+scheduling owns debounce/retry, and the worker arbitration module owns producer
+priority. Implementation searches retain selected receivers and source leases;
+the relation cache sees only scope pins and cached coverage. Idle maintenance
+reconciles live request IDs through AnalysisState, removing canceled searches and
+pins without another client request. Feature capability declarations compose in
+one explicit initialization entry point. These changes retain the existing
+single-actor/single-worker model and introduce no feature registry framework.
 
-Request handlers remain grouped by feature, with RequestRegistry and
-FeatureScheduler owning shared request state and scheduling. Lattice derives
-all marker implementations, retaining generic bounds. Typed-method maintenance
-passes the strengthened actor scenario, the other cancellation/continuation
-cases, three analysis-owner cases, nine process cases, curated analysis fuzz
-replay and both independent Node transports. The actor peer's outgoing witness
-limit is 128 KiB so the new oversized-parameter case reaches production's
-64 KiB admission boundary; incoming frame/history limits are unchanged.
-Structure (1,969 Rust files, zero violations), workspace all-target Clippy,
-formatting and diff checks pass. Prior pilot benchmark numbers below describe
-their frozen images; no new speed claim is made for the typed-contract change.
+For an implementation request admitted before an edit, its own handler now
+requeues the old capture after each indexed context. A later hover gets a fair
+worker turn using its separately admitted capture. Canceling the implementation
+commits its terminal immediately; its concrete finished message still returns the
+matching worker credit, and idle maintenance removes its search and scope pin.
+The previous generic scheduler performed both resource admission and these feature
+choices; the new resource scheduler cannot decide whether to continue a search.
+
+Selected local validation passes: 88 analyzer unit/integration cases (one controlled
+benchmark ignored), nine actual process cases, both independent Node transports,
+all four curated LSP fuzz seed replays, and the query suite's correctness-only
+process run. After the final parameter-allocation/token-order cleanup, the 12
+session-owner cases and three feature actor cases pass again; the new progress
+case checks independent caller content, token uniqueness, report coalescing and
+reliable end after reports are disabled. The package run samples all affected
+capture/index/diagnostic boundaries; the focused rerun covers the final cleanup.
+No full-workspace tests or editor-host reruns were performed for this maintenance.
+Structure (1,971 Rust files, zero violations), workspace all-target Clippy,
+formatting and diff checks pass.
+
+B07's 1,000-edit ownership probe also passes with the separated search/cache
+owners. Source leases plateau at 2,124,370 B (edit 500) and 2,124,372 B (edit 1,000),
+with 42,680 B of index rows at both checkpoints. Releasing current contexts leaves
+only the explicitly retained old query; releasing it returns source leases to the
+530,481 B native baseline, with zero contexts, index rows and definition records.
+Requested live allocation layouts return within 16,821 B of their native baseline.
+This is one fresh release/verification component process on Windows 11 x64
+10.0.26300, rustc 1.99.1 (58cf8f9c3), Intel Family 6 Model 151, 24 logical CPUs,
+default Cargo parallelism and one external memory sampler. Native preparation is
+inside the process before the allocation peak window; OS caches are uncontrolled
+and power mode is unreported. Build time (13.193 s) is excluded; pauses and sampling
+are not latency evidence. The probe image SHA256 is
+`6a139f9be88169950e26067136bded238b487d6e218dc083ad2a8ab04b3d4abe`.
+Reproduce with `uv run python scripts/lsp_benchmark_memory.py --output target/NEW`;
+query checks use `uv run python scripts/benchmark_lsp.py --check --suite queries`.
+These are correctness/retention checks, without a paired speed or RSS regression
+claim. Prior pilot benchmark numbers below describe their frozen images.
 Full-workspace/exhaustive tests and longer sanitizer campaigns remain CI-only.
 
 LSP04's functional/editor integration, formal performance, retention and bounded

@@ -1,5 +1,5 @@
 //! Bounded signature relation shards with exact context and source provenance.
-pub(super) mod query;
+pub(super) mod cache;
 
 #[cfg(test)]
 mod tests;

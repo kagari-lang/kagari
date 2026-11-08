@@ -88,7 +88,7 @@ impl Handler<CancelRequested> for SessionActor {
             if let Some(method) = self.requests.method(serial) {
                 self.logger.write(format!("cancelled {method}"));
             }
-            self.cancel_feature(serial);
+            self.cancel_request_work(serial);
             self.reject(serial, ErrorCode::RequestCancelled, "request cancelled")?;
         }
         Ok(())
@@ -111,10 +111,10 @@ impl Handler<ProgressCancelled> for SessionActor {
         if matches!(&params.token, ProgressToken::String(token) if token.len() > 256) {
             return Ok(());
         }
-        if let Some(serial) = self.features.progress.serial(&params.token)
+        if let Some(serial) = self.progress.serial(&params.token)
             && self.requests.cancel_serial(serial)
         {
-            self.cancel_feature(serial);
+            self.cancel_request_work(serial);
             self.reject(
                 serial,
                 ErrorCode::RequestCancelled,

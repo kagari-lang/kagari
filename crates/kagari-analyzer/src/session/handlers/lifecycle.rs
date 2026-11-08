@@ -2,20 +2,15 @@
 use crate::{
     protocol::{
         ErrorCode,
-        typed::{TypedNotification, TypedRequest, encode_result},
+        typed::{TypedNotification, TypedRequest},
     },
-    session::{Lifecycle, SessionActor, timers::Deadline},
+    session::{Lifecycle, SessionActor, handlers::initialize_response, timers::Deadline},
 };
 use lattice_actor::{context::HandlerContext, traits::Handler};
 use lsp_types::{
-    CompletionOptions, ExecuteCommandOptions, HoverProviderCapability,
-    ImplementationProviderCapability, InitializeResult, OneOf, PositionEncodingKind,
-    ServerCapabilities, ServerInfo, StaticTextDocumentRegistrationOptions, TextDocumentSyncKind,
-    TextDocumentSyncOptions,
     notification::{Exit, Initialized as InitializedMethod},
     request::{Initialize, Request as LspRequest, Shutdown},
 };
-use serde_json::Value;
 use std::io::{self, Error};
 
 #[derive(lattice_actor::Message)]
@@ -60,7 +55,7 @@ impl Handler<InitializeRequested> for SessionActor {
         if let Err(error) = self.captures.configure(&params) {
             return self.reject(serial, ErrorCode::InvalidParams, &error);
         }
-        self.features.progress.supported = params
+        self.progress.supported = params
             .capabilities
             .window
             .as_ref()
@@ -76,10 +71,7 @@ impl Handler<InitializeRequested> for SessionActor {
                 .unwrap_or(false),
         );
         self.state = Lifecycle::AwaitInitialized;
-        let mut result = encode_result::<Initialize>(capabilities()).map_err(Error::other)?;
-        // lsp-types 0.97's implementation capability omits WorkDoneProgressOptions.
-        // Keep its typed registration fields and fill this standard wire field.
-        result["capabilities"]["implementationProvider"]["workDoneProgress"] = Value::Bool(true);
+        let result = initialize_response().map_err(Error::other)?;
         self.finish(serial, Ok(result))
     }
 }
@@ -121,9 +113,10 @@ impl Handler<ShutdownRequested> for SessionActor {
             );
         }
         self.state = Lifecycle::ShuttingDown;
-        self.features.shutdown();
+        self.operations.shutdown();
         self.captures.shutdown();
         self.analysis.shutdown();
+        self.diagnostics.shutdown();
         self.publications.shutdown();
         self.timers.remove(Deadline::Diagnostics);
         for pending in self.requests.unresolved() {
@@ -156,44 +149,5 @@ impl Handler<ExitRequested> for SessionActor {
             self.begin_exit();
         }
         Ok(())
-    }
-}
-
-fn capabilities() -> InitializeResult {
-    InitializeResult {
-        capabilities: ServerCapabilities {
-            position_encoding: Some(PositionEncodingKind::UTF16),
-            hover_provider: Some(HoverProviderCapability::Simple(true)),
-            definition_provider: Some(OneOf::Left(true)),
-            implementation_provider: Some(ImplementationProviderCapability::Options(
-                StaticTextDocumentRegistrationOptions {
-                    document_selector: None,
-                    id: None,
-                },
-            )),
-            completion_provider: Some(CompletionOptions {
-                trigger_characters: Some(vec![".".into(), ":".into()]),
-                resolve_provider: Some(false),
-                ..Default::default()
-            }),
-            text_document_sync: Some(
-                TextDocumentSyncOptions {
-                    open_close: Some(true),
-                    change: Some(TextDocumentSyncKind::FULL),
-                    save: Some(true.into()),
-                    ..Default::default()
-                }
-                .into(),
-            ),
-            execute_command_provider: Some(ExecuteCommandOptions {
-                commands: vec!["kagari.reloadWorkspace".into()],
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-        server_info: Some(ServerInfo {
-            name: "kagari-analyzer".into(),
-            version: Some(env!("CARGO_PKG_VERSION").into()),
-        }),
     }
 }

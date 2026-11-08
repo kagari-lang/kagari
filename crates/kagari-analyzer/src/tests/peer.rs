@@ -131,10 +131,10 @@ fn serve(
     )
     .map_err(|error| error.to_string())?;
     actor.analysis.gate = gates.diagnostics;
-    actor.features.step_gate = gates.step;
+    actor.operations.step_gate = gates.step;
     #[cfg(feature = "verification")]
     {
-        actor.features.gate = gates.feature;
+        actor.operations.gate = gates.feature;
     }
     ready
         .send(Ready {
@@ -142,7 +142,7 @@ fn serve(
             completed: actor.analysis.completed.subscribe(),
             maintained: actor.analysis.maintained.subscribe(),
             #[cfg(feature = "verification")]
-            feature_started: actor.features.started.subscribe(),
+            feature_started: actor.operations.started.subscribe(),
         })
         .map_err(|error| error.to_string())?;
     let handle = runtime

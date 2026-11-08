@@ -1,43 +1,18 @@
 //! Completion query policy and protocol presentation.
 use crate::analysis::{
-    AnalysisFailure, AnalysisState,
-    diagnostics::protocol_range,
-    features::{FeatureInput, FeatureQuery, QueryParams, QueryResult, QueryStep},
+    AnalysisFailure, AnalysisState, diagnostics::protocol_range, features::DocumentQueryInput,
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::aggregates::implementations::ImplementationSearchError;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionList, CompletionResponse, CompletionTextEdit,
-    ProgressToken, TextDocumentPositionParams, TextEdit, request::Completion,
+    TextEdit,
 };
-
-pub(crate) struct CompletionQuery;
-
-impl FeatureQuery for CompletionQuery {
-    type Request = Completion;
-
-    fn position(params: &QueryParams<Self>) -> &TextDocumentPositionParams {
-        &params.text_document_position
-    }
-
-    fn work_done(params: &QueryParams<Self>) -> Option<&ProgressToken> {
-        params.work_done_progress_params.work_done_token.as_ref()
-    }
-
-    fn run(
-        state: &mut AnalysisState,
-        input: &FeatureInput,
-        _params: &QueryParams<Self>,
-        cancel: &CancellationToken,
-    ) -> Result<QueryStep<QueryResult<Self>>, AnalysisFailure> {
-        state.completion(input, cancel).map(QueryStep::Complete)
-    }
-}
 
 impl AnalysisState {
     pub fn completion(
         &mut self,
-        input: &FeatureInput,
+        input: &DocumentQueryInput,
         cancel: &CancellationToken,
     ) -> Result<Option<CompletionResponse>, AnalysisFailure> {
         let retained = self.editor_for_input(input, cancel)?;

@@ -1,7 +1,7 @@
 //! Retained query leases and context-owned selected editor analysis.
 
 use crate::{
-    analysis::{AnalysisFailure, AnalysisState, ContextAnalysis, features::FeatureInput},
+    analysis::{AnalysisFailure, AnalysisState, ContextAnalysis, features::DocumentQueryInput},
     workspace::{ContextCapture, budget::InputLease},
 };
 use kagari_common::cancellation::CancellationToken;
@@ -23,7 +23,7 @@ pub(super) struct RetainedSignatures {
 impl AnalysisState {
     pub(super) fn editor_for_input(
         &mut self,
-        input: &FeatureInput,
+        input: &DocumentQueryInput,
         cancel: &CancellationToken,
     ) -> Result<RetainedEditor, AnalysisFailure> {
         cancel.check()?;
