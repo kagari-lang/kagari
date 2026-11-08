@@ -1,0 +1,16 @@
+//! Cold asynchronous operations. Creation captures inputs without starting work; first await drives the operation once. Aliases share that single-drive state.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn retain(value: Future<i32>) -> core::future::Future<i32> { value }
+//! ```
+
+/// A cold runtime-local operation with one invariant result type. Creation does not submit work. Await drives once and returns the result; repeated awaiting through any alias traps. Cancellation terminates execution rather than wrapping the result in Result.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn retain(value: Future<i32>) -> core::future::Future<i32> { value }
+/// ```
+pub type Future<T>;

@@ -1,0 +1,9 @@
+//! Success and failure values. Question-mark propagation returns an error early and uses a declared From conversion where needed.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+//! ```
+
+pub use core::result::Result as Result;

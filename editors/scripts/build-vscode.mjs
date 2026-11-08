@@ -1,11 +1,19 @@
 import { build } from 'esbuild';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire, isBuiltin } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const extension = fileURLToPath(new URL('../vscode/', import.meta.url));
+const declarations = fileURLToPath(new URL('../../crates/kagari-stdlib/declarations/', import.meta.url));
+const bundledSources = path.resolve(extension, 'dist/stdlib');
+if (!bundledSources.startsWith(path.resolve(extension, 'dist') + path.sep)) {
+  throw new Error('Standard source destination escaped extension dist');
+}
+await rm(bundledSources, { recursive: true, force: true });
+await cp(declarations, bundledSources, { recursive: true, filter: (source) =>
+  !path.extname(source) || source.endsWith('.kgr') });
 const result = await build({
   entryPoints: [path.join(extension, 'src/extension.cjs')],
   outfile: path.join(extension, 'dist/extension.cjs'),

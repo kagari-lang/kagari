@@ -1,5 +1,4 @@
 use super::*;
-use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
 use std::{
     fs,
@@ -10,7 +9,7 @@ use std::{
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
-fn documents() -> GeneratedDocuments {
+fn documents() -> SourceStore {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/lsp-environment-tests/中文 cache")
         .join(format!(
@@ -18,7 +17,7 @@ fn documents() -> GeneratedDocuments {
             process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
-    GeneratedDocuments::open(&root, NATIVE_RENDERER_NAMESPACE).unwrap()
+    SourceStore::open(&root).unwrap()
 }
 
 #[test]
@@ -156,11 +155,15 @@ fn invalid_cancelled_or_oversized_environments_do_not_publish_files() {
         .err()
         .expect("publication bytes must be bounded before HIR admission");
     assert!(error.contains("publication limit"), "{error}");
-    let directory = documents
-        .plan("".into())
-        .path()
-        .parent()
+    let probe = documents
+        .plan(
+            "probe",
+            vec![PublicationSource {
+                path: "lib.kgr".into(),
+                text: "".into(),
+            }],
+        )
         .unwrap()
-        .to_owned();
-    assert_eq!(fs::read_dir(directory).unwrap().count(), 0);
+        .remove(0);
+    assert!(!probe.path().exists());
 }

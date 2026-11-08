@@ -1,11 +1,11 @@
-//! Validated native declarations become usable only after publication acknowledgement.
+//! Native bootstrap tracks semantic readiness separately from source navigation.
+use crate::workspace::acquisition::OpenedSources;
 use crate::{
     analysis::{AnalysisFailure, diagnostics::ProjectionLimits, worker},
     session::{Lifecycle, SessionActor, analysis::Environment},
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
-use kagari_source::generated::{GeneratedDocument, GeneratedDocuments};
+use kagari_source::publication::SourceDocument;
 use lattice_actor::{
     context::{ActorContext, HandlerContext},
     traits::Handler,
@@ -22,14 +22,14 @@ use tokio::sync::{oneshot, oneshot::error::RecvError};
 struct StoreOpened {
     job: u64,
     epoch: u64,
-    result: Result<Result<GeneratedDocuments, String>, RecvError>,
+    result: Result<Result<OpenedSources, String>, RecvError>,
 }
 
 #[derive(lattice_actor::Message)]
 struct EnvironmentPrepared {
     job: u64,
     epoch: u64,
-    result: Result<Result<Arc<[GeneratedDocument]>, AnalysisFailure>, RecvError>,
+    result: Result<Result<Arc<[SourceDocument]>, AnalysisFailure>, RecvError>,
 }
 
 #[derive(lattice_actor::Message)]
@@ -43,6 +43,9 @@ struct EnvironmentPublished {
 struct AnalysisExited(Result<Result<(), String>, RecvError>);
 
 fn cache_root() -> PathBuf {
+    if cfg!(test) {
+        return PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/lsp-native-sources");
+    }
     #[cfg(windows)]
     if let Some(root) = env::var_os("LOCALAPPDATA") {
         return PathBuf::from(root).join("kagari");
@@ -97,12 +100,7 @@ impl SessionActor {
                     .port
                     .as_ref()
                     .ok_or_else(|| Error::other("acquisition worker unavailable"))?
-                    .open_generated(
-                        cache_root(),
-                        NATIVE_RENDERER_NAMESPACE.to_owned(),
-                        token,
-                        sender,
-                    )
+                    .open_source_store(cache_root(), token, sender)
                     .map_err(Error::other)?;
                 self.analysis.environment = Environment::OpeningStore;
                 Ok(true)
@@ -181,7 +179,12 @@ impl Handler<StoreOpened> for SessionActor {
             return Ok(());
         }
         match message.result {
-            Ok(Ok(store)) => self.analysis.environment = Environment::NeedPreparation(store),
+            Ok(Ok(opened)) => {
+                if let Some(warning) = opened.warning {
+                    self.report_problem(warning)?;
+                }
+                self.analysis.environment = Environment::NeedPreparation(opened.store);
+            }
             Ok(Err(error)) => self.environment_failed(error)?,
             Err(_) => return Err(Error::other("acquisition worker lost store result")),
         }
@@ -221,8 +224,15 @@ impl Handler<EnvironmentPublished> for SessionActor {
             return Ok(());
         }
         match message.result {
-            Ok(Ok(())) => self.analysis.environment = Environment::Ready,
-            Ok(Err(error)) => self.environment_failed(error)?,
+            Ok(Ok(())) => {
+                self.analysis.native_navigation_error = None;
+                self.analysis.environment = Environment::Ready;
+            }
+            Ok(Err(error)) => {
+                self.analysis.native_navigation_error = Some(error.clone());
+                self.analysis.environment = Environment::Ready;
+                self.report_problem(format!("standard source navigation unavailable; semantic analysis remains ready: {error}"))?;
+            }
             Err(_) => return Err(Error::other("acquisition worker lost publication result")),
         }
         Ok(())

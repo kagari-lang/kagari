@@ -1,0 +1,359 @@
+//! Shared iteration and iterable construction. Iterator values retain progress and reject stale source reads after structural mutation.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+//! ```
+
+/// A shared built-in cursor. Copies share progress. next returns None when exhausted; structural source edits invalidate subsequent reads.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }
+/// ```
+pub type CollectionCursor<T>;
+
+/// A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }
+/// ```
+pub type MapIterator<T1, T2>;
+
+/// A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }
+/// ```
+pub type FilterIterator<T>;
+
+/// A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }
+/// ```
+pub type TakeIterator<T>;
+
+/// A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }
+/// ```
+pub type FilterMapIterator<T1, T2>;
+
+/// A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }
+/// ```
+pub type SkipIterator<T>;
+
+/// A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }
+/// ```
+pub type EnumerateIterator<T>;
+
+/// A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }
+/// ```
+pub type ZipIterator<T1, T2>;
+
+/// A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }
+/// ```
+pub type ChainIterator<T>;
+
+/// A shared cursor. `next` advances once and returns `Some(item)`, or `None` to stop the current consumption. A custom cursor can resume after None. Copies share progress; previously completed effects survive a failure.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }
+/// ```
+#[lang = "iterator"]
+pub trait Iterator {
+    /// The item yielded by this iterator or iterable.
+    type Item;
+    /// A shared cursor. `next` advances once and returns `Some(item)`, or `None` to stop the current consumption. A custom cursor can resume after None. Copies share progress; previously completed effects survive a failure.
+    ///
+    /// See `Iterator` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }
+    /// ```
+    fn next(self) -> core::option::Option<<Self as Iterator>::Item>;
+}
+
+/// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+/// ```
+#[lang = "iterable"]
+pub trait Iterable {
+    /// The item yielded by this iterator or iterable.
+    type Item;
+    /// The iterator produced by iter; its Item equals this iterable's Item.
+    type Iter: Iterator<Item = <Self as Iterable>::Item>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    fn iter(self) -> <Self as Iterable>::Iter;
+    /// Lazily transform each element with the callback. Obtain the source cursor once; copies share progress.
+    fn map<T>(self, callback: fn(<Self as Iterable>::Item) -> T) -> MapIterator<<Self as Iterable>::Item, T> {
+        __default_8_Iterable_map::<Self, <Self as Iterable>::Item, T, <Self as Iterable>::Iter>(self, callback)
+    }
+    /// Lazily return elements accepted by the predicate, preserving source order and callback effects.
+    fn filter(self, callback: fn(<Self as Iterable>::Item) -> bool) -> FilterIterator<<Self as Iterable>::Item> {
+        __default_8_Iterable_filter::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self, callback)
+    }
+    /// Lazily return at most limit elements. A zero limit never advances the source.
+    fn take(self, limit: u64) -> TakeIterator<<Self as Iterable>::Item> {
+        __default_8_Iterable_take::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self, limit)
+    }
+    /// Lazily return the callback's Some values in source order, without fusing the source.
+    fn filter_map<T>(self, callback: fn(<Self as Iterable>::Item) -> core::option::Option<T>) -> FilterMapIterator<<Self as Iterable>::Item, T> {
+        __default_8_Iterable_filter_map::<Self, <Self as Iterable>::Item, T, <Self as Iterable>::Iter>(self, callback)
+    }
+    /// Discard only the initial count items; aliases share the remaining skip state.
+    fn skip(self, count: u64) -> SkipIterator<<Self as Iterable>::Item> {
+        __default_8_Iterable_skip::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self, count)
+    }
+    /// Lazily pair each item with its checked u64 position, starting at zero.
+    fn enumerate(self) -> EnumerateIterator<<Self as Iterable>::Item> {
+        __default_8_Iterable_enumerate::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self)
+    }
+    /// Lazily pull left then right and return pairs. A left item stays consumed if right returns None.
+    fn zip<T>(self, other: T) -> ZipIterator<<Self as Iterable>::Item, <T as Iterable>::Item> where T: Iterable {
+        __default_8_Iterable_zip::<Self, <Self as Iterable>::Item, T, <T as Iterable>::Item, <Self as Iterable>::Iter, <T as Iterable>::Iter>(self, other)
+    }
+    /// Lazily traverse the first cursor, then switch permanently to the second on its first None.
+    fn chain<T>(self, other: T) -> ChainIterator<<Self as Iterable>::Item> where T: Iterable<Item = <Self as Iterable>::Item> {
+        __default_8_Iterable_chain::<Self, <Self as Iterable>::Item, T, <Self as Iterable>::Iter, <T as Iterable<Item = <Self as Iterable>::Item>>::Iter>(self, other)
+    }
+    /// Consume through the requested destination's from_iter implementation; preserve its checked construction and arithmetic semantics.
+    fn collect<T>(self) -> T where T: FromIterator<<Self as Iterable>::Item> {
+        __default_8_Iterable_collect::<Self, <Self as Iterable>::Item, T>(self)
+    }
+    /// Consume through the requested destination's sum implementation; preserve its checked construction and arithmetic semantics.
+    fn sum<T>(self) -> T where T: Sum<<Self as Iterable>::Item> {
+        __default_8_Iterable_sum::<Self, <Self as Iterable>::Item, T>(self)
+    }
+    /// Consume through the requested destination's product implementation; preserve its checked construction and arithmetic semantics.
+    fn product<T>(self) -> T where T: Product<<Self as Iterable>::Item> {
+        __default_8_Iterable_product::<Self, <Self as Iterable>::Item, T>(self)
+    }
+    /// Consume in source order, passing the accumulator and each item to the callback. Empty input returns initial; completed source/callback effects survive failure.
+    fn fold<T>(self, initial: T, callback: fn(T, <Self as Iterable>::Item) -> T) -> T {
+        __default_8_Iterable_fold::<Self, <Self as Iterable>::Item, T, <Self as Iterable>::Iter>(self, initial, callback)
+    }
+    /// Consume until the first None and return the checked u64 count.
+    fn count(self) -> u64 {
+        __default_8_Iterable_count::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self)
+    }
+    /// Return the first matching item, stopping immediately; empty input returns None.
+    fn find(self, callback: fn(<Self as Iterable>::Item) -> bool) -> core::option::Option<<Self as Iterable>::Item> {
+        __default_8_Iterable_find::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self, callback)
+    }
+    /// Stop at the first true predicate; empty input returns false.
+    fn any(self, callback: fn(<Self as Iterable>::Item) -> bool) -> bool {
+        __default_8_Iterable_any::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self, callback)
+    }
+    /// Stop at the first false predicate; empty input returns true.
+    fn all(self, callback: fn(<Self as Iterable>::Item) -> bool) -> bool {
+        __default_8_Iterable_all::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self, callback)
+    }
+    /// Run the action once per item in source order and return unit.
+    fn for_each(self, callback: fn(<Self as Iterable>::Item) -> ()) {
+        __default_8_Iterable_for_each::<Self, <Self as Iterable>::Item, <Self as Iterable>::Iter>(self, callback)
+    }
+}
+
+/// Constructs a value by consuming an iterable in order. Each item is read once. A failure retains already completed source and callback effects.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn collect(values: Vec<i32>) -> Vec<i32> { Vec<i32>::from_iter(values) }
+/// ```
+pub trait FromIterator<T> {
+    /// Constructs a value by consuming an iterable in order. Each item is read once. A failure retains already completed source and callback effects.
+    ///
+    /// See `FromIterator` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn collect(values: Vec<i32>) -> Vec<i32> { Vec<i32>::from_iter(values) }
+    /// ```
+    fn from_iter<M>(source: M) -> Self where M: Iterable<Item = T>;
+}
+
+/// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+/// ```
+pub trait Sum<T> {
+    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    ///
+    /// See `Sum` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// ```
+    fn sum<M>(source: M) -> Self where M: Iterable<Item = T>;
+}
+
+/// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+/// ```
+pub trait Product<T> {
+    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    ///
+    /// See `Product` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// ```
+    fn product<M>(source: M) -> Self where M: Iterable<Item = T>;
+}
+
+impl<T> Iterator for CollectionCursor<T> {
+    type Item = T;
+    /// A shared cursor. `next` advances once and returns `Some(item)`, or `None` to stop the current consumption. A custom cursor can resume after None. Copies share progress; previously completed effects survive a failure.
+    ///
+    /// See `Iterator` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }
+    /// ```
+    pub fn next(self) -> core::option::Option<T>;
+}
+
+impl<T1, T2> Iterator for MapIterator<T1, T2> {
+    type Item = T2;
+    /// Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.
+    pub fn next(self) -> core::option::Option<T2>;
+}
+
+impl<T> Iterator for FilterIterator<T> {
+    type Item = T;
+    /// Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.
+    pub fn next(self) -> core::option::Option<T>;
+}
+
+impl<T> Iterator for TakeIterator<T> {
+    type Item = T;
+    /// Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.
+    pub fn next(self) -> core::option::Option<T>;
+}
+
+impl<T1, T2> Iterator for FilterMapIterator<T1, T2> {
+    type Item = T2;
+    /// Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.
+    pub fn next(self) -> core::option::Option<T2>;
+}
+
+impl<T> Iterator for SkipIterator<T> {
+    type Item = T;
+    /// Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.
+    pub fn next(self) -> core::option::Option<T>;
+}
+
+impl<T> Iterator for EnumerateIterator<T> {
+    type Item = (u64, T);
+    /// Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.
+    pub fn next(self) -> core::option::Option<(u64, T)>;
+}
+
+impl<T1, T2> Iterator for ZipIterator<T1, T2> {
+    type Item = (T1, T2);
+    /// Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.
+    pub fn next(self) -> core::option::Option<(T1, T2)>;
+}
+
+impl<T> Iterator for ChainIterator<T> {
+    type Item = T;
+    /// Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.
+    pub fn next(self) -> core::option::Option<T>;
+}
+
+impl<T> Iterable for Iterator<Item = T> {
+    type Item = T;
+    type Iter = Iterator<Item = T>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> Iterator<Item = T>;
+}
+
+fn __default_8_Iterable_map<T1, T2, T3, T4>(__receiver: T1, callback: fn(T2) -> T3) -> MapIterator<T2, T3> where T1: Iterable<Item = T2, Iter = T4>, T4: Iterator<Item = T2>;
+fn __default_8_Iterable_filter<T1, T2, T3>(__receiver: T1, callback: fn(T2) -> bool) -> FilterIterator<T2> where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;
+fn __default_8_Iterable_take<T1, T2, T3>(__receiver: T1, limit: u64) -> TakeIterator<T2> where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;
+fn __default_8_Iterable_filter_map<T1, T2, T3, T4>(__receiver: T1, callback: fn(T2) -> core::option::Option<T3>) -> FilterMapIterator<T2, T3> where T1: Iterable<Item = T2, Iter = T4>, T4: Iterator<Item = T2>;
+fn __default_8_Iterable_skip<T1, T2, T3>(__receiver: T1, count: u64) -> SkipIterator<T2> where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;
+fn __default_8_Iterable_enumerate<T1, T2, T3>(__receiver: T1) -> EnumerateIterator<T2> where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;
+fn __default_8_Iterable_zip<T1, T2, T3, T4, T5, T6>(__receiver: T1, other: T3) -> ZipIterator<T2, T4> where T1: Iterable<Item = T2, Iter = T5>, T3: Iterable + Iterable<Item = T4, Iter = T6>, T5: Iterator<Item = T2>, T6: Iterator<Item = T4>;
+fn __default_8_Iterable_chain<T1, T2, T3, T4, T5>(__receiver: T1, other: T3) -> ChainIterator<T2> where T1: Iterable<Item = T2, Iter = T4>, T3: Iterable<Item = T2> + Iterable<Item = T2, Iter = T5>, T4: Iterator<Item = T2>, T5: Iterator<Item = T2>;
+fn __default_8_Iterable_collect<T1, T2, T3>(__receiver: T1) -> T3 where <T1 as Iterable>::Iter: Iterator<Item = T2>, T1: Iterable<Item = T2>, T3: FromIterator<T2>;
+fn __default_8_Iterable_sum<T1, T2, T3>(__receiver: T1) -> T3 where <T1 as Iterable>::Iter: Iterator<Item = T2>, T1: Iterable<Item = T2>, T3: Sum<T2>;
+fn __default_8_Iterable_product<T1, T2, T3>(__receiver: T1) -> T3 where <T1 as Iterable>::Iter: Iterator<Item = T2>, T1: Iterable<Item = T2>, T3: Product<T2>;
+fn __default_8_Iterable_fold<T1, T2, T3, T4>(__receiver: T1, initial: T3, callback: fn(T3, T2) -> T3) -> T3 where T1: Iterable<Item = T2, Iter = T4>, T4: Iterator<Item = T2>;
+fn __default_8_Iterable_count<T1, T2, T3>(__receiver: T1) -> u64 where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;
+fn __default_8_Iterable_find<T1, T2, T3>(__receiver: T1, callback: fn(T2) -> bool) -> core::option::Option<T2> where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;
+fn __default_8_Iterable_any<T1, T2, T3>(__receiver: T1, callback: fn(T2) -> bool) -> bool where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;
+fn __default_8_Iterable_all<T1, T2, T3>(__receiver: T1, callback: fn(T2) -> bool) -> bool where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;
+fn __default_8_Iterable_for_each<T1, T2, T3>(__receiver: T1, callback: fn(T2) -> ()) where T1: Iterable<Item = T2, Iter = T3>, T3: Iterator<Item = T2>;

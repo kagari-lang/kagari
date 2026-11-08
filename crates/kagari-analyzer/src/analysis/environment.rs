@@ -7,32 +7,35 @@ use kagari_hir::{
         AnalysisDatabase, editor::EditorAnalysis, error::AnalysisError,
         signatures::SignatureSnapshot,
     },
-    native::render::{DeclarationSource, declaration_source},
+    native::NativeSource,
 };
 use kagari_source::{
-    generated::{GeneratedDocument, GeneratedDocuments},
+    publication::{PublicationSource, SourceDocument, SourceStore, module_path},
     source::SourceFile,
     source_database::SourceSnapshot,
 };
-use kagari_stdlib::catalog;
+use kagari_stdlib::{catalog, sources as standard_sources};
 use kagari_types::declaration::module::ModuleDecl;
 use std::sync::Arc;
+
+#[cfg(any(test, feature = "verification"))]
+use kagari_hir::native::render::declaration_source;
 
 const MAX_PUBLICATION_BYTES: usize = 16 * 1024 * 1024;
 
 /// Kept entirely on the analysis worker. Only publication bytes cross to the IO
-/// owner; the matching environment epoch becomes usable after publication succeeds.
+/// owner; publication failure restricts navigation without discarding semantics.
 pub(crate) struct PreparedEnvironment {
     /// Retains the validated native-only context for this provider generation.
     /// User contexts are always created through context_database, never cloned.
     _database: AnalysisDatabase,
-    pub publications: Arc<[GeneratedDocument]>,
+    pub publications: Arc<[SourceDocument]>,
     /// Source-owned allocations charged by the analysis owner's shared input budget.
     /// Publication strings are separate and bounded by MAX_PUBLICATION_BYTES.
     pub sources: Vec<Arc<SourceFile>>,
     source_root: String,
     providers: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
-    views: Vec<DeclarationSource>,
+    views: Vec<NativeSource>,
 }
 
 impl PreparedEnvironment {
@@ -91,39 +94,96 @@ impl PreparedEnvironment {
 /// Obtains the standard semantic catalog without native preparation or execution.
 pub(crate) fn prepare_standard(
     source_root: &str,
-    documents: &GeneratedDocuments,
+    documents: &SourceStore,
     cancel: &CancellationToken,
 ) -> Result<PreparedEnvironment, String> {
     check(cancel)?;
     let providers = catalog::shared().map_err(|error| error.to_string())?;
-    prepare(source_root, documents, providers, cancel)
+    if providers.len() != standard_sources::DECLARATIONS.len() {
+        return Err("bundled standard source/provider inventory differs".into());
+    }
+    let sources = providers
+        .iter()
+        .map(|provider| {
+            let source =
+                standard_sources::declaration(&provider.records().identity).ok_or_else(|| {
+                    format!(
+                        "missing bundled standard source for {}",
+                        provider.records().identity
+                    )
+                })?;
+            Ok(NativeSource {
+                uri: format!("kagari-stdlib:///{}", source.path),
+                text: source.text.into(),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    prepare_sources(source_root, documents, providers, sources, cancel)
 }
 
 /// Renders and validates one explicit provider generation at its final source paths.
 /// This is the embedded/test injection boundary; providers must form a closed
 /// declaration environment. Source-dependent application providers are not guessed.
+#[cfg(any(test, feature = "verification"))]
 pub(crate) fn prepare(
     source_root: &str,
-    documents: &GeneratedDocuments,
+    documents: &SourceStore,
     providers: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     cancel: &CancellationToken,
 ) -> Result<PreparedEnvironment, String> {
+    let sources = providers
+        .iter()
+        .map(|provider| {
+            declaration_source(provider, &providers)
+                .map(Into::into)
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    prepare_sources(source_root, documents, providers, sources, cancel)
+}
+
+fn prepare_sources(
+    source_root: &str,
+    documents: &SourceStore,
+    providers: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
+    mut sources: Vec<NativeSource>,
+    cancel: &CancellationToken,
+) -> Result<PreparedEnvironment, String> {
     check(cancel)?;
-    let mut sources = Vec::with_capacity(providers.len());
-    let mut publications = Vec::with_capacity(providers.len());
+    let mut publication_sources = Vec::with_capacity(providers.len());
     let mut publication_bytes = 0usize;
-    for provider in &providers {
+    for (provider, source) in providers.iter().zip(&sources) {
         check(cancel)?;
-        let mut source =
-            declaration_source(provider, &providers).map_err(|error| error.to_string())?;
         publication_bytes = publication_bytes
             .checked_add(source.text.len())
             .filter(|bytes| *bytes <= MAX_PUBLICATION_BYTES)
-            .ok_or_else(|| "generated declarations exceed 16 MiB publication limit".to_owned())?;
-        let publication = documents.plan(Arc::from(source.text.as_str()));
+            .ok_or_else(|| "native declarations exceed 16 MiB publication limit".to_owned())?;
+        let path = source
+            .uri
+            .strip_prefix("kagari-stdlib:///")
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                let identity = &provider.records().identity;
+                module_path(&identity.package.0, &identity.path)
+            });
+        publication_sources.push(PublicationSource {
+            path,
+            text: Arc::from(source.text.as_str()),
+        });
+    }
+    let package = if sources
+        .iter()
+        .all(|source| source.uri.starts_with("kagari-stdlib:///"))
+    {
+        "stdlib"
+    } else {
+        "hosts"
+    };
+    let publications = documents
+        .plan(package, publication_sources)
+        .map_err(|error| error.to_string())?;
+    for (source, publication) in sources.iter_mut().zip(&publications) {
         source.uri = publication.source_name().into();
-        sources.push(source);
-        publications.push(publication);
     }
     let mut database = AnalysisDatabase::new(source_root)?;
     database

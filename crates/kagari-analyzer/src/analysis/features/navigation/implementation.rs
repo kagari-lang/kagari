@@ -4,10 +4,7 @@ mod scope;
 use crate::{
     analysis::{
         AnalysisFailure, AnalysisState,
-        features::{
-            DocumentQueryInput, ProtocolOutput,
-            projection::{location, selected_context},
-        },
+        features::{DocumentQueryInput, ProtocolOutput, projection::selected_context},
         indexes::scope::ScopeStamp,
     },
     protocol::output::MESSAGE_BASE_CHARGE_BYTES,
@@ -92,7 +89,7 @@ impl AnalysisState {
     ) -> Result<ImplementationStep, AnalysisFailure> {
         cancel.check()?;
         self.indexes.retain_capture(&input.capture);
-        self.check_generated_views(&input.capture, &input.documents)?;
+        self.check_native_views(&input.capture, &input.documents)?;
         if !self.implementation.requests.contains_key(&input.serial) {
             let context = selected_context(input)?.key.clone();
             let retained = self.editor_for_input(input, cancel)?;
@@ -211,7 +208,8 @@ impl AnalysisState {
             let signatures = index
                 .signatures(&destination.context)
                 .expect("complete implementation shard");
-            let target = location(input, context, signatures, destination.location.selection)?;
+            let target =
+                self.location(input, context, signatures, destination.location.selection)?;
             if seen.insert((
                 target.uri.as_str().to_owned(),
                 target.range.start.line,

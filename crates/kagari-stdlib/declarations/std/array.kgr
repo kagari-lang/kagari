@@ -1,0 +1,7 @@
+//! Builtin shared arrays have construction-time fixed length and checked element access.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! ```

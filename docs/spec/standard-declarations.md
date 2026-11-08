@@ -32,7 +32,7 @@ Value aliases with the same spelling. Validation checks category agreement with
 the canonical target and rejects duplicates within one category. The supported
 portable aliases remain traits, registered types and enum variants. Canonical
 definition identities and native symbol uniqueness are independent of spelling.
-Generated source views follow the same two-space lookup rules as authored source.
+Native declaration views follow the same two-space lookup rules as authored source.
 The [namespace and prelude inventory](builtins.md#namespaces-and-prelude) defines
 public paths and default name visibility.
 
@@ -133,7 +133,7 @@ numeric casts. The [numeric inventory](builtins.md#numeric-scalar-methods) owns
 signatures and [value semantics](value-semantics.md#floating-point-utilities-and-math)
 owns exceptional values, power guards and precision.
 
-The same authored signatures, documentation and bindings feed generated source,
+The same authored signatures and bindings govern bundled/exported source,
 checked native imports and source-free runtime installation. These are ordinary
 registered calls, not names recognized specially by compiler or VM loops. Integer
 checked results use the pinned standard `Option<T>`; overflowing results use
@@ -298,9 +298,11 @@ of executable signatures and contract matching.
 
 ## Engine source presentation
 
-Source-enabled engines render every installed module from the sealed registrations
-and check complete generated KGR with the ordinary frontend before publishing it.
-`engine.native_declaration_sources()` returns those immutable views and their sites.
+Source-enabled engines load the bundled standard `.kgr` package and render custom
+Host exports from sealed registrations. The ordinary frontend checks complete
+declaration source against installed records before publication.
+`engine.native_declaration_sources()` returns owned `NativeSource` text/origins;
+analysis queries supply parsed declaration sites and ranges.
 For example, a tooling host configures file materialization before sealing:
 
 ```rust
@@ -317,8 +319,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 Omitting the directory keeps views in memory without filesystem IO. CLI source
-commands configure it automatically. The cache uses renderer-version/content paths;
-unchanged content reuses paths and doc-only changes preserve old snapshot targets.
+commands configure it automatically. The cache uses immutable source-set directories
+and module filenames, such as `stdlib/<source-set-hash>/core/option.kgr` or
+`hosts/<source-set-hash>/application/api.kgr`. Logical paths and exact bytes define
+the snapshot; doc-only changes preserve old targets without an ABI version bump.
 SDK errors retain the failing filesystem path and IO cause. Published normalized
 absolute paths and declaration ranges match the analyzed content; LSP integrations
 encode paths as file URIs at their protocol boundary. HIR declaration snapshots
@@ -332,7 +336,7 @@ KBC/MIR artifacts and linked verification remain independent execution features.
 
 ## Checked executable contracts
 
-Source analysis parses native-generated declaration views through ordinary
+Source analysis parses bundled/exported native declaration views through ordinary
 declaration analysis, then attaches checked registration metadata. Lowering carries
 provider-qualified native imports with concrete types, signatures, bounds and
 selected callable dependencies. Portable validation proves those facts against
@@ -455,26 +459,27 @@ calls and ControlFlow variant operations, without a Result-specific origin opcod
 
 ## Tooling
 
-Generated `.kgr` is a read-only projection for navigation, completion, signatures
+Native declaration `.kgr` is a read-only analysis view for navigation, completion, signatures
 and documentation. Generic binders use `T` for one parameter and `T1, T2, ...`
 for multiple parameters. Method-local binders use `M` / `M1, M2, ...` when an
 enclosing generic binder already uses `T`, avoiding shadowing. Declarations,
 bounds and bodies share this spelling; semantic binder positions remain zero-based.
-The generated view is not an independently installable library or a second
+The view is not an independently installable library or a second
 signature authority. The compiler parses/lowers this view through ordinary
 declaration machinery and checks non-trivia correspondence with registration
 before attaching native storage, bindings and default provenance. Registered
 trait defaults include real forwarding bodies to typed native helpers; ordinary
 body checking must prove those calls before direct native lowering. The SDK
 checks unused defaults too, before publishing materialized source files. Declaration
-locations and docs come from the same records used by compilation. Standard
-registrations own all trait and module documentation. Core and application views
-use the uniform renderer and optional materialized declaration cache; navigation
-resolves their parsed owning ranges in the exact generated snapshot.
+locations and docs come from the exact sources used by compilation. Standard
+declaration resources carry full documentation and match the registered API.
+Core sources are bundled with the tool; application views use the native exporter.
+Both support an optional immutable source cache, and navigation resolves parsed
+owning ranges in the exact supplied snapshot.
 Changing a view's URI changes its presentation location, while its registered
 module and callable identities remain unchanged. Native registration does not infer
 a Rust implementation source location or use a URI to grant native authority.
-Other generated views include library-owned types,
+Other native views include library-owned types,
 inherent methods and trait impl methods, including MapIterator.next.
 
 Behavioral and tooling coverage lives in native_provider_reset,

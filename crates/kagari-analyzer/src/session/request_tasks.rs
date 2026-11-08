@@ -281,6 +281,7 @@ impl SessionActor {
         retained.extend(self.analysis.live_contexts.iter().cloned());
         let live_serials = self.requests.unresolved().into_iter().collect();
         let latest_capture = self.captures.latest.clone();
+        let navigation_error = self.analysis.native_navigation_error.clone();
         #[cfg(all(test, feature = "verification"))]
         let gate = self.operations.gate.take();
         #[cfg(all(test, feature = "verification"))]
@@ -302,6 +303,7 @@ impl SessionActor {
                     if let Some(capture) = &latest_capture {
                         state.retain_capture_inputs(capture);
                     }
+                    state.set_native_navigation_error(navigation_error);
                     execute(state, cancel, job)
                 },
                 token,

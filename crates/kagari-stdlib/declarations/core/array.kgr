@@ -1,0 +1,68 @@
+//! Builtin shared arrays have construction-time fixed length and checked element access.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! ```
+
+impl<T> [T] {
+    /// Return whether the collection has no entries.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: [i32]) { val result = values.is_empty(); }
+    /// ```
+    pub fn is_empty(self) -> bool;
+    /// Return the number of entries.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: [i32]) { val result = values.len(); }
+    /// ```
+    pub fn len(self) -> u64;
+}
+
+impl<T> core::ops::Index<u64> for [T] {
+    type Output = T;
+    /// Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.
+    ///
+    /// See `Index` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn head(values: Vec<i32>) -> i32 { values[0] }
+    /// ```
+    pub fn index(self, arg1: u64) -> T;
+}
+
+impl<T> core::iter::Iterable for [T] {
+    type Item = T;
+    type Iter = core::iter::CollectionCursor<T>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<T>;
+}
+
+impl<T> core::cmp::PartialEq for [T] where T: core::cmp::PartialEq {
+    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
+    ///
+    /// See `PartialEq` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// ```
+    pub fn eq(self, arg1: [T]) -> bool;
+}

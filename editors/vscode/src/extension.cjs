@@ -27,7 +27,8 @@ function activate(context) {
   }
   function configuration() {
     const settings = vscode.workspace.getConfiguration('kagari.server');
-    return { enabled: settings.get('enabled', true), path: settings.get('path', '') };
+    return { enabled: settings.get('enabled', true), path: settings.get('path', ''),
+      standardSources: context.asAbsolutePath('dist/stdlib') };
   }
   context.subscriptions.push(output, status, changed,
     vscode.commands.registerCommand('kagari.restartServer', () => controller.restart()),

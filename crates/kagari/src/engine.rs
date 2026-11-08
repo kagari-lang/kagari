@@ -11,7 +11,7 @@ use crate::{
     runtime::Runtime,
 };
 #[cfg(feature = "source")]
-use kagari_hir::{analysis::AnalysisDatabase, native::render::DeclarationSource};
+use kagari_hir::{analysis::AnalysisDatabase, native::NativeSource};
 use kagari_runtime::{
     RuntimeConfig,
     native::{binding::NativeResult, installation::NativeInstallation, module::NativeModule},
@@ -33,7 +33,7 @@ pub struct KagariEngine {
     #[cfg(feature = "source")]
     native_analysis: AnalysisDatabase,
     #[cfg(feature = "source")]
-    declaration_sources: Vec<DeclarationSource>,
+    declaration_sources: Vec<NativeSource>,
     #[cfg(feature = "source")]
     sources: RefCell<SourceDatabase>,
     #[cfg(feature = "source")]
@@ -89,7 +89,7 @@ impl KagariEngine {
     }
 
     #[cfg(feature = "source")]
-    pub fn native_declaration_sources(&self) -> &[DeclarationSource] {
+    pub fn native_declaration_sources(&self) -> &[NativeSource] {
         &self.declaration_sources
     }
 

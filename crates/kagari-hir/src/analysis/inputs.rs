@@ -1,9 +1,6 @@
 //! Immutable declaration-only inputs for an independent analysis session.
 
-use crate::{
-    analysis::AnalysisDatabase, native::render::DeclarationSource,
-    typeck::const_budget::ConstLimits,
-};
+use crate::{analysis::AnalysisDatabase, native::NativeSource, typeck::const_budget::ConstLimits};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::declaration::module::ModuleDecl;
@@ -18,7 +15,7 @@ use std::sync::Arc;
 pub struct AnalysisInputs {
     source_root: String,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
-    native_sources: Option<Vec<DeclarationSource>>,
+    native_sources: Option<Vec<NativeSource>>,
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
@@ -58,7 +55,7 @@ impl AnalysisInputs {
         &self.native_modules
     }
 
-    pub fn native_sources(&self) -> Option<&[DeclarationSource]> {
+    pub fn native_sources(&self) -> Option<&[NativeSource]> {
         self.native_sources.as_deref()
     }
 
@@ -106,12 +103,15 @@ mod tests {
         for rendered in [false, true] {
             let mut database = AnalysisDatabase::new("/capsule").unwrap();
             if rendered {
-                let sources = providers
+                let sources: Vec<_> = providers
                     .iter()
                     .map(|provider| declaration_source(provider, &providers).unwrap())
                     .collect();
                 database
-                    .set_native_sources(providers.clone(), sources)
+                    .set_native_sources(
+                        providers.clone(),
+                        sources.into_iter().map(Into::into).collect(),
+                    )
                     .unwrap();
             } else {
                 database.set_native_modules(providers.clone());

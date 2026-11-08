@@ -291,15 +291,6 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
             .unwrap();
         assert_eq!(item.documentation, DOC);
     }
-    let source = engine
-        .native_declaration_sources()
-        .iter()
-        .find(|source| source.uri == target.name())
-        .unwrap();
-    for site in source.sites.values() {
-        assert!(site.name_span.end <= source.text.len());
-        assert!(site.span.start <= site.name_span.start);
-    }
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("memory://run.kgr", text),
@@ -518,12 +509,9 @@ fn failed_registration_is_atomic_and_default_embedding_uses_memory() {
     assert!(builder.install_all([one.clone(), two]).is_err());
     builder.install(one).unwrap();
     let engine = builder.build().unwrap();
-    assert!(
-        engine
-            .native_declaration_sources()
-            .iter()
-            .all(|source| source.uri.starts_with("kagari://"))
-    );
+    assert!(engine.native_declaration_sources().iter().all(|source| {
+        source.uri.starts_with("kagari://") || source.uri.starts_with("kagari-stdlib:///")
+    }));
     assert!(
         engine
             .compile_source(SourceFile::new(
@@ -544,8 +532,11 @@ fn cache_failure_preserves_io_error_and_rejects_engine_publication() {
     builder.declaration_cache(&blocked);
     match builder.build().unwrap_err() {
         EmbeddingError::DeclarationCache { path, error } => {
-            assert!(path.starts_with(&blocked));
-            assert_ne!(error.kind(), std::io::ErrorKind::NotFound);
+            assert_eq!(path, fs::canonicalize(&blocked).unwrap());
+            assert_eq!(
+                error.kind(),
+                fs::create_dir_all(&blocked).unwrap_err().kind()
+            );
         }
         error => panic!("unexpected cache error: {error:?}"),
     }

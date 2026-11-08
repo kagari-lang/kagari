@@ -1,0 +1,9 @@
+//! Cold asynchronous operations. Creation captures inputs without starting work; first await drives the operation once. Aliases share that single-drive state.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn retain(value: Future<i32>) -> core::future::Future<i32> { value }
+//! ```
+
+pub use core::future::Future as Future;

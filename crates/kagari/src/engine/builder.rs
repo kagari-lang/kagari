@@ -83,8 +83,10 @@ impl KagariEngineBuilder {
         Ok(())
     }
 
-    /// Materialize immutable declaration files for tooling. Omission keeps all
-    /// declaration views in memory and performs no filesystem IO.
+    /// Materialize immutable declaration packages with readable module filenames.
+    /// Standard text comes from bundled sources; custom Host text is exported.
+    /// Build fails on publication errors. Omission keeps all declaration views
+    /// in memory and performs no filesystem IO.
     #[cfg(feature = "source")]
     pub fn declaration_cache(&mut self, path: impl Into<PathBuf>) -> &mut Self {
         self.declaration_cache = Some(path.into());

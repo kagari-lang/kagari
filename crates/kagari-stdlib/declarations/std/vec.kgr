@@ -1,0 +1,9 @@
+//! Shared mutable sequences with checked indexing, iteration and collection algorithms. Readonly views do not freeze aliases.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! ```
+
+pub use alloc::vec::Vec as Vec;

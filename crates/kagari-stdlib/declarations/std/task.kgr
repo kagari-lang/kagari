@@ -1,0 +1,11 @@
+//! Scope-owned asynchronous jobs with retained terminal results and host-controlled scheduling.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn retain(value: Task<i32>) -> core::task::Task<i32> { value }
+//! ```
+
+pub use core::task::SpawnError as SpawnError;
+pub use core::task::Task as Task;
+pub use core::task::TaskScope as TaskScope;

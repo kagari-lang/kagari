@@ -3,10 +3,11 @@ use crate::workspace::{
     CaptureFailure, CaptureRequest, WorkspaceCapture, budget::InputBudget, capture::CaptureState,
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_source::generated::{GeneratedDocument, GeneratedDocuments};
+use kagari_source::publication::{PublicationSource, SourceDocument, SourceStore};
+use kagari_stdlib::sources as standard_sources;
 use std::{
-    io,
-    path::PathBuf,
+    env, io,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         mpsc::{SyncSender, TrySendError, sync_channel},
@@ -18,6 +19,11 @@ use tokio::sync::oneshot;
 type Task = Box<dyn FnOnce(&mut CaptureState) + Send>;
 
 pub(crate) struct AcquisitionPort(SyncSender<Task>);
+
+pub(crate) struct OpenedSources {
+    pub store: SourceStore,
+    pub warning: Option<String>,
+}
 
 pub(crate) struct AcquisitionWorker {
     pub port: AcquisitionPort,
@@ -49,20 +55,18 @@ impl AcquisitionPort {
     }
 
     /// Open the native document store on the existing IO owner.
-    pub fn open_generated(
+    pub fn open_source_store(
         &self,
         root: PathBuf,
-        namespace: String,
         cancel: CancellationToken,
-        reply: oneshot::Sender<Result<GeneratedDocuments, String>>,
+        reply: oneshot::Sender<Result<OpenedSources, String>>,
     ) -> Result<(), SubmitError> {
         self.send(Box::new(move |_| {
             let result = (|| {
                 check(&cancel)?;
-                let documents = GeneratedDocuments::open(&root, &namespace)
-                    .map_err(|error| error.to_string())?;
+                let opened = open_sources(&root)?;
                 check(&cancel)?;
-                Ok(documents)
+                Ok(opened)
             })();
             let _ = reply.send(result);
         }))
@@ -71,7 +75,7 @@ impl AcquisitionPort {
     /// Materialize only the batch already validated by the analysis owner.
     pub fn publish(
         &self,
-        documents: Arc<[GeneratedDocument]>,
+        documents: Arc<[SourceDocument]>,
         cancel: CancellationToken,
         reply: oneshot::Sender<Result<(), String>>,
     ) -> Result<(), SubmitError> {
@@ -93,6 +97,35 @@ impl AcquisitionPort {
             TrySendError::Disconnected(_) => SubmitError::Closed,
         })
     }
+}
+
+fn open_sources(root: &Path) -> Result<OpenedSources, String> {
+    let mut store = SourceStore::open(root).map_err(|error| error.to_string())?;
+    let installed = env::var_os("KAGARI_STDLIB_SOURCES")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let executable = env::current_exe().ok()?;
+            let candidate = executable.parent()?.parent()?.join("share/kagari/stdlib");
+            candidate.is_dir().then_some(candidate)
+        });
+    let warning = if let Some(installed) = installed {
+        let files = standard_sources::DECLARATIONS
+            .iter()
+            .map(|source| PublicationSource {
+                path: source.path.into(),
+                text: Arc::from(source.text),
+            })
+            .collect::<Vec<_>>();
+        store
+            .prefer_installed("stdlib", &installed, &files)
+            .err()
+            .map(|error| {
+                format!("installed standard sources ignored; using embedded sources: {error}")
+            })
+    } else {
+        None
+    };
+    Ok(OpenedSources { store, warning })
 }
 
 fn check(cancel: &CancellationToken) -> Result<(), String> {

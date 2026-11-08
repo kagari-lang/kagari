@@ -1,0 +1,49 @@
+//! Diagnostic and display formatting through declared interfaces.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+//! ```
+
+/// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+/// ```
+#[lang = "debug"]
+pub trait Debug {
+    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+    ///
+    /// See `Debug` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// ```
+    fn debug(self) -> alloc::string::String;
+}
+
+/// Produces a user-facing string representation through `display`. Implementations choose their formatting policy.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn render<T: core::fmt::Display>(value: T) -> String { value.display() }
+/// ```
+#[lang = "display"]
+pub trait Display {
+    /// Produces a user-facing string representation through `display`. Implementations choose their formatting policy.
+    ///
+    /// See `Display` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn render<T: core::fmt::Display>(value: T) -> String { value.display() }
+    /// ```
+    fn display(self) -> alloc::string::String;
+}

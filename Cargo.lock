@@ -951,6 +951,7 @@ dependencies = [
  "blake3",
  "kagari-common",
  "serde",
+ "thiserror",
 ]
 
 [[package]]

@@ -1,0 +1,1037 @@
+//! Operator contracts, range values and boundary policies. Operators dispatch through checked implementations and preserve evaluation order.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn plus(left: i32, right: i32) -> i32 { left + right }
+//! ```
+
+/// A range endpoint: Included(value), Excluded(value) or Unbounded.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// ```
+pub enum Bound<T> {
+    /// The `Included` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
+    Included(T),
+    /// The `Excluded` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
+    Excluded(T),
+    /// The `Unbounded` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
+    Unbounded,
+}
+
+pub use self::Bound::{Included, Excluded, Unbounded};
+
+/// Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn success() -> core::ops::ControlFlow<String, i32> { core::ops::ControlFlow::Continue(42) }
+/// ```
+pub enum ControlFlow<T1, T2> {
+    /// The `Break` case of `ControlFlow`. Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.
+    Break(T1),
+    /// The `Continue` case of `ControlFlow`. Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.
+    Continue(T2),
+}
+
+/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// ```
+pub type Range<T>;
+
+/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// ```
+pub type RangeInclusive<T>;
+
+/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// ```
+pub type RangeFrom<T>;
+
+/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// ```
+pub type RangeTo<T>;
+
+/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// ```
+pub type RangeToInclusive<T>;
+
+/// A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// ```
+pub type RangeFull;
+
+/// Addition with an explicitly declared output type. Built-in integer arithmetic traps on overflow; a user implementation defines its own behavior.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn plus(left: i32, right: i32) -> i32 { left + right }
+/// ```
+#[lang = "add"]
+pub trait Add<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Addition with an explicitly declared output type. Built-in integer arithmetic traps on overflow; a user implementation defines its own behavior.
+    ///
+    /// See `Add` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn plus(left: i32, right: i32) -> i32 { left + right }
+    /// ```
+    fn add(self, arg1: T) -> <Self as Add<T>>::Output;
+}
+
+/// Subtraction with an explicitly declared output type. Built-in integer subtraction traps on overflow.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn difference(left: i32, right: i32) -> i32 { left - right }
+/// ```
+#[lang = "sub"]
+pub trait Sub<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Subtraction with an explicitly declared output type. Built-in integer subtraction traps on overflow.
+    ///
+    /// See `Sub` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn difference(left: i32, right: i32) -> i32 { left - right }
+    /// ```
+    fn sub(self, arg1: T) -> <Self as Sub<T>>::Output;
+}
+
+/// Multiplication with an explicitly declared output type. Built-in integer multiplication traps on overflow.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn doubled(value: i32) -> i32 { value * 2 }
+/// ```
+#[lang = "mul"]
+pub trait Mul<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Multiplication with an explicitly declared output type. Built-in integer multiplication traps on overflow.
+    ///
+    /// See `Mul` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn doubled(value: i32) -> i32 { value * 2 }
+    /// ```
+    fn mul(self, arg1: T) -> <Self as Mul<T>>::Output;
+}
+
+/// Division. Built-in integer division traps for zero divisors and signed overflow; floating-point division follows its specified numeric semantics.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn half(value: i32) -> i32 { value / 2 }
+/// ```
+#[lang = "div"]
+pub trait Div<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Division. Built-in integer division traps for zero divisors and signed overflow; floating-point division follows its specified numeric semantics.
+    ///
+    /// See `Div` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn half(value: i32) -> i32 { value / 2 }
+    /// ```
+    fn div(self, arg1: T) -> <Self as Div<T>>::Output;
+}
+
+/// The remainder of division. Built-in integer remainder traps for zero divisors and signed overflow.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn parity(value: i32) -> i32 { value % 2 }
+/// ```
+#[lang = "rem"]
+pub trait Rem<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// The remainder of division. Built-in integer remainder traps for zero divisors and signed overflow.
+    ///
+    /// See `Rem` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn parity(value: i32) -> i32 { value % 2 }
+    /// ```
+    fn rem(self, arg1: T) -> <Self as Rem<T>>::Output;
+}
+
+/// Bitwise conjunction, with an explicitly declared output type.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn low_bits(value: i32) -> i32 { value & 15 }
+/// ```
+#[lang = "bit_and"]
+pub trait BitAnd<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Bitwise conjunction, with an explicitly declared output type.
+    ///
+    /// See `BitAnd` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn low_bits(value: i32) -> i32 { value & 15 }
+    /// ```
+    fn bitand(self, arg1: T) -> <Self as BitAnd<T>>::Output;
+}
+
+/// Bitwise disjunction, with an explicitly declared output type.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn set_bit(value: i32) -> i32 { value | 1 }
+/// ```
+#[lang = "bit_or"]
+pub trait BitOr<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Bitwise disjunction, with an explicitly declared output type.
+    ///
+    /// See `BitOr` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn set_bit(value: i32) -> i32 { value | 1 }
+    /// ```
+    fn bitor(self, arg1: T) -> <Self as BitOr<T>>::Output;
+}
+
+/// Bitwise exclusive disjunction, with an explicitly declared output type.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn toggle(value: i32) -> i32 { value ^ 1 }
+/// ```
+#[lang = "bit_xor"]
+pub trait BitXor<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Bitwise exclusive disjunction, with an explicitly declared output type.
+    ///
+    /// See `BitXor` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn toggle(value: i32) -> i32 { value ^ 1 }
+    /// ```
+    fn bitxor(self, arg1: T) -> <Self as BitXor<T>>::Output;
+}
+
+/// Left shift. Built-in integer shifts validate the shift count and checked result.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn shift(value: i32) -> i32 { value << 1 }
+/// ```
+#[lang = "shl"]
+pub trait Shl<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Left shift. Built-in integer shifts validate the shift count and checked result.
+    ///
+    /// See `Shl` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn shift(value: i32) -> i32 { value << 1 }
+    /// ```
+    fn shl(self, arg1: T) -> <Self as Shl<T>>::Output;
+}
+
+/// Right shift. Built-in integer shifts validate the shift count.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn shift(value: i32) -> i32 { value >> 1 }
+/// ```
+#[lang = "shr"]
+pub trait Shr<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Right shift. Built-in integer shifts validate the shift count.
+    ///
+    /// See `Shr` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn shift(value: i32) -> i32 { value >> 1 }
+    /// ```
+    fn shr(self, arg1: T) -> <Self as Shr<T>>::Output;
+}
+
+/// Arithmetic negation. Negating the minimum signed integer traps on overflow.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn negative(value: i32) -> i32 { -value }
+/// ```
+#[lang = "neg"]
+pub trait Neg {
+    /// The result type of the declared operation.
+    type Output;
+    /// Arithmetic negation. Negating the minimum signed integer traps on overflow.
+    ///
+    /// See `Neg` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn negative(value: i32) -> i32 { -value }
+    /// ```
+    fn neg(self) -> <Self as Neg>::Output;
+}
+
+/// Logical or bitwise inversion, depending on the receiver type. The output is declared by the implementation.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn invert(value: bool) -> bool { !value }
+/// ```
+#[lang = "not"]
+pub trait Not {
+    /// The result type of the declared operation.
+    type Output;
+    /// Logical or bitwise inversion, depending on the receiver type. The output is declared by the implementation.
+    ///
+    /// See `Not` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn invert(value: bool) -> bool { !value }
+    /// ```
+    fn not(self) -> <Self as Not>::Output;
+}
+
+/// Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn head(values: Vec<i32>) -> i32 { values[0] }
+/// ```
+#[lang = "index"]
+pub trait Index<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.
+    ///
+    /// See `Index` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn head(values: Vec<i32>) -> i32 { values[0] }
+    /// ```
+    fn index(self, arg1: T) -> <Self as Index<T>>::Output;
+}
+
+/// A checked callable signature. Calls evaluate arguments left to right exactly once. Stored callable values retain their selected generation across reload.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 { f(value) }
+/// ```
+#[lang = "fn"]
+pub trait Fn<T> {
+    /// The result type of the declared operation.
+    type Output;
+    /// A checked callable signature. Calls evaluate arguments left to right exactly once. Stored callable values retain their selected generation across reload.
+    ///
+    /// See `Fn` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 { f(value) }
+    /// ```
+    fn call(self, arg1: T) -> <Self as Fn<T>>::Output;
+}
+
+/// Exposes the start and end bounds of a range as Included, Excluded or Unbounded. Constructing bounds does not iterate the range.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+/// ```
+pub trait RangeBounds<T> {
+    /// Return the lower bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    fn start_bound(self) -> Bound<T>;
+    /// Return the upper bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    fn end_bound(self) -> Bound<T>;
+}
+
+/// Defines the successful Output and distinct Residual of a carrier. Question-mark evaluates the value and branch once: Continue produces Output, while Break passes Residual to the enclosing return type's FromResidual implementation. Traps are not converted to residuals.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+/// ```
+#[lang = "try"]
+pub trait Try: FromResidual<<Self as Try>::Residual> {
+    /// The result type of the declared operation.
+    type Output;
+    /// The distinct early-return type passed to FromResidual; successful Output values are not residuals.
+    type Residual;
+    /// Construct a successful carrier from Output.
+    ///
+    /// See `Try` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// ```
+    fn from_output(output: <Self as Try>::Output) -> Self;
+    /// Consume the carrier once and return Continue(Output) or Break(Residual).
+    ///
+    /// See `Try` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// ```
+    fn branch(self) -> ControlFlow<<Self as Try>::Residual, <Self as Try>::Output>;
+}
+
+/// Constructs the enclosing return value on early propagation. Residual types distinguish Option, Result and ControlFlow. Result converts only the error through one infallible From implementation, preserving its original failure trace.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }
+/// ```
+#[lang = "from_residual"]
+pub trait FromResidual<T> {
+    /// Construct the enclosing early-return value from a compatible Residual.
+    ///
+    /// See `FromResidual` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }
+    /// ```
+    fn from_residual(residual: T) -> Self;
+}
+
+impl<T> RangeBounds<T> for Range<T> {
+    /// Return the lower bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn start_bound(self) -> Bound<T>;
+    /// Return the upper bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn end_bound(self) -> Bound<T>;
+}
+
+impl core::iter::Iterable for Range<i8> {
+    type Item = i8;
+    type Iter = core::iter::CollectionCursor<i8>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i8>;
+}
+
+impl core::iter::Iterable for Range<i16> {
+    type Item = i16;
+    type Iter = core::iter::CollectionCursor<i16>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i16>;
+}
+
+impl core::iter::Iterable for Range<i32> {
+    type Item = i32;
+    type Iter = core::iter::CollectionCursor<i32>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i32>;
+}
+
+impl core::iter::Iterable for Range<i64> {
+    type Item = i64;
+    type Iter = core::iter::CollectionCursor<i64>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i64>;
+}
+
+impl core::iter::Iterable for Range<u8> {
+    type Item = u8;
+    type Iter = core::iter::CollectionCursor<u8>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u8>;
+}
+
+impl core::iter::Iterable for Range<u16> {
+    type Item = u16;
+    type Iter = core::iter::CollectionCursor<u16>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u16>;
+}
+
+impl core::iter::Iterable for Range<u32> {
+    type Item = u32;
+    type Iter = core::iter::CollectionCursor<u32>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u32>;
+}
+
+impl core::iter::Iterable for Range<u64> {
+    type Item = u64;
+    type Iter = core::iter::CollectionCursor<u64>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u64>;
+}
+
+impl<T> RangeBounds<T> for RangeInclusive<T> {
+    /// Return the lower bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn start_bound(self) -> Bound<T>;
+    /// Return the upper bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn end_bound(self) -> Bound<T>;
+}
+
+impl core::iter::Iterable for RangeInclusive<i8> {
+    type Item = i8;
+    type Iter = core::iter::CollectionCursor<i8>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i8>;
+}
+
+impl core::iter::Iterable for RangeInclusive<i16> {
+    type Item = i16;
+    type Iter = core::iter::CollectionCursor<i16>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i16>;
+}
+
+impl core::iter::Iterable for RangeInclusive<i32> {
+    type Item = i32;
+    type Iter = core::iter::CollectionCursor<i32>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i32>;
+}
+
+impl core::iter::Iterable for RangeInclusive<i64> {
+    type Item = i64;
+    type Iter = core::iter::CollectionCursor<i64>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i64>;
+}
+
+impl core::iter::Iterable for RangeInclusive<u8> {
+    type Item = u8;
+    type Iter = core::iter::CollectionCursor<u8>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u8>;
+}
+
+impl core::iter::Iterable for RangeInclusive<u16> {
+    type Item = u16;
+    type Iter = core::iter::CollectionCursor<u16>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u16>;
+}
+
+impl core::iter::Iterable for RangeInclusive<u32> {
+    type Item = u32;
+    type Iter = core::iter::CollectionCursor<u32>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u32>;
+}
+
+impl core::iter::Iterable for RangeInclusive<u64> {
+    type Item = u64;
+    type Iter = core::iter::CollectionCursor<u64>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u64>;
+}
+
+impl<T> RangeBounds<T> for RangeFrom<T> {
+    /// Return the lower bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn start_bound(self) -> Bound<T>;
+    /// Return the upper bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn end_bound(self) -> Bound<T>;
+}
+
+impl core::iter::Iterable for RangeFrom<i8> {
+    type Item = i8;
+    type Iter = core::iter::CollectionCursor<i8>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i8>;
+}
+
+impl core::iter::Iterable for RangeFrom<i16> {
+    type Item = i16;
+    type Iter = core::iter::CollectionCursor<i16>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i16>;
+}
+
+impl core::iter::Iterable for RangeFrom<i32> {
+    type Item = i32;
+    type Iter = core::iter::CollectionCursor<i32>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i32>;
+}
+
+impl core::iter::Iterable for RangeFrom<i64> {
+    type Item = i64;
+    type Iter = core::iter::CollectionCursor<i64>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<i64>;
+}
+
+impl core::iter::Iterable for RangeFrom<u8> {
+    type Item = u8;
+    type Iter = core::iter::CollectionCursor<u8>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u8>;
+}
+
+impl core::iter::Iterable for RangeFrom<u16> {
+    type Item = u16;
+    type Iter = core::iter::CollectionCursor<u16>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u16>;
+}
+
+impl core::iter::Iterable for RangeFrom<u32> {
+    type Item = u32;
+    type Iter = core::iter::CollectionCursor<u32>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u32>;
+}
+
+impl core::iter::Iterable for RangeFrom<u64> {
+    type Item = u64;
+    type Iter = core::iter::CollectionCursor<u64>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<u64>;
+}
+
+impl<T> RangeBounds<T> for RangeTo<T> {
+    /// Return the lower bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn start_bound(self) -> Bound<T>;
+    /// Return the upper bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn end_bound(self) -> Bound<T>;
+}
+
+impl<T> RangeBounds<T> for RangeToInclusive<T> {
+    /// Return the lower bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn start_bound(self) -> Bound<T>;
+    /// Return the upper bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn end_bound(self) -> Bound<T>;
+}
+
+impl<T> RangeBounds<T> for RangeFull {
+    /// Return the lower bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn start_bound(self) -> Bound<T>;
+    /// Return the upper bound with its inclusion policy.
+    ///
+    /// See `RangeBounds` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
+    /// ```
+    pub fn end_bound(self) -> Bound<T>;
+}
+
+impl<T1, T2> Try for ControlFlow<T1, T2> {
+    type Output = T2;
+    type Residual = ControlFlow<T1, core::convert::Infallible>;
+    /// Construct a successful carrier from Output.
+    ///
+    /// See `Try` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// ```
+    pub fn from_output(output: T2) -> ControlFlow<T1, T2>;
+    /// Consume the carrier once and return Continue(Output) or Break(Residual).
+    ///
+    /// See `Try` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
+    /// ```
+    pub fn branch(self) -> ControlFlow<ControlFlow<T1, core::convert::Infallible>, T2>;
+}
+
+impl<T1, T2> FromResidual<ControlFlow<T1, core::convert::Infallible>> for ControlFlow<T1, T2> {
+    /// Construct the enclosing early-return value from a compatible Residual.
+    ///
+    /// See `FromResidual` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }
+    /// ```
+    pub fn from_residual(residual: ControlFlow<T1, core::convert::Infallible>) -> ControlFlow<T1, T2>;
+}

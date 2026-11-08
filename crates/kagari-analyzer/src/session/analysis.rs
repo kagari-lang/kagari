@@ -13,7 +13,7 @@ use crate::{
     session::{SessionActor, jobs::JobCredit},
     workspace::{ContextKey, WorkspaceCapture},
 };
-use kagari_source::generated::{GeneratedDocument, GeneratedDocuments};
+use kagari_source::publication::{SourceDocument, SourceStore};
 use std::{collections::BTreeSet, sync::Arc};
 #[cfg(test)]
 use tokio::sync::watch;
@@ -21,9 +21,9 @@ use tokio::sync::watch;
 pub(super) enum Environment {
     NeedStore,
     OpeningStore,
-    NeedPreparation(GeneratedDocuments),
+    NeedPreparation(SourceStore),
     Preparing,
-    NeedPublication(Arc<[GeneratedDocument]>),
+    NeedPublication(Arc<[SourceDocument]>),
     Publishing,
     Ready,
     Failed,
@@ -31,6 +31,7 @@ pub(super) enum Environment {
 
 pub(crate) struct AnalysisHost {
     pub port: Option<AnalysisPort>,
+    pub(crate) native_navigation_error: Option<String>,
     pub credit: JobCredit,
     environment: Environment,
     epoch: u64,
@@ -49,6 +50,7 @@ impl AnalysisHost {
     pub fn new() -> Self {
         Self {
             port: None,
+            native_navigation_error: None,
             credit: JobCredit::default(),
             environment: Environment::NeedStore,
             epoch: 1,

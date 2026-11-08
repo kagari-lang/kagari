@@ -1,6 +1,6 @@
-use crate::catalog;
+use crate::{catalog, sources as standard_sources};
 use kagari_common::identity::DefinitionKind;
-use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::{analysis::AnalysisDatabase, native::NativeSource};
 use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
 use kagari_types::declaration::module::ModuleDecl;
 use std::{collections::BTreeSet, sync::Arc};
@@ -72,7 +72,18 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
     }
     assert_eq!(traits, 41);
     let mut baseline = AnalysisDatabase::default();
-    baseline.set_native_modules(providers);
+    assert_eq!(providers.len(), standard_sources::DECLARATIONS.len());
+    let inputs = providers
+        .iter()
+        .map(|provider| {
+            let source = standard_sources::declaration(&provider.records().identity).unwrap();
+            NativeSource {
+                uri: format!("bundled-stdlib:///{}", source.path),
+                text: source.text.into(),
+            }
+        })
+        .collect();
+    baseline.set_native_sources(providers, inputs).unwrap();
     let native = baseline
         .snapshot(SourceSnapshot::default(), &Default::default())
         .unwrap();

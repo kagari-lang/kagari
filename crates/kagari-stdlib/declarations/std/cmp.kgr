@@ -1,0 +1,13 @@
+//! Equality and ordering contracts. Comparisons must obey the laws required by collection algorithms.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn same(left: i32, right: i32) -> bool { left == right }
+//! ```
+
+pub use core::cmp::Eq as Eq;
+pub use core::cmp::Ord as Ord;
+pub use core::cmp::Ordering as Ordering;
+pub use core::cmp::PartialEq as PartialEq;
+pub use core::cmp::PartialOrd as PartialOrd;

@@ -1,10 +1,10 @@
 //! Source documents, diagnostics and frontend text utilities.
 pub mod diagnostic;
-pub mod generated;
 pub mod identity;
 pub mod line_index;
 pub mod literal;
 pub mod package;
+pub mod publication;
 pub mod source;
 pub mod source_database;
 

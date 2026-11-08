@@ -27,9 +27,9 @@ impl AnalysisState {
         cancel: &CancellationToken,
     ) -> Result<RetainedEditor, AnalysisFailure> {
         cancel.check()?;
-        self.check_generated_views(&input.capture, &input.documents)?;
+        self.check_native_views(&input.capture, &input.documents)?;
         if let Some(name) = self
-            .generated_document_for(&input.capture, &input.source_name)
+            .native_document_for(&input.capture, &input.source_name)
             .map(|document| document.source_name().to_owned())
         {
             let baseline = self.environment.as_mut().ok_or_else(|| {
@@ -86,11 +86,11 @@ impl AnalysisState {
         context: &ContextCapture,
         cancel: &CancellationToken,
     ) -> Result<RetainedSignatures, AnalysisFailure> {
-        if let Some(document) = self.generated_context_document(context) {
+        if let Some(document) = self.native_context_document(context) {
             let source = context
                 .sources
                 .module(&context.root)
-                .expect("generated view root source");
+                .expect("native view root source");
             if source.text() != document.text() {
                 return Err(AnalysisFailure::Unavailable(
                     "native presentation view differs from its installed source".into(),

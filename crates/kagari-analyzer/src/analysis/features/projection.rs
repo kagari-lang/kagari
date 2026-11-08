@@ -1,6 +1,8 @@
 //! Shared protocol coordinate and authoritative destination projection.
 use crate::{
-    analysis::{AnalysisFailure, diagnostics::protocol_range, features::DocumentQueryInput},
+    analysis::{
+        AnalysisFailure, AnalysisState, diagnostics::protocol_range, features::DocumentQueryInput,
+    },
     workspace::{ContextCapture, origins::file_uri},
 };
 use kagari_hir::analysis::signatures::SignatureSnapshot;
@@ -28,37 +30,47 @@ pub(crate) fn selected_context(
 
 /// A declaration's FileSpan already names its authoritative physical/copy origin.
 /// Original open URI spelling wins when the same provider is the queried document.
-pub(crate) fn location(
-    input: &DocumentQueryInput,
-    context: &ContextCapture,
-    signatures: &SignatureSnapshot,
-    span: FileSpan,
-) -> Result<Location, AnalysisFailure> {
-    let source = signatures
-        .source(span.file)
-        .ok_or_else(|| AnalysisFailure::Unavailable("navigation source is not retained".into()))?;
-    if source.revision() != span.revision {
-        return Err(AnalysisFailure::Unavailable(
-            "navigation source revision mismatch".into(),
-        ));
+impl AnalysisState {
+    pub(crate) fn location(
+        &self,
+        input: &DocumentQueryInput,
+        context: &ContextCapture,
+        signatures: &SignatureSnapshot,
+        span: FileSpan,
+    ) -> Result<Location, AnalysisFailure> {
+        let source = signatures.source(span.file).ok_or_else(|| {
+            AnalysisFailure::Unavailable("navigation source is not retained".into())
+        })?;
+        if let Some(error) = &self.native_navigation_error
+            && self.native_document(source.name()).is_some()
+        {
+            return Err(AnalysisFailure::Unavailable(format!(
+                "native declaration source is unavailable: {error}"
+            )));
+        }
+        if source.revision() != span.revision {
+            return Err(AnalysisFailure::Unavailable(
+                "navigation source revision mismatch".into(),
+            ));
+        }
+        let range = protocol_range(source, span.range).ok_or_else(|| {
+            AnalysisFailure::Unavailable("navigation range is outside retained text".into())
+        })?;
+        let physical = source.origin_id();
+        let origin = context.origins.get(&physical);
+        let uri = if let Some(uri) = open_destination(
+            input,
+            origin.map(|origin| origin.provider_key.as_str()),
+            source,
+        )? {
+            uri
+        } else if let Some(uri) = origin.and_then(|origin| origin.uri.clone()) {
+            uri
+        } else {
+            file_uri(source.name()).map_err(AnalysisFailure::Unavailable)?
+        };
+        Ok(Location { uri, range })
     }
-    let range = protocol_range(source, span.range).ok_or_else(|| {
-        AnalysisFailure::Unavailable("navigation range is outside retained text".into())
-    })?;
-    let physical = source.origin_id();
-    let origin = context.origins.get(&physical);
-    let uri = if let Some(uri) = open_destination(
-        input,
-        origin.map(|origin| origin.provider_key.as_str()),
-        source,
-    )? {
-        uri
-    } else if let Some(uri) = origin.and_then(|origin| origin.uri.clone()) {
-        uri
-    } else {
-        file_uri(source.name()).map_err(AnalysisFailure::Unavailable)?
-    };
-    Ok(Location { uri, range })
 }
 
 fn open_destination(

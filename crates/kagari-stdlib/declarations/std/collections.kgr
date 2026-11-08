@@ -1,0 +1,927 @@
+//! Sequence, map and set interfaces, concrete hash collections and lazy mapping. Callbacks run synchronously with explicit borrow, root and mutation guards.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! ```
+
+/// A shared hash map with invariant key and value types. Equal keys must hash equally. Insert replaces an existing value; get returns None for an absent key.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn find(values: std::collections::HashMap<i32, String>) -> Option<String> { values.get(1) }
+/// ```
+pub type HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash;
+
+/// A shared hash set. Equal members occupy one entry, and must hash equally. Lookup and structural mutation use checked synchronous guards.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn has(values: std::collections::HashSet<i32>) -> bool { values.contains(1) }
+/// ```
+pub type HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash;
+
+/// A readonly sequence interface. Element types are invariant. A readonly view retains shared identity, so another alias can mutate the underlying sequence.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+/// ```
+pub trait List<T>: core::ops::Index<u64, Output = T> + core::iter::Iterable<Item = T> {
+    /// Return the number of entries.
+    ///
+    /// See `List` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// ```
+    fn len(self) -> u64;
+    /// Return whether the collection has no entries.
+    ///
+    /// See `List` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// ```
+    fn is_empty(self) -> bool;
+    /// Return the requested value, or None if the index or key is absent.
+    ///
+    /// See `List` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// ```
+    fn get(self, arg1: u64) -> core::option::Option<T>;
+    /// Return a stably sorted List using T: Ord; preserve the original slots.
+    fn sorted(self) -> List<T> where T: core::cmp::Ord {
+        __default_4_List_sorted::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
+    }
+    /// Return a stably sorted List using the comparator; preserve the original slots.
+    fn sorted_by(self, callback: fn(T, T) -> core::cmp::Ordering) -> List<T> {
+        __default_4_List_sorted_by::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
+    }
+    /// Return a stably sorted List. Evaluate keys during comparisons without caching them.
+    fn sorted_by_key<M>(self, callback: fn(T) -> M) -> List<T> where M: core::cmp::Ord {
+        __default_4_List_sorted_by_key::<Self, T, M, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
+    }
+    /// Return a reversed List without changing the original slots.
+    fn reversed(self) -> List<T> {
+        __default_4_List_reversed::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
+    }
+    /// Return first occurrences in input order using T: Eq; no Hash bound is required.
+    fn distinct(self) -> List<T> where T: core::cmp::Eq {
+        __default_4_List_distinct::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
+    }
+}
+
+/// A mutable sequence interface. Structural edits validate active borrows and invalidate existing cursors. Completed writes and callback effects survive later failures.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+/// ```
+pub trait MutableList<T>: List<T> {
+    /// Append one item. A guarded structural edit traps before committing the edit.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    fn push(self, arg1: T);
+    /// Remove and return the last item, or None for an empty sequence.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    fn pop(self) -> core::option::Option<T>;
+    /// Insert at the given position and shift later elements. An index beyond the length traps.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    fn insert(self, arg1: u64, arg2: T);
+    /// Remove and return the entry, or None if it is absent.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    fn remove(self, arg1: u64) -> core::option::Option<T>;
+    /// Remove all entries after validating structural mutation guards.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    fn clear(self);
+    /// Replace the item at an existing index. An out-of-bounds index traps.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    fn set(self, arg1: u64, arg2: T);
+    /// Stably sort in place using T: Ord. Failure may leave a partial reordering.
+    fn sort(self) where T: core::cmp::Ord {
+        __default_11_MutableList_sort::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
+    }
+    /// Stably sort in place using the comparator. Failure stops later callbacks; no rollback is promised.
+    fn sort_by(self, callback: fn(T, T) -> core::cmp::Ordering) {
+        __default_11_MutableList_sort_by::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
+    }
+    /// Stably sort in place with keys evaluated during comparisons. Failure does not promise rollback.
+    fn sort_by_key<M>(self, callback: fn(T) -> M) where M: core::cmp::Ord {
+        __default_11_MutableList_sort_by_key::<Self, T, M, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
+    }
+    /// Reverse the list in place. Custom receiver failures may leave completed writes.
+    fn reverse(self) {
+        __default_11_MutableList_reverse::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
+    }
+    /// Keep matching elements in input order. Failure preserves completed removals and callback effects.
+    fn retain(self, callback: fn(T) -> bool) {
+        __default_11_MutableList_retain::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self, callback)
+    }
+    /// Remove consecutive equal elements using T: Eq, preserving the first in each run. Failure preserves completed removals.
+    fn dedup(self) where T: core::cmp::Eq {
+        __default_11_MutableList_dedup::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)
+    }
+}
+
+/// A readonly key/value interface. Lookup returns `None` for a missing key. Readonly views share storage with other aliases.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+/// ```
+pub trait Map<T1, T2>: core::iter::Iterable<Item = (T1, T2)> {
+    /// Return the number of entries.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    fn len(self) -> u64;
+    /// Return whether the collection has no entries.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    fn is_empty(self) -> bool;
+    /// Test membership without changing collection storage.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    fn contains_key(self, arg1: T1) -> bool;
+    /// Return the requested value, or None if the index or key is absent.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    fn get(self, arg1: T1) -> core::option::Option<T2>;
+}
+
+/// A mutable key/value interface. Insert replaces the value of an equal key. Hash and equality callbacks must not structurally mutate a collection under lookup.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+/// ```
+pub trait MutableMap<T1, T2>: Map<T1, T2> {
+    /// Insert a key/value entry, replacing the value of an equal key.
+    ///
+    /// See `MutableMap` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// ```
+    fn insert(self, arg1: T1, arg2: T2);
+    /// Remove and return the entry, or None if it is absent.
+    ///
+    /// See `MutableMap` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// ```
+    fn remove(self, arg1: T1) -> core::option::Option<T2>;
+    /// Remove all entries after validating structural mutation guards.
+    ///
+    /// See `MutableMap` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// ```
+    fn clear(self);
+}
+
+/// A readonly membership interface. Equal values represent the same member. Readonly views share storage with other aliases.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+/// ```
+pub trait Set<T>: core::iter::Iterable<Item = T> {
+    /// Return the number of entries.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    fn len(self) -> u64;
+    /// Return whether the collection has no entries.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    fn is_empty(self) -> bool;
+    /// Test membership without changing collection storage.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    fn contains(self, arg1: T) -> bool;
+}
+
+/// A mutable membership interface. Insertion retains one representative of each equal value. Structural edits honor active borrow and lookup guards.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+/// ```
+pub trait MutableSet<T>: Set<T> {
+    /// Insert a member, preserving the uniqueness of equal members.
+    ///
+    /// See `MutableSet` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// ```
+    fn insert(self, arg1: T);
+    /// Remove a member and report whether it was present.
+    ///
+    /// See `MutableSet` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// ```
+    fn remove(self, arg1: T) -> bool;
+    /// Remove all entries after validating structural mutation guards.
+    ///
+    /// See `MutableSet` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// ```
+    fn clear(self);
+}
+
+impl<T1, T2> HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Remove all entries after validating structural mutation guards and return the same collection.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: std::collections::HashMap<i32, i32>) { val result = values.clear(); }
+    /// ```
+    pub fn clear(self) -> HashMap<T1, T2>;
+    /// Insert a key/value entry, replacing the value of an equal key, and return the same map.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: std::collections::HashMap<i32, i32>) { val result = values.insert(0, 1); }
+    /// ```
+    pub fn insert(self, arg1: T1, arg2: T2) -> HashMap<T1, T2>;
+    /// Create fresh empty hash collection storage.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn create() -> std::collections::HashMap<i32, i32> { std::collections::HashMap::new() }
+    /// ```
+    pub fn new() -> HashMap<T1, T2>;
+}
+
+impl<T1, T2> Map<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Return the number of entries.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    pub fn len(self) -> u64;
+    /// Return whether the collection has no entries.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    pub fn is_empty(self) -> bool;
+    /// Test membership without changing collection storage.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    pub fn contains_key(self, arg1: T1) -> bool;
+    /// Return the requested value, or None if the index or key is absent.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    pub fn get(self, arg1: T1) -> core::option::Option<T2>;
+}
+
+impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    type Item = (T1, T2);
+    type Iter = core::iter::CollectionCursor<(T1, T2)>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<(T1, T2)>;
+}
+
+impl<T1, T2> Map<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Return the number of entries.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    pub fn len(self) -> u64;
+    /// Return whether the collection has no entries.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    pub fn is_empty(self) -> bool;
+    /// Test membership without changing collection storage.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    pub fn contains_key(self, arg1: T1) -> bool;
+    /// Return the requested value, or None if the index or key is absent.
+    ///
+    /// See `Map` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn find(values: std::collections::Map<i32, String>) -> Option<String> { values.get(1) }
+    /// ```
+    pub fn get(self, arg1: T1) -> core::option::Option<T2>;
+}
+
+impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    type Item = (T1, T2);
+    type Iter = core::iter::CollectionCursor<(T1, T2)>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<(T1, T2)>;
+}
+
+impl<T1, T2> MutableMap<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Insert a key/value entry, replacing the value of an equal key.
+    ///
+    /// See `MutableMap` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// ```
+    pub fn insert(self, arg1: T1, arg2: T2);
+    /// Remove and return the entry, or None if it is absent.
+    ///
+    /// See `MutableMap` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// ```
+    pub fn remove(self, arg1: T1) -> core::option::Option<T2>;
+    /// Remove all entries after validating structural mutation guards.
+    ///
+    /// See `MutableMap` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn put(values: std::collections::MutableMap<i32, String>) { values.insert(1, "one"); }
+    /// ```
+    pub fn clear(self);
+}
+
+impl<T1, T2> core::iter::FromIterator<(T1, T2)> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Constructs a value by consuming an iterable in order. Each item is read once. A failure retains already completed source and callback effects.
+    ///
+    /// See `FromIterator` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn collect(values: Vec<i32>) -> Vec<i32> { Vec<i32>::from_iter(values) }
+    /// ```
+    pub fn from_iter<M>(source: M) -> HashMap<T1, T2> where M: core::iter::Iterable<Item = (T1, T2)>;
+}
+
+impl<T> HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Remove all entries after validating structural mutation guards and return the same collection.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: std::collections::HashSet<i32>) { val result = values.clear(); }
+    /// ```
+    pub fn clear(self) -> HashSet<T>;
+    /// Construct a hash set from an array, preserving uniqueness of equal members.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn create() -> std::collections::HashSet<i32> { std::collections::HashSet::from([1, 2]) }
+    /// ```
+    pub fn from(array: [T]) -> HashSet<T>;
+    /// Insert a member, preserving uniqueness of equal members, and return the same set.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: std::collections::HashSet<i32>) { val result = values.insert(1); }
+    /// ```
+    pub fn insert(self, arg1: T) -> HashSet<T>;
+    /// Create fresh empty hash collection storage.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn create() -> std::collections::HashSet<i32> { std::collections::HashSet::new() }
+    /// ```
+    pub fn new() -> HashSet<T>;
+}
+
+impl<T> Set<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Return the number of entries.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    pub fn len(self) -> u64;
+    /// Return whether the collection has no entries.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    pub fn is_empty(self) -> bool;
+    /// Test membership without changing collection storage.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    pub fn contains(self, arg1: T) -> bool;
+}
+
+impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    type Item = T;
+    type Iter = core::iter::CollectionCursor<T>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<T>;
+}
+
+impl<T> Set<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Return the number of entries.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    pub fn len(self) -> u64;
+    /// Return whether the collection has no entries.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    pub fn is_empty(self) -> bool;
+    /// Test membership without changing collection storage.
+    ///
+    /// See `Set` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn has(values: std::collections::Set<i32>) -> bool { values.contains(1) }
+    /// ```
+    pub fn contains(self, arg1: T) -> bool;
+}
+
+impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    type Item = T;
+    type Iter = core::iter::CollectionCursor<T>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<T>;
+}
+
+impl<T> MutableSet<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Insert a member, preserving the uniqueness of equal members.
+    ///
+    /// See `MutableSet` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// ```
+    pub fn insert(self, arg1: T);
+    /// Remove a member and report whether it was present.
+    ///
+    /// See `MutableSet` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// ```
+    pub fn remove(self, arg1: T) -> bool;
+    /// Remove all entries after validating structural mutation guards.
+    ///
+    /// See `MutableSet` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn add(values: std::collections::MutableSet<i32>) { values.insert(1); }
+    /// ```
+    pub fn clear(self);
+}
+
+impl<T> core::iter::FromIterator<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Constructs a value by consuming an iterable in order. Each item is read once. A failure retains already completed source and callback effects.
+    ///
+    /// See `FromIterator` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn collect(values: Vec<i32>) -> Vec<i32> { Vec<i32>::from_iter(values) }
+    /// ```
+    pub fn from_iter<M>(source: M) -> HashSet<T> where M: core::iter::Iterable<Item = T>;
+}
+
+impl<T> core::cmp::PartialEq for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
+    ///
+    /// See `PartialEq` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// ```
+    pub fn eq(self, arg1: HashSet<T>) -> bool;
+}
+
+impl<T> core::cmp::Eq for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+}
+
+impl<T> core::hash::Hash for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
+    ///
+    /// See `Hash` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// ```
+    pub fn hash(self) -> i64;
+}
+
+impl<T> core::cmp::PartialEq for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
+    ///
+    /// See `PartialEq` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// ```
+    pub fn eq(self, arg1: HashSet<T>) -> bool;
+}
+
+impl<T> core::cmp::Eq for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+}
+
+impl<T> core::hash::Hash for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
+    ///
+    /// See `Hash` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// ```
+    pub fn hash(self) -> i64;
+}
+
+impl<T1, T2> core::cmp::PartialEq for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::PartialEq {
+    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
+    ///
+    /// See `PartialEq` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// ```
+    pub fn eq(self, arg1: HashMap<T1, T2>) -> bool;
+}
+
+impl<T1, T2> core::cmp::Eq for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::Eq {
+}
+
+impl<T1, T2> core::hash::Hash for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
+    ///
+    /// See `Hash` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// ```
+    pub fn hash(self) -> i64;
+}
+
+impl<T1, T2> core::cmp::PartialEq for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::PartialEq {
+    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
+    ///
+    /// See `PartialEq` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// ```
+    pub fn eq(self, arg1: HashMap<T1, T2>) -> bool;
+}
+
+impl<T1, T2> core::cmp::Eq for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::Eq {
+}
+
+impl<T1, T2> core::hash::Hash for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
+    ///
+    /// See `Hash` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// ```
+    pub fn hash(self) -> i64;
+}
+
+impl<T> core::fmt::Debug for List<T> {
+    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+    ///
+    /// See `Debug` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// ```
+    pub fn debug(self) -> alloc::string::String;
+}
+
+impl<T> core::fmt::Debug for MutableList<T> {
+    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+    ///
+    /// See `Debug` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// ```
+    pub fn debug(self) -> alloc::string::String;
+}
+
+impl<T> core::fmt::Debug for Set<T> {
+    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+    ///
+    /// See `Debug` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// ```
+    pub fn debug(self) -> alloc::string::String;
+}
+
+impl<T> core::fmt::Debug for MutableSet<T> {
+    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+    ///
+    /// See `Debug` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// ```
+    pub fn debug(self) -> alloc::string::String;
+}
+
+impl<T1, T2> core::fmt::Debug for Map<T1, T2> {
+    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+    ///
+    /// See `Debug` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// ```
+    pub fn debug(self) -> alloc::string::String;
+}
+
+impl<T1, T2> core::fmt::Debug for MutableMap<T1, T2> {
+    /// Produces a diagnostic string representation through `debug`. Formatting does not permit reflective access outside declared members.
+    ///
+    /// See `Debug` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+    /// ```
+    pub fn debug(self) -> alloc::string::String;
+}
+
+/// Compare list contents across compatible implementations using element protocols. Receiver object equality and lookup policies do not change this comparison. Traversal preserves completed callback effects and iterator invalidation.
+pub fn list_content_equal<T>(left: List<T>, right: List<T>) -> bool where T: core::cmp::PartialEq;
+/// Compare set contents across compatible implementations using element protocols. Receiver object equality and lookup policies do not change this comparison. Traversal preserves completed callback effects and iterator invalidation.
+pub fn set_content_equal<T>(left: Set<T>, right: Set<T>) -> bool where T: core::cmp::Eq;
+/// Compare map contents across compatible implementations using element protocols. Receiver object equality and lookup policies do not change this comparison. Traversal preserves completed callback effects and iterator invalidation.
+pub fn map_content_equal<T1, T2>(left: Map<T1, T2>, right: Map<T1, T2>) -> bool where T1: core::cmp::Eq, T2: core::cmp::PartialEq;
+fn __default_4_List_sorted<T1, T2, T3>(__receiver: T1) -> List<T2> where T1: core::iter::Iterable<Item = T2, Iter = T3> + List<T2>, T2: core::cmp::Ord, T3: core::iter::Iterator<Item = T2>;
+fn __default_4_List_sorted_by<T1, T2, T3>(__receiver: T1, callback: fn(T2, T2) -> core::cmp::Ordering) -> List<T2> where T1: core::iter::Iterable<Item = T2, Iter = T3> + List<T2>, T3: core::iter::Iterator<Item = T2>;
+fn __default_4_List_sorted_by_key<T1, T2, T3, T4>(__receiver: T1, callback: fn(T2) -> T3) -> List<T2> where T1: core::iter::Iterable<Item = T2, Iter = T4> + List<T2>, T3: core::cmp::Ord, T4: core::iter::Iterator<Item = T2>;
+fn __default_4_List_reversed<T1, T2, T3>(__receiver: T1) -> List<T2> where T1: core::iter::Iterable<Item = T2, Iter = T3> + List<T2>, T3: core::iter::Iterator<Item = T2>;
+fn __default_4_List_distinct<T1, T2, T3>(__receiver: T1) -> List<T2> where T1: core::iter::Iterable<Item = T2, Iter = T3> + List<T2>, T2: core::cmp::Eq, T3: core::iter::Iterator<Item = T2>;
+fn __default_11_MutableList_sort<T1, T2, T3>(__receiver: T1) where T1: core::iter::Iterable<Item = T2, Iter = T3> + MutableList<T2>, T2: core::cmp::Ord, T3: core::iter::Iterator<Item = T2>;
+fn __default_11_MutableList_sort_by<T1, T2, T3>(__receiver: T1, callback: fn(T2, T2) -> core::cmp::Ordering) where T1: core::iter::Iterable<Item = T2, Iter = T3> + MutableList<T2>, T3: core::iter::Iterator<Item = T2>;
+fn __default_11_MutableList_sort_by_key<T1, T2, T3, T4>(__receiver: T1, callback: fn(T2) -> T3) where T1: core::iter::Iterable<Item = T2, Iter = T4> + MutableList<T2>, T3: core::cmp::Ord, T4: core::iter::Iterator<Item = T2>;
+fn __default_11_MutableList_reverse<T1, T2, T3>(__receiver: T1) where T1: core::iter::Iterable<Item = T2, Iter = T3> + MutableList<T2>, T3: core::iter::Iterator<Item = T2>;
+fn __default_11_MutableList_retain<T1, T2, T3>(__receiver: T1, callback: fn(T2) -> bool) where T1: core::iter::Iterable<Item = T2, Iter = T3> + MutableList<T2>, T3: core::iter::Iterator<Item = T2>;
+fn __default_11_MutableList_dedup<T1, T2, T3>(__receiver: T1) where T1: core::iter::Iterable<Item = T2, Iter = T3> + MutableList<T2>, T2: core::cmp::Eq, T3: core::iter::Iterator<Item = T2>;

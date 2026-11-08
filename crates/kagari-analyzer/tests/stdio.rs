@@ -1,7 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    fs,
     io::{self, BufRead, BufReader, Read, Write},
     net::{Shutdown, SocketAddr, TcpListener, TcpStream},
+    path::Path,
     process::{Child, Command, ExitStatus, Stdio},
     sync::mpsc::{self, Receiver, SyncSender},
     thread::{self, JoinHandle},
@@ -53,6 +55,14 @@ struct Server {
 
 impl Server {
     fn spawn(transport: Transport) -> Self {
+        Self::spawn_configured(transport, None, None)
+    }
+
+    fn spawn_configured(
+        transport: Transport,
+        cache: Option<&Path>,
+        sources: Option<&Path>,
+    ) -> Self {
         let listener = match transport {
             Transport::Stdio => None,
             Transport::TcpConnect | Transport::TcpListen => {
@@ -63,6 +73,17 @@ impl Server {
             .as_ref()
             .map(|listener| listener.local_addr().unwrap());
         let mut command = Command::new(env!("CARGO_BIN_EXE_kagari-analyzer"));
+        let default_cache =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/lsp-process-native-sources");
+        let cache = cache.unwrap_or(&default_cache);
+        command
+            .env("LOCALAPPDATA", cache)
+            .env("XDG_CACHE_HOME", cache);
+        if let Some(sources) = sources {
+            command.env("KAGARI_STDLIB_SOURCES", sources);
+        } else {
+            command.env_remove("KAGARI_STDLIB_SOURCES");
+        }
         match transport {
             Transport::Stdio => {
                 command.arg("--stdio");
@@ -636,6 +657,70 @@ fn stalled_stdout_expires_write_deadline_with_stdin_still_open() {
     for worker in server.threads.drain(..) {
         worker.join().expect("peer cleanup after stalled output");
     }
+}
+
+#[rstest]
+#[case::embedded_cache_unavailable(false)]
+#[case::installed_sources_need_no_cache(true)]
+fn native_sources_preserve_semantics_with_blocked_cache(#[case] installed: bool) {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/lsp-blocked-cache")
+        .join(format!("{}-{installed}", std::process::id()));
+    fs::create_dir_all(&directory).unwrap();
+    let blocked = directory.join("cache-file");
+    fs::write(&blocked, "cache is unavailable").unwrap();
+    let source_root = directory.join("stdlib");
+    if installed {
+        for source in kagari_stdlib::sources::DECLARATIONS {
+            let path = source_root.join(source.path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, source.text).unwrap();
+        }
+    }
+    let mut server = Server::spawn_configured(
+        Transport::Stdio,
+        Some(&blocked),
+        installed.then_some(source_root.as_path()),
+    );
+    server.initialize(json!(1));
+    let uri = "untitled:stdlib-navigation";
+    let text = include_str!("fixtures/analysis/stdlib-navigation.kgr");
+    server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":uri,"languageId":"kagari","version":1,"text":text}}),
+    );
+    let site = |line, character| json!({"textDocument":{"uri":uri},"position":{"line":line,"character":character}});
+    server.request(json!(2), "textDocument/definition", site(1, 17));
+    if installed {
+        let native = server.result(json!(2));
+        assert!(
+            native["uri"].as_str().unwrap().ends_with("/alloc/vec.kgr"),
+            "{native}"
+        );
+    } else {
+        server.error(json!(2), -32803);
+    }
+    server.request(json!(3), "textDocument/hover", site(2, 5));
+    let hover = server.result(json!(3));
+    assert!(hover.to_string().contains("Vec"), "{hover}");
+    server.request(json!(4), "textDocument/definition", site(2, 5));
+    let local = server.result(json!(4));
+    assert_eq!(local["uri"], uri);
+    assert_eq!(local["range"]["start"], json!({"line":1,"character":8}));
+    server.request(json!(5), "textDocument/completion", site(2, 11));
+    let completion = server.result(json!(5));
+    assert!(
+        completion["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "len"),
+        "{completion}"
+    );
+    server.shutdown(json!(6));
+    server.notify("exit", Value::Null);
+    server.finish(Some(0));
+    assert_eq!(fs::read_to_string(blocked).unwrap(), "cache is unavailable");
 }
 
 #[rstest]

@@ -1,0 +1,29 @@
+//! String parsing contracts with an explicit error type and complete input validation.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+//! ```
+
+/// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+/// ```
+pub trait FromStr {
+    /// The error returned when this conversion or parse fails.
+    type Err;
+    /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
+    ///
+    /// See `FromStr` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+    /// ```
+    fn from_str(text: alloc::string::String) -> core::result::Result<Self, <Self as FromStr>::Err>;
+}

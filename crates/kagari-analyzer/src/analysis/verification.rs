@@ -21,8 +21,7 @@ use crate::{
     },
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
-use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
+use kagari_source::{publication::SourceStore, source::SourceFile};
 use serde::Serialize;
 use serde_json::Value;
 use std::{cell::RefCell, collections::BTreeSet, path::Path, process, sync::Arc};
@@ -83,7 +82,7 @@ impl Worlds {
         let directory = Path::new(&root)
             .join("../../target/fuzz-analysis")
             .join(process::id().to_string());
-        let store = GeneratedDocuments::open(&directory, NATIVE_RENDERER_NAMESPACE).unwrap();
+        let store = SourceStore::open(&directory).unwrap();
         let limits = ProjectionLimits {
             uris: 1024,
             diagnostics: 16_384,

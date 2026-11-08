@@ -6,6 +6,14 @@ client launches an explicitly configured `kagari-analyzer` over stdio. It regist
 diagnostics, hover, definition, implementation and completion through the server's
 advertised capabilities. This extension is not published.
 
+The extension also carries fixed standard-library declarations in `dist/stdlib`
+and passes their location as `KAGARI_STDLIB_SOURCES` to its analyzer child. An
+explicit inherited value takes precedence. The analyzer verifies exact bytes
+against its embedded package, so a separately configured binary cannot silently
+use incompatible declarations. Missing or mismatched assets produce a warning
+and use embedded sources with a local cache fallback. Standard navigation requires
+no user Host build; analysis still works if fallback files cannot be published.
+
 ## Configure the analyzer
 
 Build `cargo build --locked -p kagari-analyzer`, then set an absolute executable path:
@@ -56,8 +64,8 @@ code --new-window --extensionDevelopmentPath=editors/vscode examples/syntax/stri
 
 The minimum engine is VS Code 1.142.0. `build:vscode` bundles the pinned
 `vscode-languageclient` 11.0.0 and its runtime dependencies with esbuild; the VSIX
-includes the bundle and dependency license notices, without `node_modules`, build
-tools or an analyzer binary. Packaging always builds first. Follow the
+includes the client, standard declaration sources and dependency license notices,
+without `node_modules`, build tools or an analyzer binary. Packaging always builds first. Follow the
 [isolated host guide](../tests/vscode-host/README.md) for H01–H05 client acceptance
 against an existing editor and the actual installed VSIX.
 

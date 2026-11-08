@@ -343,7 +343,10 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
         let mut views = original.clone();
         views.last_mut().unwrap().uri = uri.into();
         database
-            .set_native_sources(providers.clone(), views)
+            .set_native_sources(
+                providers.clone(),
+                views.into_iter().map(Into::into).collect(),
+            )
             .unwrap();
         let snapshot = database
             .snapshot(sources.snapshot(), &Default::default())

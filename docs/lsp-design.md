@@ -455,8 +455,8 @@ setup; do not add a HIR re-export to hide that owner. Add `kagari-syntax` only i
 analyzer code actually consumes its structural APIs; a projection wholly owned
 by HIR does not require an extra direct dependency. At LSP06 add `kagari-format`,
 `kagari-lint` and the implemented `kagari-tool-config`; TOML parsing belongs in
-the shared configuration crate. Generated-source hashing stays in its publication
-owner, reusing the existing Blake3 scheme, rather than in LSP handlers.
+the shared configuration crate. Native source-set hashing stays in its publication
+owner, using Blake3 over paths and exact bytes, rather than in LSP handlers.
 
 First delivery uses client file-watching registration with save/reload fallback;
 no `notify` dependency is required yet. `lattice-actor-distributed`, tower-lsp, Rayon, Salsa,
@@ -1963,36 +1963,68 @@ they do not create a second text model inside the LSP feature modules.
 
 ## Native declarations and source tools
 
-Bootstrap standard declarations once per environment from the production semantic
-catalog. Render with HIR's existing `declaration_source` and validate correspondence
-through native declaration analysis. `set_native_sources` checks inventory length
-and installs inputs; it does not itself establish source/registration correspondence.
-Compute final content paths/origins, register those views, run native analysis and
-check its diagnostics, then atomically publish files. Preserve the SDK's validation
-before filesystem publication. Arbitrary `.kgr` files are not authoritative native
-registration. The registered set, generated content and source locations form one
-immutable provider generation. Updating it invalidates dependent analysis.
+Standard declaration text is owned by the checked-in
+[stdlib source package](../crates/kagari-stdlib/declarations/README.md), embedded
+with the analyzer and copied into the VS Code package. Files have ordinary module
+names such as `core/option.kgr` and `alloc/vec.kgr`. Obtaining their text needs no
+Host execution, build script or previously exported artifact. The Rust semantic
+catalog remains signature/binding authority; changing a source alone cannot grant
+native roles or alter execution. Custom Host export still uses HIR's renderer.
 
-Environment bootstrap is a two-worker dependency chain. The analysis worker obtains
-the explicit catalog, renders views at their final planned cache paths and validates
-them. It retains the prepared context and returns only immutable publication bytes
-and identities. The acquisition worker publishes those exact bytes through the
-shared source service. On success the session actor marks that context Ready and admits
-waiting semantic jobs. On failure it records an environment error and exposes no
-unpublished navigation target. Context state is `Preparing -> Publishing -> Ready`
-or Failed; a changed epoch makes an old completion ineligible for activation.
-Do not perform the filesystem publication inside a HIR query or on the session actor.
+HIR accepts `NativeSource { uri, text }` independently of renderer site tables.
+`set_native_sources` checks inventory length and installs inputs; native analysis
+then validates non-trivia syntax against the registered declarations, reserved
+roles, signatures, bounds and default bodies. Validation still renders expected
+syntax internally; that comparison does not supply the standard navigation text.
+The stdlib contract test checks the complete bundled inventory through this path.
+Arbitrary `.kgr` files never acquire native authority.
 
-Publish generated files at stable content-addressed local paths before returning
-navigation targets. Move only the existing SDK cache-path/publication mechanism
-from [engine declarations](../crates/kagari/src/engine/declarations.rs) into a focused
-`kagari-source` generated-document service accepting rendered bytes and a renderer
-namespace. SDK/analyzer keep catalog rendering and validation orchestration. This
-is a real two-consumer extraction; source must not depend on HIR/types/runtime.
-Preserve atomic publication, hash verification, precise IO errors and renderer
-identity. Old files stay available while requests/snapshots can reference them;
-do not delete the cache during a session. Generated-buffer edits never change the
-catalog; withhold semantic results for modified generated views until restored.
+Bootstrap remains a two-worker dependency chain. Acquisition first selects an
+installed package from `KAGARI_STDLIB_SOURCES`, or the optional toolchain directory
+`<executable-parent>/../share/kagari/stdlib`. It verifies every expected path and
+exact byte against the embedded package; a mismatch produces a visible warning
+and falls back to embedded text. The VS Code client supplies its `dist/stdlib`
+directory unless the environment explicitly selects another location. Installed
+files are immutable inputs: publication verifies them and never repairs them.
+
+Without a matching installation, the source service plans
+`<cache>/stdlib/<source-set-hash>/core/option.kgr`. Custom exports use
+`<cache>/hosts/<source-set-hash>/<package>/<module>.kgr`. A source-set hash covers
+sorted logical paths and exact bytes, including documentation. Only the snapshot
+directory is opaque; module filenames remain readable. No renderer-version path
+or per-file hash name is involved. Ordinary lowercase names stay unchanged;
+unsafe or case-ambiguous Host name bytes are escaped for portable paths.
+
+The analysis worker validates sources at their final planned identities, retains
+the prepared context and returns immutable publication bytes. Acquisition publishes
+each file atomically without replacing existing targets. The session then marks
+the environment Ready. Publication failure also leaves validated semantics Ready,
+but records a navigation error: hover, completion, diagnostics and local definition
+remain available, while native file destinations fail explicitly. For example,
+`Vec::from` remains type checked when the cache is read-only; go-to-definition on
+`Vec` succeeds from a matching installed `alloc/vec.kgr`, or reports unavailable
+when embedded text cannot be materialized. Invalid declaration contracts still
+make the environment Failed. A changed epoch cannot activate an old completion.
+Filesystem IO runs on acquisition, never inside a HIR query or the session actor.
+
+The shared [source publication service](../crates/kagari-source/src/publication.rs)
+owns path validation, immutable source-set identity, exact-byte checks and atomic
+file publication for SDK and analyzer; it has no HIR/types/runtime dependency.
+The SDK keeps validation orchestration and its explicit `declaration_cache` failure
+contract: a requested publication error rejects engine build with its path/cause.
+Default embedding stays in memory. Old cached snapshots are never overwritten or
+deleted while requests can reference them. Installed source roots likewise must
+remain unchanged for their active lifetime. Modified native buffers never change
+the catalog; dependent semantic requests are withheld until restored or closed.
+
+Implementation references (rolling documentation consulted 2026-11-08):
+[TypeScript's bundled library definitions](https://www.typescriptlang.org/tsconfig/lib.html)
+demonstrate shipping known platform APIs with tooling;
+[rust-analyzer's standard-source installation](https://rust-analyzer.github.io/book/installation.html)
+demonstrates a separately installed source input. Kagari combines installed sources
+with an embedded fallback, and additionally checks exact package bytes and native
+registration correspondence. Neither reference establishes Kagari's native ABI
+or permits executing a user's Host to discover declarations.
 
 Application host packages (`ProjectOptions::hosts`) and native declarations are
 different inputs. Keep explicit injection boundaries in the analysis host for
@@ -2034,7 +2066,7 @@ safe fix. Range/on-type formatting remains the separate LSP08 formatter extensio
 | Partial index build | Analysis worker; fixed scope/generation cursor and consumer set | Completion, cancellation of last owner, invalidation or memory limit |
 | Resolve handle | Session resolve table; feature kind, captured identity, input lease and expiration | Explicit TTL/capacity eviction, context retirement or session end |
 | Token/pull-diagnostic result ID | Feature owner; source plus semantic/configuration generation and client options | Bounded history eviction, document/root removal or mode change |
-| Generated documents | Source publication service; content and renderer identity | Explicit cache cleanup outside live sessions |
+| Native source packages | Source publication service; logical paths and exact source-set bytes | Explicit cache cleanup outside live sessions; installed roots stay immutable |
 
 Do not cache response JSON, clone a database per hover, or use only document version
 as a semantic cache key. Keep conservative HIR invalidation until measurement shows

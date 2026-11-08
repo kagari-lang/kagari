@@ -47,7 +47,10 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
     let module = module();
     let mut providers = catalog::shared().unwrap();
     providers.push(module.clone());
-    let original = declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
+    let original: NativeSource =
+        declaration_source(&module, &foundation_catalog::shared().unwrap())
+            .unwrap()
+            .into();
     for (from, to) in [
         ("-> i32", "-> i64"),
         ("pub trait NativeRead", "trait NativeRead"),
@@ -92,7 +95,7 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
     )
     .unwrap();
     let module = providers.last().unwrap();
-    let mut source = declaration_source(module, &providers).unwrap();
+    let mut source: NativeSource = declaration_source(module, &providers).unwrap().into();
     source.text = format!("// Tooling overlay.\n{}", source.text);
     let (_, lowered) = import_source(
         module,
@@ -137,7 +140,7 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
                 && module.records().identity.path == ["iter"]
         })
         .unwrap();
-    let mut source = declaration_source(module, &providers).unwrap();
+    let mut source: NativeSource = declaration_source(module, &providers).unwrap().into();
     source.text = source
         .text
         .replace("#[lang = \"iterator\"]", "#[ lang\n = \"iterator\" ]");
@@ -202,12 +205,12 @@ fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
                 && module.records().identity.path == ["cmp"]
         })
         .unwrap();
-    let original = declaration_source(module, &providers).unwrap();
+    let original: NativeSource = declaration_source(module, &providers).unwrap().into();
     for text in [
         original.text.replace("fn eq", "fn unequal"),
         format!("{}\npub trait Broken {{", original.text),
     ] {
-        let source = DeclarationSource {
+        let source = NativeSource {
             text,
             ..original.clone()
         };

@@ -11,3 +11,5 @@
 !dist/
 !dist/extension.cjs
 !dist/THIRD-PARTY-NOTICES.txt
+!dist/stdlib/
+!dist/stdlib/**

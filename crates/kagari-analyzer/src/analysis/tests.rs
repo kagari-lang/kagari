@@ -12,8 +12,7 @@ use crate::{
     },
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
-use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
+use kagari_source::{publication::SourceStore, source::SourceFile};
 use lsp_types::{GotoDefinitionResponse, NumberOrString, Position, Range, Uri};
 use std::{
     collections::BTreeSet,
@@ -68,11 +67,7 @@ fn full_analysis_projects_inline_ranges_reuses_context_and_retains_leases_until_
     let root = source_name(&fixture.uri("")).unwrap();
     let worker = acquisition::start(root.clone(), budget.clone()).unwrap();
     let mut state = AnalysisState::new(root.clone(), budget.clone(), limits());
-    let store = GeneratedDocuments::open(
-        &fixture.directory().join("cache"),
-        NATIVE_RENDERER_NAMESPACE,
-    )
-    .unwrap();
+    let store = SourceStore::open(&fixture.directory().join("cache")).unwrap();
     state
         .prepare(&store, &CancellationToken::default())
         .unwrap();
@@ -275,17 +270,13 @@ fn full_analysis_projects_inline_ranges_reuses_context_and_retains_leases_until_
 }
 
 #[test]
-fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_dependents() {
+fn native_views_never_replace_installed_contracts_and_changed_views_suspend_dependents() {
     let fixture = Fixture::new();
     let budget = InputBudget::new(256 * 1024 * 1024);
     let root = source_name(&fixture.uri("")).unwrap();
     let worker = acquisition::start(root.clone(), budget.clone()).unwrap();
     let mut state = AnalysisState::new(root, budget.clone(), limits());
-    let store = GeneratedDocuments::open(
-        &fixture.directory().join("cache"),
-        NATIVE_RENDERER_NAMESPACE,
-    )
-    .unwrap();
+    let store = SourceStore::open(&fixture.directory().join("cache")).unwrap();
     let publications = state
         .prepare(&store, &CancellationToken::default())
         .unwrap();
@@ -409,13 +400,13 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
     assert_eq!(unavailable_result.issues.len(), 1);
     assert!(
         state
-            .check_generated_views(&changed, &[document(uri.clone(), generated.text(), 3)])
+            .check_native_views(&changed, &[document(uri.clone(), generated.text(), 3)])
             .is_ok(),
         "restoring exact bytes restores catalog authority"
     );
     assert!(
         state
-            .check_generated_views(&changed, from_ref(&documents[1]))
+            .check_native_views(&changed, from_ref(&documents[1]))
             .is_ok(),
         "closing modified view restores catalog authority"
     );
@@ -425,7 +416,7 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
     ];
     let restored = capture(&worker.port, &budget, 3, &restored_documents);
     state
-        .check_generated_views(&restored, &restored_documents)
+        .check_native_views(&restored, &restored_documents)
         .unwrap();
     let binding = &restored.document_contexts[&restored_documents[1].source_name];
     let resumed = state
@@ -455,7 +446,7 @@ fn generated_views_never_replace_installed_contracts_and_changed_views_suspend_d
         Err(AnalysisFailure::Unavailable(_))
     ));
     state.discard_environment();
-    assert!(state.generated_document(generated.source_name()).is_none());
+    assert!(state.native_document(generated.source_name()).is_none());
     let failed = state
         .diagnostics(
             &changed,

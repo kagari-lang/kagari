@@ -23,7 +23,7 @@ use crate::{
         ModuleGraph, ResolvedTarget, SourceItem, catalog::LookupHit, functions::ImportedFunction,
     },
     lower::LoweredModule,
-    native::render::DeclarationSource,
+    native::NativeSource,
     resolver::resolved::ResolvedName,
     typeck::{
         ModuleSignatures,
@@ -476,7 +476,7 @@ pub struct AnalysisDatabase {
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
-    native_sources: Option<Vec<DeclarationSource>>,
+    native_sources: Option<Vec<NativeSource>>,
     /// Parsed/lowered installed declaration sources, initialized once per registration setup.
     native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
     /// Portable provider/settings identity, invalidated by every environment setter.
@@ -543,7 +543,7 @@ impl AnalysisDatabase {
     pub fn set_native_sources(
         &mut self,
         modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
-        sources: Vec<DeclarationSource>,
+        sources: Vec<NativeSource>,
     ) -> Result<(), AnalysisError> {
         if modules.len() != sources.len() {
             return Err(AnalysisError::NativeApi(DeclarationError(

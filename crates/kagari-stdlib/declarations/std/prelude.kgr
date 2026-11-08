@@ -1,0 +1,35 @@
+//! Automatically imported standard names. Re-exports retain the canonical declaration identity and documentation of their owner.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! ```
+
+pub use core::default::Default as Default;
+pub use core::cmp::Eq as Eq;
+pub use core::ops::Fn as Fn;
+pub use core::convert::From as From;
+pub use core::iter::FromIterator as FromIterator;
+pub use core::future::Future as Future;
+pub use core::convert::Into as Into;
+pub use core::iter::Iterable as Iterable;
+pub use core::iter::Iterator as Iterator;
+pub use core::option::Option as Option;
+pub use core::cmp::Ord as Ord;
+pub use core::cmp::PartialEq as PartialEq;
+pub use core::cmp::PartialOrd as PartialOrd;
+pub use core::host::Ref as Ref;
+pub use core::host::RefMut as RefMut;
+pub use core::result::Result as Result;
+pub use core::task::SpawnError as SpawnError;
+pub use alloc::string::String as String;
+pub use core::task::Task as Task;
+pub use core::task::TaskScope as TaskScope;
+pub use core::convert::TryFrom as TryFrom;
+pub use core::convert::TryInto as TryInto;
+pub use alloc::vec::Vec as Vec;
+pub use core::result::Result::Err as Err;
+pub use core::option::Option::None as None;
+pub use core::result::Result::Ok as Ok;
+pub use core::option::Option::Some as Some;

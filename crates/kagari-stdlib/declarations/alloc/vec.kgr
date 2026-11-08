@@ -1,0 +1,263 @@
+//! Shared mutable sequences with checked indexing, iteration and collection algorithms. Readonly views do not freeze aliases.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn length(values: Vec<i32>) -> u64 { values.len() }
+//! ```
+
+/// A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and invalidates existing cursors.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn append(values: Vec<i32>) -> u64 { values.push(3); values.len() }
+/// ```
+pub type Vec<T>;
+
+impl<T> Vec<T> {
+    /// Remove all entries after validating structural mutation guards and return the same Vec.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: Vec<i32>) { val result = values.clear(); }
+    /// ```
+    pub fn clear(self) -> Vec<T>;
+    /// Copy an array into fresh mutable sequence storage.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn create() -> Vec<i32> { Vec::from([1, 2]) }
+    /// ```
+    pub fn from(array: [T]) -> Vec<T>;
+    /// Insert at the given position and return the same Vec. An index beyond the length traps.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: Vec<i32>) { val result = values.insert(0, 1); }
+    /// ```
+    pub fn insert(self, arg1: u64, arg2: T) -> Vec<T>;
+    /// Create fresh empty mutable sequence storage.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn create() -> Vec<i32> { Vec::new() }
+    /// ```
+    pub fn new() -> Vec<T>;
+    /// Append one item and return the same Vec. A guarded structural edit traps before committing the edit.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: Vec<i32>) { val result = values.push(1); }
+    /// ```
+    pub fn push(self, arg1: T) -> Vec<T>;
+    /// Replace the item at an existing index and return the same Vec. An out-of-bounds index traps.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: Vec<i32>) { val result = values.set(0, 1); }
+    /// ```
+    pub fn set(self, arg1: u64, arg2: T) -> Vec<T>;
+}
+
+impl<T> std::collections::List<T> for Vec<T> {
+    /// Return the number of entries.
+    ///
+    /// See `List` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// ```
+    pub fn len(self) -> u64;
+    /// Return whether the collection has no entries.
+    ///
+    /// See `List` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// ```
+    pub fn is_empty(self) -> bool;
+    /// Return the requested value, or None if the index or key is absent.
+    ///
+    /// See `List` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn first(values: std::collections::List<i32>) -> Option<i32> { values.get(0) }
+    /// ```
+    pub fn get(self, arg1: u64) -> core::option::Option<T>;
+    /// Return a stably sorted List using T: Ord; preserve the original slots.
+    pub fn sorted(self) -> std::collections::List<T> where T: core::cmp::Ord;
+    /// Return a stably sorted List using the comparator; preserve the original slots.
+    pub fn sorted_by(self, callback: fn(T, T) -> core::cmp::Ordering) -> std::collections::List<T>;
+    /// Return a stably sorted List. Evaluate keys during comparisons without caching them.
+    pub fn sorted_by_key<M>(self, callback: fn(T) -> M) -> std::collections::List<T> where M: core::cmp::Ord;
+    /// Return a reversed List without changing the original slots.
+    pub fn reversed(self) -> std::collections::List<T>;
+    /// Return first occurrences in input order using T: Eq; no Hash bound is required.
+    pub fn distinct(self) -> std::collections::List<T> where T: core::cmp::Eq;
+}
+
+impl<T> std::collections::MutableList<T> for Vec<T> {
+    /// Append one item. A guarded structural edit traps before committing the edit.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    pub fn push(self, arg1: T);
+    /// Remove and return the last item, or None for an empty sequence.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    pub fn pop(self) -> core::option::Option<T>;
+    /// Insert at the given position and shift later elements. An index beyond the length traps.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    pub fn insert(self, arg1: u64, arg2: T);
+    /// Remove and return the entry, or None if it is absent.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    pub fn remove(self, arg1: u64) -> core::option::Option<T>;
+    /// Remove all entries after validating structural mutation guards.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    pub fn clear(self);
+    /// Replace the item at an existing index. An out-of-bounds index traps.
+    ///
+    /// See `MutableList` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn append(values: std::collections::MutableList<i32>) { values.push(3); }
+    /// ```
+    pub fn set(self, arg1: u64, arg2: T);
+    /// Stably sort in place using T: Ord. Failure may leave a partial reordering.
+    pub fn sort(self) where T: core::cmp::Ord;
+    /// Stably sort in place using the comparator. Failure stops later callbacks; no rollback is promised.
+    pub fn sort_by(self, callback: fn(T, T) -> core::cmp::Ordering);
+    /// Stably sort in place with keys evaluated during comparisons. Failure does not promise rollback.
+    pub fn sort_by_key<M>(self, callback: fn(T) -> M) where M: core::cmp::Ord;
+    /// Reverse the list in place. Custom receiver failures may leave completed writes.
+    pub fn reverse(self);
+    /// Keep matching elements in input order. Failure preserves completed removals and callback effects.
+    pub fn retain(self, callback: fn(T) -> bool);
+    /// Remove consecutive equal elements using T: Eq, preserving the first in each run. Failure preserves completed removals.
+    pub fn dedup(self) where T: core::cmp::Eq;
+}
+
+impl<T> core::ops::Index<u64> for Vec<T> {
+    type Output = T;
+    /// Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.
+    ///
+    /// See `Index` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn head(values: Vec<i32>) -> i32 { values[0] }
+    /// ```
+    pub fn index(self, arg1: u64) -> T;
+}
+
+impl<T> core::iter::Iterable for Vec<T> {
+    type Item = T;
+    type Iter = core::iter::CollectionCursor<T>;
+    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+    ///
+    /// See `Iterable` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// ```
+    pub fn iter(self) -> core::iter::CollectionCursor<T>;
+}
+
+impl<T> core::default::Default for Vec<T> {
+    /// Return a fresh empty Vec<T>. Every call creates independent mutable storage; T need not implement Default.
+    ///
+    /// See `core::default::Default` for the construction contract.
+    pub fn default() -> Vec<T>;
+}
+
+impl<T> core::iter::FromIterator<T> for Vec<T> {
+    /// Constructs a value by consuming an iterable in order. Each item is read once. A failure retains already completed source and callback effects.
+    ///
+    /// See `FromIterator` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn collect(values: Vec<i32>) -> Vec<i32> { Vec<i32>::from_iter(values) }
+    /// ```
+    pub fn from_iter<M>(source: M) -> Vec<T> where M: core::iter::Iterable<Item = T>;
+}
+
+impl<T> core::cmp::PartialEq for Vec<T> where T: core::cmp::PartialEq {
+    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
+    ///
+    /// See `PartialEq` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// ```
+    pub fn eq(self, arg1: Vec<T>) -> bool;
+}
+
+impl<T> core::cmp::Eq for Vec<T> where T: core::cmp::Eq {
+}
+
+impl<T> core::hash::Hash for Vec<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
+    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
+    ///
+    /// See `Hash` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// ```
+    pub fn hash(self) -> i64;
+}

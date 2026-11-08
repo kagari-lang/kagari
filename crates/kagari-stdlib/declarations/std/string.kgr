@@ -1,0 +1,9 @@
+//! Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries. Explicit lazy chars, char_indices and bytes cursors traverse scalars, byte-offset/scalar pairs and encoded bytes respectively.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn clean(text: String) -> String { text.trim() }
+//! ```
+
+pub use alloc::string::String as String;

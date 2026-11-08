@@ -949,6 +949,15 @@ For where non-source declarations enter this flow, follow
 examples install `kagari_stdlib::catalog::shared()` explicitly, as required by the
 current foundation contract.
 
+`NativeSource { uri, text }` is the owned input to native analysis. It accepts fixed
+standard-library resources or custom Host exports without renderer site tables.
+The renderer's richer `DeclarationSource` remains an export product and converts
+into this input. Source installation alone does not establish authority: native
+import compares non-trivia syntax against registered metadata, then validates
+roles, bounds, signatures and default bodies. The expected-syntax comparison may
+render metadata internally; navigation uses the supplied source and parsed spans.
+No source parser or bundled-source dependency enters source-free execution.
+
 Native types and methods use the same source-unit names, declaration identities,
 call checking and namespace lookup as source declarations. Analysis retains no
 separate host callable/type catalog or host revision; shared schema and binding

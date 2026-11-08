@@ -3,19 +3,20 @@ use crate::{engine::builder::KagariEngineBuilder, error::EmbeddingError};
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_hir::{
     analysis::AnalysisDatabase,
-    native::render::{DeclarationSource, NATIVE_RENDERER_NAMESPACE, declaration_source},
+    native::{NativeSource, render::declaration_source},
 };
 use kagari_source::{
-    generated::{GeneratedDocumentError, GeneratedDocuments},
+    publication::{PublicationError, PublicationSource, SourceStore, module_path},
     source_database::SourceSnapshot,
 };
+use kagari_stdlib::sources as standard_sources;
 use kagari_types::declaration::module::ModuleDecl;
 use std::{collections::BTreeSet, sync::Arc};
 
 pub(super) fn prepare(
     builder: &KagariEngineBuilder,
     source_root: &str,
-) -> Result<(AnalysisDatabase, Vec<DeclarationSource>), EmbeddingError> {
+) -> Result<(AnalysisDatabase, Vec<NativeSource>), EmbeddingError> {
     let providers = builder
         .modules
         .iter()
@@ -23,7 +24,16 @@ pub(super) fn prepare(
         .collect::<Vec<_>>();
     let mut sources = providers
         .iter()
-        .map(|module| declaration_source(module, &providers))
+        .map(|module| {
+            if let Some(source) = standard_sources::declaration(&module.records().identity) {
+                Ok(NativeSource {
+                    uri: format!("kagari-stdlib:///{}", source.path),
+                    text: source.text.into(),
+                })
+            } else {
+                declaration_source(module, &providers).map(Into::into)
+            }
+        })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| EmbeddingError::Source {
             message: error.to_string(),
@@ -31,12 +41,37 @@ pub(super) fn prepare(
     // Analyze the final source identity once; publish files only after checking.
     let mut publications = Vec::new();
     if let Some(root) = &builder.declaration_cache {
-        let documents =
-            GeneratedDocuments::open(root, NATIVE_RENDERER_NAMESPACE).map_err(cache_error)?;
-        for source in &mut sources {
-            let document = documents.plan(Arc::from(source.text.as_str()));
-            source.uri = document.source_name().into();
-            publications.push(document);
+        let documents = SourceStore::open(root).map_err(cache_error)?;
+        for package in ["stdlib", "hosts"] {
+            let indices = sources
+                .iter()
+                .enumerate()
+                .filter_map(|(index, source)| {
+                    let standard = source.uri.starts_with("kagari-stdlib:///");
+                    (standard == (package == "stdlib")).then_some(index)
+                })
+                .collect::<Vec<_>>();
+            let files = indices
+                .iter()
+                .map(|index| {
+                    let source = &sources[*index];
+                    let identity = &providers[*index].records().identity;
+                    let path = source
+                        .uri
+                        .strip_prefix("kagari-stdlib:///")
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| module_path(&identity.package.0, &identity.path));
+                    PublicationSource {
+                        path,
+                        text: Arc::from(source.text.as_str()),
+                    }
+                })
+                .collect();
+            let planned = documents.plan(package, files).map_err(cache_error)?;
+            for (index, document) in indices.into_iter().zip(planned) {
+                sources[index].uri = document.source_name().into();
+                publications.push(document);
+            }
         }
     }
     let mut analysis =
@@ -136,7 +171,7 @@ fn source_independent_modules(
     )
 }
 
-fn cache_error(error: GeneratedDocumentError) -> EmbeddingError {
+fn cache_error(error: PublicationError) -> EmbeddingError {
     EmbeddingError::DeclarationCache {
         path: error.path,
         error: error.error,

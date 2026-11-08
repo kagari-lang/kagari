@@ -44,16 +44,15 @@ impl AnalysisState {
     ) -> Result<DiagnosticsResult, AnalysisFailure> {
         cancel.check()?;
         let mut projection = Projection::new(capture, documents, self.projection_limits);
-        let native_views_valid = self.check_generated_views(capture, documents);
+        let native_views_valid = self.check_native_views(capture, documents);
         match key {
             None => {
                 for document in documents {
-                    if let Some(generated) =
-                        self.generated_document_for(capture, &document.source_name)
+                    if let Some(expected) = self.native_document_for(capture, &document.source_name)
                         && document
                             .source
                             .as_ref()
-                            .is_none_or(|source| source.text() != generated.text())
+                            .is_none_or(|source| source.text() != expected.text())
                     {
                         projection.modified_native(document);
                     }
@@ -71,8 +70,8 @@ impl AnalysisState {
                     .ok_or_else(|| {
                         AnalysisFailure::Unavailable("diagnostic context is absent".into())
                     })?;
-                let generated_view = self.generated_context_document(context).is_some();
-                if generated_view {
+                let native_view = self.native_context_document(context).is_some();
+                if native_view {
                     // The environment bootstrap already checked these exact bytes.
                     // Re-parsing a view as script would create a second module owner.
                 } else if context.semantic_available

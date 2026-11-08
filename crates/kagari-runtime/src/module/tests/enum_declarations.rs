@@ -157,7 +157,9 @@ fn changed_enum_payload_view_cannot_attach_to_the_registered_declaration() {
     assert!(view.text.contains("Data(T, i32)"));
     view.text = view.text.replace("Data(T, i32)", "Data(T, i64)");
     let mut database = AnalysisDatabase::default();
-    database.set_native_sources(providers, views).unwrap();
+    database
+        .set_native_sources(providers, views.into_iter().map(Into::into).collect())
+        .unwrap();
     let sources = SourceDatabase::default();
     let error = database
         .declarations(sources.snapshot(), &Default::default())

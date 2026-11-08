@@ -1,0 +1,146 @@
+//! Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries. Explicit lazy chars, char_indices and bytes cursors traverse scalars, byte-offset/scalar pairs and encoded bytes respectively.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn clean(text: String) -> String { text.trim() }
+//! ```
+
+/// An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver. Explicit chars, char_indices and bytes methods return lazy cursors; String itself is not Iterable and has no indexing operator.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn greeting() -> String { "  hello  ".trim() }
+/// ```
+pub type String;
+
+impl String {
+    /// Traverse UTF-8 encoded bytes as u8. For aé🙂 there are seven bytes but three Unicode scalars. Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.bytes(); }
+    /// ```
+    pub fn bytes(self) -> core::iter::CollectionCursor<u8>;
+    /// Traverse (u64, char) pairs of UTF-8 byte offsets and Unicode scalars. For aé🙂 the offsets are 0, 1 and 3, not scalar ordinals. Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.char_indices(); }
+    /// ```
+    pub fn char_indices(self) -> core::iter::CollectionCursor<(u64, char)>;
+    /// Traverse Unicode scalars as char, not grapheme clusters. Combining marks and NUL are separate scalar items. Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.chars(); }
+    /// ```
+    pub fn chars(self) -> core::iter::CollectionCursor<char>;
+    /// Test for a literal substring; the empty pattern matches.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.contains("a"); }
+    /// ```
+    pub fn contains(self, pattern: String) -> bool;
+    /// Test for a literal suffix; the empty pattern matches.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.ends_with("a"); }
+    /// ```
+    pub fn ends_with(self, pattern: String) -> bool;
+    /// Return the first matching byte offset, or None. An empty pattern matches at zero.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.find("a"); }
+    /// ```
+    pub fn find(self, pattern: String) -> core::option::Option<u64>;
+    /// Return whether the string has no bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.is_empty(); }
+    /// ```
+    pub fn is_empty(self) -> bool;
+    /// Return the UTF-8 byte length.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.len(); }
+    /// ```
+    pub fn len(self) -> u64;
+    /// Replace all non-overlapping literal matches. An empty pattern inserts at Unicode scalar boundaries, including both ends.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.replace("a", "b"); }
+    /// ```
+    pub fn replace(self, from: String, to: String) -> String;
+    /// Copy the half-open byte range. Invalid order, bounds or UTF-8 boundaries trap.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.slice(0, 1); }
+    /// ```
+    pub fn slice(self, start: u64, end: u64) -> String;
+    /// Return an eager List<String> of literal-separated fields, preserving endpoint empties. An empty separator splits at Unicode scalar boundaries with endpoint empties.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.split("a"); }
+    /// ```
+    pub fn split(self, separator: String) -> std::collections::List<String>;
+    /// Test for a literal prefix; the empty pattern matches.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.starts_with("a"); }
+    /// ```
+    pub fn starts_with(self, pattern: String) -> bool;
+    /// Remove Unicode whitespace from both ends.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.trim(); }
+    /// ```
+    pub fn trim(self) -> String;
+    /// Remove trailing Unicode whitespace.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.trim_end(); }
+    /// ```
+    pub fn trim_end(self) -> String;
+    /// Remove leading Unicode whitespace.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn example(values: String) { val result = values.trim_start(); }
+    /// ```
+    pub fn trim_start(self) -> String;
+}
+
+impl core::default::Default for String {
+    /// Return an empty immutable String.
+    ///
+    /// See `core::default::Default` for the construction contract.
+    pub fn default() -> String;
+}

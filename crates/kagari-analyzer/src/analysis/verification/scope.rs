@@ -17,8 +17,7 @@ use crate::{
     },
 };
 use kagari_common::cancellation::CancellationToken;
-use kagari_hir::native::render::NATIVE_RENDERER_NAMESPACE;
-use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
+use kagari_source::{publication::SourceStore, source::SourceFile};
 use lsp_types::{GotoDefinitionResponse, Location, Uri};
 use std::{
     collections::BTreeSet,
@@ -121,8 +120,7 @@ impl World {
                 bytes: 16 * 1024 * 1024,
             },
         );
-        let store =
-            GeneratedDocuments::open(&directory.join("native"), NATIVE_RENDERER_NAMESPACE).unwrap();
+        let store = SourceStore::open(&directory.join("native")).unwrap();
         state.prepare(&store, &Default::default()).unwrap();
         let baseline = budget.retained_bytes();
         Self {

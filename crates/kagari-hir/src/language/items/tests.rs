@@ -25,7 +25,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             let (_, original) = api::import_source(
                 module,
                 &modules,
-                &generated,
+                &generated.clone().into(),
                 "/native-declarations",
                 Default::default(),
                 &cancel,

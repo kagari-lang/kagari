@@ -3,8 +3,8 @@ pub(crate) mod diagnostics;
 pub(crate) mod editor;
 pub(crate) mod environment;
 pub(crate) mod features;
-mod generated_views;
 pub(crate) mod indexes;
+mod native_views;
 pub(crate) mod worker;
 
 #[cfg(any(test, feature = "verification"))]
@@ -26,7 +26,7 @@ use crate::{
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_hir::analysis::{AnalysisDatabase, AnalysisSnapshot, error::AnalysisError};
-use kagari_source::generated::{GeneratedDocument, GeneratedDocuments};
+use kagari_source::publication::{SourceDocument, SourceStore};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -82,6 +82,7 @@ pub(crate) struct AnalysisState {
     contexts: BTreeMap<ContextKey, ContextAnalysis>,
     indexes: IndexCache,
     implementation: ImplementationSearches,
+    native_navigation_error: Option<String>,
 }
 
 impl AnalysisState {
@@ -99,6 +100,7 @@ impl AnalysisState {
             contexts: BTreeMap::new(),
             indexes: IndexCache::default(),
             implementation: ImplementationSearches::default(),
+            native_navigation_error: None,
         }
     }
 
@@ -106,9 +108,9 @@ impl AnalysisState {
     /// Publication of the returned plans belongs to the acquisition thread.
     pub fn prepare(
         &mut self,
-        documents: &GeneratedDocuments,
+        documents: &SourceStore,
         cancel: &CancellationToken,
-    ) -> Result<Arc<[GeneratedDocument]>, AnalysisFailure> {
+    ) -> Result<Arc<[SourceDocument]>, AnalysisFailure> {
         self.discard_environment();
         cancel.check()?;
         let prepared =
@@ -130,9 +132,10 @@ impl AnalysisState {
         Ok(publications)
     }
 
-    /// Retire a baseline whose publication failed. A validated but unpublished
-    /// native source cannot become a semantic or navigation dependency.
+    /// Retire the previous provider generation and every dependent mutable cache.
+    /// Publication availability is tracked separately from semantic validity.
     pub fn discard_environment(&mut self) {
+        self.native_navigation_error = None;
         self.implementation = ImplementationSearches::default();
         self.indexes = IndexCache::default();
         self.contexts.clear();
@@ -162,6 +165,11 @@ impl AnalysisState {
 }
 
 impl AnalysisState {
+    /// Publication availability changes navigation, never the validated contracts.
+    pub fn set_native_navigation_error(&mut self, error: Option<String>) {
+        self.native_navigation_error = error;
+    }
+
     pub fn retain_capture_inputs(&mut self, capture: &WorkspaceCapture) {
         self.indexes.retain_capture(capture);
     }

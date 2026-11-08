@@ -1,0 +1,99 @@
+//! Equality and ordering contracts. Comparisons must obey the laws required by collection algorithms.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn same(left: i32, right: i32) -> bool { left == right }
+//! ```
+
+/// The result of a total comparison: Less, Equal or Greater.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn compare(left: i32, right: i32) -> core::cmp::Ordering { left.cmp(right) }
+/// ```
+pub enum Ordering {
+    /// The `Less` case of `Ordering`. The result of a total comparison: Less, Equal or Greater.
+    Less,
+    /// The `Equal` case of `Ordering`. The result of a total comparison: Less, Equal or Greater.
+    Equal,
+    /// The `Greater` case of `Ordering`. The result of a total comparison: Less, Equal or Greater.
+    Greater,
+}
+
+pub use self::Ordering::{Less, Equal, Greater};
+
+/// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn same(left: i32, right: i32) -> bool { left == right }
+/// ```
+#[lang = "partial_eq"]
+pub trait PartialEq {
+    /// Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.
+    ///
+    /// See `PartialEq` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn same(left: i32, right: i32) -> bool { left == right }
+    /// ```
+    fn eq(self, arg1: Self) -> bool;
+}
+
+/// Marks reflexive equality in addition to `PartialEq`. It has no additional methods. Implementations must satisfy the equality laws relied on by collection algorithms.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn unique(values: Vec<i32>) -> std::collections::List<i32> { values.distinct() }
+/// ```
+#[lang = "eq"]
+pub trait Eq: PartialEq {
+}
+
+/// A partial ordering consistent with equality. `partial_cmp` returns `None` for incomparable values; floating-point NaN is incomparable.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn before(left: i32, right: i32) -> bool { left < right }
+/// ```
+#[lang = "partial_ord"]
+pub trait PartialOrd: PartialEq {
+    /// A partial ordering consistent with equality. `partial_cmp` returns `None` for incomparable values; floating-point NaN is incomparable.
+    ///
+    /// See `PartialOrd` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn before(left: i32, right: i32) -> bool { left < right }
+    /// ```
+    fn partial_cmp(self, arg1: Self) -> core::option::Option<Ordering>;
+}
+
+/// A total ordering consistent with `Eq` and `PartialOrd`. `cmp` returns Less, Equal or Greater. Sorting relies on a consistent comparator.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn ordered(values: Vec<i32>) -> std::collections::List<i32> { values.sorted() }
+/// ```
+#[lang = "ord"]
+pub trait Ord: Eq + PartialOrd {
+    /// A total ordering consistent with `Eq` and `PartialOrd`. `cmp` returns Less, Equal or Greater. Sorting relies on a consistent comparator.
+    ///
+    /// See `Ord` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn ordered(values: Vec<i32>) -> std::collections::List<i32> { values.sorted() }
+    /// ```
+    fn cmp(self, arg1: Self) -> Ordering;
+}

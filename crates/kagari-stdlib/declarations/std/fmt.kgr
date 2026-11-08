@@ -1,0 +1,10 @@
+//! Diagnostic and display formatting through declared interfaces.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }
+//! ```
+
+pub use core::fmt::Debug as Debug;
+pub use core::fmt::Display as Display;

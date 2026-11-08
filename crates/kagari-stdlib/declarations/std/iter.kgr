@@ -1,0 +1,22 @@
+//! Shared iteration and iterable construction. Iterator values retain progress and reject stale source reads after structural mutation.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+//! ```
+
+pub use core::iter::ChainIterator as ChainIterator;
+pub use core::iter::CollectionCursor as CollectionCursor;
+pub use core::iter::EnumerateIterator as EnumerateIterator;
+pub use core::iter::FilterIterator as FilterIterator;
+pub use core::iter::FilterMapIterator as FilterMapIterator;
+pub use core::iter::FromIterator as FromIterator;
+pub use core::iter::Iterable as Iterable;
+pub use core::iter::Iterator as Iterator;
+pub use core::iter::MapIterator as MapIterator;
+pub use core::iter::Product as Product;
+pub use core::iter::SkipIterator as SkipIterator;
+pub use core::iter::Sum as Sum;
+pub use core::iter::TakeIterator as TakeIterator;
+pub use core::iter::ZipIterator as ZipIterator;

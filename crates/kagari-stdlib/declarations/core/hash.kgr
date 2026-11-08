@@ -1,0 +1,28 @@
+//! Hash contracts used by key-based collections. Equal keys must hash equally, and key lookup blocks recursive structural mutation.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+//! ```
+
+/// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+/// ```
+#[lang = "hash"]
+pub trait Hash {
+    /// Computes a stable hash for the duration of a collection operation. Equal keys must hash equally. Hash and equality callbacks run synchronously; recursive structural mutation during lookup traps.
+    ///
+    /// See `Hash` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }
+    /// ```
+    fn hash(self) -> i64;
+}

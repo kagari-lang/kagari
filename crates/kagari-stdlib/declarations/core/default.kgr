@@ -1,0 +1,58 @@
+//! Explicit implementation-defined construction through the ordinary Default trait. No automatic struct, field or enum initialization is implied.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! struct Player { val health: i32 }
+//! impl Default for Player { fn default() -> Self { Player { health: 100 } } }
+//! fn player() -> Player { Player::default() }
+//! fn qualified() -> Player { <Player as core::default::Default>::default() }
+//! fn make<T: Default>() -> T { T::default() }
+//! struct Element {}
+//! fn empty_vec() -> Vec<Element> { Vec<Element>::default() }
+//! fn absent() -> Option<Element> { Option<Element>::default() }
+//! fn zero() -> i32 { Default::default() }
+//! fn empty_string() -> String { String::default() }
+//! ```
+
+/// Constructs an implementation-defined value through the required static `default() -> Self` method, with no receiver or arguments. The canonical trait is `core::default::Default`; the prelude and `std::default::Default` expose the same declaration. Implementations are explicit: this contract neither zeroes storage nor recursively initializes fields, and user structs receive no automatic implementation. It is static-only and cannot be used as an interface value type. Calls use ordinary trait selection, including concrete, qualified and generic bound forms; a trait-qualified call needs result context to determine Self, not merely an available implementation.
+///
+/// # Standard implementations
+///
+/// Unit returns (); bool returns false. The eight integer types i8, i16, i32, i64, u8, u16, u32 and u64 return correctly typed zero; f32 and f64 return positive zero. String returns an empty string. Vec<T> returns fresh empty mutable storage on every call; Option<T> returns None. Neither container requires T: Default. Tuples, builtin arrays, maps, sets, ranges, Result, other enums and host/scoped values have no standard implementation.
+///
+/// # Examples
+///
+/// ```kgr
+/// struct Player { val health: i32 }
+/// impl Default for Player { fn default() -> Self { Player { health: 100 } } }
+/// fn player() -> Player { Player::default() }
+/// fn qualified() -> Player { <Player as core::default::Default>::default() }
+/// fn make<T: Default>() -> T { T::default() }
+/// struct Element {}
+/// fn empty_vec() -> Vec<Element> { Vec<Element>::default() }
+/// fn absent() -> Option<Element> { Option<Element>::default() }
+/// fn zero() -> i32 { Default::default() }
+/// fn empty_string() -> String { String::default() }
+/// ```
+pub trait Default {
+    /// Return the value chosen by the explicit implementation. This required static method has no receiver or arguments and no fallback body. Its result is the implementing Self type.
+    ///
+    /// See `Default` for the behavioral contract and examples.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// struct Player { val health: i32 }
+    /// impl Default for Player { fn default() -> Self { Player { health: 100 } } }
+    /// fn player() -> Player { Player::default() }
+    /// fn qualified() -> Player { <Player as core::default::Default>::default() }
+    /// fn make<T: Default>() -> T { T::default() }
+    /// struct Element {}
+    /// fn empty_vec() -> Vec<Element> { Vec<Element>::default() }
+    /// fn absent() -> Option<Element> { Option<Element>::default() }
+    /// fn zero() -> i32 { Default::default() }
+    /// fn empty_string() -> String { String::default() }
+    /// ```
+    fn default() -> Self;
+}

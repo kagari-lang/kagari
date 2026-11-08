@@ -1,0 +1,81 @@
+//! Scope-owned asynchronous jobs with retained terminal results and host-controlled scheduling.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn retain(value: Task<i32>) -> core::task::Task<i32> { value }
+//! ```
+
+/// A scope-owned execution handle. Dropping a handle does not cancel the task. Completed values are retained by live handles and pending host reports.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn retain(value: Task<i32>) -> core::task::Task<i32> { value }
+/// ```
+pub type Task<T>;
+
+/// A host-created capability for admitting independent tasks into one host-owned scope. Only the host owner controls driving and scope closure.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn retain(value: TaskScope) -> core::task::TaskScope { value }
+/// ```
+pub type TaskScope;
+
+/// A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn closed() -> SpawnError { SpawnError::ScopeClosed }
+/// ```
+pub enum SpawnError {
+    /// The `ScopeClosed` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
+    ScopeClosed,
+    /// The `CapacityExceeded` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
+    CapacityExceeded,
+    /// The `DispatchUnavailable` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
+    DispatchUnavailable,
+}
+
+impl TaskScope {
+    /// Admit a zero-argument factory returning Future<T>. The factory runs once on the first host drive, after admission. Closures and checked Fn implementations use ordinary callable coercion. Admission failures return SpawnError; execution failures terminate the Task.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// async fn answer() -> i32 { 42 }
+    /// fn submit(scope: TaskScope) -> Result<Task<i32>, SpawnError> { scope.spawn(|| answer()) }
+    /// ```
+    pub fn spawn<T>(self, arg1: fn() -> core::future::Future<T>) -> core::result::Result<Task<T>, SpawnError>;
+}
+
+impl<T> Task<T> {
+    /// Request cooperative cancellation of this Task. Completed Tasks are unchanged. Cancelling a waiting Task detaches its wait without cancelling the dependency.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// fn stop<T>(task: Task<T>) { task.cancel(); }
+    /// ```
+    pub fn cancel(self);
+}
+
+/// Compose two cold Futures without starting them. Awaiting runs both cooperatively and returns the input-ordered pair after cleanup. Result values are ordinary outputs; execution failures close the sibling and terminate the parent.
+///
+/// # Examples
+///
+/// ```kgr
+/// async fn sample() -> (i32, i32) { core::task::join(async { 1 }, async { 2 }).await }
+/// ```
+pub fn join<T1, T2>(left: core::future::Future<T1>, right: core::future::Future<T2>) -> core::future::Future<(T1, T2)>;
+/// Compose two cold Futures. Awaiting runs both cooperatively; the first observed Err closes the sibling before returning, retaining its original diagnostic origin. Otherwise return Ok of the input-ordered pair. Execution failures terminate the parent.
+///
+/// # Examples
+///
+/// ```kgr
+/// async fn sample() -> Result<(i32, i32), String> { core::task::try_join(async { Ok(1) }, async { Ok(2) }).await }
+/// ```
+pub fn try_join<T1, T2, T3>(left: core::future::Future<core::result::Result<T1, T3>>, right: core::future::Future<core::result::Result<T2, T3>>) -> core::future::Future<core::result::Result<(T1, T2), T3>>;

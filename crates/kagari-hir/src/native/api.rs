@@ -5,9 +5,7 @@ use crate::{
     hir::{ids::FunctionId, item::function::FunctionKind, ty::TypeKind},
     lower::{LoweredModule, lower_module_controlled},
     native::{
-        NativeBinding, NativeTypeKind,
-        paths::module_path,
-        render::{DeclarationSource, declaration_source},
+        NativeBinding, NativeSource, NativeTypeKind, paths::module_path, render::declaration_source,
     },
 };
 use kagari_common::{
@@ -48,7 +46,7 @@ pub(crate) fn import(
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
-    let generated = declaration_source(metadata, providers)?;
+    let generated = declaration_source(metadata, providers)?.into();
     import_source(metadata, providers, &generated, source_root, limits, cancel)
 }
 
@@ -57,7 +55,7 @@ pub(crate) fn import(
 pub(crate) fn import_source(
     metadata: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
-    generated: &DeclarationSource,
+    generated: &NativeSource,
     source_root: &str,
     limits: ParseLimits,
     cancel: &CancellationToken,

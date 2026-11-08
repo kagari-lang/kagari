@@ -1,0 +1,18 @@
+//! Explicit implementation-defined construction through the ordinary Default trait. No automatic struct, field or enum initialization is implied.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! struct Player { val health: i32 }
+//! impl Default for Player { fn default() -> Self { Player { health: 100 } } }
+//! fn player() -> Player { Player::default() }
+//! fn qualified() -> Player { <Player as core::default::Default>::default() }
+//! fn make<T: Default>() -> T { T::default() }
+//! struct Element {}
+//! fn empty_vec() -> Vec<Element> { Vec<Element>::default() }
+//! fn absent() -> Option<Element> { Option<Element>::default() }
+//! fn zero() -> i32 { Default::default() }
+//! fn empty_string() -> String { String::default() }
+//! ```
+
+pub use core::default::Default as Default;

@@ -1,0 +1,9 @@
+//! String parsing contracts with an explicit error type and complete input validation.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }
+//! ```
+
+pub use core::str::FromStr as FromStr;

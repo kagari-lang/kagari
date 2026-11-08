@@ -51,7 +51,7 @@ test('packaging uses a payload allowlist and repository-consistent license texts
   const rules = ignore.split(/\r?\n/).filter((line) => line && !line.startsWith('#'));
   assert.deepEqual(rules, ['**', '!package.json', '!README.md', '!LICENSE', '!LICENSE-MIT', '!LICENSE-APACHE',
     '!language-configuration.json', '!syntaxes/', '!syntaxes/kagari.tmLanguage.json',
-    '!dist/', '!dist/extension.cjs', '!dist/THIRD-PARTY-NOTICES.txt']);
+    '!dist/', '!dist/extension.cjs', '!dist/THIRD-PARTY-NOTICES.txt', '!dist/stdlib/', '!dist/stdlib/**']);
   const notice = await readFile(new URL('LICENSE', extension), 'utf8');
   assert.ok(notice.includes('SPDX-License-Identifier: MIT OR Apache-2.0'));
   for (const name of ['LICENSE-MIT', 'LICENSE-APACHE']) {

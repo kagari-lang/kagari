@@ -1,0 +1,4 @@
+fn main() {
+    val values = Vec::from([1, 2]);
+    values.len();
+}

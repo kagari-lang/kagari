@@ -507,6 +507,40 @@ separately proposed debug/DAP modes.
 
 ## Language server
 
+The bundled-standard-declaration correction implements 38 fixed module-named
+resources, analyzer embedding and VSIX delivery, independently of Host build/export
+products. The [native source contract](lsp-design.md#native-declarations-and-source-tools)
+owns installed-source selection, exact registration validation, readable immutable
+package paths and semantic readiness when native file navigation is unavailable.
+Source-free runtime and explicitly requested SDK publication errors are preserved.
+
+Selected local contracts pass: source publication (4), HIR import/input/documentation
+(14), renderer ownership (2), the complete stdlib inventory/documentation scenario,
+SDK registration/navigation/publication (7), analyzer worker/native-view/pilot (6),
+stdio/TCP lifecycle (3), blocked-cache process cases with/without installed sources
+(2), analysis fuzz seed replay and VSIX manifest checks (3). SDK assertions now
+accept the explicit standard memory URI and compare canonical failure paths with
+the original OS error kind. Renderer site-bound checks stay at the HIR owner;
+SDK checks exact file text, parsed navigation, retained snapshots and native execution.
+The new ordinary program fixture passes `kg fmt --check`; declaration-mode standard
+resources are checked by native analysis. VSIX packaging and byte comparison verify
+all 38 resources. Structure (1,979 Rust files, zero violations), Rust formatting,
+workspace all-target Clippy, verification-enabled analyzer Clippy, source-free SDK
+build and diff checks pass. No paired performance improvement is claimed.
+
+The bounded Windows MSVC ASan analysis campaign passes 575 inputs in 61 seconds
+without a finding (9 inputs/s, 512 MiB peak RSS). It uses the README command with
+seed 20261108, eight committed seeds, an initially empty generated corpus, one
+worker, default release profile/parallelism and workspace target. Build time is
+excluded. The machine/toolchain match the preceding scope campaign: Windows 11
+x64, i9-12900K, nightly Rust 1.101.0 (249c1e4e3, 2026-11-05), cargo-fuzz 0.13.2
+and MSVC 14.44.35207.
+This is bounded ownership/correspondence evidence, not exhaustive coverage or a
+throughput comparison. Full workspace/platform/editor-host matrices and longer
+campaigns remain CI acceptance. The optional `cargo package --offline --list
+--allow-dirty --manifest-path crates/kagari-stdlib/Cargo.toml` probe hits a local
+Cargo Git-backend slotmap error before listing; VSIX payload validation is unaffected.
+
 Process options now use clap derive for mutually exclusive stdio/TCP modes,
 help/version and startup diagnostics. Numeric loopback validation remains at the
 application boundary; invalid arguments exit with code 2 before actor startup.

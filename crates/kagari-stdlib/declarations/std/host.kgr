@@ -1,0 +1,10 @@
+//! Scope-bound shared and mutable host locations with checked target and access capabilities. These views retain no host ownership.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }
+//! ```
+
+pub use core::host::Ref as Ref;
+pub use core::host::RefMut as RefMut;

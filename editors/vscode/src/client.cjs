@@ -50,7 +50,9 @@ async function createClient(configuration, closed, output) {
   output.appendLine(`Starting Kagari analyzer: ${command}`);
   let child;
   const server = () => new Promise((resolve, reject) => {
-    child = spawn(command, ['--stdio'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const env = { ...process.env,
+      KAGARI_STDLIB_SOURCES: process.env.KAGARI_STDLIB_SOURCES ?? configuration.standardSources };
+    child = spawn(command, ['--stdio'], { env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     child.once('error', reject);
     child.once('spawn', () => resolve(child));
   });

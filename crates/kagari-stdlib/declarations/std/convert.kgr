@@ -1,0 +1,13 @@
+//! Explicit infallible and checked conversions, including reverse adapters and error conversion.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn widen(value: i32) -> i64 { i64::from(value) }
+//! ```
+
+pub use core::convert::From as From;
+pub use core::convert::Infallible as Infallible;
+pub use core::convert::Into as Into;
+pub use core::convert::TryFrom as TryFrom;
+pub use core::convert::TryInto as TryInto;

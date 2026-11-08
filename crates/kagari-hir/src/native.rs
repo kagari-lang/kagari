@@ -19,6 +19,24 @@ pub(crate) mod api;
 pub(crate) mod paths;
 pub mod render;
 
+/// Owned declaration text and its presentation origin, supplied by a source
+/// package or native exporter. Import validates it against installed metadata;
+/// renderer navigation tables are not an input to semantic analysis.
+#[derive(Debug, Clone)]
+pub struct NativeSource {
+    pub uri: String,
+    pub text: String,
+}
+
+impl From<render::DeclarationSource> for NativeSource {
+    fn from(source: render::DeclarationSource) -> Self {
+        Self {
+            uri: source.uri,
+            text: source.text,
+        }
+    }
+}
+
 /// Installed entry identity or symbolic default mapping.
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -14,10 +14,9 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_hir::{
     analysis::signatures::relations::ImplementationTarget,
     declarations::DeclarationId,
-    native::render::NATIVE_RENDERER_NAMESPACE,
     types::{NominalType, TypeId},
 };
-use kagari_source::{generated::GeneratedDocuments, source::SourceFile};
+use kagari_source::{publication::SourceStore, source::SourceFile};
 use lsp_types::GotoDefinitionResponse;
 use std::{fs, sync::Arc};
 use tokio::sync::oneshot;
@@ -85,11 +84,7 @@ fn reverse_dependents_require_complete_shards_and_exact_cross_context_provenance
             bytes: 16 * 1024 * 1024,
         },
     );
-    let store = GeneratedDocuments::open(
-        &fixture.directory().join("cache"),
-        NATIVE_RENDERER_NAMESPACE,
-    )
-    .unwrap();
+    let store = SourceStore::open(&fixture.directory().join("cache")).unwrap();
     state.prepare(&store, &Default::default()).unwrap();
     let signatures = state
         .signatures_for_context(selected, &Default::default())

@@ -1,0 +1,33 @@
+//! Operator contracts, range values and boundary policies. Operators dispatch through checked implementations and preserve evaluation order.
+//!
+//! # Examples
+//!
+//! ```kgr
+//! fn plus(left: i32, right: i32) -> i32 { left + right }
+//! ```
+
+pub use core::ops::Add as Add;
+pub use core::ops::BitAnd as BitAnd;
+pub use core::ops::BitOr as BitOr;
+pub use core::ops::BitXor as BitXor;
+pub use core::ops::Bound as Bound;
+pub use core::ops::ControlFlow as ControlFlow;
+pub use core::ops::Div as Div;
+pub use core::ops::Fn as Fn;
+pub use core::ops::FromResidual as FromResidual;
+pub use core::ops::Index as Index;
+pub use core::ops::Mul as Mul;
+pub use core::ops::Neg as Neg;
+pub use core::ops::Not as Not;
+pub use core::ops::Range as Range;
+pub use core::ops::RangeBounds as RangeBounds;
+pub use core::ops::RangeFrom as RangeFrom;
+pub use core::ops::RangeFull as RangeFull;
+pub use core::ops::RangeInclusive as RangeInclusive;
+pub use core::ops::RangeTo as RangeTo;
+pub use core::ops::RangeToInclusive as RangeToInclusive;
+pub use core::ops::Rem as Rem;
+pub use core::ops::Shl as Shl;
+pub use core::ops::Shr as Shr;
+pub use core::ops::Sub as Sub;
+pub use core::ops::Try as Try;
