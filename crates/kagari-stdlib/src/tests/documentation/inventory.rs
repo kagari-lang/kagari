@@ -79,6 +79,29 @@ pub(super) fn collect() -> Inventory {
             .iter()
             .find(|provider| &provider.records().identity == module)
             .unwrap();
+        let records = provider.records();
+        for function in records
+            .functions
+            .iter()
+            .chain(records.traits.iter().flat_map(|contract| &contract.methods))
+            .chain(
+                records
+                    .implementations
+                    .iter()
+                    .flat_map(|implementation| &implementation.methods),
+            )
+        {
+            for parameter in &function.params {
+                let placeholder = parameter.name.strip_prefix("arg").is_some_and(|suffix| {
+                    !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+                });
+                assert!(
+                    !placeholder,
+                    "{}::{}: positional placeholder {} hides the parameter's meaning",
+                    resource.path, function.name, parameter.name
+                );
+            }
+        }
         let checked = native.file(file.source().id()).unwrap();
         assert!(
             checked.result().diagnostics().is_empty(),

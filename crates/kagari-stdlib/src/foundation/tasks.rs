@@ -102,8 +102,10 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 .documentation(markdown(MODULE_DOCS))
                 .configure(move |function| {
                     let output = function.type_parameter("T")?.ty();
-                    function
-                        .parameter("arg1", Type::function([], future.apply([output.clone()])?)?)?;
+                    function.parameter(
+                        "factory",
+                        Type::function([], future.apply([output.clone()])?)?,
+                    )?;
                     function
                         .returns(result.apply([spawned.apply([output])?, error.apply([])?])?)?;
                     Ok(())

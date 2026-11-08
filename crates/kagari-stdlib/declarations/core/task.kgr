@@ -123,7 +123,7 @@ impl TaskScope {
     ///     cold && result == 42 && calls.len() == 1u64
     /// }
     /// ```
-    pub fn spawn<T>(self, arg1: fn() -> core::future::Future<T>) -> core::result::Result<Task<T>, SpawnError>;
+    pub fn spawn<T>(self, factory: fn() -> core::future::Future<T>) -> core::result::Result<Task<T>, SpawnError>;
 }
 
 impl<T> Task<T> {

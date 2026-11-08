@@ -11,4 +11,7 @@ pub fn native_values() {
     val values: Vec<i32> = create();
     values.len();
     "aé🙂".char_indices();
+    val storage: std::collections::HashMap<i32, String> = std::collections::HashMap::new();
+    val map: std::collections::MutableMap<i32, String> = storage;
+    map.insert(1, "one");
 }

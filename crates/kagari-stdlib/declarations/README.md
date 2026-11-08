@@ -55,6 +55,12 @@ return values, empty-input behavior, evaluation order and stopping rules. Name
 parameters with backticks. Use paragraphs and wrap prose to readable source lines;
 do not put an entire API contract on one comment line.
 
+Name public parameters for their roles in the Rust registration and the paired
+source: map `key`/`value`, sequence `index`/`value`, comparison `other`, operator
+`rhs`, task `factory` and callable `arguments`. Trait overrides inherit those
+names from their contracts. Do not replace them with positional `arg1`/`arg2`
+placeholders: hover and source navigation display these signatures to callers.
+
 Document laziness, shared state, mutation and failure effects when they matter.
 Distinguish requirements on a user implementation from guarantees made by built-in
 implementations. Use `# Traps` for script traps, and describe the precise trigger

@@ -51,7 +51,7 @@ impl<T> core::ops::Index<u64> for [T] {
     ///     values[0u64] == 10 && values[1u64] == 20
     /// }
     /// ```
-    pub fn index(self, arg1: u64) -> T;
+    pub fn index(self, index: u64) -> T;
 }
 
 impl<T> core::iter::Iterable for [T] {
@@ -91,5 +91,5 @@ impl<T> core::cmp::PartialEq for [T] where T: core::cmp::PartialEq {
     ///     7.eq(7) && !7.eq(8)
     /// }
     /// ```
-    pub fn eq(self, arg1: [T]) -> bool;
+    pub fn eq(self, other: [T]) -> bool;
 }

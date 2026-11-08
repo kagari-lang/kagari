@@ -58,7 +58,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             )?;
             methods.define(
                 MethodDecl::instance("push")
-                    .parameter("arg1", items[0].clone())
+                    .parameter("value", items[0].clone())
                     .returns(receiver.clone())
                     .documentation(inherent_docs("push"))
                     .implementation_send(scoped(
@@ -68,8 +68,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             )?;
             methods.define(
                 MethodDecl::instance("insert")
-                    .parameter("arg1", Type::u64())
-                    .parameter("arg2", items[0].clone())
+                    .parameter("index", Type::u64())
+                    .parameter("value", items[0].clone())
                     .returns(receiver.clone())
                     .documentation(inherent_docs("insert"))
                     .implementation_send(scoped(
@@ -89,8 +89,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             )?;
             methods.define(
                 MethodDecl::instance("set")
-                    .parameter("arg1", Type::u64())
-                    .parameter("arg2", items[0].clone())
+                    .parameter("index", Type::u64())
+                    .parameter("value", items[0].clone())
                     .returns(receiver.clone())
                     .documentation(inherent_docs("set"))
                     .implementation_send(NativeBinding::primitive(NativePrimitive::VecSetFluent)),

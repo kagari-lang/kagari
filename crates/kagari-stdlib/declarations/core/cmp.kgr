@@ -54,7 +54,7 @@ pub trait PartialEq {
     ///     7.eq(7) && !7.eq(8)
     /// }
     /// ```
-    fn eq(self, arg1: Self) -> bool;
+    fn eq(self, other: Self) -> bool;
 }
 
 /// Marks reflexive equality in addition to `PartialEq`. It has no additional
@@ -97,7 +97,7 @@ pub trait PartialOrd: PartialEq {
     ///     2.partial_cmp(3) == Some(Ordering::Less) && nan.partial_cmp(1.0f64) == None
     /// }
     /// ```
-    fn partial_cmp(self, arg1: Self) -> core::option::Option<Ordering>;
+    fn partial_cmp(self, other: Self) -> core::option::Option<Ordering>;
 }
 
 /// A total ordering consistent with `Eq` and `PartialOrd`. `cmp` returns Less,
@@ -125,5 +125,5 @@ pub trait Ord: Eq + PartialOrd {
     ///     2.cmp(3) == Ordering::Less && 3.cmp(3) == Ordering::Equal && 4.cmp(3) == Ordering::Greater
     /// }
     /// ```
-    fn cmp(self, arg1: Self) -> Ordering;
+    fn cmp(self, other: Self) -> Ordering;
 }

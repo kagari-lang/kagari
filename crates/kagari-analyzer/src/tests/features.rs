@@ -171,6 +171,8 @@ fn pilot_features_preserve_request_inputs_and_cancel_without_waiting_for_worker_
         let text = fs::read_to_string(source_name(&native_uri).unwrap()).unwrap();
         assert!(text.contains("Some((3u64, '🙂'))"));
         assert_eq!(indices["result"]["range"]["start"],position(&text,"char_indices(self)"));
+        let hover = peer.request(28,"textDocument/hover",site(lib.as_str(),LIB,"insert(1, \"one\")")).await;
+        hover_contains(&hover,"key: T1, value: T2");
         peer.shutdown().await;
     });
 }

@@ -527,6 +527,17 @@ with the documentation contract. Structure, Rust formatting, workspace all-targe
 Clippy, fixture formatting and diff checks pass. No performance improvement is claimed; complete
 workspace/backend/platform/editor-host matrices remain CI scope.
 
+Public parameter names are authored by semantic role in both registration and
+bundled sources: key/value, index/value, other, rhs, arguments and factory. Trait
+implementations inherit the contract names. The documentation inventory rejects
+arg-number placeholders, and the actual actor hover scenario checks the mutable
+map insertion signature. This follow-up changes parameter metadata only; parameter
+order, types and native bodies are preserved. Local validation selects that
+inventory, the five affected documentation groups and native collection views
+through source, encoded-artifact and JIT execution. Exact VSIX bytes, structure,
+formatting, workspace all-target Clippy and diff checks pass; exhaustive matrices
+remain CI scope.
+
 The bundled-standard-declaration correction implements 38 fixed module-named
 resources, analyzer embedding and VSIX delivery, independently of Host build/export
 products. The [native source contract](lsp-design.md#native-declarations-and-source-tools)

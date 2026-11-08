@@ -68,7 +68,7 @@ impl<T> Vec<T> {
     ///     values.get(1u64) == Some(20) && returned.get(2u64) == Some(30)
     /// }
     /// ```
-    pub fn insert(self, arg1: u64, arg2: T) -> Vec<T>;
+    pub fn insert(self, index: u64, value: T) -> Vec<T>;
 
     /// Create fresh empty mutable sequence storage.
     ///
@@ -97,7 +97,7 @@ impl<T> Vec<T> {
     ///     values.len() == 2u64 && values.get(1u64) == Some(8)
     /// }
     /// ```
-    pub fn push(self, arg1: T) -> Vec<T>;
+    pub fn push(self, value: T) -> Vec<T>;
 
     /// Replace the item at an existing index and return the same Vec. An out-of-bounds
     /// index traps.
@@ -111,7 +111,7 @@ impl<T> Vec<T> {
     ///     returned.get(1u64) == Some(99) && values.len() == 2u64 && values.get(0u64) == Some(10)
     /// }
     /// ```
-    pub fn set(self, arg1: u64, arg2: T) -> Vec<T>;
+    pub fn set(self, index: u64, value: T) -> Vec<T>;
 }
 
 impl<T> std::collections::List<T> for Vec<T> {
@@ -158,7 +158,7 @@ impl<T> std::collections::List<T> for Vec<T> {
     ///     values.get(1u64) == Some(20) && values.get(2u64) == None
     /// }
     /// ```
-    pub fn get(self, arg1: u64) -> core::option::Option<T>;
+    pub fn get(self, index: u64) -> core::option::Option<T>;
 
     /// Returns a new List in ascending `Ord` order.
     ///
@@ -261,7 +261,7 @@ impl<T> std::collections::MutableList<T> for Vec<T> {
     ///     values.len() == 3u64 && values.get(2u64) == Some(3)
     /// }
     /// ```
-    pub fn push(self, arg1: T);
+    pub fn push(self, value: T);
 
     /// Remove and return the last item, or None for an empty sequence.
     ///
@@ -295,7 +295,7 @@ impl<T> std::collections::MutableList<T> for Vec<T> {
     ///     values.len() == 3u64 && values.get(1u64) == Some(20) && values.get(2u64) == Some(30)
     /// }
     /// ```
-    pub fn insert(self, arg1: u64, arg2: T);
+    pub fn insert(self, index: u64, value: T);
 
     /// Remove and return the entry, or None if it is absent.
     ///
@@ -312,7 +312,7 @@ impl<T> std::collections::MutableList<T> for Vec<T> {
     ///     removed == Some(20) && values.get(1u64) == Some(30) && values.remove(9u64) == None
     /// }
     /// ```
-    pub fn remove(self, arg1: u64) -> core::option::Option<T>;
+    pub fn remove(self, index: u64) -> core::option::Option<T>;
 
     /// Remove all entries after validating structural mutation guards.
     ///
@@ -345,7 +345,7 @@ impl<T> std::collections::MutableList<T> for Vec<T> {
     ///     values.len() == 2u64 && values.get(0u64) == Some(10) && values.get(1u64) == Some(99)
     /// }
     /// ```
-    pub fn set(self, arg1: u64, arg2: T);
+    pub fn set(self, index: u64, value: T);
 
     /// Sorts this list in ascending `Ord` order, returning Unit.
     ///
@@ -464,7 +464,7 @@ impl<T> core::ops::Index<u64> for Vec<T> {
     ///     values[0u64] == 10 && values[1u64] == 20
     /// }
     /// ```
-    pub fn index(self, arg1: u64) -> T;
+    pub fn index(self, index: u64) -> T;
 }
 
 impl<T> core::iter::Iterable for Vec<T> {
@@ -539,7 +539,7 @@ impl<T> core::cmp::PartialEq for Vec<T> where T: core::cmp::PartialEq {
     ///     7.eq(7) && !7.eq(8)
     /// }
     /// ```
-    pub fn eq(self, arg1: Vec<T>) -> bool;
+    pub fn eq(self, other: Vec<T>) -> bool;
 }
 
 impl<T> core::cmp::Eq for Vec<T> where T: core::cmp::Eq {

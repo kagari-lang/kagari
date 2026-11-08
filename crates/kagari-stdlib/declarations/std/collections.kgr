@@ -92,7 +92,7 @@ pub trait List<T>: core::ops::Index<u64, Output = T> + core::iter::Iterable<Item
     ///     values.get(1u64) == Some(20) && values.get(2u64) == None
     /// }
     /// ```
-    fn get(self, arg1: u64) -> core::option::Option<T>;
+    fn get(self, index: u64) -> core::option::Option<T>;
 
     /// Returns a new List in ascending `Ord` order.
     ///
@@ -219,7 +219,7 @@ pub trait MutableList<T>: List<T> {
     ///     values.len() == 3u64 && values.get(2u64) == Some(3)
     /// }
     /// ```
-    fn push(self, arg1: T);
+    fn push(self, value: T);
 
     /// Remove and return the last item, or None for an empty sequence.
     ///
@@ -253,7 +253,7 @@ pub trait MutableList<T>: List<T> {
     ///     values.len() == 3u64 && values.get(1u64) == Some(20) && values.get(2u64) == Some(30)
     /// }
     /// ```
-    fn insert(self, arg1: u64, arg2: T);
+    fn insert(self, index: u64, value: T);
 
     /// Remove and return the entry, or None if it is absent.
     ///
@@ -270,7 +270,7 @@ pub trait MutableList<T>: List<T> {
     ///     removed == Some(20) && values.get(1u64) == Some(30) && values.remove(9u64) == None
     /// }
     /// ```
-    fn remove(self, arg1: u64) -> core::option::Option<T>;
+    fn remove(self, index: u64) -> core::option::Option<T>;
 
     /// Remove all entries after validating structural mutation guards.
     ///
@@ -303,7 +303,7 @@ pub trait MutableList<T>: List<T> {
     ///     values.len() == 2u64 && values.get(0u64) == Some(10) && values.get(1u64) == Some(99)
     /// }
     /// ```
-    fn set(self, arg1: u64, arg2: T);
+    fn set(self, index: u64, value: T);
 
     /// Sorts this list in ascending `Ord` order, returning Unit.
     ///
@@ -487,7 +487,7 @@ pub trait Map<T1, T2>: core::iter::Iterable<Item = (T1, T2)> {
     ///     view.contains_key(7) && !view.contains_key(42)
     /// }
     /// ```
-    fn contains_key(self, arg1: T1) -> bool;
+    fn contains_key(self, key: T1) -> bool;
 
     /// Return the requested value, or None if the index or key is absent.
     ///
@@ -505,7 +505,7 @@ pub trait Map<T1, T2>: core::iter::Iterable<Item = (T1, T2)> {
     ///     view.get(1) == Some("one") && view.get(2) == None
     /// }
     /// ```
-    fn get(self, arg1: T1) -> core::option::Option<T2>;
+    fn get(self, key: T1) -> core::option::Option<T2>;
 }
 
 /// A mutable key/value interface. Insert replaces the value of an equal key. Hash
@@ -540,7 +540,7 @@ pub trait MutableMap<T1, T2>: Map<T1, T2> {
     ///     values.len() == 1u64 && values.get(1) == Some("replacement")
     /// }
     /// ```
-    fn insert(self, arg1: T1, arg2: T2);
+    fn insert(self, key: T1, value: T2);
 
     /// Remove and return the entry, or None if it is absent.
     ///
@@ -557,7 +557,7 @@ pub trait MutableMap<T1, T2>: Map<T1, T2> {
     ///     values.remove(7) == Some(42) && values.remove(7) == None && values.is_empty()
     /// }
     /// ```
-    fn remove(self, arg1: T1) -> core::option::Option<T2>;
+    fn remove(self, key: T1) -> core::option::Option<T2>;
 
     /// Remove all entries after validating structural mutation guards.
     ///
@@ -638,7 +638,7 @@ pub trait Set<T>: core::iter::Iterable<Item = T> {
     ///     values.contains(1) && !values.contains(3)
     /// }
     /// ```
-    fn contains(self, arg1: T) -> bool;
+    fn contains(self, value: T) -> bool;
 }
 
 /// A mutable membership interface. Insertion retains one representative of each
@@ -673,7 +673,7 @@ pub trait MutableSet<T>: Set<T> {
     ///     values.len() == 1u64 && values.contains(7)
     /// }
     /// ```
-    fn insert(self, arg1: T);
+    fn insert(self, value: T);
 
     /// Remove a member and report whether it was present.
     ///
@@ -688,7 +688,7 @@ pub trait MutableSet<T>: Set<T> {
     ///     values.remove(7) && !values.remove(7) && values.is_empty()
     /// }
     /// ```
-    fn remove(self, arg1: T) -> bool;
+    fn remove(self, value: T) -> bool;
 
     /// Remove all entries after validating structural mutation guards.
     ///
@@ -740,7 +740,7 @@ impl<T1, T2> HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + co
     ///     values.len() == 2u64 && values.get(1) == Some(20) && values.get(2) == Some(30)
     /// }
     /// ```
-    pub fn insert(self, arg1: T1, arg2: T2) -> HashMap<T1, T2>;
+    pub fn insert(self, key: T1, value: T2) -> HashMap<T1, T2>;
 
     /// Creates fresh empty mutable hash storage. Independently created collections do
     /// not share entries.
@@ -810,7 +810,7 @@ impl<T1, T2> Map<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp
     ///     view.contains_key(7) && !view.contains_key(42)
     /// }
     /// ```
-    pub fn contains_key(self, arg1: T1) -> bool;
+    pub fn contains_key(self, key: T1) -> bool;
 
     /// Return the requested value, or None if the index or key is absent.
     ///
@@ -828,7 +828,7 @@ impl<T1, T2> Map<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp
     ///     view.get(1) == Some("one") && view.get(2) == None
     /// }
     /// ```
-    pub fn get(self, arg1: T1) -> core::option::Option<T2>;
+    pub fn get(self, key: T1) -> core::option::Option<T2>;
 }
 
 impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
@@ -911,7 +911,7 @@ impl<T1, T2> Map<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp
     ///     view.contains_key(7) && !view.contains_key(42)
     /// }
     /// ```
-    pub fn contains_key(self, arg1: T1) -> bool;
+    pub fn contains_key(self, key: T1) -> bool;
 
     /// Return the requested value, or None if the index or key is absent.
     ///
@@ -929,7 +929,7 @@ impl<T1, T2> Map<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp
     ///     view.get(1) == Some("one") && view.get(2) == None
     /// }
     /// ```
-    pub fn get(self, arg1: T1) -> core::option::Option<T2>;
+    pub fn get(self, key: T1) -> core::option::Option<T2>;
 }
 
 impl<T1, T2> core::iter::Iterable for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
@@ -976,7 +976,7 @@ impl<T1, T2> MutableMap<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + co
     ///     values.len() == 1u64 && values.get(1) == Some("replacement")
     /// }
     /// ```
-    pub fn insert(self, arg1: T1, arg2: T2);
+    pub fn insert(self, key: T1, value: T2);
 
     /// Remove and return the entry, or None if it is absent.
     ///
@@ -993,7 +993,7 @@ impl<T1, T2> MutableMap<T1, T2> for HashMap<T1, T2> where T1: core::cmp::Eq + co
     ///     values.remove(7) == Some(42) && values.remove(7) == None && values.is_empty()
     /// }
     /// ```
-    pub fn remove(self, arg1: T1) -> core::option::Option<T2>;
+    pub fn remove(self, key: T1) -> core::option::Option<T2>;
 
     /// Remove all entries after validating structural mutation guards.
     ///
@@ -1077,7 +1077,7 @@ impl<T> HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::H
     ///     values.len() == 2u64 && values.contains(7) && values.contains(8)
     /// }
     /// ```
-    pub fn insert(self, arg1: T) -> HashSet<T>;
+    pub fn insert(self, value: T) -> HashSet<T>;
 
     /// Creates fresh empty mutable hash storage. Independently created collections do
     /// not share entries.
@@ -1141,7 +1141,7 @@ impl<T> Set<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + co
     ///     values.contains(1) && !values.contains(3)
     /// }
     /// ```
-    pub fn contains(self, arg1: T) -> bool;
+    pub fn contains(self, value: T) -> bool;
 }
 
 impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
@@ -1218,7 +1218,7 @@ impl<T> Set<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + co
     ///     values.contains(1) && !values.contains(3)
     /// }
     /// ```
-    pub fn contains(self, arg1: T) -> bool;
+    pub fn contains(self, value: T) -> bool;
 }
 
 impl<T> core::iter::Iterable for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
@@ -1265,7 +1265,7 @@ impl<T> MutableSet<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::Partial
     ///     values.len() == 1u64 && values.contains(7)
     /// }
     /// ```
-    pub fn insert(self, arg1: T);
+    pub fn insert(self, value: T);
 
     /// Remove a member and report whether it was present.
     ///
@@ -1280,7 +1280,7 @@ impl<T> MutableSet<T> for HashSet<T> where T: core::cmp::Eq + core::cmp::Partial
     ///     values.remove(7) && !values.remove(7) && values.is_empty()
     /// }
     /// ```
-    pub fn remove(self, arg1: T) -> bool;
+    pub fn remove(self, value: T) -> bool;
 
     /// Remove all entries after validating structural mutation guards.
     ///
@@ -1330,7 +1330,7 @@ impl<T> core::cmp::PartialEq for HashSet<T> where T: core::cmp::Eq + core::cmp::
     ///     7.eq(7) && !7.eq(8)
     /// }
     /// ```
-    pub fn eq(self, arg1: HashSet<T>) -> bool;
+    pub fn eq(self, other: HashSet<T>) -> bool;
 }
 
 impl<T> core::cmp::Eq for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
@@ -1364,7 +1364,7 @@ impl<T> core::cmp::PartialEq for HashSet<T> where T: core::cmp::Eq + core::cmp::
     ///     7.eq(7) && !7.eq(8)
     /// }
     /// ```
-    pub fn eq(self, arg1: HashSet<T>) -> bool;
+    pub fn eq(self, other: HashSet<T>) -> bool;
 }
 
 impl<T> core::cmp::Eq for HashSet<T> where T: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash {
@@ -1398,7 +1398,7 @@ impl<T1, T2> core::cmp::PartialEq for HashMap<T1, T2> where T1: core::cmp::Eq + 
     ///     7.eq(7) && !7.eq(8)
     /// }
     /// ```
-    pub fn eq(self, arg1: HashMap<T1, T2>) -> bool;
+    pub fn eq(self, other: HashMap<T1, T2>) -> bool;
 }
 
 impl<T1, T2> core::cmp::Eq for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::Eq {
@@ -1432,7 +1432,7 @@ impl<T1, T2> core::cmp::PartialEq for HashMap<T1, T2> where T1: core::cmp::Eq + 
     ///     7.eq(7) && !7.eq(8)
     /// }
     /// ```
-    pub fn eq(self, arg1: HashMap<T1, T2>) -> bool;
+    pub fn eq(self, other: HashMap<T1, T2>) -> bool;
 }
 
 impl<T1, T2> core::cmp::Eq for HashMap<T1, T2> where T1: core::cmp::Eq + core::cmp::PartialEq + core::hash::Hash, T2: core::cmp::Eq {

@@ -178,7 +178,7 @@ pub trait Add<T> {
     ///     2 + 3 == 5 && -2 + 3 == 1
     /// }
     /// ```
-    fn add(self, arg1: T) -> <Self as Add<T>>::Output;
+    fn add(self, rhs: T) -> <Self as Add<T>>::Output;
 }
 
 /// Subtraction with an explicitly declared output type. Built-in integer
@@ -206,7 +206,7 @@ pub trait Sub<T> {
     ///     5 - 3 == 2 && 3 - 5 == -2
     /// }
     /// ```
-    fn sub(self, arg1: T) -> <Self as Sub<T>>::Output;
+    fn sub(self, rhs: T) -> <Self as Sub<T>>::Output;
 }
 
 /// Multiplication with an explicitly declared output type. Built-in integer
@@ -234,7 +234,7 @@ pub trait Mul<T> {
     ///     3 * 4 == 12 && -3 * 4 == -12
     /// }
     /// ```
-    fn mul(self, arg1: T) -> <Self as Mul<T>>::Output;
+    fn mul(self, rhs: T) -> <Self as Mul<T>>::Output;
 }
 
 /// Division. Built-in integer division traps for zero divisors and signed overflow;
@@ -262,7 +262,7 @@ pub trait Div<T> {
     ///     7 / 2 == 3 && -7 / 2 == -3
     /// }
     /// ```
-    fn div(self, arg1: T) -> <Self as Div<T>>::Output;
+    fn div(self, rhs: T) -> <Self as Div<T>>::Output;
 }
 
 /// The remainder of division. Built-in integer remainder traps for zero divisors
@@ -290,7 +290,7 @@ pub trait Rem<T> {
     ///     7 % 3 == 1 && -7 % 3 == -1
     /// }
     /// ```
-    fn rem(self, arg1: T) -> <Self as Rem<T>>::Output;
+    fn rem(self, rhs: T) -> <Self as Rem<T>>::Output;
 }
 
 /// Bitwise conjunction, with an explicitly declared output type.
@@ -316,7 +316,7 @@ pub trait BitAnd<T> {
     ///     (0b1010 & 0b1100) == 0b1000
     /// }
     /// ```
-    fn bitand(self, arg1: T) -> <Self as BitAnd<T>>::Output;
+    fn bitand(self, rhs: T) -> <Self as BitAnd<T>>::Output;
 }
 
 /// Bitwise disjunction, with an explicitly declared output type.
@@ -342,7 +342,7 @@ pub trait BitOr<T> {
     ///     (0b1010 | 0b0001) == 0b1011
     /// }
     /// ```
-    fn bitor(self, arg1: T) -> <Self as BitOr<T>>::Output;
+    fn bitor(self, rhs: T) -> <Self as BitOr<T>>::Output;
 }
 
 /// Bitwise exclusive disjunction, with an explicitly declared output type.
@@ -368,7 +368,7 @@ pub trait BitXor<T> {
     ///     (0b1010 ^ 0b0011) == 0b1001
     /// }
     /// ```
-    fn bitxor(self, arg1: T) -> <Self as BitXor<T>>::Output;
+    fn bitxor(self, rhs: T) -> <Self as BitXor<T>>::Output;
 }
 
 /// Left shift. Built-in integer shifts validate the shift count and checked result.
@@ -394,7 +394,7 @@ pub trait Shl<T> {
     ///     (3 << 2) == 12
     /// }
     /// ```
-    fn shl(self, arg1: T) -> <Self as Shl<T>>::Output;
+    fn shl(self, rhs: T) -> <Self as Shl<T>>::Output;
 }
 
 /// Right shift. Built-in integer shifts validate the shift count.
@@ -420,7 +420,7 @@ pub trait Shr<T> {
     ///     (12 >> 2) == 3
     /// }
     /// ```
-    fn shr(self, arg1: T) -> <Self as Shr<T>>::Output;
+    fn shr(self, rhs: T) -> <Self as Shr<T>>::Output;
 }
 
 /// Arithmetic negation. Negating the minimum signed integer traps on overflow.
@@ -506,7 +506,7 @@ pub trait Index<T> {
     ///     values[0u64] == 10 && values[1u64] == 20
     /// }
     /// ```
-    fn index(self, arg1: T) -> <Self as Index<T>>::Output;
+    fn index(self, index: T) -> <Self as Index<T>>::Output;
 }
 
 /// A checked callable signature. Calls evaluate arguments left to right exactly
@@ -540,7 +540,7 @@ pub trait Fn<T> {
     ///     apply(|value| value * 2, 21) == 42
     /// }
     /// ```
-    fn call(self, arg1: T) -> <Self as Fn<T>>::Output;
+    fn call(self, arguments: T) -> <Self as Fn<T>>::Output;
 }
 
 /// Exposes the start and end bounds of a range as Included, Excluded or Unbounded.

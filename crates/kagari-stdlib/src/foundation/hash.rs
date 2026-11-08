@@ -152,11 +152,11 @@ fn inherent(
             )?;
         }
         let mut insert = MethodDecl::instance("insert")
-            .parameter("arg1", items[0].clone())
+            .parameter(if map { "key" } else { "value" }, items[0].clone())
             .returns(receiver.clone())
             .documentation(inherent_docs(map, "insert"));
         if map {
-            insert = insert.parameter("arg2", items[1].clone());
+            insert = insert.parameter("value", items[1].clone());
         }
         let calls = keys.calls(items[0].clone())?;
         methods.define(

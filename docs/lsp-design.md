@@ -2080,6 +2080,13 @@ conversion/default/operator/comparison/hash/formatting, numeric families and asy
 tasks all follow this contract. A fixed heading count or a passing example does
 not establish completeness or prose quality.
 
+Public parameter names preserve those roles in both registration metadata and
+fixed declaration sources. Collection operations distinguish key, value and index;
+comparisons use other, binary operators use rhs and task admission names its
+factory. Trait implementations inherit contract names. The inventory rejects
+positional arg-number placeholders in standard function and method metadata,
+including inherited implementations, so rendering cannot silently erase meaning.
+
 For example, `String::char_indices` explains that offsets are zero-based UTF-8
 byte positions, scalars differ from grapheme clusters, empty input yields nothing,
 each call obtains a fresh cursor and cursor copies share progress. Its displayed

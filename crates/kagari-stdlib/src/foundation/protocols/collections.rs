@@ -42,14 +42,14 @@ pub(super) fn configure(module: &mut ModuleDraft<'_>, contract: &mut Contract) -
                 "List" => contract.method(
                     module,
                     MethodDecl::instance("get")
-                        .parameter("arg1", Type::u64())
+                        .parameter("index", Type::u64())
                         .returns(option.apply([key])?),
                     "Return the requested value, or None if the index or key is absent.",
                 )?,
                 "Set" => contract.method(
                     module,
                     MethodDecl::instance("contains")
-                        .parameter("arg1", key)
+                        .parameter("value", key)
                         .returns(Type::bool()),
                     "Test membership without changing collection storage.",
                 )?,
@@ -57,14 +57,14 @@ pub(super) fn configure(module: &mut ModuleDraft<'_>, contract: &mut Contract) -
                     contract.method(
                         module,
                         MethodDecl::instance("contains_key")
-                            .parameter("arg1", key.clone())
+                            .parameter("key", key.clone())
                             .returns(Type::bool()),
                         "Test membership without changing collection storage.",
                     )?;
                     contract.method(
                         module,
                         MethodDecl::instance("get")
-                            .parameter("arg1", key)
+                            .parameter("key", key)
                             .returns(option.apply([value])?),
                         "Return the requested value, or None if the index or key is absent.",
                     )?;
@@ -75,7 +75,7 @@ pub(super) fn configure(module: &mut ModuleDraft<'_>, contract: &mut Contract) -
             contract.parent(interface(module, "List", 1)?.apply([key.clone()])?);
             contract.method(
                 module,
-                MethodDecl::instance("push").parameter("arg1", key.clone()),
+                MethodDecl::instance("push").parameter("value", key.clone()),
                 "Append one item. A guarded structural edit traps before committing the edit.",
             )?;
             contract.method(
@@ -86,14 +86,14 @@ pub(super) fn configure(module: &mut ModuleDraft<'_>, contract: &mut Contract) -
             contract.method(
                 module,
                 MethodDecl::instance("insert")
-                    .parameter("arg1", Type::u64())
-                    .parameter("arg2", key.clone()),
+                    .parameter("index", Type::u64())
+                    .parameter("value", key.clone()),
 "Insert at the given position and shift later elements. An index beyond the length traps.",
 )?;
             contract.method(
                 module,
                 MethodDecl::instance("remove")
-                    .parameter("arg1", Type::u64())
+                    .parameter("index", Type::u64())
                     .returns(option.apply([key.clone()])?),
                 "Remove and return the entry, or None if it is absent.",
             )?;
@@ -105,8 +105,8 @@ pub(super) fn configure(module: &mut ModuleDraft<'_>, contract: &mut Contract) -
             contract.method(
                 module,
                 MethodDecl::instance("set")
-                    .parameter("arg1", Type::u64())
-                    .parameter("arg2", key),
+                    .parameter("index", Type::u64())
+                    .parameter("value", key),
                 "Replace the item at an existing index. An out-of-bounds index traps.",
             )?;
         }
@@ -115,14 +115,14 @@ pub(super) fn configure(module: &mut ModuleDraft<'_>, contract: &mut Contract) -
             contract.method(
                 module,
                 MethodDecl::instance("insert")
-                    .parameter("arg1", key.clone())
-                    .parameter("arg2", value.clone()),
+                    .parameter("key", key.clone())
+                    .parameter("value", value.clone()),
                 "Insert a key/value entry, replacing the value of an equal key.",
             )?;
             contract.method(
                 module,
                 MethodDecl::instance("remove")
-                    .parameter("arg1", key)
+                    .parameter("key", key)
                     .returns(option.apply([value])?),
                 "Remove and return the entry, or None if it is absent.",
             )?;
@@ -136,13 +136,13 @@ pub(super) fn configure(module: &mut ModuleDraft<'_>, contract: &mut Contract) -
             contract.parent(interface(module, "Set", 1)?.apply([key.clone()])?);
             contract.method(
                 module,
-                MethodDecl::instance("insert").parameter("arg1", key.clone()),
+                MethodDecl::instance("insert").parameter("value", key.clone()),
                 "Insert a member, preserving the uniqueness of equal members.",
             )?;
             contract.method(
                 module,
                 MethodDecl::instance("remove")
-                    .parameter("arg1", key)
+                    .parameter("value", key)
                     .returns(Type::bool()),
                 "Remove a member and report whether it was present.",
             )?;

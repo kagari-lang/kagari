@@ -615,7 +615,7 @@ fn comparison(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeRe
     if !method.is_empty() {
         let mut declaration = MethodDecl::instance(method).returns(result);
         if binary {
-            declaration = declaration.parameter("arg1", receiver);
+            declaration = declaration.parameter("other", receiver);
         }
         contract.method(module, declaration, contract.overview.0)?;
     }
@@ -648,7 +648,12 @@ fn operator(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeResu
     )?;
     let mut declaration = MethodDecl::instance(member).returns(contract.projection(&output)?);
     if contract.arity == 1 {
-        declaration = declaration.parameter("arg1", contract.owner.parameter(0)?);
+        let parameter = match contract.name {
+            "Index" => "index",
+            "Fn" => "arguments",
+            _ => "rhs",
+        };
+        declaration = declaration.parameter(parameter, contract.owner.parameter(0)?);
     }
     contract.method(module, declaration, contract.overview.0)
 }
