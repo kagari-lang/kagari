@@ -222,8 +222,11 @@ impl<'a> DeclarationView<'a> {
             sites: BTreeMap::new(),
         };
         for line in self.module_documentation.lines() {
-            output.text.push_str("//! ");
-            output.text.push_str(line);
+            output.text.push_str("//!");
+            if !line.is_empty() {
+                output.text.push(' ');
+                output.text.push_str(line);
+            }
             output.text.push('\n');
         }
         output.text.push('\n');
@@ -402,6 +405,7 @@ impl<'a> DeclarationView<'a> {
                         .ok_or_else(|| {
                             DeclarationError("missing implementation associated identity".into())
                         })?;
+                    output.separate_declaration();
                     let start = output.text.len();
                     output.text.push_str("    type ");
                     let name_span = output.name(name);
@@ -639,15 +643,25 @@ struct Renderer<'a> {
 }
 
 impl Renderer<'_> {
+    fn separate_declaration(&mut self) {
+        if !self.text.is_empty() && !self.text.ends_with("\n\n") && !self.text.ends_with("{\n") {
+            self.text.push('\n');
+        }
+    }
+
     fn doc(&mut self, id: DefinitionId) -> Result<(), DeclarationError> {
+        self.separate_declaration();
         let nested = self.module.view(id)?.segments().count() > 1;
         if let Some(documentation) = self.module.documentation.get(&id) {
             for line in documentation.lines() {
                 if nested {
                     self.text.push_str("    ");
                 }
-                self.text.push_str("/// ");
-                self.text.push_str(line);
+                self.text.push_str("///");
+                if !line.is_empty() {
+                    self.text.push(' ');
+                    self.text.push_str(line);
+                }
                 self.text.push('\n');
             }
         }

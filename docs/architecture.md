@@ -939,6 +939,13 @@ take precedence over inherited member docs. Re-export navigation preserves the
 canonical declaration and its documentation. Module overview docs explain how its
 types and functions are used together.
 
+The [bundled declaration style guide](../crates/kagari-stdlib/declarations/README.md#documentation-style)
+owns source spacing, caller-facing summaries, operation-specific examples and
+script trap sections. Registration Markdown and bundled doc comments both feed
+the existing isolated documentation-example analysis. A passing example checks
+syntax/types, not the truth or completeness of the surrounding prose; content
+review must follow the actual operation implementation.
+
 Documentation-only changes invalidate the source-package/documentation cache,
 without changing executable type identity, native binding compatibility or ABI
 versions. Keep documentation attached to authoring records; executable validation

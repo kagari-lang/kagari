@@ -3,7 +3,7 @@ mod collections;
 mod conversion;
 use crate::{
     catalog::documentation,
-    foundation::{enumeration, interface},
+    foundation::{enumeration, interface, iteration::documentation as iteration_docs},
     namespaces,
 };
 use kagari_common::identity::{DefinitionKind, table::DefinitionId};
@@ -31,46 +31,11 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
         "core",
         "iter",
         &[
-            (
-                "Iterator",
-                0,
-                (
-                    "A shared cursor. `next` advances once and returns `Some(item)`, or `None` to stop the current consumption. A custom cursor can resume after None. Copies share progress; previously completed effects survive a failure.",
-                    "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
-                ),
-            ),
-            (
-                "Iterable",
-                0,
-                (
-                    "Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.",
-                    "fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }",
-                ),
-            ),
-            (
-                "FromIterator",
-                1,
-                (
-                    "Constructs a value by consuming an iterable in order. Each item is read once. A failure retains already completed source and callback effects.",
-                    "fn collect(values: Vec<i32>) -> Vec<i32> { Vec<i32>::from_iter(values) }",
-                ),
-            ),
-            (
-                "Sum",
-                1,
-                (
-                    "Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.",
-                    "fn total(values: Vec<i32>) -> i32 { i32::sum(values) }",
-                ),
-            ),
-            (
-                "Product",
-                1,
-                (
-                    "Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.",
-                    "fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }",
-                ),
-            ),
+            ("Iterator", 0, iteration_docs::ITERATOR),
+            ("Iterable", 0, iteration_docs::ITERABLE),
+            ("FromIterator", 1, iteration_docs::FROM_ITERATOR),
+            ("Sum", 1, iteration_docs::SUM),
+            ("Product", 1, iteration_docs::PRODUCT),
         ],
     ),
     (
@@ -453,7 +418,6 @@ impl Contract {
         declaration: FnDecl,
         description: &str,
     ) -> NativeResult<()> {
-        let id = module.member(self.owner.id(), DefinitionKind::Method, &declaration.name)?;
         let text = documentation::example(
             &format!(
                 "{description}\n\nSee `{}` for the behavioral contract and examples.",
@@ -461,7 +425,27 @@ impl Contract {
             ),
             self.overview.1,
         );
-        self.documents.push((id, text));
+        self.submit_documented(module, declaration, text)
+    }
+
+    fn documented_method(
+        &mut self,
+        module: &ModuleDraft<'_>,
+        declaration: MethodDecl,
+        document: (&str, &str),
+    ) -> NativeResult<()> {
+        let declaration = module.trait_method(self.owner.id(), declaration)?;
+        self.submit_documented(module, declaration, documentation::markdown(document))
+    }
+
+    fn submit_documented(
+        &mut self,
+        module: &ModuleDraft<'_>,
+        declaration: FnDecl,
+        document: String,
+    ) -> NativeResult<()> {
+        let id = module.member(self.owner.id(), DefinitionKind::Method, &declaration.name)?;
+        self.documents.push((id, document));
         self.methods.push(declaration);
         Ok(())
     }
@@ -581,10 +565,10 @@ fn iteration(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeRes
     let item = contract.projection(&item_member)?;
     if contract.name == "Iterator" {
         let result = enumeration(module, "Option", 1)?.apply([item])?;
-        contract.method(
+        contract.documented_method(
             module,
             MethodDecl::instance("next").returns(result),
-            contract.overview.0,
+            iteration_docs::NEXT,
         )?;
     } else {
         let iterator = interface(module, "Iterator", 0)?;
@@ -595,10 +579,10 @@ fn iteration(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeRes
             vec![nominal(output.bind(iterator.apply([])?, item)?)],
             "The iterator produced by iter; its Item equals this iterable's Item.",
         )?;
-        contract.method(
+        contract.documented_method(
             module,
             MethodDecl::instance("iter").returns(contract.projection(&cursor)?),
-            contract.overview.0,
+            iteration_docs::ITER,
         )?;
     }
     Ok(())

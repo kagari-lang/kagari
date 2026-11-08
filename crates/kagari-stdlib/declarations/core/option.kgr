@@ -16,6 +16,7 @@
 pub enum Option<T> {
     /// The `Some` case of `Option`. An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.
     Some(T),
+
     /// The `None` case of `Option`. An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.
     None,
 }
@@ -24,7 +25,9 @@ pub use self::Option::{Some, None};
 
 impl<T> core::ops::Try for Option<T> {
     type Output = T;
+
     type Residual = Option<core::convert::Infallible>;
+
     /// Construct a successful carrier from Output.
     ///
     /// See `Try` for the behavioral contract and examples.
@@ -35,6 +38,7 @@ impl<T> core::ops::Try for Option<T> {
     /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
     /// ```
     pub fn from_output(output: T) -> Option<T>;
+
     /// Consume the carrier once and return Continue(Output) or Break(Residual).
     ///
     /// See `Try` for the behavioral contract and examples.

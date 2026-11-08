@@ -16,8 +16,10 @@
 pub enum Ordering {
     /// The `Less` case of `Ordering`. The result of a total comparison: Less, Equal or Greater.
     Less,
+
     /// The `Equal` case of `Ordering`. The result of a total comparison: Less, Equal or Greater.
     Equal,
+
     /// The `Greater` case of `Ordering`. The result of a total comparison: Less, Equal or Greater.
     Greater,
 }

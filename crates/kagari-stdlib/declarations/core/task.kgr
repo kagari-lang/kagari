@@ -34,8 +34,10 @@ pub type TaskScope;
 pub enum SpawnError {
     /// The `ScopeClosed` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
     ScopeClosed,
+
     /// The `CapacityExceeded` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
     CapacityExceeded,
+
     /// The `DispatchUnavailable` case of `SpawnError`. A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.
     DispatchUnavailable,
 }
@@ -71,6 +73,7 @@ impl<T> Task<T> {
 /// async fn sample() -> (i32, i32) { core::task::join(async { 1 }, async { 2 }).await }
 /// ```
 pub fn join<T1, T2>(left: core::future::Future<T1>, right: core::future::Future<T2>) -> core::future::Future<(T1, T2)>;
+
 /// Compose two cold Futures. Awaiting runs both cooperatively; the first observed Err closes the sibling before returning, retaining its original diagnostic origin. Otherwise return Ok of the input-ordered pair. Execution failures terminate the parent.
 ///
 /// # Examples

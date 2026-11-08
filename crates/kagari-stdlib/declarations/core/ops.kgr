@@ -16,8 +16,10 @@
 pub enum Bound<T> {
     /// The `Included` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
     Included(T),
+
     /// The `Excluded` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
     Excluded(T),
+
     /// The `Unbounded` case of `Bound`. A range endpoint: Included(value), Excluded(value) or Unbounded.
     Unbounded,
 }
@@ -34,6 +36,7 @@ pub use self::Bound::{Included, Excluded, Unbounded};
 pub enum ControlFlow<T1, T2> {
     /// The `Break` case of `ControlFlow`. Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.
     Break(T1),
+
     /// The `Continue` case of `ControlFlow`. Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.
     Continue(T2),
 }
@@ -103,6 +106,7 @@ pub type RangeFull;
 pub trait Add<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Addition with an explicitly declared output type. Built-in integer arithmetic traps on overflow; a user implementation defines its own behavior.
     ///
     /// See `Add` for the behavioral contract and examples.
@@ -126,6 +130,7 @@ pub trait Add<T> {
 pub trait Sub<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Subtraction with an explicitly declared output type. Built-in integer subtraction traps on overflow.
     ///
     /// See `Sub` for the behavioral contract and examples.
@@ -149,6 +154,7 @@ pub trait Sub<T> {
 pub trait Mul<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Multiplication with an explicitly declared output type. Built-in integer multiplication traps on overflow.
     ///
     /// See `Mul` for the behavioral contract and examples.
@@ -172,6 +178,7 @@ pub trait Mul<T> {
 pub trait Div<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Division. Built-in integer division traps for zero divisors and signed overflow; floating-point division follows its specified numeric semantics.
     ///
     /// See `Div` for the behavioral contract and examples.
@@ -195,6 +202,7 @@ pub trait Div<T> {
 pub trait Rem<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// The remainder of division. Built-in integer remainder traps for zero divisors and signed overflow.
     ///
     /// See `Rem` for the behavioral contract and examples.
@@ -218,6 +226,7 @@ pub trait Rem<T> {
 pub trait BitAnd<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Bitwise conjunction, with an explicitly declared output type.
     ///
     /// See `BitAnd` for the behavioral contract and examples.
@@ -241,6 +250,7 @@ pub trait BitAnd<T> {
 pub trait BitOr<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Bitwise disjunction, with an explicitly declared output type.
     ///
     /// See `BitOr` for the behavioral contract and examples.
@@ -264,6 +274,7 @@ pub trait BitOr<T> {
 pub trait BitXor<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Bitwise exclusive disjunction, with an explicitly declared output type.
     ///
     /// See `BitXor` for the behavioral contract and examples.
@@ -287,6 +298,7 @@ pub trait BitXor<T> {
 pub trait Shl<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Left shift. Built-in integer shifts validate the shift count and checked result.
     ///
     /// See `Shl` for the behavioral contract and examples.
@@ -310,6 +322,7 @@ pub trait Shl<T> {
 pub trait Shr<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Right shift. Built-in integer shifts validate the shift count.
     ///
     /// See `Shr` for the behavioral contract and examples.
@@ -333,6 +346,7 @@ pub trait Shr<T> {
 pub trait Neg {
     /// The result type of the declared operation.
     type Output;
+
     /// Arithmetic negation. Negating the minimum signed integer traps on overflow.
     ///
     /// See `Neg` for the behavioral contract and examples.
@@ -356,6 +370,7 @@ pub trait Neg {
 pub trait Not {
     /// The result type of the declared operation.
     type Output;
+
     /// Logical or bitwise inversion, depending on the receiver type. The output is declared by the implementation.
     ///
     /// See `Not` for the behavioral contract and examples.
@@ -379,6 +394,7 @@ pub trait Not {
 pub trait Index<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.
     ///
     /// See `Index` for the behavioral contract and examples.
@@ -402,6 +418,7 @@ pub trait Index<T> {
 pub trait Fn<T> {
     /// The result type of the declared operation.
     type Output;
+
     /// A checked callable signature. Calls evaluate arguments left to right exactly once. Stored callable values retain their selected generation across reload.
     ///
     /// See `Fn` for the behavioral contract and examples.
@@ -432,6 +449,7 @@ pub trait RangeBounds<T> {
     /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
     /// ```
     fn start_bound(self) -> Bound<T>;
+
     /// Return the upper bound with its inclusion policy.
     ///
     /// See `RangeBounds` for the behavioral contract and examples.
@@ -455,8 +473,10 @@ pub trait RangeBounds<T> {
 pub trait Try: FromResidual<<Self as Try>::Residual> {
     /// The result type of the declared operation.
     type Output;
+
     /// The distinct early-return type passed to FromResidual; successful Output values are not residuals.
     type Residual;
+
     /// Construct a successful carrier from Output.
     ///
     /// See `Try` for the behavioral contract and examples.
@@ -467,6 +487,7 @@ pub trait Try: FromResidual<<Self as Try>::Residual> {
     /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
     /// ```
     fn from_output(output: <Self as Try>::Output) -> Self;
+
     /// Consume the carrier once and return Continue(Output) or Break(Residual).
     ///
     /// See `Try` for the behavioral contract and examples.
@@ -511,6 +532,7 @@ impl<T> RangeBounds<T> for Range<T> {
     /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
+
     /// Return the upper bound with its inclusion policy.
     ///
     /// See `RangeBounds` for the behavioral contract and examples.
@@ -525,120 +547,200 @@ impl<T> RangeBounds<T> for Range<T> {
 
 impl core::iter::Iterable for Range<i8> {
     type Item = i8;
+
     type Iter = core::iter::CollectionCursor<i8>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i8>;
 }
 
 impl core::iter::Iterable for Range<i16> {
     type Item = i16;
+
     type Iter = core::iter::CollectionCursor<i16>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i16>;
 }
 
 impl core::iter::Iterable for Range<i32> {
     type Item = i32;
+
     type Iter = core::iter::CollectionCursor<i32>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i32>;
 }
 
 impl core::iter::Iterable for Range<i64> {
     type Item = i64;
+
     type Iter = core::iter::CollectionCursor<i64>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i64>;
 }
 
 impl core::iter::Iterable for Range<u8> {
     type Item = u8;
+
     type Iter = core::iter::CollectionCursor<u8>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u8>;
 }
 
 impl core::iter::Iterable for Range<u16> {
     type Item = u16;
+
     type Iter = core::iter::CollectionCursor<u16>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u16>;
 }
 
 impl core::iter::Iterable for Range<u32> {
     type Item = u32;
+
     type Iter = core::iter::CollectionCursor<u32>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u32>;
 }
 
 impl core::iter::Iterable for Range<u64> {
     type Item = u64;
+
     type Iter = core::iter::CollectionCursor<u64>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u64>;
 }
@@ -654,6 +756,7 @@ impl<T> RangeBounds<T> for RangeInclusive<T> {
     /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
+
     /// Return the upper bound with its inclusion policy.
     ///
     /// See `RangeBounds` for the behavioral contract and examples.
@@ -668,120 +771,200 @@ impl<T> RangeBounds<T> for RangeInclusive<T> {
 
 impl core::iter::Iterable for RangeInclusive<i8> {
     type Item = i8;
+
     type Iter = core::iter::CollectionCursor<i8>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i8>;
 }
 
 impl core::iter::Iterable for RangeInclusive<i16> {
     type Item = i16;
+
     type Iter = core::iter::CollectionCursor<i16>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i16>;
 }
 
 impl core::iter::Iterable for RangeInclusive<i32> {
     type Item = i32;
+
     type Iter = core::iter::CollectionCursor<i32>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i32>;
 }
 
 impl core::iter::Iterable for RangeInclusive<i64> {
     type Item = i64;
+
     type Iter = core::iter::CollectionCursor<i64>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i64>;
 }
 
 impl core::iter::Iterable for RangeInclusive<u8> {
     type Item = u8;
+
     type Iter = core::iter::CollectionCursor<u8>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u8>;
 }
 
 impl core::iter::Iterable for RangeInclusive<u16> {
     type Item = u16;
+
     type Iter = core::iter::CollectionCursor<u16>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u16>;
 }
 
 impl core::iter::Iterable for RangeInclusive<u32> {
     type Item = u32;
+
     type Iter = core::iter::CollectionCursor<u32>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u32>;
 }
 
 impl core::iter::Iterable for RangeInclusive<u64> {
     type Item = u64;
+
     type Iter = core::iter::CollectionCursor<u64>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u64>;
 }
@@ -797,6 +980,7 @@ impl<T> RangeBounds<T> for RangeFrom<T> {
     /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
+
     /// Return the upper bound with its inclusion policy.
     ///
     /// See `RangeBounds` for the behavioral contract and examples.
@@ -811,120 +995,200 @@ impl<T> RangeBounds<T> for RangeFrom<T> {
 
 impl core::iter::Iterable for RangeFrom<i8> {
     type Item = i8;
+
     type Iter = core::iter::CollectionCursor<i8>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i8>;
 }
 
 impl core::iter::Iterable for RangeFrom<i16> {
     type Item = i16;
+
     type Iter = core::iter::CollectionCursor<i16>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i16>;
 }
 
 impl core::iter::Iterable for RangeFrom<i32> {
     type Item = i32;
+
     type Iter = core::iter::CollectionCursor<i32>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i32>;
 }
 
 impl core::iter::Iterable for RangeFrom<i64> {
     type Item = i64;
+
     type Iter = core::iter::CollectionCursor<i64>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<i64>;
 }
 
 impl core::iter::Iterable for RangeFrom<u8> {
     type Item = u8;
+
     type Iter = core::iter::CollectionCursor<u8>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u8>;
 }
 
 impl core::iter::Iterable for RangeFrom<u16> {
     type Item = u16;
+
     type Iter = core::iter::CollectionCursor<u16>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u16>;
 }
 
 impl core::iter::Iterable for RangeFrom<u32> {
     type Item = u32;
+
     type Iter = core::iter::CollectionCursor<u32>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u32>;
 }
 
 impl core::iter::Iterable for RangeFrom<u64> {
     type Item = u64;
+
     type Iter = core::iter::CollectionCursor<u64>;
-    /// Produces an iterator with the same Item and supplies the finite lazy transformation and terminal defaults. Iterator identity adaptation shares this API and cursor progress. Creating an adapter does not consume an item or run a callback. Structural source edits commit and invalidate subsequent cursor reads.
+
+    /// Returns a cursor over this value's items.
     ///
-    /// See `Iterable` for the behavioral contract and examples.
+    /// The cursor's `Item` type equals this iterable's `Item`. Collection implementations
+    /// normally return a fresh cursor at the beginning. Calling `iter` on an iterator
+    /// returns that iterator with its current progress; it does not rewind or clone it.
+    /// Custom implementations choose how to obtain their cursor.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }
+    /// fn example() -> (u64, u64) {
+    ///     val values = Vec::from([1, 2, 3]);
+    ///     val cursor = values.iter();
+    ///     cursor.next();
+    ///     (cursor.count(), values.count()) // (2, 3): a collection creates a fresh cursor.
+    /// }
     /// ```
     pub fn iter(self) -> core::iter::CollectionCursor<u64>;
 }
@@ -940,6 +1204,7 @@ impl<T> RangeBounds<T> for RangeTo<T> {
     /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
+
     /// Return the upper bound with its inclusion policy.
     ///
     /// See `RangeBounds` for the behavioral contract and examples.
@@ -963,6 +1228,7 @@ impl<T> RangeBounds<T> for RangeToInclusive<T> {
     /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
+
     /// Return the upper bound with its inclusion policy.
     ///
     /// See `RangeBounds` for the behavioral contract and examples.
@@ -986,6 +1252,7 @@ impl<T> RangeBounds<T> for RangeFull {
     /// fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }
     /// ```
     pub fn start_bound(self) -> Bound<T>;
+
     /// Return the upper bound with its inclusion policy.
     ///
     /// See `RangeBounds` for the behavioral contract and examples.
@@ -1000,7 +1267,9 @@ impl<T> RangeBounds<T> for RangeFull {
 
 impl<T1, T2> Try for ControlFlow<T1, T2> {
     type Output = T2;
+
     type Residual = ControlFlow<T1, core::convert::Infallible>;
+
     /// Construct a successful carrier from Output.
     ///
     /// See `Try` for the behavioral contract and examples.
@@ -1011,6 +1280,7 @@ impl<T1, T2> Try for ControlFlow<T1, T2> {
     /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
     /// ```
     pub fn from_output(output: T2) -> ControlFlow<T1, T2>;
+
     /// Consume the carrier once and return Continue(Output) or Break(Residual).
     ///
     /// See `Try` for the behavioral contract and examples.

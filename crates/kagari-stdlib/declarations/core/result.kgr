@@ -16,6 +16,7 @@
 pub enum Result<T1, T2> {
     /// The `Ok` case of `Result`. A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.
     Ok(T1),
+
     /// The `Err` case of `Result`. A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.
     Err(T2),
 }
@@ -24,7 +25,9 @@ pub use self::Result::{Ok, Err};
 
 impl<T1, T2> core::ops::Try for Result<T1, T2> {
     type Output = T1;
+
     type Residual = Result<core::convert::Infallible, T2>;
+
     /// Construct a successful carrier from Output.
     ///
     /// See `Try` for the behavioral contract and examples.
@@ -35,6 +38,7 @@ impl<T1, T2> core::ops::Try for Result<T1, T2> {
     /// fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }
     /// ```
     pub fn from_output(output: T1) -> Result<T1, T2>;
+
     /// Consume the carrier once and return Continue(Output) or Break(Residual).
     ///
     /// See `Try` for the behavioral contract and examples.

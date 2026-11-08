@@ -16,6 +16,7 @@
 pub trait FromStr {
     /// The error returned when this conversion or parse fails.
     type Err;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.

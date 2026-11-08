@@ -537,11 +537,13 @@ engine and prepared program when the exercised callbacks are stateless; each
 attempt still creates a new runtime, observer and cancellation token. Captured
 application state needs separate preparation when it is part of the scenario.
 
-The standard documentation owner validates provider declarations once, then forks
-that native-only analysis for each extracted example. Each example sees only its
-own source snapshot. It retains documentation coverage, deduplication and complete
-diagnostic reporting without converting checked facts back to an unused portable
-representation. Runtime routes are not needed for this analysis-only contract.
+The standard documentation owner validates bundled declaration sources against
+provider records once, then forks that native-only analysis for each example
+extracted from registration Markdown and bundled doc comments. Equivalent examples
+are deduplicated; each sees only its own source snapshot. It retains documentation
+coverage and complete diagnostic reporting without converting checked facts back
+to an unused portable representation. Runtime routes are not needed for this
+analysis-only contract.
 
 Analysis forks retain an append-only identity context. Dropping a session releases
 its query state, but its new interned identities can remain until the last owner

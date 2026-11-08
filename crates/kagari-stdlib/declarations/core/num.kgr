@@ -16,12 +16,16 @@
 pub enum ParseError {
     /// The `Empty` case of `ParseError`. A numeric parsing error. Invalid input and out-of-range values are reported through Result.
     Empty,
+
     /// The `InvalidDigit` case of `ParseError`. A numeric parsing error. Invalid input and out-of-range values are reported through Result.
     InvalidDigit,
+
     /// The `OutOfRange` case of `ParseError`. A numeric parsing error. Invalid input and out-of-range values are reported through Result.
     OutOfRange,
+
     /// The `InvalidRadix` case of `ParseError`. A numeric parsing error. Invalid input and out-of-range values are reported through Result.
     InvalidRadix,
+
     /// The `InvalidSyntax` case of `ParseError`. A numeric parsing error. Invalid input and out-of-range values are reported through Result.
     InvalidSyntax,
 }
@@ -49,6 +53,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.checked_add(rhs); }
     /// ```
     pub fn checked_add(self, rhs: i8) -> core::option::Option<i8>;
+
     /// Return Some(quotient), truncating toward zero. Return None for a zero divisor or signed MIN / -1 overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -59,6 +64,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.checked_div(rhs); }
     /// ```
     pub fn checked_div(self, rhs: i8) -> core::option::Option<i8>;
+
     /// Return Some(product) when the product fits the receiver's range, or None on arithmetic overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -69,6 +75,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.checked_mul(rhs); }
     /// ```
     pub fn checked_mul(self, rhs: i8) -> core::option::Option<i8>;
+
     /// Return Some(remainder) with the receiver's sign when nonzero. Return None for a zero divisor or signed MIN % -1, even though its mathematical remainder is zero, instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -79,6 +86,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.checked_rem(rhs); }
     /// ```
     pub fn checked_rem(self, rhs: i8) -> core::option::Option<i8>;
+
     /// Return Some(difference) when the difference fits the receiver's range, or None on arithmetic overflow or unsigned underflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -89,6 +97,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.checked_sub(rhs); }
     /// ```
     pub fn checked_sub(self, rhs: i8) -> core::option::Option<i8>;
+
     /// Return (wrapped_sum, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range; signed overflow is not an unsigned carry flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -99,6 +108,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.overflowing_add(rhs); }
     /// ```
     pub fn overflowing_add(self, rhs: i8) -> (i8, bool);
+
     /// Return (wrapped_product, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, not an unsigned carry flag for signed receivers. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -109,6 +119,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.overflowing_mul(rhs); }
     /// ```
     pub fn overflowing_mul(self, rhs: i8) -> (i8, bool);
+
     /// Return (wrapped_difference, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, including unsigned underflow; signed overflow is not an unsigned borrow flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -119,6 +130,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.overflowing_sub(rhs); }
     /// ```
     pub fn overflowing_sub(self, rhs: i8) -> (i8, bool);
+
     /// Rotate the receiver's fixed-width bit pattern left, moving high bits into low positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -129,6 +141,7 @@ impl i8 {
     /// fn example(value: i8) { val result = value.rotate_left(1u32); }
     /// ```
     pub fn rotate_left(self, count: u32) -> i8;
+
     /// Rotate the receiver's fixed-width bit pattern right, moving low bits into high positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -139,6 +152,7 @@ impl i8 {
     /// fn example(value: i8) { val result = value.rotate_right(1u32); }
     /// ```
     pub fn rotate_right(self, count: u32) -> i8;
+
     /// Return the sum saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -149,6 +163,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.saturating_add(rhs); }
     /// ```
     pub fn saturating_add(self, rhs: i8) -> i8;
+
     /// Return the product saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -159,6 +174,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.saturating_mul(rhs); }
     /// ```
     pub fn saturating_mul(self, rhs: i8) -> i8;
+
     /// Return the difference saturated to the receiver's minimum or maximum when its mathematical value is out of range. Unsigned subtraction saturates at zero. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -169,6 +185,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.saturating_sub(rhs); }
     /// ```
     pub fn saturating_sub(self, rhs: i8) -> i8;
+
     /// Return the sum modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -179,6 +196,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.wrapping_add(rhs); }
     /// ```
     pub fn wrapping_add(self, rhs: i8) -> i8;
+
     /// Return the product modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -189,6 +207,7 @@ impl i8 {
     /// fn example(value: i8, rhs: i8) { val result = value.wrapping_mul(rhs); }
     /// ```
     pub fn wrapping_mul(self, rhs: i8) -> i8;
+
     /// Return the difference modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow or unsigned underflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -212,6 +231,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.checked_add(rhs); }
     /// ```
     pub fn checked_add(self, rhs: i16) -> core::option::Option<i16>;
+
     /// Return Some(quotient), truncating toward zero. Return None for a zero divisor or signed MIN / -1 overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -222,6 +242,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.checked_div(rhs); }
     /// ```
     pub fn checked_div(self, rhs: i16) -> core::option::Option<i16>;
+
     /// Return Some(product) when the product fits the receiver's range, or None on arithmetic overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -232,6 +253,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.checked_mul(rhs); }
     /// ```
     pub fn checked_mul(self, rhs: i16) -> core::option::Option<i16>;
+
     /// Return Some(remainder) with the receiver's sign when nonzero. Return None for a zero divisor or signed MIN % -1, even though its mathematical remainder is zero, instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -242,6 +264,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.checked_rem(rhs); }
     /// ```
     pub fn checked_rem(self, rhs: i16) -> core::option::Option<i16>;
+
     /// Return Some(difference) when the difference fits the receiver's range, or None on arithmetic overflow or unsigned underflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -252,6 +275,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.checked_sub(rhs); }
     /// ```
     pub fn checked_sub(self, rhs: i16) -> core::option::Option<i16>;
+
     /// Return (wrapped_sum, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range; signed overflow is not an unsigned carry flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -262,6 +286,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.overflowing_add(rhs); }
     /// ```
     pub fn overflowing_add(self, rhs: i16) -> (i16, bool);
+
     /// Return (wrapped_product, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, not an unsigned carry flag for signed receivers. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -272,6 +297,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.overflowing_mul(rhs); }
     /// ```
     pub fn overflowing_mul(self, rhs: i16) -> (i16, bool);
+
     /// Return (wrapped_difference, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, including unsigned underflow; signed overflow is not an unsigned borrow flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -282,6 +308,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.overflowing_sub(rhs); }
     /// ```
     pub fn overflowing_sub(self, rhs: i16) -> (i16, bool);
+
     /// Rotate the receiver's fixed-width bit pattern left, moving high bits into low positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -292,6 +319,7 @@ impl i16 {
     /// fn example(value: i16) { val result = value.rotate_left(1u32); }
     /// ```
     pub fn rotate_left(self, count: u32) -> i16;
+
     /// Rotate the receiver's fixed-width bit pattern right, moving low bits into high positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -302,6 +330,7 @@ impl i16 {
     /// fn example(value: i16) { val result = value.rotate_right(1u32); }
     /// ```
     pub fn rotate_right(self, count: u32) -> i16;
+
     /// Return the sum saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -312,6 +341,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.saturating_add(rhs); }
     /// ```
     pub fn saturating_add(self, rhs: i16) -> i16;
+
     /// Return the product saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -322,6 +352,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.saturating_mul(rhs); }
     /// ```
     pub fn saturating_mul(self, rhs: i16) -> i16;
+
     /// Return the difference saturated to the receiver's minimum or maximum when its mathematical value is out of range. Unsigned subtraction saturates at zero. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -332,6 +363,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.saturating_sub(rhs); }
     /// ```
     pub fn saturating_sub(self, rhs: i16) -> i16;
+
     /// Return the sum modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -342,6 +374,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.wrapping_add(rhs); }
     /// ```
     pub fn wrapping_add(self, rhs: i16) -> i16;
+
     /// Return the product modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -352,6 +385,7 @@ impl i16 {
     /// fn example(value: i16, rhs: i16) { val result = value.wrapping_mul(rhs); }
     /// ```
     pub fn wrapping_mul(self, rhs: i16) -> i16;
+
     /// Return the difference modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow or unsigned underflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -375,6 +409,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.checked_add(rhs); }
     /// ```
     pub fn checked_add(self, rhs: i32) -> core::option::Option<i32>;
+
     /// Return Some(quotient), truncating toward zero. Return None for a zero divisor or signed MIN / -1 overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -385,6 +420,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.checked_div(rhs); }
     /// ```
     pub fn checked_div(self, rhs: i32) -> core::option::Option<i32>;
+
     /// Return Some(product) when the product fits the receiver's range, or None on arithmetic overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -395,6 +431,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.checked_mul(rhs); }
     /// ```
     pub fn checked_mul(self, rhs: i32) -> core::option::Option<i32>;
+
     /// Return Some(remainder) with the receiver's sign when nonzero. Return None for a zero divisor or signed MIN % -1, even though its mathematical remainder is zero, instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -405,6 +442,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.checked_rem(rhs); }
     /// ```
     pub fn checked_rem(self, rhs: i32) -> core::option::Option<i32>;
+
     /// Return Some(difference) when the difference fits the receiver's range, or None on arithmetic overflow or unsigned underflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -415,6 +453,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.checked_sub(rhs); }
     /// ```
     pub fn checked_sub(self, rhs: i32) -> core::option::Option<i32>;
+
     /// Return (wrapped_sum, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range; signed overflow is not an unsigned carry flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -425,6 +464,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.overflowing_add(rhs); }
     /// ```
     pub fn overflowing_add(self, rhs: i32) -> (i32, bool);
+
     /// Return (wrapped_product, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, not an unsigned carry flag for signed receivers. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -435,6 +475,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.overflowing_mul(rhs); }
     /// ```
     pub fn overflowing_mul(self, rhs: i32) -> (i32, bool);
+
     /// Return (wrapped_difference, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, including unsigned underflow; signed overflow is not an unsigned borrow flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -445,6 +486,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.overflowing_sub(rhs); }
     /// ```
     pub fn overflowing_sub(self, rhs: i32) -> (i32, bool);
+
     /// Rotate the receiver's fixed-width bit pattern left, moving high bits into low positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -455,6 +497,7 @@ impl i32 {
     /// fn example(value: i32) { val result = value.rotate_left(1u32); }
     /// ```
     pub fn rotate_left(self, count: u32) -> i32;
+
     /// Rotate the receiver's fixed-width bit pattern right, moving low bits into high positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -465,6 +508,7 @@ impl i32 {
     /// fn example(value: i32) { val result = value.rotate_right(1u32); }
     /// ```
     pub fn rotate_right(self, count: u32) -> i32;
+
     /// Return the sum saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -475,6 +519,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.saturating_add(rhs); }
     /// ```
     pub fn saturating_add(self, rhs: i32) -> i32;
+
     /// Return the product saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -485,6 +530,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.saturating_mul(rhs); }
     /// ```
     pub fn saturating_mul(self, rhs: i32) -> i32;
+
     /// Return the difference saturated to the receiver's minimum or maximum when its mathematical value is out of range. Unsigned subtraction saturates at zero. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -495,6 +541,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.saturating_sub(rhs); }
     /// ```
     pub fn saturating_sub(self, rhs: i32) -> i32;
+
     /// Return the sum modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -505,6 +552,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.wrapping_add(rhs); }
     /// ```
     pub fn wrapping_add(self, rhs: i32) -> i32;
+
     /// Return the product modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -515,6 +563,7 @@ impl i32 {
     /// fn example(value: i32, rhs: i32) { val result = value.wrapping_mul(rhs); }
     /// ```
     pub fn wrapping_mul(self, rhs: i32) -> i32;
+
     /// Return the difference modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow or unsigned underflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -538,6 +587,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.checked_add(rhs); }
     /// ```
     pub fn checked_add(self, rhs: i64) -> core::option::Option<i64>;
+
     /// Return Some(quotient), truncating toward zero. Return None for a zero divisor or signed MIN / -1 overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -548,6 +598,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.checked_div(rhs); }
     /// ```
     pub fn checked_div(self, rhs: i64) -> core::option::Option<i64>;
+
     /// Return Some(product) when the product fits the receiver's range, or None on arithmetic overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -558,6 +609,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.checked_mul(rhs); }
     /// ```
     pub fn checked_mul(self, rhs: i64) -> core::option::Option<i64>;
+
     /// Return Some(remainder) with the receiver's sign when nonzero. Return None for a zero divisor or signed MIN % -1, even though its mathematical remainder is zero, instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -568,6 +620,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.checked_rem(rhs); }
     /// ```
     pub fn checked_rem(self, rhs: i64) -> core::option::Option<i64>;
+
     /// Return Some(difference) when the difference fits the receiver's range, or None on arithmetic overflow or unsigned underflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -578,6 +631,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.checked_sub(rhs); }
     /// ```
     pub fn checked_sub(self, rhs: i64) -> core::option::Option<i64>;
+
     /// Return (wrapped_sum, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range; signed overflow is not an unsigned carry flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -588,6 +642,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.overflowing_add(rhs); }
     /// ```
     pub fn overflowing_add(self, rhs: i64) -> (i64, bool);
+
     /// Return (wrapped_product, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, not an unsigned carry flag for signed receivers. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -598,6 +653,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.overflowing_mul(rhs); }
     /// ```
     pub fn overflowing_mul(self, rhs: i64) -> (i64, bool);
+
     /// Return (wrapped_difference, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, including unsigned underflow; signed overflow is not an unsigned borrow flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -608,6 +664,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.overflowing_sub(rhs); }
     /// ```
     pub fn overflowing_sub(self, rhs: i64) -> (i64, bool);
+
     /// Rotate the receiver's fixed-width bit pattern left, moving high bits into low positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -618,6 +675,7 @@ impl i64 {
     /// fn example(value: i64) { val result = value.rotate_left(1u32); }
     /// ```
     pub fn rotate_left(self, count: u32) -> i64;
+
     /// Rotate the receiver's fixed-width bit pattern right, moving low bits into high positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -628,6 +686,7 @@ impl i64 {
     /// fn example(value: i64) { val result = value.rotate_right(1u32); }
     /// ```
     pub fn rotate_right(self, count: u32) -> i64;
+
     /// Return the sum saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -638,6 +697,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.saturating_add(rhs); }
     /// ```
     pub fn saturating_add(self, rhs: i64) -> i64;
+
     /// Return the product saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -648,6 +708,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.saturating_mul(rhs); }
     /// ```
     pub fn saturating_mul(self, rhs: i64) -> i64;
+
     /// Return the difference saturated to the receiver's minimum or maximum when its mathematical value is out of range. Unsigned subtraction saturates at zero. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -658,6 +719,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.saturating_sub(rhs); }
     /// ```
     pub fn saturating_sub(self, rhs: i64) -> i64;
+
     /// Return the sum modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -668,6 +730,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.wrapping_add(rhs); }
     /// ```
     pub fn wrapping_add(self, rhs: i64) -> i64;
+
     /// Return the product modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -678,6 +741,7 @@ impl i64 {
     /// fn example(value: i64, rhs: i64) { val result = value.wrapping_mul(rhs); }
     /// ```
     pub fn wrapping_mul(self, rhs: i64) -> i64;
+
     /// Return the difference modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow or unsigned underflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -701,6 +765,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.checked_add(rhs); }
     /// ```
     pub fn checked_add(self, rhs: u8) -> core::option::Option<u8>;
+
     /// Return Some(quotient), truncating toward zero. Return None for a zero divisor or signed MIN / -1 overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -711,6 +776,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.checked_div(rhs); }
     /// ```
     pub fn checked_div(self, rhs: u8) -> core::option::Option<u8>;
+
     /// Return Some(product) when the product fits the receiver's range, or None on arithmetic overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -721,6 +787,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.checked_mul(rhs); }
     /// ```
     pub fn checked_mul(self, rhs: u8) -> core::option::Option<u8>;
+
     /// Return Some(remainder) with the receiver's sign when nonzero. Return None for a zero divisor or signed MIN % -1, even though its mathematical remainder is zero, instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -731,6 +798,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.checked_rem(rhs); }
     /// ```
     pub fn checked_rem(self, rhs: u8) -> core::option::Option<u8>;
+
     /// Return Some(difference) when the difference fits the receiver's range, or None on arithmetic overflow or unsigned underflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -741,6 +809,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.checked_sub(rhs); }
     /// ```
     pub fn checked_sub(self, rhs: u8) -> core::option::Option<u8>;
+
     /// Return (wrapped_sum, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range; signed overflow is not an unsigned carry flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -751,6 +820,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.overflowing_add(rhs); }
     /// ```
     pub fn overflowing_add(self, rhs: u8) -> (u8, bool);
+
     /// Return (wrapped_product, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, not an unsigned carry flag for signed receivers. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -761,6 +831,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.overflowing_mul(rhs); }
     /// ```
     pub fn overflowing_mul(self, rhs: u8) -> (u8, bool);
+
     /// Return (wrapped_difference, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, including unsigned underflow; signed overflow is not an unsigned borrow flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -771,6 +842,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.overflowing_sub(rhs); }
     /// ```
     pub fn overflowing_sub(self, rhs: u8) -> (u8, bool);
+
     /// Rotate the receiver's fixed-width bit pattern left, moving high bits into low positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -781,6 +853,7 @@ impl u8 {
     /// fn example(value: u8) { val result = value.rotate_left(1u32); }
     /// ```
     pub fn rotate_left(self, count: u32) -> u8;
+
     /// Rotate the receiver's fixed-width bit pattern right, moving low bits into high positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -791,6 +864,7 @@ impl u8 {
     /// fn example(value: u8) { val result = value.rotate_right(1u32); }
     /// ```
     pub fn rotate_right(self, count: u32) -> u8;
+
     /// Return the sum saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -801,6 +875,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.saturating_add(rhs); }
     /// ```
     pub fn saturating_add(self, rhs: u8) -> u8;
+
     /// Return the product saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -811,6 +886,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.saturating_mul(rhs); }
     /// ```
     pub fn saturating_mul(self, rhs: u8) -> u8;
+
     /// Return the difference saturated to the receiver's minimum or maximum when its mathematical value is out of range. Unsigned subtraction saturates at zero. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -821,6 +897,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.saturating_sub(rhs); }
     /// ```
     pub fn saturating_sub(self, rhs: u8) -> u8;
+
     /// Return the sum modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -831,6 +908,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.wrapping_add(rhs); }
     /// ```
     pub fn wrapping_add(self, rhs: u8) -> u8;
+
     /// Add a signed offset of the corresponding width to an unsigned receiver and return the unsigned result modulo 2^width. Overflow and underflow wrap instead of trapping. Available only on u8/i8, u16/i16, u32/i32 and u64/i64 receiver/offset pairs.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -841,6 +919,7 @@ impl u8 {
     /// fn example(value: u8, rhs: i8) { val result = value.wrapping_add_signed(rhs); }
     /// ```
     pub fn wrapping_add_signed(self, rhs: i8) -> u8;
+
     /// Return the product modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -851,6 +930,7 @@ impl u8 {
     /// fn example(value: u8, rhs: u8) { val result = value.wrapping_mul(rhs); }
     /// ```
     pub fn wrapping_mul(self, rhs: u8) -> u8;
+
     /// Return the difference modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow or unsigned underflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -874,6 +954,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.checked_add(rhs); }
     /// ```
     pub fn checked_add(self, rhs: u16) -> core::option::Option<u16>;
+
     /// Return Some(quotient), truncating toward zero. Return None for a zero divisor or signed MIN / -1 overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -884,6 +965,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.checked_div(rhs); }
     /// ```
     pub fn checked_div(self, rhs: u16) -> core::option::Option<u16>;
+
     /// Return Some(product) when the product fits the receiver's range, or None on arithmetic overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -894,6 +976,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.checked_mul(rhs); }
     /// ```
     pub fn checked_mul(self, rhs: u16) -> core::option::Option<u16>;
+
     /// Return Some(remainder) with the receiver's sign when nonzero. Return None for a zero divisor or signed MIN % -1, even though its mathematical remainder is zero, instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -904,6 +987,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.checked_rem(rhs); }
     /// ```
     pub fn checked_rem(self, rhs: u16) -> core::option::Option<u16>;
+
     /// Return Some(difference) when the difference fits the receiver's range, or None on arithmetic overflow or unsigned underflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -914,6 +998,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.checked_sub(rhs); }
     /// ```
     pub fn checked_sub(self, rhs: u16) -> core::option::Option<u16>;
+
     /// Return (wrapped_sum, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range; signed overflow is not an unsigned carry flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -924,6 +1009,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.overflowing_add(rhs); }
     /// ```
     pub fn overflowing_add(self, rhs: u16) -> (u16, bool);
+
     /// Return (wrapped_product, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, not an unsigned carry flag for signed receivers. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -934,6 +1020,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.overflowing_mul(rhs); }
     /// ```
     pub fn overflowing_mul(self, rhs: u16) -> (u16, bool);
+
     /// Return (wrapped_difference, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, including unsigned underflow; signed overflow is not an unsigned borrow flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -944,6 +1031,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.overflowing_sub(rhs); }
     /// ```
     pub fn overflowing_sub(self, rhs: u16) -> (u16, bool);
+
     /// Rotate the receiver's fixed-width bit pattern left, moving high bits into low positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -954,6 +1042,7 @@ impl u16 {
     /// fn example(value: u16) { val result = value.rotate_left(1u32); }
     /// ```
     pub fn rotate_left(self, count: u32) -> u16;
+
     /// Rotate the receiver's fixed-width bit pattern right, moving low bits into high positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -964,6 +1053,7 @@ impl u16 {
     /// fn example(value: u16) { val result = value.rotate_right(1u32); }
     /// ```
     pub fn rotate_right(self, count: u32) -> u16;
+
     /// Return the sum saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -974,6 +1064,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.saturating_add(rhs); }
     /// ```
     pub fn saturating_add(self, rhs: u16) -> u16;
+
     /// Return the product saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -984,6 +1075,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.saturating_mul(rhs); }
     /// ```
     pub fn saturating_mul(self, rhs: u16) -> u16;
+
     /// Return the difference saturated to the receiver's minimum or maximum when its mathematical value is out of range. Unsigned subtraction saturates at zero. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -994,6 +1086,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.saturating_sub(rhs); }
     /// ```
     pub fn saturating_sub(self, rhs: u16) -> u16;
+
     /// Return the sum modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1004,6 +1097,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.wrapping_add(rhs); }
     /// ```
     pub fn wrapping_add(self, rhs: u16) -> u16;
+
     /// Add a signed offset of the corresponding width to an unsigned receiver and return the unsigned result modulo 2^width. Overflow and underflow wrap instead of trapping. Available only on u8/i8, u16/i16, u32/i32 and u64/i64 receiver/offset pairs.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1014,6 +1108,7 @@ impl u16 {
     /// fn example(value: u16, rhs: i16) { val result = value.wrapping_add_signed(rhs); }
     /// ```
     pub fn wrapping_add_signed(self, rhs: i16) -> u16;
+
     /// Return the product modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1024,6 +1119,7 @@ impl u16 {
     /// fn example(value: u16, rhs: u16) { val result = value.wrapping_mul(rhs); }
     /// ```
     pub fn wrapping_mul(self, rhs: u16) -> u16;
+
     /// Return the difference modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow or unsigned underflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1047,6 +1143,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.checked_add(rhs); }
     /// ```
     pub fn checked_add(self, rhs: u32) -> core::option::Option<u32>;
+
     /// Return Some(quotient), truncating toward zero. Return None for a zero divisor or signed MIN / -1 overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1057,6 +1154,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.checked_div(rhs); }
     /// ```
     pub fn checked_div(self, rhs: u32) -> core::option::Option<u32>;
+
     /// Return Some(product) when the product fits the receiver's range, or None on arithmetic overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1067,6 +1165,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.checked_mul(rhs); }
     /// ```
     pub fn checked_mul(self, rhs: u32) -> core::option::Option<u32>;
+
     /// Return Some(remainder) with the receiver's sign when nonzero. Return None for a zero divisor or signed MIN % -1, even though its mathematical remainder is zero, instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1077,6 +1176,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.checked_rem(rhs); }
     /// ```
     pub fn checked_rem(self, rhs: u32) -> core::option::Option<u32>;
+
     /// Return Some(difference) when the difference fits the receiver's range, or None on arithmetic overflow or unsigned underflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1087,6 +1187,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.checked_sub(rhs); }
     /// ```
     pub fn checked_sub(self, rhs: u32) -> core::option::Option<u32>;
+
     /// Return (wrapped_sum, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range; signed overflow is not an unsigned carry flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1097,6 +1198,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.overflowing_add(rhs); }
     /// ```
     pub fn overflowing_add(self, rhs: u32) -> (u32, bool);
+
     /// Return (wrapped_product, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, not an unsigned carry flag for signed receivers. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1107,6 +1209,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.overflowing_mul(rhs); }
     /// ```
     pub fn overflowing_mul(self, rhs: u32) -> (u32, bool);
+
     /// Return (wrapped_difference, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, including unsigned underflow; signed overflow is not an unsigned borrow flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1117,6 +1220,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.overflowing_sub(rhs); }
     /// ```
     pub fn overflowing_sub(self, rhs: u32) -> (u32, bool);
+
     /// Rotate the receiver's fixed-width bit pattern left, moving high bits into low positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1127,6 +1231,7 @@ impl u32 {
     /// fn example(value: u32) { val result = value.rotate_left(1u32); }
     /// ```
     pub fn rotate_left(self, count: u32) -> u32;
+
     /// Rotate the receiver's fixed-width bit pattern right, moving low bits into high positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1137,6 +1242,7 @@ impl u32 {
     /// fn example(value: u32) { val result = value.rotate_right(1u32); }
     /// ```
     pub fn rotate_right(self, count: u32) -> u32;
+
     /// Return the sum saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1147,6 +1253,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.saturating_add(rhs); }
     /// ```
     pub fn saturating_add(self, rhs: u32) -> u32;
+
     /// Return the product saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1157,6 +1264,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.saturating_mul(rhs); }
     /// ```
     pub fn saturating_mul(self, rhs: u32) -> u32;
+
     /// Return the difference saturated to the receiver's minimum or maximum when its mathematical value is out of range. Unsigned subtraction saturates at zero. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1167,6 +1275,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.saturating_sub(rhs); }
     /// ```
     pub fn saturating_sub(self, rhs: u32) -> u32;
+
     /// Return the sum modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1177,6 +1286,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.wrapping_add(rhs); }
     /// ```
     pub fn wrapping_add(self, rhs: u32) -> u32;
+
     /// Add a signed offset of the corresponding width to an unsigned receiver and return the unsigned result modulo 2^width. Overflow and underflow wrap instead of trapping. Available only on u8/i8, u16/i16, u32/i32 and u64/i64 receiver/offset pairs.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1187,6 +1297,7 @@ impl u32 {
     /// fn example(value: u32, rhs: i32) { val result = value.wrapping_add_signed(rhs); }
     /// ```
     pub fn wrapping_add_signed(self, rhs: i32) -> u32;
+
     /// Return the product modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1197,6 +1308,7 @@ impl u32 {
     /// fn example(value: u32, rhs: u32) { val result = value.wrapping_mul(rhs); }
     /// ```
     pub fn wrapping_mul(self, rhs: u32) -> u32;
+
     /// Return the difference modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow or unsigned underflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1220,6 +1332,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.checked_add(rhs); }
     /// ```
     pub fn checked_add(self, rhs: u64) -> core::option::Option<u64>;
+
     /// Return Some(quotient), truncating toward zero. Return None for a zero divisor or signed MIN / -1 overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1230,6 +1343,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.checked_div(rhs); }
     /// ```
     pub fn checked_div(self, rhs: u64) -> core::option::Option<u64>;
+
     /// Return Some(product) when the product fits the receiver's range, or None on arithmetic overflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1240,6 +1354,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.checked_mul(rhs); }
     /// ```
     pub fn checked_mul(self, rhs: u64) -> core::option::Option<u64>;
+
     /// Return Some(remainder) with the receiver's sign when nonzero. Return None for a zero divisor or signed MIN % -1, even though its mathematical remainder is zero, instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1250,6 +1365,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.checked_rem(rhs); }
     /// ```
     pub fn checked_rem(self, rhs: u64) -> core::option::Option<u64>;
+
     /// Return Some(difference) when the difference fits the receiver's range, or None on arithmetic overflow or unsigned underflow instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1260,6 +1376,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.checked_sub(rhs); }
     /// ```
     pub fn checked_sub(self, rhs: u64) -> core::option::Option<u64>;
+
     /// Return (wrapped_sum, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range; signed overflow is not an unsigned carry flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1270,6 +1387,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.overflowing_add(rhs); }
     /// ```
     pub fn overflowing_add(self, rhs: u64) -> (u64, bool);
+
     /// Return (wrapped_product, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, not an unsigned carry flag for signed receivers. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1280,6 +1398,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.overflowing_mul(rhs); }
     /// ```
     pub fn overflowing_mul(self, rhs: u64) -> (u64, bool);
+
     /// Return (wrapped_difference, overflowed), wrapping modulo 2^width at the receiver's signedness. The flag reports arithmetic overflow in the receiver's range, including unsigned underflow; signed overflow is not an unsigned borrow flag. Overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1290,6 +1409,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.overflowing_sub(rhs); }
     /// ```
     pub fn overflowing_sub(self, rhs: u64) -> (u64, bool);
+
     /// Rotate the receiver's fixed-width bit pattern left, moving high bits into low positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1300,6 +1420,7 @@ impl u64 {
     /// fn example(value: u64) { val result = value.rotate_left(1u32); }
     /// ```
     pub fn rotate_left(self, count: u32) -> u64;
+
     /// Rotate the receiver's fixed-width bit pattern right, moving low bits into high positions. The count is u32 and is reduced modulo the receiver's bit width; zero and multiples of the width leave the value unchanged. Signed results reinterpret the rotated bits at the same signedness. Unlike ordinary shifts, counts at or above the width do not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1310,6 +1431,7 @@ impl u64 {
     /// fn example(value: u64) { val result = value.rotate_right(1u32); }
     /// ```
     pub fn rotate_right(self, count: u32) -> u64;
+
     /// Return the sum saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1320,6 +1442,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.saturating_add(rhs); }
     /// ```
     pub fn saturating_add(self, rhs: u64) -> u64;
+
     /// Return the product saturated to the receiver's minimum or maximum when its mathematical value is out of range. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1330,6 +1453,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.saturating_mul(rhs); }
     /// ```
     pub fn saturating_mul(self, rhs: u64) -> u64;
+
     /// Return the difference saturated to the receiver's minimum or maximum when its mathematical value is out of range. Unsigned subtraction saturates at zero. Arithmetic overflow does not trap.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1340,6 +1464,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.saturating_sub(rhs); }
     /// ```
     pub fn saturating_sub(self, rhs: u64) -> u64;
+
     /// Return the sum modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1350,6 +1475,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.wrapping_add(rhs); }
     /// ```
     pub fn wrapping_add(self, rhs: u64) -> u64;
+
     /// Add a signed offset of the corresponding width to an unsigned receiver and return the unsigned result modulo 2^width. Overflow and underflow wrap instead of trapping. Available only on u8/i8, u16/i16, u32/i32 and u64/i64 receiver/offset pairs.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1360,6 +1486,7 @@ impl u64 {
     /// fn example(value: u64, rhs: i64) { val result = value.wrapping_add_signed(rhs); }
     /// ```
     pub fn wrapping_add_signed(self, rhs: i64) -> u64;
+
     /// Return the product modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1370,6 +1497,7 @@ impl u64 {
     /// fn example(value: u64, rhs: u64) { val result = value.wrapping_mul(rhs); }
     /// ```
     pub fn wrapping_mul(self, rhs: u64) -> u64;
+
     /// Return the difference modulo 2^width, interpreted at the receiver's signedness. Arithmetic overflow or unsigned underflow wraps instead of trapping.
     ///
     /// Operands must match the declared types exactly; widths and signedness are not implicitly converted. The receiver and argument are evaluated once, left to right. This method does not change the checked-trap behavior of ordinary arithmetic operators. Runtime and allocation errors still propagate.
@@ -1393,6 +1521,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.abs(); }
     /// ```
     pub fn abs(self) -> f32;
+
     /// Return the least integral float greater than or equal to the receiver, rounding toward positive infinity. Signed zero and infinities are retained; NaN returns NaN. The result remains a float, not an integer conversion.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1403,6 +1532,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.ceil(); }
     /// ```
     pub fn ceil(self) -> f32;
+
     /// Restrict the receiver to the inclusive bounds using Rust's float clamp. A NaN bound or min > max returns ScriptTrap, never a host panic; bounds are validated even when the receiver is NaN. Infinite bounds are legal. With valid bounds a NaN receiver returns NaN, and an in-range receiver is retained, including negative zero. Equal opposite-signed zero bounds are valid. This is not a max/min composition.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1413,6 +1543,7 @@ impl f32 {
     /// fn example(value: f32, min: f32, max: f32) { val result = value.clamp(min, max); }
     /// ```
     pub fn clamp(self, min: f32, max: f32) -> f32;
+
     /// Return the greatest integral float less than or equal to the receiver, rounding toward negative infinity. Signed zero and infinities are retained; NaN returns NaN. The result remains a float, not an integer conversion.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1423,6 +1554,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.floor(); }
     /// ```
     pub fn floor(self) -> f32;
+
     /// Return the fractional part using the matching Rust primitive: self - self.trunc(). Negative nonintegral inputs have negative fractions. Infinite inputs and NaN return NaN; zero signs follow that subtraction rather than a separate sign-preservation rule.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1433,6 +1565,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.fract(); }
     /// ```
     pub fn fract(self) -> f32;
+
     /// Reinterpret u32 bits as an IEEE 754 f32, without a numeric cast. Every bit pattern is accepted, including signed zeros, subnormals, infinities and quiet/signaling NaNs. An immediate f32::from_bits(bits).to_bits() round trip preserves every sign and payload bit; subsequent arithmetic, casts, formatting and math need not preserve NaN payloads. No signaling-NaN exception mode is introduced.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1443,6 +1576,7 @@ impl f32 {
     /// fn example(bits: u32) { val result = f32::from_bits(bits); }
     /// ```
     pub fn from_bits(bits: u32) -> f32;
+
     /// Return true for finite values, including subnormals and either signed zero. Positive infinity, negative infinity and every NaN return false.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1453,6 +1587,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.is_finite(); }
     /// ```
     pub fn is_finite(self) -> bool;
+
     /// Return true exactly for positive or negative infinity. NaNs, finite values, subnormals and either signed zero return false.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1463,6 +1598,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.is_infinite(); }
     /// ```
     pub fn is_infinite(self) -> bool;
+
     /// Return true exactly when the receiver is NaN, including quiet and signaling NaN bit patterns. Infinities, finite values, subnormals and either signed zero return false. No NaN payload comparison is performed.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1473,6 +1609,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.is_nan(); }
     /// ```
     pub fn is_nan(self) -> bool;
+
     /// Return the larger operand using Rust's NaN-ignoring float contract, not total ordering. If exactly one operand is NaN, return the other; if both are NaN, return NaN. Equal positive and negative zero operands may return either sign. Infinities compare normally.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1483,6 +1620,7 @@ impl f32 {
     /// fn example(value: f32, other: f32) { val result = value.max(other); }
     /// ```
     pub fn max(self, other: f32) -> f32;
+
     /// Return the smaller operand using Rust's NaN-ignoring float contract, not total ordering. If exactly one operand is NaN, return the other; if both are NaN, return NaN. Equal positive and negative zero operands may return either sign. Infinities compare normally.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1493,6 +1631,7 @@ impl f32 {
     /// fn example(value: f32, other: f32) { val result = value.min(other); }
     /// ```
     pub fn min(self, other: f32) -> f32;
+
     /// Return the nearest integral float, rounding halfway cases away from zero. Signed zero and infinities are retained; NaN returns NaN. The result remains a float, not an integer conversion.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1503,6 +1642,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.round(); }
     /// ```
     pub fn round(self) -> f32;
+
     /// Return the correctly rounded square root at the receiver's width. Negative nonzero inputs, including negative infinity, return NaN. Positive infinity stays positive infinity, negative zero remains negative zero, and NaN returns NaN.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1513,6 +1653,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.sqrt(); }
     /// ```
     pub fn sqrt(self) -> f32;
+
     /// Reinterpret the receiver's IEEE 754 bit pattern as u32, without a numeric cast. Every bit is retained, including zero signs, subnormals, infinities and quiet/signaling NaN signs and payloads. An immediate f32::from_bits(bits).to_bits() round trip preserves bits exactly; subsequent arithmetic, casts, formatting and math need not preserve NaN payloads. No signaling-NaN exception mode is introduced.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1523,6 +1664,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.to_bits(); }
     /// ```
     pub fn to_bits(self) -> u32;
+
     /// Return the integral part as a float, rounding toward zero. Signed zero and infinities are retained; NaN returns NaN. The result remains a float, not an integer conversion.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1546,6 +1688,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.abs(); }
     /// ```
     pub fn abs(self) -> f64;
+
     /// Return the least integral float greater than or equal to the receiver, rounding toward positive infinity. Signed zero and infinities are retained; NaN returns NaN. The result remains a float, not an integer conversion.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1556,6 +1699,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.ceil(); }
     /// ```
     pub fn ceil(self) -> f64;
+
     /// Restrict the receiver to the inclusive bounds using Rust's float clamp. A NaN bound or min > max returns ScriptTrap, never a host panic; bounds are validated even when the receiver is NaN. Infinite bounds are legal. With valid bounds a NaN receiver returns NaN, and an in-range receiver is retained, including negative zero. Equal opposite-signed zero bounds are valid. This is not a max/min composition.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1566,6 +1710,7 @@ impl f64 {
     /// fn example(value: f64, min: f64, max: f64) { val result = value.clamp(min, max); }
     /// ```
     pub fn clamp(self, min: f64, max: f64) -> f64;
+
     /// Return the greatest integral float less than or equal to the receiver, rounding toward negative infinity. Signed zero and infinities are retained; NaN returns NaN. The result remains a float, not an integer conversion.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1576,6 +1721,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.floor(); }
     /// ```
     pub fn floor(self) -> f64;
+
     /// Return the fractional part using the matching Rust primitive: self - self.trunc(). Negative nonintegral inputs have negative fractions. Infinite inputs and NaN return NaN; zero signs follow that subtraction rather than a separate sign-preservation rule.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1586,6 +1732,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.fract(); }
     /// ```
     pub fn fract(self) -> f64;
+
     /// Reinterpret u64 bits as an IEEE 754 f64, without a numeric cast. Every bit pattern is accepted, including signed zeros, subnormals, infinities and quiet/signaling NaNs. An immediate f64::from_bits(bits).to_bits() round trip preserves every sign and payload bit; subsequent arithmetic, casts, formatting and math need not preserve NaN payloads. No signaling-NaN exception mode is introduced.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1596,6 +1743,7 @@ impl f64 {
     /// fn example(bits: u64) { val result = f64::from_bits(bits); }
     /// ```
     pub fn from_bits(bits: u64) -> f64;
+
     /// Return true for finite values, including subnormals and either signed zero. Positive infinity, negative infinity and every NaN return false.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1606,6 +1754,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.is_finite(); }
     /// ```
     pub fn is_finite(self) -> bool;
+
     /// Return true exactly for positive or negative infinity. NaNs, finite values, subnormals and either signed zero return false.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1616,6 +1765,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.is_infinite(); }
     /// ```
     pub fn is_infinite(self) -> bool;
+
     /// Return true exactly when the receiver is NaN, including quiet and signaling NaN bit patterns. Infinities, finite values, subnormals and either signed zero return false. No NaN payload comparison is performed.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1626,6 +1776,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.is_nan(); }
     /// ```
     pub fn is_nan(self) -> bool;
+
     /// Return the larger operand using Rust's NaN-ignoring float contract, not total ordering. If exactly one operand is NaN, return the other; if both are NaN, return NaN. Equal positive and negative zero operands may return either sign. Infinities compare normally.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1636,6 +1787,7 @@ impl f64 {
     /// fn example(value: f64, other: f64) { val result = value.max(other); }
     /// ```
     pub fn max(self, other: f64) -> f64;
+
     /// Return the smaller operand using Rust's NaN-ignoring float contract, not total ordering. If exactly one operand is NaN, return the other; if both are NaN, return NaN. Equal positive and negative zero operands may return either sign. Infinities compare normally.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1646,6 +1798,7 @@ impl f64 {
     /// fn example(value: f64, other: f64) { val result = value.min(other); }
     /// ```
     pub fn min(self, other: f64) -> f64;
+
     /// Return the nearest integral float, rounding halfway cases away from zero. Signed zero and infinities are retained; NaN returns NaN. The result remains a float, not an integer conversion.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1656,6 +1809,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.round(); }
     /// ```
     pub fn round(self) -> f64;
+
     /// Return the correctly rounded square root at the receiver's width. Negative nonzero inputs, including negative infinity, return NaN. Positive infinity stays positive infinity, negative zero remains negative zero, and NaN returns NaN.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1666,6 +1820,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.sqrt(); }
     /// ```
     pub fn sqrt(self) -> f64;
+
     /// Reinterpret the receiver's IEEE 754 bit pattern as u64, without a numeric cast. Every bit is retained, including zero signs, subnormals, infinities and quiet/signaling NaN signs and payloads. An immediate f64::from_bits(bits).to_bits() round trip preserves bits exactly; subsequent arithmetic, casts, formatting and math need not preserve NaN payloads. No signaling-NaN exception mode is introduced.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1676,6 +1831,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.to_bits(); }
     /// ```
     pub fn to_bits(self) -> u64;
+
     /// Return the integral part as a float, rounding toward zero. Signed zero and infinities are retained; NaN returns NaN. The result remains a float, not an integer conversion.
     ///
     /// Operands must match the declared types exactly; f32 operations do not widen to f64. The receiver and arguments are evaluated once, left to right. Domain NaNs are returned normally, not converted into arithmetic traps; arithmetic NaN signs and payloads are not guaranteed. Runtime errors still propagate.
@@ -1703,6 +1859,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.acos(); }
     /// ```
     pub fn acos(self) -> f32;
+
     /// Return the arcsine in radians in [-pi/2, pi/2]. The domain is [-1, 1]; inputs outside it, including either infinity, return NaN. NaN returns NaN. Either signed zero is returned unchanged; -1 and 1 yield -pi/2 and pi/2 respectively, subject to the precision boundary.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1717,6 +1874,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.asin(); }
     /// ```
     pub fn asin(self) -> f32;
+
     /// Return the arctangent in radians in [-pi/2, pi/2]. All finite inputs are in the domain and either signed zero is returned unchanged. Negative and positive infinity yield -pi/2 and pi/2 respectively, subject to the precision boundary. NaN returns NaN.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1731,6 +1889,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.atan(); }
     /// ```
     pub fn atan(self) -> f32;
+
     /// Return the four-quadrant arctangent atan2(y, x) in radians in [-pi, pi], with the receiver as y and other as x. For finite nonzero coordinates this is the angle from the positive x axis, positive counterclockwise, with the quadrant determined by both signs; it is not simply atan(y/x).
     ///
     /// Signed zeros select the axis and side: atan2(+0, +0) = +0, atan2(-0, +0) = -0, atan2(+0, -0) = +pi and atan2(-0, -0) = -pi. More generally, zero y with positive x returns y's signed zero, and zero y with negative x yields pi with y's sign. Nonzero y with either zero x yields pi/2 with y's sign.
@@ -1749,6 +1908,7 @@ impl f32 {
     /// fn example(y: f32, x: f32) { val result = y.atan2(x); }
     /// ```
     pub fn atan2(self, other: f32) -> f32;
+
     /// Return the cosine of the receiver, an angle in radians. Finite inputs produce a value in [-1, 1]. Either signed zero returns 1. Either infinity and NaN return NaN.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1763,6 +1923,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.cos(); }
     /// ```
     pub fn cos(self) -> f32;
+
     /// Return e raised to the receiver's power. All finite inputs are in the domain; either signed zero returns 1. Positive infinity returns positive infinity, negative infinity returns positive zero, and NaN returns NaN. Large finite positive inputs may overflow to positive infinity; large finite negative inputs may underflow to a positive subnormal or positive zero.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1777,6 +1938,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.exp(); }
     /// ```
     pub fn exp(self) -> f32;
+
     /// Return the natural logarithm. Positive finite inputs are in the domain and 1 returns positive zero. Either signed zero returns negative infinity. Negative inputs, including negative infinity, return NaN. Positive infinity returns positive infinity and NaN returns NaN.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1791,6 +1953,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.ln(); }
     /// ```
     pub fn ln(self) -> f32;
+
     /// Raise the receiver to a floating exponent of the same width, not exp(exponent * ln(self)). Explicit library guards return 1 for either signed zero exponent with every base, including quiet or signaling NaN, zero and infinities, and for base 1 with every exponent, including quiet or signaling NaN. These unit guards run before NaN handling; otherwise a NaN operand returns a quiet NaN with unspecified sign and payload. Remaining inputs delegate to the matching Rust powf operation.
     ///
     /// A finite negative nonzero base with a finite noninteger exponent returns NaN. With a finite integer exponent its result is negative for odd exponents and positive for even exponents. For positive exponents either zero base returns zero; for negative exponents it returns infinity. A negative zero base gives a negative result only for a finite odd integer exponent; all other nonzero exponents give a positive result.
@@ -1811,6 +1974,7 @@ impl f32 {
     /// fn example(value: f32, exponent: f32) { val result = value.powf(exponent); }
     /// ```
     pub fn powf(self, exponent: f32) -> f32;
+
     /// Raise the receiver to an exact i32 exponent without converting the exponent to a float. The entire i32 range is accepted, including its minimum and maximum values. Explicit library guards return 1 for exponent zero with every base, including quiet or signaling NaN, either signed zero and either infinity. A NaN base with a nonzero exponent returns a quiet NaN with unspecified sign and payload. Base 1 always returns 1; base -1 returns exactly -1 for odd exponents and 1 for even exponents. For other non-NaN bases, the magnitude delegates to the matching Rust powi on the absolute base; the library reapplies the negative base's sign exactly when the original i32 exponent is odd. This preserves parity even when a host's direct signed-base powi would lose it, while ordinary finite magnitude precision remains Rust-dependent.
     ///
     /// Negative finite bases are valid for every integer exponent; odd exponents give negative results and even exponents give positive results. For nonzero exponents, either signed zero base returns zero for positive exponents and infinity for negative exponents, negative only when the base is negative zero and the exponent is odd. Either infinite base returns infinity for positive exponents and zero for negative exponents, negative only when the base is negative infinity and the exponent is odd. Finite computations may overflow to infinity or underflow to subnormal values or zero with the power's sign. Negative exponents compute reciprocal powers; these numeric exceptional results do not trap. The rounding sequence and result may differ from powf.
@@ -1827,6 +1991,7 @@ impl f32 {
     /// fn example(value: f32, exponent: i32) { val result = value.powi(exponent); }
     /// ```
     pub fn powi(self, exponent: i32) -> f32;
+
     /// Return the sine of the receiver, an angle in radians. Finite inputs produce a value in [-1, 1]. Either signed zero is returned unchanged. Either infinity and NaN return NaN.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1841,6 +2006,7 @@ impl f32 {
     /// fn example(value: f32) { val result = value.sin(); }
     /// ```
     pub fn sin(self) -> f32;
+
     /// Return the tangent of the receiver, an angle in radians. Either signed zero is returned unchanged. Either infinity and NaN return NaN. Near odd multiples of pi/2, results can be very large; a floating approximation to a pole does not promise an exact pole or a particular infinity.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1872,6 +2038,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.acos(); }
     /// ```
     pub fn acos(self) -> f64;
+
     /// Return the arcsine in radians in [-pi/2, pi/2]. The domain is [-1, 1]; inputs outside it, including either infinity, return NaN. NaN returns NaN. Either signed zero is returned unchanged; -1 and 1 yield -pi/2 and pi/2 respectively, subject to the precision boundary.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1886,6 +2053,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.asin(); }
     /// ```
     pub fn asin(self) -> f64;
+
     /// Return the arctangent in radians in [-pi/2, pi/2]. All finite inputs are in the domain and either signed zero is returned unchanged. Negative and positive infinity yield -pi/2 and pi/2 respectively, subject to the precision boundary. NaN returns NaN.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1900,6 +2068,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.atan(); }
     /// ```
     pub fn atan(self) -> f64;
+
     /// Return the four-quadrant arctangent atan2(y, x) in radians in [-pi, pi], with the receiver as y and other as x. For finite nonzero coordinates this is the angle from the positive x axis, positive counterclockwise, with the quadrant determined by both signs; it is not simply atan(y/x).
     ///
     /// Signed zeros select the axis and side: atan2(+0, +0) = +0, atan2(-0, +0) = -0, atan2(+0, -0) = +pi and atan2(-0, -0) = -pi. More generally, zero y with positive x returns y's signed zero, and zero y with negative x yields pi with y's sign. Nonzero y with either zero x yields pi/2 with y's sign.
@@ -1918,6 +2087,7 @@ impl f64 {
     /// fn example(y: f64, x: f64) { val result = y.atan2(x); }
     /// ```
     pub fn atan2(self, other: f64) -> f64;
+
     /// Return the cosine of the receiver, an angle in radians. Finite inputs produce a value in [-1, 1]. Either signed zero returns 1. Either infinity and NaN return NaN.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1932,6 +2102,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.cos(); }
     /// ```
     pub fn cos(self) -> f64;
+
     /// Return e raised to the receiver's power. All finite inputs are in the domain; either signed zero returns 1. Positive infinity returns positive infinity, negative infinity returns positive zero, and NaN returns NaN. Large finite positive inputs may overflow to positive infinity; large finite negative inputs may underflow to a positive subnormal or positive zero.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1946,6 +2117,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.exp(); }
     /// ```
     pub fn exp(self) -> f64;
+
     /// Return the natural logarithm. Positive finite inputs are in the domain and 1 returns positive zero. Either signed zero returns negative infinity. Negative inputs, including negative infinity, return NaN. Positive infinity returns positive infinity and NaN returns NaN.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -1960,6 +2132,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.ln(); }
     /// ```
     pub fn ln(self) -> f64;
+
     /// Raise the receiver to a floating exponent of the same width, not exp(exponent * ln(self)). Explicit library guards return 1 for either signed zero exponent with every base, including quiet or signaling NaN, zero and infinities, and for base 1 with every exponent, including quiet or signaling NaN. These unit guards run before NaN handling; otherwise a NaN operand returns a quiet NaN with unspecified sign and payload. Remaining inputs delegate to the matching Rust powf operation.
     ///
     /// A finite negative nonzero base with a finite noninteger exponent returns NaN. With a finite integer exponent its result is negative for odd exponents and positive for even exponents. For positive exponents either zero base returns zero; for negative exponents it returns infinity. A negative zero base gives a negative result only for a finite odd integer exponent; all other nonzero exponents give a positive result.
@@ -1980,6 +2153,7 @@ impl f64 {
     /// fn example(value: f64, exponent: f64) { val result = value.powf(exponent); }
     /// ```
     pub fn powf(self, exponent: f64) -> f64;
+
     /// Raise the receiver to an exact i32 exponent without converting the exponent to a float. The entire i32 range is accepted, including its minimum and maximum values. Explicit library guards return 1 for exponent zero with every base, including quiet or signaling NaN, either signed zero and either infinity. A NaN base with a nonzero exponent returns a quiet NaN with unspecified sign and payload. Base 1 always returns 1; base -1 returns exactly -1 for odd exponents and 1 for even exponents. For other non-NaN bases, the magnitude delegates to the matching Rust powi on the absolute base; the library reapplies the negative base's sign exactly when the original i32 exponent is odd. This preserves parity even when a host's direct signed-base powi would lose it, while ordinary finite magnitude precision remains Rust-dependent.
     ///
     /// Negative finite bases are valid for every integer exponent; odd exponents give negative results and even exponents give positive results. For nonzero exponents, either signed zero base returns zero for positive exponents and infinity for negative exponents, negative only when the base is negative zero and the exponent is odd. Either infinite base returns infinity for positive exponents and zero for negative exponents, negative only when the base is negative infinity and the exponent is odd. Finite computations may overflow to infinity or underflow to subnormal values or zero with the power's sign. Negative exponents compute reciprocal powers; these numeric exceptional results do not trap. The rounding sequence and result may differ from powf.
@@ -1996,6 +2170,7 @@ impl f64 {
     /// fn example(value: f64, exponent: i32) { val result = value.powi(exponent); }
     /// ```
     pub fn powi(self, exponent: i32) -> f64;
+
     /// Return the sine of the receiver, an angle in radians. Finite inputs produce a value in [-1, 1]. Either signed zero is returned unchanged. Either infinity and NaN return NaN.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -2010,6 +2185,7 @@ impl f64 {
     /// fn example(value: f64) { val result = value.sin(); }
     /// ```
     pub fn sin(self) -> f64;
+
     /// Return the tangent of the receiver, an angle in radians. Either signed zero is returned unchanged. Either infinity and NaN return NaN. Near odd multiples of pi/2, results can be very large; a floating approximation to a pole does not promise an exact pole or a particular infinity.
     ///
     /// Use matching Rust float-width math, with the explicit power special-case guards described below; f32 is not widened to f64. Operands must match the declared types exactly. The receiver and arguments are evaluated once, left to right. Numeric domain errors, overflow and underflow return ordinary float results, not arithmetic traps or host panics. NaN signs and payloads are not guaranteed; runtime errors still propagate.
@@ -2112,6 +2288,7 @@ impl core::default::Default for f64 {
 
 impl core::convert::TryFrom<bool> for bool {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2126,6 +2303,7 @@ impl core::convert::TryFrom<bool> for bool {
 
 impl core::convert::TryFrom<bool> for i8 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2140,6 +2318,7 @@ impl core::convert::TryFrom<bool> for i8 {
 
 impl core::convert::TryFrom<bool> for i16 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2154,6 +2333,7 @@ impl core::convert::TryFrom<bool> for i16 {
 
 impl core::convert::TryFrom<bool> for i32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2168,6 +2348,7 @@ impl core::convert::TryFrom<bool> for i32 {
 
 impl core::convert::TryFrom<bool> for i64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2182,6 +2363,7 @@ impl core::convert::TryFrom<bool> for i64 {
 
 impl core::convert::TryFrom<bool> for u8 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2196,6 +2378,7 @@ impl core::convert::TryFrom<bool> for u8 {
 
 impl core::convert::TryFrom<bool> for u16 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2210,6 +2393,7 @@ impl core::convert::TryFrom<bool> for u16 {
 
 impl core::convert::TryFrom<bool> for u32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2224,6 +2408,7 @@ impl core::convert::TryFrom<bool> for u32 {
 
 impl core::convert::TryFrom<bool> for u64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2238,6 +2423,7 @@ impl core::convert::TryFrom<bool> for u64 {
 
 impl core::convert::TryFrom<i8> for i8 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2252,6 +2438,7 @@ impl core::convert::TryFrom<i8> for i8 {
 
 impl core::convert::TryFrom<i8> for i16 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2266,6 +2453,7 @@ impl core::convert::TryFrom<i8> for i16 {
 
 impl core::convert::TryFrom<i8> for i32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2280,6 +2468,7 @@ impl core::convert::TryFrom<i8> for i32 {
 
 impl core::convert::TryFrom<i8> for i64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2294,6 +2483,7 @@ impl core::convert::TryFrom<i8> for i64 {
 
 impl core::convert::TryFrom<i8> for u8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2308,6 +2498,7 @@ impl core::convert::TryFrom<i8> for u8 {
 
 impl core::convert::TryFrom<i8> for u16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2322,6 +2513,7 @@ impl core::convert::TryFrom<i8> for u16 {
 
 impl core::convert::TryFrom<i8> for u32 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2336,6 +2528,7 @@ impl core::convert::TryFrom<i8> for u32 {
 
 impl core::convert::TryFrom<i8> for u64 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2350,6 +2543,7 @@ impl core::convert::TryFrom<i8> for u64 {
 
 impl core::convert::TryFrom<i8> for f32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2364,6 +2558,7 @@ impl core::convert::TryFrom<i8> for f32 {
 
 impl core::convert::TryFrom<i8> for f64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2378,6 +2573,7 @@ impl core::convert::TryFrom<i8> for f64 {
 
 impl core::convert::TryFrom<i16> for i8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2392,6 +2588,7 @@ impl core::convert::TryFrom<i16> for i8 {
 
 impl core::convert::TryFrom<i16> for i16 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2406,6 +2603,7 @@ impl core::convert::TryFrom<i16> for i16 {
 
 impl core::convert::TryFrom<i16> for i32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2420,6 +2618,7 @@ impl core::convert::TryFrom<i16> for i32 {
 
 impl core::convert::TryFrom<i16> for i64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2434,6 +2633,7 @@ impl core::convert::TryFrom<i16> for i64 {
 
 impl core::convert::TryFrom<i16> for u8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2448,6 +2648,7 @@ impl core::convert::TryFrom<i16> for u8 {
 
 impl core::convert::TryFrom<i16> for u16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2462,6 +2663,7 @@ impl core::convert::TryFrom<i16> for u16 {
 
 impl core::convert::TryFrom<i16> for u32 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2476,6 +2678,7 @@ impl core::convert::TryFrom<i16> for u32 {
 
 impl core::convert::TryFrom<i16> for u64 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2490,6 +2693,7 @@ impl core::convert::TryFrom<i16> for u64 {
 
 impl core::convert::TryFrom<i16> for f32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2504,6 +2708,7 @@ impl core::convert::TryFrom<i16> for f32 {
 
 impl core::convert::TryFrom<i16> for f64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2518,6 +2723,7 @@ impl core::convert::TryFrom<i16> for f64 {
 
 impl core::convert::TryFrom<i32> for i8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2532,6 +2738,7 @@ impl core::convert::TryFrom<i32> for i8 {
 
 impl core::convert::TryFrom<i32> for i16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2546,6 +2753,7 @@ impl core::convert::TryFrom<i32> for i16 {
 
 impl core::convert::TryFrom<i32> for i32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2560,6 +2768,7 @@ impl core::convert::TryFrom<i32> for i32 {
 
 impl core::convert::TryFrom<i32> for i64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2574,6 +2783,7 @@ impl core::convert::TryFrom<i32> for i64 {
 
 impl core::convert::TryFrom<i32> for u8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2588,6 +2798,7 @@ impl core::convert::TryFrom<i32> for u8 {
 
 impl core::convert::TryFrom<i32> for u16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2602,6 +2813,7 @@ impl core::convert::TryFrom<i32> for u16 {
 
 impl core::convert::TryFrom<i32> for u32 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2616,6 +2828,7 @@ impl core::convert::TryFrom<i32> for u32 {
 
 impl core::convert::TryFrom<i32> for u64 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2630,6 +2843,7 @@ impl core::convert::TryFrom<i32> for u64 {
 
 impl core::convert::TryFrom<i32> for f64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2644,6 +2858,7 @@ impl core::convert::TryFrom<i32> for f64 {
 
 impl core::convert::TryFrom<i64> for i8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2658,6 +2873,7 @@ impl core::convert::TryFrom<i64> for i8 {
 
 impl core::convert::TryFrom<i64> for i16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2672,6 +2888,7 @@ impl core::convert::TryFrom<i64> for i16 {
 
 impl core::convert::TryFrom<i64> for i32 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2686,6 +2903,7 @@ impl core::convert::TryFrom<i64> for i32 {
 
 impl core::convert::TryFrom<i64> for i64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2700,6 +2918,7 @@ impl core::convert::TryFrom<i64> for i64 {
 
 impl core::convert::TryFrom<i64> for u8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2714,6 +2933,7 @@ impl core::convert::TryFrom<i64> for u8 {
 
 impl core::convert::TryFrom<i64> for u16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2728,6 +2948,7 @@ impl core::convert::TryFrom<i64> for u16 {
 
 impl core::convert::TryFrom<i64> for u32 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2742,6 +2963,7 @@ impl core::convert::TryFrom<i64> for u32 {
 
 impl core::convert::TryFrom<i64> for u64 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2756,6 +2978,7 @@ impl core::convert::TryFrom<i64> for u64 {
 
 impl core::convert::TryFrom<u8> for i8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2770,6 +2993,7 @@ impl core::convert::TryFrom<u8> for i8 {
 
 impl core::convert::TryFrom<u8> for i16 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2784,6 +3008,7 @@ impl core::convert::TryFrom<u8> for i16 {
 
 impl core::convert::TryFrom<u8> for i32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2798,6 +3023,7 @@ impl core::convert::TryFrom<u8> for i32 {
 
 impl core::convert::TryFrom<u8> for i64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2812,6 +3038,7 @@ impl core::convert::TryFrom<u8> for i64 {
 
 impl core::convert::TryFrom<u8> for u8 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2826,6 +3053,7 @@ impl core::convert::TryFrom<u8> for u8 {
 
 impl core::convert::TryFrom<u8> for u16 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2840,6 +3068,7 @@ impl core::convert::TryFrom<u8> for u16 {
 
 impl core::convert::TryFrom<u8> for u32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2854,6 +3083,7 @@ impl core::convert::TryFrom<u8> for u32 {
 
 impl core::convert::TryFrom<u8> for u64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2868,6 +3098,7 @@ impl core::convert::TryFrom<u8> for u64 {
 
 impl core::convert::TryFrom<u8> for f32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2882,6 +3113,7 @@ impl core::convert::TryFrom<u8> for f32 {
 
 impl core::convert::TryFrom<u8> for f64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2896,6 +3128,7 @@ impl core::convert::TryFrom<u8> for f64 {
 
 impl core::convert::TryFrom<u16> for i8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2910,6 +3143,7 @@ impl core::convert::TryFrom<u16> for i8 {
 
 impl core::convert::TryFrom<u16> for i16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2924,6 +3158,7 @@ impl core::convert::TryFrom<u16> for i16 {
 
 impl core::convert::TryFrom<u16> for i32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2938,6 +3173,7 @@ impl core::convert::TryFrom<u16> for i32 {
 
 impl core::convert::TryFrom<u16> for i64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2952,6 +3188,7 @@ impl core::convert::TryFrom<u16> for i64 {
 
 impl core::convert::TryFrom<u16> for u8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2966,6 +3203,7 @@ impl core::convert::TryFrom<u16> for u8 {
 
 impl core::convert::TryFrom<u16> for u16 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2980,6 +3218,7 @@ impl core::convert::TryFrom<u16> for u16 {
 
 impl core::convert::TryFrom<u16> for u32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -2994,6 +3233,7 @@ impl core::convert::TryFrom<u16> for u32 {
 
 impl core::convert::TryFrom<u16> for u64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3008,6 +3248,7 @@ impl core::convert::TryFrom<u16> for u64 {
 
 impl core::convert::TryFrom<u16> for f32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3022,6 +3263,7 @@ impl core::convert::TryFrom<u16> for f32 {
 
 impl core::convert::TryFrom<u16> for f64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3036,6 +3278,7 @@ impl core::convert::TryFrom<u16> for f64 {
 
 impl core::convert::TryFrom<u32> for i8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3050,6 +3293,7 @@ impl core::convert::TryFrom<u32> for i8 {
 
 impl core::convert::TryFrom<u32> for i16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3064,6 +3308,7 @@ impl core::convert::TryFrom<u32> for i16 {
 
 impl core::convert::TryFrom<u32> for i32 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3078,6 +3323,7 @@ impl core::convert::TryFrom<u32> for i32 {
 
 impl core::convert::TryFrom<u32> for i64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3092,6 +3338,7 @@ impl core::convert::TryFrom<u32> for i64 {
 
 impl core::convert::TryFrom<u32> for u8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3106,6 +3353,7 @@ impl core::convert::TryFrom<u32> for u8 {
 
 impl core::convert::TryFrom<u32> for u16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3120,6 +3368,7 @@ impl core::convert::TryFrom<u32> for u16 {
 
 impl core::convert::TryFrom<u32> for u32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3134,6 +3383,7 @@ impl core::convert::TryFrom<u32> for u32 {
 
 impl core::convert::TryFrom<u32> for u64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3148,6 +3398,7 @@ impl core::convert::TryFrom<u32> for u64 {
 
 impl core::convert::TryFrom<u32> for f64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3162,6 +3413,7 @@ impl core::convert::TryFrom<u32> for f64 {
 
 impl core::convert::TryFrom<u64> for i8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3176,6 +3428,7 @@ impl core::convert::TryFrom<u64> for i8 {
 
 impl core::convert::TryFrom<u64> for i16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3190,6 +3443,7 @@ impl core::convert::TryFrom<u64> for i16 {
 
 impl core::convert::TryFrom<u64> for i32 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3204,6 +3458,7 @@ impl core::convert::TryFrom<u64> for i32 {
 
 impl core::convert::TryFrom<u64> for i64 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3218,6 +3473,7 @@ impl core::convert::TryFrom<u64> for i64 {
 
 impl core::convert::TryFrom<u64> for u8 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3232,6 +3488,7 @@ impl core::convert::TryFrom<u64> for u8 {
 
 impl core::convert::TryFrom<u64> for u16 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3246,6 +3503,7 @@ impl core::convert::TryFrom<u64> for u16 {
 
 impl core::convert::TryFrom<u64> for u32 {
     type Error = TryFromIntError;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3260,6 +3518,7 @@ impl core::convert::TryFrom<u64> for u32 {
 
 impl core::convert::TryFrom<u64> for u64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3274,6 +3533,7 @@ impl core::convert::TryFrom<u64> for u64 {
 
 impl core::convert::TryFrom<f32> for f32 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3288,6 +3548,7 @@ impl core::convert::TryFrom<f32> for f32 {
 
 impl core::convert::TryFrom<f32> for f64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3302,6 +3563,7 @@ impl core::convert::TryFrom<f32> for f64 {
 
 impl core::convert::TryFrom<f64> for f64 {
     type Error = core::convert::Infallible;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -3316,6 +3578,7 @@ impl core::convert::TryFrom<f64> for f64 {
 
 impl core::str::FromStr for bool {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3330,6 +3593,7 @@ impl core::str::FromStr for bool {
 
 impl core::str::FromStr for i8 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3343,33 +3607,45 @@ impl core::str::FromStr for i8 {
 }
 
 impl core::iter::Sum<i8> for i8 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> i8 where T: core::iter::Iterable<Item = i8>;
 }
 
 impl core::iter::Product<i8> for i8 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> i8 where T: core::iter::Iterable<Item = i8>;
 }
 
 impl core::str::FromStr for i16 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3383,33 +3659,45 @@ impl core::str::FromStr for i16 {
 }
 
 impl core::iter::Sum<i16> for i16 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> i16 where T: core::iter::Iterable<Item = i16>;
 }
 
 impl core::iter::Product<i16> for i16 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> i16 where T: core::iter::Iterable<Item = i16>;
 }
 
 impl core::str::FromStr for i32 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3423,33 +3711,45 @@ impl core::str::FromStr for i32 {
 }
 
 impl core::iter::Sum<i32> for i32 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> i32 where T: core::iter::Iterable<Item = i32>;
 }
 
 impl core::iter::Product<i32> for i32 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> i32 where T: core::iter::Iterable<Item = i32>;
 }
 
 impl core::str::FromStr for i64 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3463,33 +3763,45 @@ impl core::str::FromStr for i64 {
 }
 
 impl core::iter::Sum<i64> for i64 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> i64 where T: core::iter::Iterable<Item = i64>;
 }
 
 impl core::iter::Product<i64> for i64 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> i64 where T: core::iter::Iterable<Item = i64>;
 }
 
 impl core::str::FromStr for u8 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3503,33 +3815,45 @@ impl core::str::FromStr for u8 {
 }
 
 impl core::iter::Sum<u8> for u8 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> u8 where T: core::iter::Iterable<Item = u8>;
 }
 
 impl core::iter::Product<u8> for u8 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> u8 where T: core::iter::Iterable<Item = u8>;
 }
 
 impl core::str::FromStr for u16 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3543,33 +3867,45 @@ impl core::str::FromStr for u16 {
 }
 
 impl core::iter::Sum<u16> for u16 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> u16 where T: core::iter::Iterable<Item = u16>;
 }
 
 impl core::iter::Product<u16> for u16 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> u16 where T: core::iter::Iterable<Item = u16>;
 }
 
 impl core::str::FromStr for u32 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3583,33 +3919,45 @@ impl core::str::FromStr for u32 {
 }
 
 impl core::iter::Sum<u32> for u32 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> u32 where T: core::iter::Iterable<Item = u32>;
 }
 
 impl core::iter::Product<u32> for u32 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> u32 where T: core::iter::Iterable<Item = u32>;
 }
 
 impl core::str::FromStr for u64 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3623,33 +3971,45 @@ impl core::str::FromStr for u64 {
 }
 
 impl core::iter::Sum<u64> for u64 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> u64 where T: core::iter::Iterable<Item = u64>;
 }
 
 impl core::iter::Product<u64> for u64 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> u64 where T: core::iter::Iterable<Item = u64>;
 }
 
 impl core::str::FromStr for f32 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3663,33 +4023,45 @@ impl core::str::FromStr for f32 {
 }
 
 impl core::iter::Sum<f32> for f32 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> f32 where T: core::iter::Iterable<Item = f32>;
 }
 
 impl core::iter::Product<f32> for f32 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> f32 where T: core::iter::Iterable<Item = f32>;
 }
 
 impl core::str::FromStr for f64 {
     type Err = ParseError;
+
     /// Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.
     ///
     /// See `FromStr` for the behavioral contract and examples.
@@ -3703,27 +4075,38 @@ impl core::str::FromStr for f64 {
 }
 
 impl core::iter::Sum<f64> for f64 {
-    /// Aggregates an iterable using addition. Built-in numeric sums use the additive identity for an empty input and checked arithmetic where required.
+    /// Constructs a sum from an iterable source.
     ///
-    /// See `Sum` for the behavioral contract and examples.
+    /// `Iterable::sum` delegates to this implementation. Built-in numeric implementations
+    /// add items in source order and return zero for an empty input. Integer addition
+    /// is checked and traps on overflow; floating-point addition follows the declared
+    /// floating-point type's arithmetic. Custom implementations define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn total(values: Vec<i32>) -> i32 { i32::sum(values) }
+    /// fn example() -> i32 {
+    ///     i32::sum(Vec::from([2, 3, 4])) // Returns 9.
+    /// }
     /// ```
     pub fn sum<T>(source: T) -> f64 where T: core::iter::Iterable<Item = f64>;
 }
 
 impl core::iter::Product<f64> for f64 {
-    /// Aggregates an iterable using multiplication. Built-in numeric products use the multiplicative identity for an empty input and checked arithmetic where required.
+    /// Constructs a product from an iterable source.
     ///
-    /// See `Product` for the behavioral contract and examples.
+    /// `Iterable::product` delegates to this implementation. Built-in numeric
+    /// implementations multiply items in source order and return one for an empty input.
+    /// Integer multiplication is checked and traps on overflow; floating-point
+    /// multiplication follows the declared type's arithmetic. Custom implementations
+    /// define their own rules.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// fn multiply(values: Vec<i32>) -> i32 { i32::product(values) }
+    /// fn example() -> i32 {
+    ///     i32::product(Vec::from([2, 3, 4])) // Returns 24.
+    /// }
     /// ```
     pub fn product<T>(source: T) -> f64 where T: core::iter::Iterable<Item = f64>;
 }

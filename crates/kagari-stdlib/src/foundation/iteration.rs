@@ -1,15 +1,17 @@
 //! Lazy cursor owners and authored Iterable defaults use the runtime's shared lowerer.
 pub(super) mod cursor;
+pub(super) mod documentation;
 pub(super) mod operations;
 pub(super) mod traversal;
 use crate::{
-    catalog::documentation,
+    catalog::documentation::markdown,
     foundation::{
         bound, enumeration,
         enumerations::value::{self as enums, EnumSymbols},
         interface,
         iteration::{
             cursor::{self as cursors, Operation},
+            documentation as docs,
             operations::{self as iterable, Terminal},
         },
         override_entry, raw,
@@ -103,7 +105,7 @@ struct Source {
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let iteration = Iteration::new(module)?;
     let cursor = module.define_constructor("CollectionCursor", NativeTypeConstructor::Iter)?;
-    module.document(cursor.id(), documentation::markdown(TYPE_DOCS))?;
+    module.document(cursor.id(), markdown(docs::CURSOR))?;
     let entry = override_entry(
         module,
         &iteration.iterator,
@@ -130,9 +132,20 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             |_, _| Ok(()),
         )?;
         module.bind_storage(&adapter, cursors::storage())?;
-        module.document(adapter.id(), documentation::markdown(ADAPTER_DOCS))?;
-        let entry = override_entry(module, &iteration.iterator, "next", 0, PendingBinding::implementation_with_send(|view| Ok(cursors::next_binding(EnumSymbols::new(view.catalog(), &[enums::OPTION])?))))?
-            .documentation("Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.");
+        module.document(adapter.id(), markdown(docs::adapter_type(operation)))?;
+        let entry = override_entry(
+            module,
+            &iteration.iterator,
+            "next",
+            0,
+            PendingBinding::implementation_with_send(|view| {
+                Ok(cursors::next_binding(EnumSymbols::new(
+                    view.catalog(),
+                    &[enums::OPTION],
+                )?))
+            }),
+        )?
+        .documentation(markdown(docs::adapter_next(operation)));
         module.trait_implementation_with(arity, |items| {
             let item = match operation {
                 Operation::Enumerate => Type::tuple([Type::u64(), items[0].clone()])?,
@@ -218,7 +231,7 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
             vec![item.clone()]
         })?;
         let mut declaration = MethodDecl::instance(name)
-            .documentation(doc)
+            .documentation(markdown(doc))
             .returns(result);
         declaration = match operation {
             Operation::Map => {
@@ -286,10 +299,10 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
             .assumptions(assumptions),
         )?;
     }
-    for (name, protocol_name, target) in [
-        ("collect", "FromIterator", "from_iter"),
-        ("sum", "Sum", "sum"),
-        ("product", "Product", "product"),
+    for (name, protocol_name, target, doc) in [
+        ("collect", "FromIterator", "from_iter", docs::COLLECT),
+        ("sum", "Sum", "sum", docs::SUM_ITEMS),
+        ("product", "Product", "product", docs::PRODUCT_ITEMS),
     ] {
         let method = module.reference_method(&iteration.iterable, name, 1)?;
         let destination = method.parameter(0)?;
@@ -298,52 +311,72 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
         let applied = protocol.apply([item.clone()])?;
         let requirement =
             target_method.requirement(destination.clone(), applied.clone(), [receiver.clone()])?;
-        module.define_trait_default(&iteration.iterable, DefaultDefinition::new(MethodDecl::instance(name)
-            .returns(destination.clone())
-            .documentation(format!("Consume through the requested destination's {target} implementation; preserve its checked construction and arithmetic semantics."))
-            .configure(move |function| { function.type_parameter("D")?; function.requires_draft(requirement)?; Ok(()) })
-            .implementation_send(NativeBinding::new(vec![Codec::Value], Codec::Value, iterable::destination)))
+        module.define_trait_default(
+            &iteration.iterable,
+            DefaultDefinition::new(
+                MethodDecl::instance(name)
+                    .returns(destination.clone())
+                    .documentation(markdown(doc))
+                    .configure(move |function| {
+                        function.type_parameter("D")?;
+                        function.requires_draft(requirement)?;
+                        Ok(())
+                    })
+                    .implementation_send(NativeBinding::new(
+                        vec![Codec::Value],
+                        Codec::Value,
+                        iterable::destination,
+                    )),
+            )
             .arguments([receiver.clone(), item.clone(), destination.clone()])
             .bounds([bound(&destination, applied)])
-            .assumptions([bound(&receiver, iteration.item.bind(iteration.iterable.apply([])?, item.clone())?)]))?;
+            .assumptions([bound(
+                &receiver,
+                iteration
+                    .item
+                    .bind(iteration.iterable.apply([])?, item.clone())?,
+            )]),
+        )?;
     }
     let fold = module.reference_method(&iteration.iterable, "fold", 1)?;
     let accumulator = fold.parameter(0)?;
     let source = iteration.source(receiver.clone(), item.clone(), cursor.clone())?;
-    module.define_trait_default(&iteration.iterable, DefaultDefinition::new(MethodDecl::instance("fold")
-        .parameter("initial", accumulator.clone())
-        .parameter("callback", Type::function([accumulator.clone(), item.clone()], accumulator.clone())?)
-        .returns(accumulator.clone())
-        .documentation("Consume in source order, passing the accumulator and each item to the callback. Empty input returns initial; completed source/callback effects survive failure.")
-        .configure(move |function| { function.type_parameter("A")?; for requirement in source.requirements { function.requires_draft(requirement)?; } Ok(()) })
-        .implementation_with_send(|view| { let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?; Ok(NativeBinding::new(vec![Codec::Value; 3], Codec::Value, move |cx| iterable::fold(&symbols, cx))) }))
-        .arguments([receiver.clone(), item.clone(), accumulator, cursor.clone()]).assumptions(source.assumptions))?;
+    module.define_trait_default(
+        &iteration.iterable,
+        DefaultDefinition::new(
+            MethodDecl::instance("fold")
+                .parameter("initial", accumulator.clone())
+                .parameter(
+                    "callback",
+                    Type::function([accumulator.clone(), item.clone()], accumulator.clone())?,
+                )
+                .returns(accumulator.clone())
+                .documentation(markdown(docs::FOLD))
+                .configure(move |function| {
+                    function.type_parameter("A")?;
+                    for requirement in source.requirements {
+                        function.requires_draft(requirement)?;
+                    }
+                    Ok(())
+                })
+                .implementation_with_send(|view| {
+                    let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?;
+                    Ok(NativeBinding::new(
+                        vec![Codec::Value; 3],
+                        Codec::Value,
+                        move |cx| iterable::fold(&symbols, cx),
+                    ))
+                }),
+        )
+        .arguments([receiver.clone(), item.clone(), accumulator, cursor.clone()])
+        .assumptions(source.assumptions),
+    )?;
     for (name, terminal, doc) in [
-        (
-            "count",
-            Terminal::Count,
-            "Consume until the first None and return the checked u64 count.",
-        ),
-        (
-            "find",
-            Terminal::Find,
-            "Return the first matching item, stopping immediately; empty input returns None.",
-        ),
-        (
-            "any",
-            Terminal::Any,
-            "Stop at the first true predicate; empty input returns false.",
-        ),
-        (
-            "all",
-            Terminal::All,
-            "Stop at the first false predicate; empty input returns true.",
-        ),
-        (
-            "for_each",
-            Terminal::ForEach,
-            "Run the action once per item in source order and return unit.",
-        ),
+        ("count", Terminal::Count, docs::COUNT),
+        ("find", Terminal::Find, docs::FIND),
+        ("any", Terminal::Any, docs::ANY),
+        ("all", Terminal::All, docs::ALL),
+        ("for_each", Terminal::ForEach, docs::FOR_EACH),
     ] {
         let result = match terminal {
             Terminal::Count => Type::u64(),
@@ -353,7 +386,7 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
         };
         let mut declaration = MethodDecl::instance(name)
             .returns(result)
-            .documentation(doc);
+            .documentation(markdown(doc));
         if !matches!(terminal, Terminal::Count) {
             declaration = declaration.parameter(
                 "callback",
@@ -392,54 +425,17 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
     Ok(())
 }
 
-fn adapter_docs(operation: Operation) -> (&'static str, &'static str) {
+fn adapter_docs(operation: Operation) -> (&'static str, (&'static str, &'static str)) {
     match operation {
-        Operation::Map => (
-            "map",
-            "Lazily transform each element with the callback. Obtain the source cursor once; copies share progress.",
-        ),
-        Operation::Filter => (
-            "filter",
-            "Lazily return elements accepted by the predicate, preserving source order and callback effects.",
-        ),
-        Operation::Take => (
-            "take",
-            "Lazily return at most limit elements. A zero limit never advances the source.",
-        ),
-        Operation::FilterMap => (
-            "filter_map",
-            "Lazily return the callback's Some values in source order, without fusing the source.",
-        ),
-        Operation::Skip => (
-            "skip",
-            "Discard only the initial count items; aliases share the remaining skip state.",
-        ),
-        Operation::Enumerate => (
-            "enumerate",
-            "Lazily pair each item with its checked u64 position, starting at zero.",
-        ),
-        Operation::Zip => (
-            "zip",
-            "Lazily pull left then right and return pairs. A left item stays consumed if right returns None.",
-        ),
-        Operation::Chain => (
-            "chain",
-            "Lazily traverse the first cursor, then switch permanently to the second on its first None.",
-        ),
+        Operation::Map => ("map", docs::MAP),
+        Operation::Filter => ("filter", docs::FILTER),
+        Operation::Take => ("take", docs::TAKE),
+        Operation::FilterMap => ("filter_map", docs::FILTER_MAP),
+        Operation::Skip => ("skip", docs::SKIP),
+        Operation::Enumerate => ("enumerate", docs::ENUMERATE),
+        Operation::Zip => ("zip", docs::ZIP),
+        Operation::Chain => ("chain", docs::CHAIN),
     }
 }
 
-const TYPE_DOCS: (&str, &str) = (
-    "A shared built-in cursor. Copies share progress. next returns None when exhausted; structural source edits invalidate subsequent reads.",
-    "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
-);
-
-const ADAPTER_DOCS: (&str, &str) = (
-    "A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.",
-    "fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }",
-);
-
-pub(super) const MODULE_DOCS: (&str, &str) = (
-    "Shared iteration and iterable construction. Iterator values retain progress and reject stale source reads after structural mutation.",
-    "fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }",
-);
+pub(super) const MODULE_DOCS: (&str, &str) = docs::MODULE;

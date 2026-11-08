@@ -67,6 +67,7 @@ pub trait Into<T> {
 pub trait TryFrom<T> {
     /// The error returned when this conversion or parse fails.
     type Error;
+
     /// A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.
     ///
     /// See `TryFrom` for the behavioral contract and examples.
@@ -89,6 +90,7 @@ pub trait TryFrom<T> {
 pub trait TryInto<T> {
     /// The error returned when this conversion or parse fails.
     type Error;
+
     /// A checked conversion of the receiver into a target. The reverse adapter uses the corresponding `TryFrom` declaration and error type.
     ///
     /// See `TryInto` for the behavioral contract and examples.

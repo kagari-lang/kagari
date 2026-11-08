@@ -24,6 +24,7 @@ impl String {
     /// fn example(values: String) { val result = values.bytes(); }
     /// ```
     pub fn bytes(self) -> core::iter::CollectionCursor<u8>;
+
     /// Traverse (u64, char) pairs of UTF-8 byte offsets and Unicode scalars. For aé🙂 the offsets are 0, 1 and 3, not scalar ordinals. Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.
     ///
     /// # Examples
@@ -32,6 +33,7 @@ impl String {
     /// fn example(values: String) { val result = values.char_indices(); }
     /// ```
     pub fn char_indices(self) -> core::iter::CollectionCursor<(u64, char)>;
+
     /// Traverse Unicode scalars as char, not grapheme clusters. Combining marks and NUL are separate scalar items. Return a fresh lazy CollectionCursor on each call, retaining the source String. Cursor copies share progress; next returns None at exhaustion. Iterable adapters consume this cursor lazily without an intermediate List.
     ///
     /// # Examples
@@ -40,6 +42,7 @@ impl String {
     /// fn example(values: String) { val result = values.chars(); }
     /// ```
     pub fn chars(self) -> core::iter::CollectionCursor<char>;
+
     /// Test for a literal substring; the empty pattern matches.
     ///
     /// # Examples
@@ -48,6 +51,7 @@ impl String {
     /// fn example(values: String) { val result = values.contains("a"); }
     /// ```
     pub fn contains(self, pattern: String) -> bool;
+
     /// Test for a literal suffix; the empty pattern matches.
     ///
     /// # Examples
@@ -56,6 +60,7 @@ impl String {
     /// fn example(values: String) { val result = values.ends_with("a"); }
     /// ```
     pub fn ends_with(self, pattern: String) -> bool;
+
     /// Return the first matching byte offset, or None. An empty pattern matches at zero.
     ///
     /// # Examples
@@ -64,6 +69,7 @@ impl String {
     /// fn example(values: String) { val result = values.find("a"); }
     /// ```
     pub fn find(self, pattern: String) -> core::option::Option<u64>;
+
     /// Return whether the string has no bytes.
     ///
     /// # Examples
@@ -72,6 +78,7 @@ impl String {
     /// fn example(values: String) { val result = values.is_empty(); }
     /// ```
     pub fn is_empty(self) -> bool;
+
     /// Return the UTF-8 byte length.
     ///
     /// # Examples
@@ -80,6 +87,7 @@ impl String {
     /// fn example(values: String) { val result = values.len(); }
     /// ```
     pub fn len(self) -> u64;
+
     /// Replace all non-overlapping literal matches. An empty pattern inserts at Unicode scalar boundaries, including both ends.
     ///
     /// # Examples
@@ -88,6 +96,7 @@ impl String {
     /// fn example(values: String) { val result = values.replace("a", "b"); }
     /// ```
     pub fn replace(self, from: String, to: String) -> String;
+
     /// Copy the half-open byte range. Invalid order, bounds or UTF-8 boundaries trap.
     ///
     /// # Examples
@@ -96,6 +105,7 @@ impl String {
     /// fn example(values: String) { val result = values.slice(0, 1); }
     /// ```
     pub fn slice(self, start: u64, end: u64) -> String;
+
     /// Return an eager List<String> of literal-separated fields, preserving endpoint empties. An empty separator splits at Unicode scalar boundaries with endpoint empties.
     ///
     /// # Examples
@@ -104,6 +114,7 @@ impl String {
     /// fn example(values: String) { val result = values.split("a"); }
     /// ```
     pub fn split(self, separator: String) -> std::collections::List<String>;
+
     /// Test for a literal prefix; the empty pattern matches.
     ///
     /// # Examples
@@ -112,6 +123,7 @@ impl String {
     /// fn example(values: String) { val result = values.starts_with("a"); }
     /// ```
     pub fn starts_with(self, pattern: String) -> bool;
+
     /// Remove Unicode whitespace from both ends.
     ///
     /// # Examples
@@ -120,6 +132,7 @@ impl String {
     /// fn example(values: String) { val result = values.trim(); }
     /// ```
     pub fn trim(self) -> String;
+
     /// Remove trailing Unicode whitespace.
     ///
     /// # Examples
@@ -128,6 +141,7 @@ impl String {
     /// fn example(values: String) { val result = values.trim_end(); }
     /// ```
     pub fn trim_end(self) -> String;
+
     /// Remove leading Unicode whitespace.
     ///
     /// # Examples

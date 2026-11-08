@@ -1,5 +1,8 @@
 //! Conversion authority and construction requirements remain explicit trait metadata.
-use crate::foundation::{bound, enumeration, interface, protocols::Contract};
+use crate::{
+    catalog::documentation,
+    foundation::{bound, enumeration, interface, protocols::Contract},
+};
 use kagari_runtime::native::{
     assembly::draft::ModuleDraft, binding::NativeResult, declarations::MethodDecl, types::Type,
 };
@@ -124,5 +127,5 @@ fn aggregation(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeR
         position: 0,
     });
     method.bounds.push(bound(&source, applied));
-    contract.submit(module, method, contract.overview.0)
+    contract.submit_documented(module, method, documentation::markdown(contract.overview))
 }

@@ -37,6 +37,7 @@ impl core::convert::From<char> for alloc::string::String {
 
 impl core::convert::TryFrom<u32> for char {
     type Error = CharTryFromError;
+
     /// Convert a Unicode scalar value to char. Surrogates U+D800 through U+DFFF and values above U+10FFFF return CharTryFromError::InvalidScalar.
     pub fn try_from(value: u32) -> core::result::Result<char, CharTryFromError>;
 }

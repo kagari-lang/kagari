@@ -65,10 +65,22 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
         for text in
             std::iter::once(&module.module_documentation).chain(module.documentation.values())
         {
-            for block in text.split("```kgr\n").skip(1) {
-                examples.insert(block.split("```").next().unwrap().to_string());
-            }
+            collect_examples(text, &mut examples);
         }
+    }
+    for source in standard_sources::DECLARATIONS {
+        let documentation = source
+            .text
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim_start();
+                line.strip_prefix("///")
+                    .or_else(|| line.strip_prefix("//!"))
+                    .map(|line| line.strip_prefix(' ').unwrap_or(line))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        collect_examples(&documentation, &mut examples);
     }
     assert_eq!(traits, 41);
     let mut baseline = AnalysisDatabase::default();
@@ -116,4 +128,13 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+fn collect_examples(documentation: &str, examples: &mut BTreeSet<String>) {
+    for block in documentation.split("```kgr\n").skip(1) {
+        let (example, _) = block
+            .split_once("```")
+            .expect("closed Kagari example fence");
+        examples.insert(example.into());
+    }
 }

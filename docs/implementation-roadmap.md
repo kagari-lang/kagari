@@ -507,6 +507,22 @@ separately proposed debug/DAP modes.
 
 ## Language server
 
+Standard declaration documentation review starts with `core::iter`: user-facing
+summaries, operation-specific examples, lazy/consuming behavior, shared progress,
+short-circuit and trap boundaries now have an owner review. Fixed sources and
+registration documentation are updated together. Sibling declaration spacing is
+normalized across the package and native exporter; renderer site ownership is
+preserved. The existing documentation scenario now analyzes examples from actual
+bundled resources as well as registration Markdown, with deduplication and isolated
+user inputs. That scenario and three renderer/native-trivia contracts pass.
+The SDK documentation/materialized-navigation regression also passes. Structure
+(1,980 Rust files, zero violations), formatting, workspace all-target Clippy and
+diff checks pass; VSIX packaging retains all 38 resources byte-for-byte.
+The [declaration documentation guide](../crates/kagari-stdlib/declarations/README.md#documentation-style)
+owns the standard and Rust primary references. Other modules' prose/example review
+remains queued; spacing, nonempty comments and passing examples alone do not prove
+documentation quality. Full workspace/editor matrices remain CI acceptance.
+
 The bundled-standard-declaration correction implements 38 fixed module-named
 resources, analyzer embedding and VSIX delivery, independently of Host build/export
 products. The [native source contract](lsp-design.md#native-declarations-and-source-tools)
