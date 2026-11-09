@@ -160,6 +160,18 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         &first.program.code.execution,
         &second.program.code.execution
     ));
+    assert!(Arc::ptr_eq(
+        first.verified_program().dispatch_facts().unwrap(),
+        second.verified_program().dispatch_facts().unwrap(),
+    ));
+    assert!(Arc::ptr_eq(
+        &first.program.code.layout_facts,
+        &second.program.code.layout_facts,
+    ));
+    assert!(Arc::ptr_eq(
+        &first.program.retained_demands,
+        &second.program.retained_demands
+    ));
     assert_eq!(
         first.program.code.revision(),
         second.program.code.revision()
@@ -173,6 +185,15 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
     assert!(second_runtime.validate_executable_module(&second).is_ok());
     assert!(first_runtime.validate_executable_module(&second).is_err());
     assert!(second_runtime.validate_executable_module(&first).is_err());
+    // A populated pure-fact cache must still honor each caller's cancellation.
+    let cancellation = CancellationToken::default();
+    cancellation.cancel();
+    assert!(matches!(
+        RetainedDemands::initial(first.verified_program(), &cancellation),
+        Err(ReloadValidationError::Runtime(error)) if error.kind() == RuntimeErrorKind::Cancelled
+    ));
+    let history = RetainedDemands::initial(first.verified_program(), &Default::default()).unwrap();
+    assert!(Arc::ptr_eq(&history, &first.program.retained_demands));
     let shared = ConstantId::new(0);
     let escaped = first_runtime.read_constant(&first, shared).unwrap();
     let before = first_runtime.gc().stats();

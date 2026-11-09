@@ -5,7 +5,10 @@ use crate::{
     execution_metadata::{MetadataEdge, call_contracts::ScopedInterfaceCall},
     module::{
         ExecutableModule,
-        dispatch::CallRoute,
+        dispatch::{
+            CallRoute,
+            bindings::{PreparedSelection, PublishedRoutes},
+        },
         execution::{
             ExecutionFunction,
             calls::{PreparedCallTarget, PreparedClosureSignature},
@@ -20,12 +23,12 @@ use kagari_contract::callable::{interface::InterfaceCallContract, shared::Shared
 use kagari_types::ty::Ty;
 use std::sync::Arc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum LinkedCall {
     Physical,
-    Direct(CallRoute),
+    Direct(BoundRoute),
     Shared {
-        route: CallRoute,
+        route: BoundRoute,
         contract: Box<SharedCall>,
     },
     Interface {
@@ -35,7 +38,32 @@ pub(crate) enum LinkedCall {
     Closure(Option<Box<Ty>>),
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct BoundRoute {
+    route: CallRoute,
+    pub(crate) selected: Arc<PreparedSelection>,
+}
+
+impl BoundRoute {
+    fn new(route: CallRoute) -> Self {
+        Self {
+            selected: route.initial_selection(),
+            route,
+        }
+    }
+}
+
 impl LinkedCall {
+    pub(super) fn rebound(&self, routes: &PublishedRoutes) -> Result<Self, RuntimeError> {
+        let mut result = self.clone();
+        let binding = match &mut result {
+            Self::Direct(binding) | Self::Shared { route: binding, .. } => binding,
+            _ => return Ok(result),
+        };
+        binding.selected = routes.selection(&binding.route)?;
+        Ok(result)
+    }
+
     pub(super) fn interface(&self) -> Option<&Arc<ScopedInterfaceCall>> {
         match self {
             Self::Interface { prepared, .. } => prepared.as_ref(),
@@ -66,10 +94,12 @@ impl Runtime {
                         PreparedCallTarget::Shared { module, target },
                         CallTarget::Shared { contract, .. },
                     ) => Ok(LinkedCall::Shared {
-                        route: owner
-                            .member(*module)
-                            .ok_or_else(invalid)?
-                            .bind_call_route(*target)?,
+                        route: BoundRoute::new(
+                            owner
+                                .member(*module)
+                                .ok_or_else(invalid)?
+                                .bind_call_route(*target)?,
+                        ),
                         contract: contract.clone(),
                     }),
                     (
@@ -115,12 +145,12 @@ impl Runtime {
                         CallTarget::Function(_)
                         | CallTarget::ModuleFunction { .. }
                         | CallTarget::Native(_),
-                    ) => Ok(LinkedCall::Direct(
+                    ) => Ok(LinkedCall::Direct(BoundRoute::new(
                         owner
                             .member(*module)
                             .ok_or_else(invalid)?
                             .bind_call_route(*target)?,
-                    )),
+                    ))),
                     (PreparedCallTarget::Closure(_), CallTarget::ClosureRegister { .. }) => {
                         Ok(LinkedCall::Physical)
                     }

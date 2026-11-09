@@ -199,7 +199,7 @@ impl PublicationDefinitions {
 pub struct PublicationMapping {
     source: Arc<PublicationDefinitions>,
     target: Arc<PublicationDefinitions>,
-    preferred: HashMap<StableDeclarationId, DefinitionId>,
+    preferred: Arc<HashMap<StableDeclarationId, DefinitionId>>,
 }
 
 impl PublicationMapping {
@@ -270,10 +270,7 @@ impl PublicationMapping {
         let mut chosen = HashMap::new();
         // Exact transport retains each original ID; no preferred correspondence
         // is consulted by map() in this case.
-        for id in preferred
-            .into_iter()
-            .filter(|_| source.token != target.token)
-        {
+        for id in preferred {
             let stable = target.stable_declaration(id)?;
             if chosen.insert(stable, id).is_some_and(|old| old != id) {
                 return Err(invalid("ambiguous selected binder correspondence"));
@@ -282,7 +279,23 @@ impl PublicationMapping {
         Ok(Self {
             source,
             target,
-            preferred: chosen,
+            preferred: Arc::new(chosen),
+        })
+    }
+
+    /// Reuse the selected binder correspondence for another retained source.
+    /// This changes only the metadata origin; it performs no ID search or inference.
+    pub(super) fn for_source(
+        &self,
+        source: Arc<PublicationDefinitions>,
+    ) -> Result<Self, RuntimeError> {
+        if !source.same_installation(&self.target) {
+            return Err(invalid("foreign publication mapping"));
+        }
+        Ok(Self {
+            source,
+            target: self.target.clone(),
+            preferred: self.preferred.clone(),
         })
     }
 

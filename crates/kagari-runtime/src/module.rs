@@ -35,10 +35,12 @@ use crate::{
     },
     module::{
         admission::DefinitionAdmission,
-        dispatch::{PublicationDispatch, PublicationToken},
+        dispatch::{
+            PublicationDispatch, PublicationToken, bindings::PublishedRoutes, facts::DispatchFacts,
+        },
         execution::ExecutionModule,
         layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
-        layout_identity::{LayoutIdentity, ProgramLayouts},
+        layout_identity::{LayoutFacts, LayoutIdentity, ProgramLayouts},
         layout_scope::LayoutScope,
         owner::ProgramCodeOwner,
         records::ModuleRecord,
@@ -48,7 +50,7 @@ use crate::{
     },
     native::binding::LinkedNativeFunction,
     reload::{
-        ModuleEpoch, ModuleEpochAllocator,
+        ModuleEpoch, ModuleEpochAllocator, ReloadValidationError,
         updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
     },
     source::ProgramSourceSnapshot,
@@ -88,7 +90,7 @@ use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
     sync::{
-        Arc, Mutex, Weak,
+        Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
@@ -199,11 +201,44 @@ pub struct VerifiedProgram {
     definitions: DefinitionTable,
     definition_references: Arc<[DefinitionId]>,
     execution: Arc<[ExecutionModule]>,
+    initial_demands: Arc<OnceLock<Arc<RetainedDemands>>>,
+    layout_facts: Arc<LayoutFacts>,
+    dispatch_facts: Arc<OnceLock<Result<Arc<DispatchFacts>, RuntimeError>>>,
     version: ProgramRevision,
     dependencies: ReloadDependencySnapshot,
 }
 
 impl VerifiedProgram {
+    pub(crate) fn initial_demands(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
+        let check = || {
+            cancel.check().map_err(|_| {
+                ReloadValidationError::Runtime(RuntimeError::new(
+                    RuntimeErrorKind::Cancelled,
+                    "initial demand preparation cancelled",
+                ))
+            })
+        };
+        check()?;
+        if let Some(demands) = self.initial_demands.get() {
+            return Ok(demands.clone());
+        }
+        // Pure portable metadata is identical for every recipient. Publish only a
+        // successful result: cancellation must not poison later preparations.
+        let demands = RetainedDemands::prepare_initial(self, cancel)?;
+        check()?;
+        Ok(self.initial_demands.get_or_init(|| demands).clone())
+    }
+
+    pub(in crate::module) fn dispatch_facts(&self) -> Result<&Arc<DispatchFacts>, RuntimeError> {
+        self.dispatch_facts
+            .get_or_init(|| DispatchFacts::prepare(self).map(Arc::new))
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
     /// Import scoped editable records, verify once, and retain immutable evidence.
     pub fn new(
         program: DefinitionMetadata<BytecodeProgram>,
@@ -303,6 +338,9 @@ impl VerifiedProgram {
             update_coverage,
             initializers,
             execution: execution.into(),
+            dispatch_facts: Arc::new(OnceLock::new()),
+            layout_facts: Arc::new(LayoutFacts::prepare(&modules)),
+            initial_demands: Arc::new(OnceLock::new()),
             root: program.program().root,
             exports: Arc::new(program.program().exports.clone()),
             export_targets: Arc::new(program.export_targets().clone()),
@@ -734,6 +772,7 @@ pub struct ModuleStore {
 
 #[derive(Debug, Default)]
 struct ModuleStoreInner {
+    routes: PublishedRoutes,
     epochs: ModuleEpochAllocator,
     next_cell: u64,
     cells: HashMap<CellId, StaticCell>,
@@ -834,7 +873,7 @@ impl ModuleStore {
             })
             .transpose()?;
         let token = PublicationToken::new(installation.registry_owner, installation.id, epoch);
-        let dispatch = Arc::new(PublicationDispatch::prepare(
+        let mut dispatch = PublicationDispatch::prepare(
             &installation,
             token,
             previous
@@ -842,7 +881,7 @@ impl ModuleStore {
                 .map(|previous| previous.program.dispatch.as_ref()),
             &program,
             definitions.clone(),
-        )?);
+        )?;
         let source = ProgramSourceSnapshot::prepare(
             installation.registry_owner,
             dispatch.scope.clone(),
@@ -909,13 +948,15 @@ impl ModuleStore {
                 })
             })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
+        dispatch.bind_members(&modules)?;
+        let dispatch = Arc::new(dispatch);
         let program = Arc::new(ProgramDescriptor {
             definitions,
             source,
             installation: installation.id,
             retained_demands,
             dispatch,
-            layouts: ProgramLayouts::prepare(&program.modules, shared_traits),
+            layouts: ProgramLayouts::prepare(program.layout_facts.clone(), shared_traits),
             layout_admissions: LayoutAdmissions::default(),
             code: program,
             root,

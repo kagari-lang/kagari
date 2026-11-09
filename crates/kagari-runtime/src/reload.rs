@@ -46,12 +46,12 @@ pub fn prepare_program_update(
     let previous_modules = previous
         .modules()
         .iter()
-        .map(|module| module.as_ref().clone())
+        .map(Arc::as_ref)
         .collect::<Vec<_>>();
     let candidate_modules = candidate
         .modules()
         .iter()
-        .map(|module| module.as_ref().clone())
+        .map(Arc::as_ref)
         .collect::<Vec<_>>();
     contracts::validate(
         &previous_modules,
@@ -241,10 +241,12 @@ fn validate_reload_contracts<'a>(
         });
     }
     let current = active
-        .members()
-        .map(|module| module.bytecode.as_ref().clone())
+        .verified_program()
+        .modules()
+        .iter()
+        .map(Arc::as_ref)
         .collect::<Vec<_>>();
-    let candidate = modules.cloned().collect::<Vec<_>>();
+    let candidate = modules.collect::<Vec<_>>();
     contracts::validate(&current, &candidate, active.definitions(), definitions)
 }
 

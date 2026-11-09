@@ -16,6 +16,7 @@ use crate::{
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 use kagari_contract::representation::semantic_representation;
 use kagari_types::ty::Ty;
+use std::borrow::Cow;
 
 impl ExecutionStack<'_> {
     pub fn push_closure(
@@ -180,7 +181,21 @@ impl ExecutionFrame {
                 let semantic = semantic.as_ref().ok_or_else(|| {
                     RuntimeError::module_validation("shared closure call signature")
                 })?;
-                let resolved = self.resolve_type(semantic)?;
+                // Physical closure validation needs shape, not installation-key
+                // adoption. Preserve the actual closure's checked scope below.
+                let resolved: Cow<'_, Ty> = if semantic.is_concrete() {
+                    Cow::Borrowed(semantic)
+                } else {
+                    Cow::Owned(
+                        self.environment
+                            .as_ref()
+                            .ok_or_else(|| {
+                                RuntimeError::module_validation("missing closure call environment")
+                            })?
+                            .types
+                            .resolve(semantic)?,
+                    )
+                };
                 let Ty::Function { params, result } = resolved.as_ref() else {
                     return Err(RuntimeError::module_validation("shared closure call type"));
                 };

@@ -8,14 +8,80 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionStack, NativeEntryState},
+    module::linked_execution::LinkedFunction,
     session::ExecutionSession,
 };
+use kagari_bytecode::module::CallableTarget;
+use std::sync::Arc;
 
 impl<'runtime> ExecutionStack<'runtime> {
-    pub(crate) fn resume(session: ExecutionSession<'runtime>) -> Result<Self, RuntimeError> {
+    pub(crate) fn resume(
+        session: ExecutionSession<'runtime>,
+        runtime: &Runtime,
+    ) -> Result<Self, RuntimeError> {
         let mut stack = Self::new(session)?;
         stack.base = 0;
+        // Refresh every frame, including parents blocked below an awaited child.
+        // Bodies, PCs, environments, values and return destinations stay exact.
+        let links = stack
+            .frames()?
+            .iter()
+            .map(|frame| match frame.target {
+                CallableTarget::Script(function)
+                    if frame.loaded.execution().functions[function.index()]
+                        .needs_runtime_links() =>
+                {
+                    runtime
+                        .modules
+                        .linked_function(
+                            &frame.loaded,
+                            function,
+                            frame
+                                .environment()
+                                .as_ref()
+                                .map(|environment| environment.id),
+                        )
+                        .map(Some)
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("missing resumed call table")
+                        })
+                }
+                _ => Ok(None),
+            })
+            .collect::<Result<Vec<Option<Arc<LinkedFunction>>>, RuntimeError>>()?;
+        let mut frames = stack
+            .session
+            .resources
+            .sessions
+            .frames_mut(stack.session.id)
+            .ok_or_else(|| {
+                runtime.quarantine_execution_invariant("resumed frame stack borrowed")
+            })?;
+        for (frame, links) in frames.iter_mut().zip(links) {
+            frame.links = links;
+        }
+        drop(frames);
         Ok(stack)
+    }
+
+    pub(super) fn release_execution_views(&self) -> Result<(), RuntimeError> {
+        let mut frames = self
+            .session
+            .resources
+            .sessions
+            .frames_mut(self.session.id)
+            .ok_or_else(|| {
+                self.session
+                    .resources
+                    .quarantine("parked frame stack borrowed")
+            })?;
+        let previous = frames
+            .iter_mut()
+            .filter_map(|frame| frame.links.take())
+            .collect::<Vec<_>>();
+        drop(frames);
+        drop(previous);
+        Ok(())
     }
 
     pub(crate) fn can_park(&self, runtime: &Runtime) -> Result<bool, RuntimeError> {
@@ -87,6 +153,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         }
         // No callbacks or execution between proof and this commit. Notification
         // follows the parked flag, so even a wake unwind retains the frame roots.
+        stack.release_execution_views()?;
         let mut stack = activation.take().expect("validated activation");
         stack.parked = true;
         stack

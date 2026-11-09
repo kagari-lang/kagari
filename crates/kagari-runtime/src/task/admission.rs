@@ -66,7 +66,7 @@ impl Runtime {
                 associated_types: Default::default(),
             });
             let ty = self
-                .resolve_type_arguments(owner, slice::from_ref(&ty))?
+                .type_arguments(owner, None, slice::from_ref(&ty))?
                 .pop()
                 .ok_or_else(|| RuntimeError::module_validation("TaskScope type"))?;
             let capability = self.allocate_task_payload(

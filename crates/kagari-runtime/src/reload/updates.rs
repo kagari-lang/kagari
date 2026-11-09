@@ -70,6 +70,13 @@ impl RetainedDemands {
         program: &VerifiedProgram,
         cancel: &CancellationToken,
     ) -> Result<Arc<Self>, ReloadValidationError> {
+        program.initial_demands(cancel)
+    }
+
+    pub(crate) fn prepare_initial(
+        program: &VerifiedProgram,
+        cancel: &CancellationToken,
+    ) -> Result<Arc<Self>, ReloadValidationError> {
         let mut correspondence = DeclarationCorrespondence::new().map_err(identity_error)?;
         let headers = headers(program);
         let evidence = correspondence

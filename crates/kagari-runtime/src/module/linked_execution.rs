@@ -1,6 +1,7 @@
 //! Runtime-local execution links are admitted with their supplying program.
 pub(crate) mod builtin_results;
 pub(crate) mod calls;
+pub(crate) mod interfaces;
 pub(crate) mod layouts;
 mod native_calls;
 use crate::{
@@ -13,10 +14,12 @@ use crate::{
         ExecutableModule, ModuleStore,
         constants::ConstantPool,
         descriptor_index::DescriptorIndex,
+        dispatch::bindings::PublishedRoutes,
         execution::layout::Location,
         linked_execution::{
             builtin_results::BuiltinResults,
             calls::LinkedCall,
+            interfaces::{AppliedUpcasts, FunctionUpcasts},
             layouts::{AppliedLayouts, FunctionLayouts},
         },
     },
@@ -32,6 +35,8 @@ pub(crate) struct LinkedFunction {
     pub(crate) layouts: Option<Arc<FunctionLayouts>>,
     native_calls: Arc<[LinkedNativeCall]>,
     pub(crate) applied_layouts: Option<Arc<AppliedLayouts>>,
+    pub(crate) upcasts: Option<Arc<FunctionUpcasts>>,
+    pub(crate) applied_upcasts: Option<Arc<AppliedUpcasts>>,
 }
 
 #[derive(Debug)]
@@ -84,6 +89,37 @@ pub(super) struct LinkedExecution {
 }
 
 impl LinkedExecution {
+    pub(in crate::module) fn rebound(
+        &self,
+        routes: &PublishedRoutes,
+    ) -> Result<Self, RuntimeError> {
+        let functions = self
+            .functions
+            .iter()
+            .map(|function| {
+                function
+                    .as_ref()
+                    .map(|function| {
+                        let mut next = function.as_ref().clone();
+                        next.calls = function
+                            .calls
+                            .iter()
+                            .map(|call| call.rebound(routes))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into();
+                        Ok(Arc::new(next))
+                    })
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, RuntimeError>>()?
+            .into_boxed_slice();
+        Ok(Self {
+            functions,
+            applications: None,
+            builtin_results: None,
+        })
+    }
+
     pub(super) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
         pending.extend(self.functions.iter().flatten().flat_map(|function| {
             function
@@ -120,6 +156,8 @@ impl Runtime {
                 native_calls: self.link_native_calls(owner, function, prepared)?.into(),
                 layouts: FunctionLayouts::link(self, owner, function, prepared)?,
                 applied_layouts: None,
+                upcasts: FunctionUpcasts::link(self, owner, &prepared.upcasts)?,
+                applied_upcasts: None,
                 constants: constants.clone(),
                 calls,
             })));
@@ -152,13 +190,17 @@ impl ModuleStore {
         let mut records = self.inner.try_borrow_mut().ok()?;
         let execution = records.resolve_mut(owner)?.execution.as_mut()?;
         let linked = execution.functions.get(function.index())?.as_ref()?;
-        let Some(layouts) = linked
+        let layouts = linked
             .layouts
             .as_ref()
-            .filter(|layouts| layouts.is_scoped())
-        else {
+            .filter(|layouts| layouts.is_scoped());
+        let upcasts = linked
+            .upcasts
+            .as_ref()
+            .filter(|upcasts| upcasts.is_scoped());
+        if layouts.is_none() && upcasts.is_none() {
             return Some(linked.clone());
-        };
+        }
         let environment = environment?;
         let applications = execution
             .applications
@@ -169,7 +211,8 @@ impl ModuleStore {
         // One exact function/environment descriptor is the frame's sole execution
         // reference. Its layout cells contain pure facts, not executable edges.
         let mut applied = linked.as_ref().clone();
-        applied.applied_layouts = Some(layouts.application(environment));
+        applied.applied_layouts = layouts.map(|layouts| layouts.application(environment));
+        applied.applied_upcasts = upcasts.map(|upcasts| upcasts.application(environment));
         let applied = Arc::new(applied);
         // Optional retention failure cannot revoke the new frame's reference.
         let _ = applications.insert(environment, function, applied.clone());

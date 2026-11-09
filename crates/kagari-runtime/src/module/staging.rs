@@ -5,6 +5,7 @@ use crate::{
 };
 use std::{
     collections::hash_map::Entry,
+    mem,
     sync::{
         Arc, Weak,
         atomic::{AtomicBool, Ordering},
@@ -86,6 +87,22 @@ impl StagedProgram {
                 "invalid staged program publication",
             ));
         }
+        // All correspondence, table allocations and environment-view replacement
+        // happen before visibility changes. Parked frames hold no active views.
+        let next_routes = inner.routes.prepare(&self.module)?;
+        let mut next_execution = inner
+            .records
+            .iter()
+            .filter(|(_, record)| {
+                record.module.installation_id() == self.module.installation_id()
+                    && (!inner.staged.contains_key(&record.module.program_key())
+                        || record.module.program_key() == key)
+            })
+            .filter_map(|(key, record)| {
+                record.execution.as_ref().map(|execution| (*key, execution))
+            })
+            .map(|(key, execution)| Ok((key, Some(execution.rebound(&next_routes)?))))
+            .collect::<Result<Vec<_>, RuntimeError>>()?;
         // Resolve the hash-table entry before taking the cell lock. Removing this
         // occupied entry in the commit neither allocates nor hashes again.
         let entry = match inner.staged.entry(key) {
@@ -121,8 +138,21 @@ impl StagedProgram {
         self.lease.published.store(true, Ordering::Relaxed);
         let removed_stage = entry.remove();
         let previous = current.replace(replacement);
+        let previous_routes = mem::replace(&mut inner.routes, next_routes);
+        for (key, execution) in &mut next_execution {
+            mem::swap(
+                &mut inner
+                    .records
+                    .get_mut(key)
+                    .expect("prepared execution owner")
+                    .execution,
+                execution,
+            );
+        }
         drop(current);
         drop(inner);
+        drop(previous_routes);
+        drop(next_execution);
         drop(previous);
         drop(removed_stage);
         Ok(self.module.clone())

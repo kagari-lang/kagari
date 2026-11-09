@@ -28,6 +28,10 @@ impl ExecutionStack<'_> {
             PreparedTransition::Call { index } => {
                 Ok(RegionExit::Call(self.push_prepared_call(runtime, index)?))
             }
+            PreparedTransition::Upcast { index } => {
+                self.execute_interface_upcast(runtime, index)?;
+                Ok(RegionExit::Safepoint)
+            }
             PreparedTransition::Field { index } => self.execute_scoped_field(runtime, index),
             PreparedTransition::TupleWrite { operation, index } => {
                 // Keep cold transition requests small: operands belong to the

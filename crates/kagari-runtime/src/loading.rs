@@ -18,8 +18,9 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 impl Runtime {
     /// Keep one exact module version reachable until the last lease is dropped.
@@ -47,6 +48,7 @@ impl Runtime {
         module: &BytecodeModule,
         program: &VerifiedProgram,
         admission: &DefinitionAdmission,
+        validated: &mut HashSet<DefinitionId>,
     ) -> Result<LinkedHostBindings, RuntimeError> {
         self.native_entries
             .validate_installed_contracts(module, admission)?;
@@ -54,7 +56,10 @@ impl Runtime {
         bindings.native = module
             .native_imports
             .iter()
-            .map(|import| self.native_entries.link(import, program, admission))
+            .map(|import| {
+                self.native_entries
+                    .link(import, program, admission, validated)
+            })
             .collect::<Result<_, _>>()?;
         Ok(bindings)
     }
@@ -68,10 +73,11 @@ impl Runtime {
             self.definition_context(),
             &self.execution_options().cancellation,
         )?;
+        let mut validated = HashSet::new();
         let members = program
             .modules()
             .iter()
-            .map(|module| self.link_native_module(module, program, &definitions))
+            .map(|module| self.link_native_module(module, program, &definitions, &mut validated))
             .collect::<Result<_, _>>()?;
         // Provider authority comes from installed registrations, never merely
         // from declarations or requirements carried by the product.
@@ -224,11 +230,13 @@ impl Runtime {
         &self,
         program: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
+        let mut validated = HashSet::new();
         for member in program.members() {
             let current = self.link_native_module(
                 &member.bytecode,
                 member.verified_program(),
                 member.identity_admission(),
+                &mut validated,
             )?;
             if current.paths != member.host_paths {
                 return Err(RuntimeError::module_validation(
@@ -356,9 +364,10 @@ impl Runtime {
             .map_err(ReloadValidationError::Runtime)?;
         // Only admission may have changed; do not rebuild immutable checked evidence.
         validate_reload_target(&baseline, Some(&latest))?;
+        let mut validated = HashSet::new();
         for (module, prepared) in program.modules().iter().zip(&bindings.members) {
             let current = self
-                .link_native_module(module, &program, &bindings.definitions)
+                .link_native_module(module, &program, &bindings.definitions, &mut validated)
                 .map_err(ReloadValidationError::Runtime)?;
             if current.paths != prepared.paths {
                 return Err(ReloadValidationError::Runtime(

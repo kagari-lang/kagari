@@ -361,6 +361,7 @@ impl ExecutionStack<'_> {
                 "no suspendable pending wait",
             ));
         }
+        stack.release_execution_views()?;
         let mut stack = activation.take().expect("validated pending activation");
         stack.parked = true;
         drop(stack);

@@ -53,6 +53,7 @@ pub(super) enum CursorExit {
 
 pub(super) enum PreparedTransition {
     Call { index: usize },
+    Upcast { index: usize },
     Native { index: usize },
     Constant { dst: Location, constant: ConstantId },
     Field { index: usize },
@@ -85,6 +86,11 @@ impl ExecutionCursor<'_> {
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Call { index })) => {
                     return Ok(CursorExit::Transition(PreparedTransition::Call { index }));
+                }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Upcast {
+                    index,
+                })) => {
+                    return Ok(CursorExit::Transition(PreparedTransition::Upcast { index }));
                 }
                 ScalarExit::Boundary => {
                     #[cfg(feature = "execution-diagnostics")]

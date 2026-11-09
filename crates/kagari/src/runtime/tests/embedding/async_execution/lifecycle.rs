@@ -211,34 +211,41 @@ fn lifecycle_reload_contract() {
     reject_candidate_work(&f, &scope, &factory);
     let original_version = "pub fn version() -> i32 {\n    1\n}";
     assert_eq!(SOURCE.matches(original_version).count(), 1);
-    let replacement = prepare(
-        &f,
-        &SOURCE.replace(original_version, "pub fn version() -> i32 {\n    100\n}"),
-    );
-    f.runtime
-        .program(&f.module)
-        .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
-        .and_then(|candidate| {
-            f.runtime
-                .replace_program(&f.module, &candidate, Default::default())
-        })
-        .unwrap();
-    assert_ne!(
-        f.runtime.runtime().select_program(&f.module).unwrap().key(),
-        old_key
-    );
-    f.program = replacement;
-    assert_eq!(f.value(&f.invoke("version", &[])), Value::I32(100));
+    // Both publications happen while the nested `first` Future is waiting.
+    // Its parent must refresh too: after child return it calls `version` again.
+    for version in [100, 200] {
+        let replacement = prepare(
+            &f,
+            &SOURCE.replace(
+                original_version,
+                &format!("pub fn version() -> i32 {{\n    {version}\n}}"),
+            ),
+        );
+        f.runtime
+            .program(&f.module)
+            .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+            .and_then(|candidate| {
+                f.runtime
+                    .replace_program(&f.module, &candidate, Default::default())
+            })
+            .unwrap();
+        assert_ne!(
+            f.runtime.runtime().select_program(&f.module).unwrap().key(),
+            old_key
+        );
+        f.program = replacement;
+        assert_eq!(f.value(&f.invoke("version", &[])), Value::I32(version));
+    }
     assert_eq!(
         f.starts.load(Ordering::SeqCst),
         1,
         "reload must not drive waiting or queued work"
     );
     assert!(f.runtime.runtime().modules().loaded(old_key).is_some());
-    finish_task(&f, &scope, waiting, 100);
+    finish_task(&f, &scope, waiting, 200);
     // A Future captured before publication remains cold until its queued factory runs.
     assert_eq!(task_boundary(&f, &scope, queued), TaskDriveResult::Waiting);
-    finish_task(&f, &scope, queued, 100);
+    finish_task(&f, &scope, queued, 200);
     // The retained closure keeps its body; its ordinary factory call selects current code.
     let retained = spawn(&f, &scope, &factory);
     drop(factory);
@@ -246,7 +253,7 @@ fn lifecycle_reload_contract() {
         task_boundary(&f, &scope, retained),
         TaskDriveResult::Waiting
     );
-    finish_task(&f, &scope, retained, 100);
+    finish_task(&f, &scope, retained, 200);
     let execution = f.start_future(&future);
     drop(future);
     assert!(matches!(
@@ -258,18 +265,18 @@ fn lifecycle_reload_contract() {
         owned_boundary(&f, &execution),
         DriveResult::Waiting
     ));
-    assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), 120);
+    assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), 220);
     reply(&f, 30);
     let DriveResult::Complete(result) = owned_boundary(&f, &execution) else {
         panic!("completed retained Future")
     };
-    assert_eq!(f.value(&result.unwrap()), Value::I32(255));
+    assert_eq!(f.value(&result.unwrap()), Value::I32(455));
     drop(execution);
     let fresh_factory = f.invoke("factory", &[]);
     let fresh = spawn(&f, &scope, &fresh_factory);
     drop(fresh_factory);
     assert_eq!(task_boundary(&f, &scope, fresh), TaskDriveResult::Waiting);
-    finish_task(&f, &scope, fresh, 100);
+    finish_task(&f, &scope, fresh, 200);
     assert_eq!(f.cancels.load(Ordering::SeqCst), 0);
     scope.close();
     f.runtime.runtime().drain_cancelled_tasks().unwrap();

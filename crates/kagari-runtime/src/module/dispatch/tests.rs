@@ -310,7 +310,7 @@ fn semantic_impl_order_and_additions_preserve_original_binder_transport() {
             .program
             .dispatch
             .tables
-            .target(old.slot(), binding.target)
+            .target(old.slot(), binding.inner.target)
             .unwrap();
         if let Some(generic) = &old_selected.generic {
             let mapped = selected

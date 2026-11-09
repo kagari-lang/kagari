@@ -307,33 +307,12 @@ impl<'a> Executor<'a> {
                     .write_capture_cell(&cell, ty, value)
                     .map_err(VmError::RuntimeError)?;
             }
-            BytecodeInstruction::UpcastInterface {
-                dst,
-                value,
-                ref source,
-                ref target,
-            } => {
-                let Ty::Trait(source) = self
-                    .current_frame()?
-                    .resolve_type(&Ty::Trait(source.clone()))?
-                    .into_owned()
-                else {
-                    return Err(VmError::TypeMismatch("interface upcast source"));
-                };
-                let Ty::Trait(target) = self
-                    .current_frame()?
-                    .resolve_type(&Ty::Trait(target.clone()))?
-                    .into_owned()
-                else {
-                    return Err(VmError::TypeMismatch("interface upcast target"));
-                };
-                let value = self.current_frame()?.read_slot(self.runtime, value)?;
-                let view = self
-                    .runtime
-                    .upcast_interface(&value, &source, &target)
-                    .map_err(VmError::RuntimeError)?;
-                self.current_frame_mut()?
-                    .write_slot(self.runtime, dst, view)?;
+            BytecodeInstruction::UpcastInterface { .. } => {
+                return Err(VmError::RuntimeError(
+                    self.runtime.quarantine_execution_invariant(
+                        "prepared interface upcast reached canonical dispatch",
+                    ),
+                ));
             }
             BytecodeInstruction::MakeInterface {
                 dst,

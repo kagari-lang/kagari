@@ -8,6 +8,7 @@ pub(crate) mod calls;
 pub(crate) mod fields;
 pub(crate) mod frames;
 pub(crate) mod indices;
+pub(crate) mod interfaces;
 pub(crate) mod layout;
 pub mod managed;
 pub(crate) mod scalar;
@@ -19,6 +20,7 @@ use crate::{
         fields::PreparedFieldOperation,
         frames::CalleeLayout,
         indices::{IndexAccess, PreparedIndexOperation},
+        interfaces::PreparedUpcast,
         layout::{FrameLayout, Location},
         managed::{ManagedOperation, PreparedManagedOperation},
     },
@@ -37,6 +39,7 @@ use kagari_types::{
         operation::{FloatOperation, FloatType, ShiftKind},
     },
     scalar::IntegerType,
+    ty::Ty,
 };
 use std::collections::BTreeMap;
 
@@ -146,6 +149,7 @@ pub(crate) struct ExecutionFunction {
     pub calls: Box<[PreparedCall]>,
     pub fields: Box<[PreparedFieldOperation]>,
     pub indices: Box<[PreparedIndexOperation]>,
+    pub upcasts: Box<[PreparedUpcast]>,
     pub native_calls: usize,
     pub has_call_contracts: bool,
     has_linked_constants: bool,
@@ -158,6 +162,7 @@ impl ExecutionFunction {
             || self.has_linked_constants
             || self.has_layout_operands
             || self.native_calls != 0
+            || !self.upcasts.is_empty()
     }
 }
 
@@ -165,6 +170,8 @@ impl ExecutionFunction {
 struct OperationTables {
     fields: Vec<PreparedFieldOperation>,
     indices: Vec<PreparedIndexOperation>,
+    upcasts: Vec<PreparedUpcast>,
+    native_calls: usize,
 }
 
 impl ExecutionModule {
@@ -210,7 +217,6 @@ impl ExecutionModule {
                         })
                         .collect();
                     let mut sites = OperationTables::default();
-                    let mut native_calls = 0;
                     let mut layout_sites = 0;
                     let instructions: Box<[_]> = function
                         .instructions
@@ -232,9 +238,7 @@ impl ExecutionModule {
                                 instruction,
                                 slot_layout,
                                 module,
-                                &mut sites.fields,
-                                &mut sites.indices,
-                                &mut native_calls,
+                                &mut sites,
                             )
                         })
                         .collect();
@@ -254,7 +258,8 @@ impl ExecutionModule {
                         has_layout_operands: layout_sites != 0,
                         fields: sites.fields.into_boxed_slice(),
                         indices: sites.indices.into_boxed_slice(),
-                        native_calls,
+                        native_calls: sites.native_calls,
+                        upcasts: sites.upcasts.into_boxed_slice(),
                         has_call_contracts: false,
                     }
                 })
@@ -269,10 +274,14 @@ impl ExecutionInstruction {
         instruction: &BytecodeInstruction,
         slot_layout: &FrameLayout,
         module: &BytecodeModule,
-        fields: &mut Vec<PreparedFieldOperation>,
-        indices: &mut Vec<PreparedIndexOperation>,
-        native_calls: &mut usize,
+        tables: &mut OperationTables,
     ) -> Self {
+        let OperationTables {
+            fields,
+            indices,
+            upcasts,
+            native_calls,
+        } = tables;
         let location = |register: Slot| {
             slot_layout
                 .location(register.index())
@@ -281,6 +290,21 @@ impl ExecutionInstruction {
         let slot = |register: Slot| location(register).operand;
 
         match *instruction {
+            BytecodeInstruction::UpcastInterface {
+                dst,
+                value,
+                ref source,
+                ref target,
+            } => {
+                let index = upcasts.len();
+                upcasts.push(PreparedUpcast {
+                    dst: location(dst),
+                    value: location(value),
+                    source: Ty::Trait(source.clone()),
+                    target: Ty::Trait(target.clone()),
+                });
+                Self::managed(ManagedOperation::Upcast { index })
+            }
             BytecodeInstruction::Call {
                 callee: CallTarget::Native(_),
                 ..

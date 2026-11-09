@@ -516,7 +516,7 @@ impl Runtime {
             _activation: activation,
         };
         self.resume_execution_observer()?;
-        ExecutionStack::resume(session)
+        ExecutionStack::resume(session, self)
     }
 
     pub(crate) fn validate_owned_execution(

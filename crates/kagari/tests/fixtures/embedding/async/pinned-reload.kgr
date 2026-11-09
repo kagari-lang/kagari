@@ -18,8 +18,12 @@ impl Read for Saved {
     }
 }
 
+async fn first() -> i32 {
+    request(10).await
+}
+
 async fn finish<T: Read>(saved: T) -> i32 {
-    val first = request(10).await;
+    val first = first().await;
     val second = request(first + version()).await;
     saved.read() + first + second + version()
 }

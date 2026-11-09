@@ -242,12 +242,17 @@ impl NativeRegistry {
         import: &NativeImport,
         program: &VerifiedProgram,
         admission: &DefinitionAdmission,
+        validated: &mut HashSet<DefinitionId>,
     ) -> NativeResult<Arc<LinkedNativeFunction>> {
         let entry = self
             .entries
             .get_id(admission.runtime_id(import.binding)?)
             .ok_or_else(|| RuntimeError::module_validation("native binding is not installed"))?;
-        dependencies::validate(&entry.required_catalog, program, admission)?;
+        let binding = admission.runtime_id(import.binding)?;
+        if !validated.contains(&binding) {
+            dependencies::validate(&entry.required_catalog, program, admission)?;
+            validated.insert(binding);
+        }
         let declaration = program
             .modules()
             .iter()

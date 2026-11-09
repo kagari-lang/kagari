@@ -154,7 +154,7 @@ impl ExecutionStack<'_> {
                 );
             }
         };
-        let selected = runtime.select_call_route(route)?;
+        let selected = runtime.select_prepared_call(&route.selected)?;
         let loaded = selected.owner().clone();
         let target = selected.target();
         let arguments = FrameArguments::frame(slots, &call.arguments);

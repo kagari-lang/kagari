@@ -15,4 +15,5 @@ pub(crate) enum ManagedOperation {
     Index { index: usize },
     Native { index: usize },
     Call { index: usize },
+    Upcast { index: usize },
 }

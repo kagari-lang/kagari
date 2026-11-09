@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: execution authorized on 2026-11-09, including a commit per completed
-phase. MS00 and MS01 are locally accepted; MS02-MS05 have not started. The user selected the
+phase. MS00-MS02 are locally accepted; MS03-MS05 have not started. The user selected the
 [Runtime target architecture](runtime-refactor-design.md), requested this phase
 plan, then authorized its execution. Routine choices within the selected scope
 do not require another design-approval round. The progress ledger records actual
@@ -960,15 +960,14 @@ detached preparation or new call tables; later phase status appears below.
 
 ## Progress ledger
 
-Execution is active. MS00 and MS01 are accepted locally with the evidence below.
-Next: MS02's shared preparation facts, final call bindings and parked-stack views.
-Current-selection ownership and public live-query cutover remain MS03 work.
+Execution is active. MS00-MS02 are accepted locally with the evidence below.
+Next: MS03 current-selection ownership and the public live-query cutover.
 
 | Phase | Status | Acceptance evidence / carried errors |
 | --- | --- | --- |
 | MS00 | Complete locally | Frozen identity/API map, sharing/A/A baseline and gates; 25 selected tests and required local checks pass; full matrices remain CI-only |
 | MS01 | Complete locally | Shared immutable Program, detached preparation, local identity admission and native compiler split; selected integration/source-free cases and required local checks pass |
-| MS02 | Not started | Ready after MS01 local acceptance |
+| MS02 | Complete locally | Shared facts/history, prepared upcasts, final target tables and complete parked-stack refresh; selected core/SDK/VM/source-free cases and mandatory local checks pass |
 | MS03 | Not started | Await MS02 |
 | MS04 | Not started | Await MS03 |
 | MS05 | Not started | Await MS04; final CI status remains separate |
@@ -1070,3 +1069,100 @@ until their designated cutovers. Sharing/performance gates remain MS05 work;
 functional witnesses are not allocation or speedup measurements. Full-workspace
 tests and exhaustive feature/backend/platform matrices remain unrun locally and
 belong to CI acceptance.
+
+### MS02 local acceptance — 2026-11-09
+
+Shared callable classification/signature/binder facts, layout correspondence and
+initial demand history belong to the verified product. Successful initial-history
+preparation is shared across recipients; cancellation is checked even on a cache
+hit, and a cancelled preparation cannot poison later requests. Installation tables retain canonical correspondence
+indexes and provider authority separately. Prepared upcast operands belong to the
+shared function; closed types link once, generic operands close once per checked
+environment at the original instruction. The per-use frame type-closure API and
+canonical VM upcast fallback are removed. Five selected source/artifact,
+bound-construction, scoped-rejection and default-method scenarios passed after this
+cutover. SDK all-target checks also pass after the final table/preparation changes.
+
+`PreparedSelection` contains a generational module key, callable target and prepared
+binder mapping, without executable ownership. Bound function calls consume this
+selection directly. Publication prepares final targets for all live bindings and
+new call tables for retained programs before visibility changes. The commit swaps
+current ownership, binding registry and function views together; superseded owners
+drop after storage/current guards are released. Existing native eligibility and
+cumulative demand admission remain prerequisites. Selected binder preferences are
+shared immutable maps; another checked metadata origin reuses them without a binder
+walk, declaration search or correspondence allocation.
+
+Saved host bindings retain a separate route identity and metadata, not code. The
+local registry holds identities weakly and prunes expired entries during publication.
+Whole-program descriptors retain their own identities, so parked code participates
+even without saved host handles. Targets belong to the current installation or are
+exact source-owned generated bodies, already covered by current/body roots. Metadata
+adds no executable lease or strong predecessor chain. Version 1 and version 2
+bindings both receive final version 3 selections, with no intermediate traversal.
+
+Parking releases every frame's active function view. Resume refreshes the whole
+stack, including parents below an awaited child, preserving bodies, PCs, slots,
+return destinations, environments and captures. The existing async reload fixture
+now suspends a nested child and publishes twice before its parent resumes, closing
+the parent-refresh gap without adding a second lifecycle runner.
+
+Ordinary reload comparison now projects contracts rather than copying code images.
+The existing conservative indexed-body guard for ambiguous same-name locals keeps
+its full operand/body evidence only for modules requiring that guard; this temporary
+validation input is never installed as code. Native dependency validation deduplicates
+actual registered bindings within each preparation/revalidation operation, retaining
+per-recipient authority and invalidating the set at the end of that operation.
+
+The final core selection has 17 passing tests, including source-free contract
+projection, ambiguous-local guards, shared fact/history backing and whole-stack
+parking. A strengthened sharing scenario also passes cancellation against a warm
+history cache and subsequent reuse. The initial five publication-guard scenarios
+passed; the unwind guard was rerun in the final selection. The 31 selected SDK
+scenarios pass across focused repair rounds, covering generic/witness/result
+adaptation, typed handles, nested async reload, interface additions and real native
+code. The native-version selection scenario passes separately. Five VM cases pass
+for fixed initializer recipes/current helpers, callback reentry with GC, resumed
+ordinary calls and native version admission. The genuine no-frontend artifact
+consumer passes against the separately emitted fixture retained from MS01.
+
+The async test initially rejected TaskScope construction because a canonical
+registry ID was passed to the public product-scope type API. Internal task admission
+now closes the verified registry-owned role through the canonical type boundary;
+public source-scope validation is unchanged. Eager native selection exposed a second
+error: route identity used the caller's physical bytecode member as the native
+provider. Import placement can change during retained-application expansion. Pure
+route facts now identify the provider through the checked binding declaration's
+module, while exact NativeImport equality and local registration checks remain
+mandatory. The temporarily explored missing-slot relaxation was removed; absent
+required targets still reject before commit. Intermediate private-field, borrowed-
+iterator and duplicate-branch Clippy errors are repaired.
+
+SDK preparation cancellation and complete-package distribution also pass after the
+history-sharing change. The latter prepares on a worker and independently replaces
+two Runtime installations while preserving source snapshots and independent statics.
+Required local structure, format, workspace all-target Clippy and diff checks pass;
+40 local documentation links, fences and CRLF preservation pass. The public backend
+helper `ExecutionFrame::resolve_type` is removed; prepared instruction/environment
+operands now own that work. No compatibility alias or legacy upcast path remains.
+
+Focused reproduction commands use the existing owners:
+
+```text
+cargo test -p kagari-runtime --lib module::dispatch::tests
+cargo test -p kagari-runtime --lib frame::owned::tests
+cargo test -p kagari-runtime --lib module::tests::verified_code_is_shared_but_runtime_linkage_and_instances_are_private -- --exact
+cargo test -p kagari --lib runtime::tests::embedding::generic_reload
+cargo test -p kagari --lib lifecycle_reload_contract
+cargo test -p kagari --lib reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned
+cargo test -p kagari-vm --lib imported_static_keeps_ready_values_and_calls_current_helpers_on_first_access
+cargo test -p kagari-vm --lib retained_host_callbacks_pin_their_capture_program_across_reload
+cargo test -p kagari-vm --lib resumed_frames_select_current_direct_recursive_shared_and_module_calls
+cargo test -p kagari --no-default-features --test artifact_features portable_artifact_executes_without_source_compilation
+```
+
+Passing evidence is retained across focused repair rounds; these are reproduction
+filters, not a claim of one fresh all-green transcript. No known build or integration
+failure is carried forward. Full-workspace tests and exhaustive matrices remain
+CI-only and were not run locally. No performance claim is made: MS03 still owns
+current-cell liveness-lock removal and MS05 owns the frozen measurement gates.
