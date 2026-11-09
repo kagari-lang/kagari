@@ -110,6 +110,11 @@ a low-level publication without that owner cannot fabricate source preparation.
 Product DefinitionIds remain lexical. `DefinitionAdmission` supplies checked
 product/local correspondence; closed Runtime types and lexical binders keep explicit
 provenance. Shared pure dispatch/layout facts grant no recipient provider authority.
+Operation requirements and associated-output lookup compare admitted Runtime keys;
+their lexical witnesses and supplying type environments remain separate. Native
+selected calls retain their prepared scoped signatures, including native types
+without script nominal origins. Enum value equality and hashing normalize the same
+nominal arguments and variant IDs; payload/layout admission still checks provenance.
 Local call entries contain generational keys and metadata, not strong predecessor
 code references. The weak route registry lets saved host bindings follow current
 implementations without retaining obsolete executable bodies. Expired identities are

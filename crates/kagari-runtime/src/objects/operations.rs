@@ -185,6 +185,11 @@ impl Runtime {
                         .as_ref(),
                 };
                 operations.push(BoundOperation {
+                    requirement_key: owner.identity_admission().runtime_in(
+                        &requirement,
+                        &self.definition_context().snapshot(),
+                        &Default::default(),
+                    )?,
                     receiver_identity: receiver_identity.clone(),
                     application: None,
                     associated_interface: interface.clone(),

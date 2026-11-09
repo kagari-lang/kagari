@@ -1531,6 +1531,42 @@ skipped-base preparation, optimizing tiers and native continuations/deoptimizati
 remain separate. Whole-old-call-graph freezing and conservative draining are not
 additional reload modes.
 
+Deferred [declaration/instance identity review](review.md#shared-declaration-identity-and-runtime-local-instance-identity)
+records the 2026-11-09 direction to share immutable declaration keys while keeping
+Runtime object, installation and host-binding authority local. Evaluate preparation/
+linking correspondence and redundant local interning separately; the current
+DefinitionAdmission model remains implemented, and no identity migration is activated.
+
+The 2026-11-09 post-migration repair resolves the 24 reported SDK language
+failures. Executable recipes retain product-local IDs; operation/associated-output
+lookup and enum equality/hash compare admitted Runtime identities. Iterator
+storage lookup uses the closed native declaration while derived elements keep
+their lexical scope. Selected Native calls retain prepared signatures even when
+their types have no script nominal origin. These contracts belong in the
+[Runtime identity model](architecture/runtime.md#program-product-installation-and-publication).
+The ordering fixture additionally checks set-key deduplication and lookup across
+intrinsic-produced and explicitly constructed nested enums. Existing core tests
+now assert shared immutable code and distinct admitted Runtime IDs, including
+foreign-handle/type rejection and reload correspondence.
+
+Local validation covers 173 affected language scenarios, 46 selected core
+type/operation/identity cases, 22 generic-reload cases and three source-free
+artifact cases, reusing passing evidence and rerunning repaired failures. SDK
+selection uses `cargo test -p kagari --lib --` with the callable/collection/
+conversion/default/iteration/list/operator/standard trait groups and the ordering
+syntax fixture; core selection uses `cargo test -p kagari-runtime --lib --` with
+`frame::types`, `objects::application`, `module::dispatch`, `value_semantics`,
+`native::tests::native_execution` and `execution_metadata::groups`. Generic reload
+uses the SDK `runtime::tests::embedding::generic_reload` filter. The source-free
+run initially lacked its ignored input fixture; after
+`cargo run -p kagari --example regenerate_feature_artifact`, the
+`--no-default-features --test artifact_features` filters
+`source_free_shared_operator_contract`, `source_free_native_enums` and
+`source_free_algorithms` pass. Structure, fmt, workspace all-target Clippy,
+fixture formatting and diff checks pass. Full-workspace tests and exhaustive
+matrices remain unrun CI scope; no known selected-test failure remains. This
+repair does not activate the deferred frame/slot/Native API proposal.
+
 #### Installation current-lock measurement
 
 The user-authorized 2026-11-08 [current-cell Mutex measurement](performance-baseline.md#installation-current-cell-mutex-measurement-windows-2026-11-08)

@@ -318,8 +318,11 @@ impl Runtime {
         ty: &Ty,
         op: IterOp,
     ) -> Result<value::Value, RuntimeError> {
+        let ty = owner
+            .identity_admission()
+            .product(ty, &Default::default())?;
         let ty = self
-            .resolve_type_arguments(owner, slice::from_ref(ty))?
+            .resolve_type_arguments(owner, slice::from_ref(&ty))?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("iterator type scope"))?;
         self.iter_operation_with_type(owner, value, &ty, op)
@@ -337,20 +340,22 @@ impl Runtime {
         match op {
             IterOp::String(kind) => self.gc.new_string_iter(value, ty.ty(), kind, owner),
             IterOp::New => {
-                let item = ty.derive(self, owner, |ty| match ty {
-                    Ty::Range(item, _) | Ty::Array(item) | Ty::Set(item, _) => {
-                        Some((**item).clone())
-                    }
+                let sequence_element = match ty.ty() {
                     Ty::NativeObject(nominal) => self
                         .native_entries
                         .storage
                         .get_id(nominal.declaration)
                         .and_then(|storage| match storage.layout() {
-                            NativeStorageLayout::Sequence { element } => {
-                                nominal.arguments.get(element).cloned()
-                            }
+                            NativeStorageLayout::Sequence { element } => Some(element),
                             _ => None,
                         }),
+                    _ => None,
+                };
+                let item = ty.derive(self, owner, |ty| match ty {
+                    Ty::Range(item, _) | Ty::Array(item) | Ty::Set(item, _) => {
+                        Some((**item).clone())
+                    }
+                    Ty::NativeObject(nominal) => nominal.arguments.get(sequence_element?).cloned(),
                     Ty::Map { key, value, .. } => {
                         Some(Ty::Tuple(vec![(**key).clone(), (**value).clone()]))
                     }

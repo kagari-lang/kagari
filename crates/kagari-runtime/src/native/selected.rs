@@ -3,10 +3,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     execution_metadata::groups::OperationId,
-    frame::types::{
-        EnvironmentRecord, TypeEnvironment,
-        arguments::{ScopedSignature, TypeArgument},
-    },
+    frame::types::{EnvironmentRecord, TypeEnvironment, arguments::ScopedSignature},
     module::ExecutableModule,
     native::{
         binding::NativeResult,
@@ -136,8 +133,10 @@ impl LinkedCallable {
             result: result.ty().clone(),
             primitive: operation.primitive,
             environment,
-            scoped_signature: (result.has_origin() || params.iter().any(TypeArgument::has_origin))
-                .then(|| Arc::new(ScopedSignature { params, result })),
+            // Even origin-free native types contain admitted declaration IDs.
+            // Preserve the prepared signature rather than treating its closed
+            // spelling as a new product-local expression at the host boundary.
+            scoped_signature: Some(Arc::new(ScopedSignature { params, result })),
         })
     }
 

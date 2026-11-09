@@ -561,9 +561,8 @@ fn retained_method_transports_binders_witnesses_and_constructions_after_impl_reo
     let requirement = view
         .selected
         .mapping()
-        .remap(&operation.requirement, &Default::default())
-        .unwrap()
-        .into_records();
+        .remap_closed(&operation.requirement_key, &Default::default())
+        .unwrap();
     assert_eq!(
         environment.operation(&runtime.gc, &requirement, &operation.receiver_identity),
         Some(operation_id)

@@ -275,25 +275,30 @@ impl TypeBindings {
                     outputs,
                     ..
                 } = fact;
-                (ty == receiver
-                    && applied.declaration == interface.declaration
-                    && applied.arguments == interface.arguments
-                    && interface
-                        .associated_types
-                        .iter()
-                        .all(|(id, ty)| applied.associated_types.get(id) == Some(ty)))
-                .then(|| {
-                    outputs
-                        .get(&member)
-                        .map(|argument| argument.view(owner))
-                        .or_else(|| {
-                            applied
-                                .associated_types
-                                .get(&member)
-                                .map(|ty| TypeView::new(ty, owner, None))
-                        })
-                })
-                .flatten()
+                let admission = fact
+                    .lookup_scope
+                    .as_ref()
+                    .map(|scope| scope.identity_admission())
+                    .unwrap_or_else(|| owner.identity_admission());
+                let definitions = self.closed_definitions(admission.target());
+                let cancel = Default::default();
+                let expected = admission.runtime_in(interface, definitions, &cancel).ok()?;
+                let actual = admission.runtime_in(applied, definitions, &cancel).ok()?;
+                let receiver = admission.runtime_in(receiver, definitions, &cancel).ok()?;
+                let actual_receiver = admission.runtime_in(ty, definitions, &cancel).ok()?;
+                (actual_receiver == receiver && actual.satisfies(&expected))
+                    .then(|| {
+                        outputs
+                            .get(&member)
+                            .map(|argument| argument.view(owner))
+                            .or_else(|| {
+                                applied
+                                    .associated_types
+                                    .get(&member)
+                                    .map(|ty| TypeView::new(ty, owner, None))
+                            })
+                    })
+                    .flatten()
             })
             .or_else(|| {
                 self.parent

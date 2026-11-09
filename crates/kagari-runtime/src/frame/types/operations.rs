@@ -87,9 +87,9 @@ impl OperationBindings {
             let key = TransportedOperation {
                 id,
                 receiver: Arc::new(operation.receiver_identity.transported(&mapping)?),
-                requirement: mapping.remap_applied(&operation.requirement, &Default::default())?,
-                interface: mapping
-                    .remap_applied(&operation.associated_interface, &Default::default())?,
+                requirement: mapping
+                    .remap_closed(&operation.requirement_key, &Default::default())?,
+                interface: mapping.remap_closed(&operation.interface_key, &Default::default())?,
                 slot: operation.slot,
                 generic: operation.generic.is_some(),
                 interface_key: mapping

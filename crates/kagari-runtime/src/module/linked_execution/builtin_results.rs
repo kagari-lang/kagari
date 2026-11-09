@@ -63,7 +63,7 @@ impl Runtime {
         // Preserve builtin failure order: prepare only after operand validation,
         // and only the result contract actually requested by the operation.
         // No module-store borrow crosses type/layout preparation.
-        let definitions = self.definition_context().snapshot();
+        let definitions = owner.definitions();
         let ordering = Ty::Enum(NominalTy {
             declaration: definitions
                 .lookup(&binding::ordering_declaration())

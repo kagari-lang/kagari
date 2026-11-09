@@ -137,6 +137,11 @@ impl Runtime {
         })?;
         let target = CallableTarget::Script(target.id);
         self.gc.alloc_bound_operation(BoundOperation {
+            requirement_key: owner.identity_admission().runtime_in(
+                &requirement,
+                &self.definition_context().snapshot(),
+                &Default::default(),
+            )?,
             receiver_identity,
             application: Some(application),
             generic: None,

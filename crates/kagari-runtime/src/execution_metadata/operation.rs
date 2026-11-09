@@ -20,6 +20,7 @@ pub(crate) struct BoundOperation {
     pub(crate) application: Option<ApplicationId>,
     pub(crate) generic: Option<BoundGenericMethod>,
     pub(crate) requirement: NativeCallableRequirement,
+    pub(crate) requirement_key: NativeCallableRequirement,
     pub(crate) associated_interface: NominalTy,
     /// Closed lookup key; lexical witness metadata above keeps its source scope.
     pub(crate) interface_key: NominalTy,
@@ -41,9 +42,9 @@ pub(crate) struct BoundGenericMethod {
 
 impl BoundOperation {
     pub(crate) fn matches_requirement(&self, required: &NativeCallableRequirement) -> bool {
-        self.requirement.receiver == required.receiver
-            && self.requirement.member == required.member
-            && self.associated_interface.satisfies(&required.interface)
-            && (self.generic.is_some() || self.requirement.arguments == required.arguments)
+        self.requirement_key.receiver == required.receiver
+            && self.requirement_key.member == required.member
+            && self.interface_key.satisfies(&required.interface)
+            && (self.generic.is_some() || self.requirement_key.arguments == required.arguments)
     }
 }

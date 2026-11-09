@@ -673,9 +673,10 @@ impl PartialEq for EnumVariantRef {
     fn eq(&self, other: &Self) -> bool {
         self.module.registry_owner == other.module.registry_owner
             && self.module.installation_id() == other.module.installation_id()
-            && self.layout().declaration == other.layout().declaration
-            && self.layout().arguments == other.layout().arguments
-            && self.variant().declaration == other.variant().declaration
+            && self
+                .value_identity()
+                .zip(other.value_identity())
+                .is_some_and(|(a, b)| a == b)
     }
 }
 

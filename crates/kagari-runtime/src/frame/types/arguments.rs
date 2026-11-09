@@ -111,10 +111,17 @@ impl TypeArgument {
             ),
             None => (&self.data.ty, fallback, None),
         };
-        let ty = derive(expression)
+        let view = TypeView::new(expression, owner, environment.as_deref())
+            .normalized()
+            .ok_or_else(|| RuntimeError::module_validation("derived type scope"))?;
+        let ty = derive(view.ty)
             .ok_or_else(|| RuntimeError::module_validation("derived type expression"))?;
         runtime
-            .type_arguments(owner, environment, slice::from_ref(&ty))?
+            .type_arguments(
+                view.owner,
+                view.environment.cloned().map(Arc::new),
+                slice::from_ref(&ty),
+            )?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("derived type scope"))
     }

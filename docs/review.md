@@ -37,6 +37,8 @@ lifetime safety remain required.
   not the number of RefCell occurrences.
 - [Runtime architecture review](#runtime-architecture-review): system map and
   historical evidence at `88acbdb5`, reconciled with implemented lifecycle contracts.
+- [Shared declaration identity and Runtime-local instance identity](#shared-declaration-identity-and-runtime-local-instance-identity):
+  evaluate shared declaration keys without repeating per-Runtime identity interning.
 - Repository findings: [SA11](#sa11-hir-declarations-and-adt-members-carry-container-derived-identities),
   [SA21](#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
   and [SA23](#sa23-builtin-type-specifications-duplicate-scalar-properties).
@@ -1441,6 +1443,42 @@ The comparison used detached baseline source and identical temporary test inputs
 no ignored logs or probe files are required to reconstruct these cases. Follow-up
 acceptance requires successful verified source/source-free execution and preserved
 negative proof checks, not only disappearance of the current diagnostics.
+
+## Shared declaration identity and Runtime-local instance identity
+
+Recorded at the user's request on 2026-11-09. Deferred architecture review; no
+implementation migration or concrete ID representation is activated.
+
+**Observed model.** [DefinitionAdmission](../crates/kagari-runtime/src/module/admission.rs)
+imports immutable Program declarations into each Runtime's definition context.
+This unifies independently supplied Program and host metadata in one local lookup
+space. It is an implementation choice: sharing one declaration does not require
+assigning it a different semantic identity in every recipient. The post-migration
+language failures exposed missing conversions between product and Runtime keys;
+their repair preserves the current model rather than resolving this design issue.
+
+**Direction to evaluate.** Keep declaration identity in shared immutable products;
+keep heap objects, installations, host bindings, mutable state and execution
+authority local to each Runtime. Conceptually, both recipients can refer to the
+same Program's `Player` declaration while their Player objects carry different
+Runtime owners and generational heap handles. A shared declaration key grants no
+permission to use another Runtime's values or providers. Product/table scope must
+remain explicit; equal numeric indices from unrelated products establish nothing.
+
+Preparation/linking should own correspondence between independently compiled
+products and hot-reload revisions, sharing immutable results where their inputs
+and contracts permit it. Recipients still validate installed provider contracts
+and bind local services. Evaluate removing redundant per-Runtime declaration
+interning and bidirectional conversions; do not simply delete admission checks,
+equate names with compatible contracts or introduce a mutable global ID registry.
+
+The review must distinguish declaration identity, cross-version correspondence,
+retained layout/body provenance and Runtime instance authority. Preserve source-free
+verification, generic/associated-type and enum identity, incompatible-update
+rejection, exact retained bodies with current ordinary inner calls, and foreign
+Runtime/installation handle rejection. Compare memory, loading and invocation
+costs with the current mapping model before claiming a benefit. This review does
+not activate the separate frame/slot/Native-adapter proposal or R13 reclamation.
 
 ## Interpreter instruction and operand model follow-up
 

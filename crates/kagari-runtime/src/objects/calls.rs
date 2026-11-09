@@ -180,6 +180,11 @@ impl Runtime {
                     .identity()
                     .ok_or_else(invalid)?;
                     let required = resolve_requirement(scope.environment.as_ref(), required)?;
+                    let required = scope.owner.identity_admission().runtime_in(
+                        &required,
+                        &self.definition_context().snapshot(),
+                        &Default::default(),
+                    )?;
                     scope
                         .environment
                         .as_ref()
@@ -294,6 +299,11 @@ impl Runtime {
                             .ok_or_else(invalid)?,
                     );
                     self.gc.alloc_bound_operation(BoundOperation {
+                        requirement_key: owner.identity_admission().runtime_in(
+                            &selected.requirement,
+                            &self.definition_context().snapshot(),
+                            &Default::default(),
+                        )?,
                         interface_key: owner.identity_admission().runtime_in(
                             &associated_interface,
                             &self.definition_context().snapshot(),
@@ -336,6 +346,11 @@ impl Runtime {
             )?,
         )?;
         let required = resolve_requirement(scope.environment.as_ref(), &selected.requirement)?;
+        let required = scope.owner.identity_admission().runtime_in(
+            &required,
+            &self.definition_context().snapshot(),
+            &Default::default(),
+        )?;
         let receiver = TypeView::new(
             &selected.requirement.receiver,
             scope.owner,

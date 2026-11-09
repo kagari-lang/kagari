@@ -624,17 +624,17 @@ fn shared_verified_program_identity_survives_independent_runtime_linking() {
     let c = second.select_program(&c_program).unwrap();
     assert!(a.verified_program().same_version(&verified));
     assert!(a.verified_program().same_version(b.verified_program()));
-    assert!(!Arc::ptr_eq(&a.bytecode, &b.bytecode));
+    assert!(Arc::ptr_eq(&a.bytecode, &b.bytecode));
     assert_eq!(a.program_fingerprint(), c.program_fingerprint());
     assert!(!a.verified_program().same_version(c.verified_program()));
     assert!(first.validate_executable_module(&b).is_err());
     assert!(second.validate_executable_module(&a).is_err());
     drop(verified);
     assert!(a.verified_program().same_version(b.verified_program()));
-    // Evidence contains definition IDs, so independent runtimes normalize payloads.
-    assert!(original.upgrade().is_none());
+    // Installations share immutable code; identity admission remains Runtime-local.
+    assert!(original.upgrade().is_some());
     drop((a, first));
-    assert!(original.upgrade().is_none());
+    assert!(original.upgrade().is_some());
     drop((b, c, second));
     assert!(original.upgrade().is_none());
 }
@@ -674,8 +674,24 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     let b = second.select_program(&b_program).unwrap();
     let a_id = a.bytecode.structures[0].declaration;
     let b_id = b.bytecode.structures[0].declaration;
-    assert_ne!(source_id, a_id);
-    assert_ne!(a_id, b_id);
+    assert_eq!(source_id, a_id);
+    assert_eq!(a_id, b_id);
+    let a_runtime_id = a.identity_admission().runtime_id(a_id).unwrap();
+    let b_runtime_id = b.identity_admission().runtime_id(b_id).unwrap();
+    assert_ne!(source_id, a_runtime_id);
+    assert_ne!(a_runtime_id, b_runtime_id);
+    let first_argument = first
+        .resolve_type_arguments(
+            &a,
+            &[Ty::Struct(NominalTy {
+                declaration: a_id,
+                arguments: vec![],
+                associated_types: Default::default(),
+            })],
+        )
+        .unwrap()
+        .remove(0);
+    assert!(first_argument.validate_for(&second, &b).is_err());
     assert_eq!(a.definitions().resolve(a_id).unwrap().to_path(), path);
     assert_eq!(b.definitions().resolve(b_id).unwrap().to_path(), path);
     assert!(a.verified_program().same_version(b.verified_program()));
@@ -687,7 +703,7 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     assert_eq!(imported.bytecode.structures[0].declaration, b_id);
     assert!(imported.verified_program().same_version(&verified));
     let foreign = Ty::Struct(NominalTy {
-        declaration: a_id,
+        declaration: a_runtime_id,
         arguments: vec![],
         associated_types: Default::default(),
     });
@@ -696,7 +712,13 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     first.publish_staged_reload(candidate).unwrap();
 
     let current = first.select_program(&a_program).unwrap();
-    assert_eq!(current.bytecode.structures[0].declaration, a_id);
+    assert_eq!(
+        current
+            .identity_admission()
+            .runtime_id(current.bytecode.structures[0].declaration)
+            .unwrap(),
+        a_runtime_id
+    );
     assert_ne!(current.key(), a.key());
     assert!(
         !current
@@ -715,7 +737,11 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     drop(b);
     drop(second);
     assert_eq!(
-        retained.definitions().resolve(b_id).unwrap().to_path(),
+        retained
+            .definitions()
+            .resolve(b_runtime_id)
+            .unwrap()
+            .to_path(),
         path
     );
 }

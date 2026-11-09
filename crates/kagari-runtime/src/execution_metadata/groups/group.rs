@@ -42,7 +42,7 @@ impl OperationGroup {
         let mut slots = SlotIndex::new();
         for (position, operation) in entries.iter().enumerate() {
             let methods = index
-                .entry(operation.requirement.interface.clone())
+                .entry(operation.requirement_key.interface.clone())
                 .or_default()
                 .entry(operation.receiver_identity.clone())
                 .or_default();
@@ -56,7 +56,7 @@ impl OperationGroup {
             receiver_slots[slot].get_or_insert(position);
             methods
                 .members
-                .entry(operation.requirement.member)
+                .entry(operation.requirement_key.member)
                 .or_insert(position);
         }
         Self {
@@ -122,9 +122,9 @@ impl OperationGroup {
         let mut matches = self.entries.iter().enumerate().filter(|(_, operation)| {
             operation.generic.is_some()
                 && operation.receiver_identity.as_ref() == receiver
-                && operation.requirement.member == required.member
+                && operation.requirement_key.member == required.member
                 && operation
-                    .requirement
+                    .requirement_key
                     .interface
                     .satisfies(&required.interface)
         });

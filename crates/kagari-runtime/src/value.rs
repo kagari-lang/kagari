@@ -202,12 +202,15 @@ impl MapKey {
                 Value::Enum(id) => {
                     let snapshot = gc.enum_view(id)?;
                     parts.push(match &snapshot.tag {
-                        EnumTag::Declared(r) => KeyPart::DeclaredEnum(
-                            r.registry_owner(),
-                            r.layout().declaration,
-                            r.layout().arguments.clone(),
-                            r.variant().declaration,
-                        ),
+                        EnumTag::Declared(r) => {
+                            let (nominal, variant) = r.value_identity()?;
+                            KeyPart::DeclaredEnum(
+                                r.registry_owner(),
+                                nominal.declaration,
+                                nominal.arguments,
+                                variant,
+                            )
+                        }
                     });
                     parts.push(KeyPart::Tuple(snapshot.fields.len()));
                     pending.extend(snapshot.fields.iter().rev().copied());

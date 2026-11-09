@@ -118,6 +118,10 @@ pub struct PublicationDefinitions {
 }
 
 impl PublicationDefinitions {
+    pub(crate) fn identity_admission(&self) -> &DefinitionAdmission {
+        &self.admission
+    }
+
     pub(in crate::module) fn mark_published(&self) {
         self.published.store(true, Ordering::Release);
     }

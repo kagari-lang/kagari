@@ -11,6 +11,7 @@ use crate::{
     },
 };
 use kagari_bytecode::instruction::{EnumId, StructId};
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::layout::{EnumLayout, StructLayout};
 use kagari_types::ty::{NominalTy, Ty};
 use std::{num::NonZeroUsize, sync::Arc};
@@ -386,6 +387,26 @@ impl StructLayoutRef {
 }
 
 impl EnumVariantRef {
+    /// Value equality and hashing use accepted identities, independently of the
+    /// lexical IDs retained by compiled layouts and applied payload scopes.
+    pub(crate) fn value_identity(&self) -> Option<(NominalTy, DefinitionId)> {
+        let Ty::Enum(nominal) = TypeView::new(
+            &self.type_expression(),
+            &self.module,
+            self.type_bindings().map(Arc::as_ref),
+        )
+        .closed()?
+        .into_owned() else {
+            return None;
+        };
+        let variant = self
+            .module
+            .identity_admission()
+            .runtime_id(self.variant().declaration)
+            .ok()?;
+        Some((nominal, variant))
+    }
+
     pub(crate) fn type_bindings(&self) -> Option<&Arc<TypeBindings>> {
         self.scope.as_ref().map(|scope| scope.bindings())
     }

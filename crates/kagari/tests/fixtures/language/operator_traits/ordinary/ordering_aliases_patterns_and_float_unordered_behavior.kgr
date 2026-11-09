@@ -2,6 +2,8 @@ use core::cmp::Ordering as Order;
 
 use core::cmp::Ordering::*;
 
+use std::collections::HashSet;
+
 fn rank(x: Order) -> i32 {
     match x {
         Less => 0,
@@ -12,6 +14,13 @@ fn rank(x: Order) -> i32 {
 
 fn main() -> i32 {
     val nan = 0.0 / 0.0;
+    val keys: HashSet<Option<Order>> = HashSet::new();
+    keys.insert(nan.partial_cmp(nan));
+    keys.insert(None);
+    keys.insert(Some(1.cmp(2)));
+    if keys.len() != 2u64 || !keys.contains(None) || !keys.contains(Some(Order::Less)) {
+        return 1;
+    }
     if nan.partial_cmp(nan) == None && !(nan < nan) && !(nan <= nan) && !(nan > nan) &&
         !(nan >= nan) &&
         rank(Order::Equal) == 1 {

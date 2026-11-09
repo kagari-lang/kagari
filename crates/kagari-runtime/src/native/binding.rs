@@ -341,6 +341,11 @@ impl LinkedNativeFunction {
                             RuntimeError::module_validation("native operation receiver identity")
                         })?;
                         let resolved = environment.types.resolve_requirement(required)?;
+                        let resolved = owner.identity_admission().runtime_in(
+                            &resolved,
+                            &runtime.definition_context().snapshot(),
+                            &Default::default(),
+                        )?;
                         let operation = operations
                             .operation(&runtime.gc, &resolved, &receiver)
                             .ok_or_else(|| {
