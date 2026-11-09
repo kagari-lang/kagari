@@ -14,7 +14,10 @@ costs, start with the [Runtime execution map](architecture/runtime.md). Its
 validation, allocation/transfer and publication boundaries for architecture review.
 The [Runtime refactor architecture](runtime-refactor-design.md) separately records
 the target model, beginning with centralized update preparation and independent
-Runtime publication; its API sketches are not implemented contracts.
+Runtime publication; its API sketches are not implemented contracts. The selected
+2026-11-09 design preserves current-inner-call semantics through prepared normal
+and old-body redirect tables. It retains whole immutable Program versions for old
+computation bodies while replacing their lookup/ownership mechanics.
 
 ## Architectural Principles
 

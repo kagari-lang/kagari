@@ -1,5 +1,11 @@
 # Module loading and activation
 
+> The [Runtime refactor target](../runtime-refactor-design.md#prepared-call-tables-and-old-code-redirection)
+> preserves the call-selection semantics below while replacing per-call lookup
+> with prepared normal/old-body call tables and independent Program preparation.
+> The [roadmap](../implementation-roadmap.md#runtime-execution-model-review) owns
+> this unimplemented architectural migration.
+
 Import resolution is a compile-time and link-time operation. It does not execute script code. Cyclic imports are allowed when their declarations and linked contracts are valid.
 
 Each runtime owns its mutable module instances, heap, cancellation state, host bindings, and installation handles. Verified code, layouts, and native compilation products may be shared by an immutable prepared program; its native compilation cache is not duplicated per runtime. There is no cached module result or eager module initialization pass. A function executes through an explicit call or the internal lazy-static initializer entry described below.

@@ -53,7 +53,7 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The [current-revision cost attribution](../../docs/performance-baseline.md#current-kagarilua-cost-attribution-windows-2026-10-27)
+The [current-revision cost attribution](../../docs/performance-baseline.md#bo08-kagarilua-cost-attribution-windows-2026-10-27)
 records 29 original/source-form/numeric rows and independent instruction/lifetime
 observations at `03246d94` on Windows 10 / i7-10700F. The 16 matched non-entry
 workloads take 1.47-100.84x PUC Lua 5.4.9 time. Current native-frame routing and
@@ -664,6 +664,32 @@ Strict workspace/all-target Clippy, formatting, structure (659 files, zero
 violations/exceptions), empty/single-element regression, all fifteen ordinary
 release smoke routes, Python syntax/document links and diff checks pass. No
 production source changed, and the full language-contract matrix was not rerun.
+
+## Shared-program installation scaling
+
+The existing `runtime_storage` example accepts a bounded sharing probe:
+
+```sh
+cargo build --release --locked -p kagari-lua-benchmark --example runtime_storage
+target/release/examples/runtime_storage --sharing 32 32 shared bytecode
+```
+
+Arguments are Runtime count (1..128), additional function count (0, 32 or 128),
+definition-domain control (`shared` or `fresh`) and optional MIR retention
+(`bytecode` or `mir`). Zero functions selects a tiny fixed control; the other
+sizes use the fixed struct/trait/static/generic fixture plus generated functions.
+Three lifecycle warmups precede eleven measured empty/load/initialize/release
+samples. Every player checks its own static counter. Root module backing counts
+diagnose duplicate identity-bearing records; they are not total memory accounting.
+
+Build separately with `--features diagnostics` for allocation requests, cumulative
+requested bytes and live-byte deltas. Save/rebuild the ordinary executable before
+timing. The warmed allocation lifecycle asserts balanced local teardown. Preallocated
+container buffers are outside phase snapshots, so printed release deltas alone
+are not a leak check. `fresh` includes creation of an independent engine/provider
+per Runtime in its empty phase. Shared source/MIR inputs stay outside recipient
+snapshots. See the [MS00 frozen protocol and results](../../docs/multi-runtime-sharing-plan.md#ms00-frozen-evidence-protocol)
+for the finite matrix, baseline environment, attribution limits and acceptance gates.
 
 ## Execution architecture diagnostics (HP00)
 

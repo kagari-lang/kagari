@@ -50,6 +50,13 @@ borrow scope while retaining once-only evaluation and completed effects.
 
 ## Reload and executable boundaries
 
+The [Runtime refactor target](runtime-refactor-design.md#prepared-call-tables-and-old-code-redirection)
+preserves these selection semantics while moving preparation outside Runtime and
+prebinding old call sites to current implementations. New code uses normal links;
+retained computations keep exact bodies and whole-version shared ownership.
+The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns this
+unimplemented ownership/dispatch migration.
+
 Compile and validate candidates before atomic publication at the host/Actor
 top-level scheduling boundary, with no active synchronous execution, callback or
 reentry scope; parked executions and suspended tasks may remain. Ordinary calls

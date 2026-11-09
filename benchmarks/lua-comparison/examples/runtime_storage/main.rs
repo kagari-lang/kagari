@@ -4,6 +4,7 @@
 mod memory;
 #[cfg(not(feature = "diagnostics"))]
 mod revisions;
+mod sharing;
 
 use kagari::{
     context::ExecutionContext,
@@ -11,7 +12,7 @@ use kagari::{
     program::PreparedProgram,
 };
 use kagari_source::source::SourceFile;
-use std::time::Instant;
+use std::{env, time::Instant};
 
 #[cfg(feature = "diagnostics")]
 use kagari_runtime::diagnostics::allocations::Allocator;
@@ -98,6 +99,11 @@ fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, context: &Executi
 }
 
 fn main() {
+    if env::args().nth(1).as_deref() == Some("--sharing") {
+        sharing::run();
+        return;
+    }
+
     // Explicit collections separate live storage, reserved capacity and release.
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = None;

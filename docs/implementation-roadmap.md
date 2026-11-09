@@ -1489,7 +1489,7 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Multi-Runtime program sharing](multi-runtime-sharing-plan.md) | MS00-MS05 planned, unstarted: measure current same-product multi-Runtime costs; eliminate whole-code identity remapping copies and duplicated pure link preparation; establish safe cross-thread frozen-product reuse. Keep player heaps/statics/host borrows and installation publication private. MS00 freezes numerical memory/performance gates and preserves the implemented installation identity/current-dispatch contracts before changing shared owners. R13 type-only retention, cross-installation repair linking, global updates and native expansion remain separate. No capacity or speed claim from source LOC or historical tiny-program data. |
+| [Runtime ownership, prepared reload and sharing](multi-runtime-sharing-plan.md#phases) | MS00-MS05 execution authorized with per-phase commits; MS00 locally accepted, MS01 next, MS01-MS05 unstarted. Freeze representation/API/baseline; share immutable Program and detach source preparation; prepare normal/old-body call tables with full-stack resume refresh; move live lookup/publication into exclusive Runtime and remove current locks; accept actual-native isolation/lifetime; finish measured integration. Preserve installed state, bounded history and current-inner-call semantics. New direct calls add no reload-specific lookup/adapter path. Slot/Native API redesign, GC/enum layouts, R13 and native expansion remain separate. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 | [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan) | PG00-PG06 documented, queued and unstarted: close contracts/baseline with NC01; complete generic provider capabilities and early external proof with NC02; replace physical storage; migrate collections through NC03/NC04; integrate incremental graph/barriers; enable sweep/driver interleaving with NC05; finish joint acceptance with NC06. Standard collections and host adapters must use the same public generic protocol as an independent provider, with no retained privileged paths. Preserve precise tracing, checked identities, compact storage, joint object/program reachability and collecting Native callbacks; no retention prepass for callback-bearing algorithms. PG00 must resolve physical layout, scan/publication, scheduling and numerical acceptance before dependent changes. No measured speedup or hard pause bound is claimed. Existing cancellation policy is unchanged; poll redesign, R13 and concurrent/generational collection remain separate. |
 
@@ -1497,88 +1497,103 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 ### Runtime execution model review
 
-Documentation review authorized on 2026-11-08 on `design/runtime-execution-model`.
-The [Runtime execution map](architecture/runtime.md) records the current
-`48d79b2a` ownership/data model and full bytecode Call and hot-reload walkthroughs.
-Locks, RefCell loans, lookups, validation, allocation/initialization, root transfer,
-callbacks, commits, suspension and cleanup are explicit rather than hidden behind
-logical subsystem names. Semantic requirements, observed implementation and
-candidate design changes are distinguished; source-path counts are not timing
-attribution. No production behavior or ABI changes in this documentation step.
-
-The requested design direction is an immutable compiled Program, exclusive
-Runtime driving/update access, Send for Tokio thread migration rather than
-concurrent heap access, and independent stdlib providers. Shared/owned Program
-storage is conditional on measured value; removing Arc dereference alone is not
-a demonstrated speedup. Current live Program/Module metadata handles and their
-Mutex-backed current cell are implementation facts, not new requirements.
-
-Next review decisions belong to this existing roadmap entry: current-version
-ownership and activation validity; frame versus persistent computation retention;
-argument/result windows and the Native provider boundary. Preserve checked
-source-free inputs, error/effect order, reentry/GC protection and old-body/current-
-inner-call reload semantics. Runtime/VM/SDK consumers must be reviewed together;
-bytecode or native ABI changes require explicit cross-layer scope. This does not
-activate MIR/compiler reorganization, collector replacement or the deferred enum
-layout cutover. The existing interpreter, NC and GC plans retain their finite
-work/acceptance owners; do not create a second rewrite queue here.
-
-Documentation checks pass: relative file/heading links, whitespace/fence checks,
-all ten diagrams parsed with Mermaid 11.12.0 and rendered in headless Chrome, and
-visual inspection of the ownership, ordinary Call and publication diagrams.
-No Rust build, test or Clippy run is required for this documentation-only change;
-no new throughput or cost-attribution result is claimed.
+Design and implementation-plan preparation on `design/runtime-execution-model`.
+The [existing MS00-MS05 execution plan](multi-runtime-sharing-plan.md#phases) is
+active under the user's 2026-11-09 authorization, with a commit per completed
+phase. MS00 is locally accepted; production cutover starts in MS01. The [Runtime execution map](architecture/runtime.md)
+and its call/reload walkthroughs describe implementation `48d79b2a`, including
+current-cell locks, repeated admission and current-inner-call semantics. The
+[target architecture](runtime-refactor-design.md) preserves those call-selection
+semantics while replacing preparation, ownership and lookup mechanics.
 
 #### Runtime refactor target architecture
 
-The user requested a separate target-architecture document on 2026-11-08, starting
-with hot reload. The [Runtime refactor architecture](runtime-refactor-design.md)
-now owns the reviewed model, concrete ownership records, proposed API usage and
-publication diagrams. It consolidates the earlier reload/native proposal here;
-current specifications and the as-built execution map remain separate.
+The selected 2026-11-09 model is independent immutable Program preparation,
+exclusive per-Runtime publication and whole-version sharing/retention. A retained
+Future/closure/queued invocation keeps its exact body/provider and environment;
+ordinary calls inside it select current implementations. Whole-old-graph freezing
+and conservative drain/dependency-impact admission are superseded alternatives,
+not parallel modes or active work queues.
 
-Preparation builds one immutable transferable Program outside Runtime. Each
-recipient performs local admission/publication with mutable Runtime access.
-Runtime owns hotness, selected entries, JIT results and native validity; compiler
-workers may retain thread-local scratch, and final executable products can be
-shared. This corrects the earlier overly broad assignment of compilation caches
-to preparation alone. Preserve exact old computations, current ordinary inner
-calls, frozen contracts, historical-demand coverage and independent installations.
-The design records OpenJDK 25/JVMTI comparison and differing publication assumptions.
+The [prepared call-table design](runtime-refactor-design.md#prepared-call-tables-and-old-code-redirection)
+records these responsibilities:
 
-Next decisions remain in this entry: immutable product/installation APIs,
-source-context and historical-demand preparation, local identity/binding recipes,
-activation validity, frame retention, argument/result windows and Native providers.
-The existing [sharing plan](multi-runtime-sharing-plan.md) and deferred native API
-review retain their implementation/measurement owners. No production cutover,
-independent-module format, optimizing native tier, stack deoptimization, frontend
-reorganization or enum-layout implementation is activated by this documentation.
+- Shared Program bodies retain immutable instructions, layouts and checked call
+  recipes. Runtime installations own current, revision records, local bindings,
+  persistent state and native eligibility. Keep Send + Sync products separate from
+  mutable preparation/compiler state; Runtime stays exclusively driven Send / !Sync.
+- Each installed revision has a CallTable with body-local BoundCall arrays. Current
+  code uses normal links; retained old code uses final links to current targets.
+  Preparation resolves correspondence and transfer recipes before execution. Current
+  direct calls have no reload-specific version test, retired lookup or adapter.
+- FrameState retains source body, PC, environment, slots and code/root ownership.
+  ActiveBodyView borrows exact code and the committed calls slice during synchronous
+  execution. On resumption refresh every parked frame, including parents restored
+  after child return; do not retain stale table snapshots in Futures.
+- Prepare candidate normal tables and direct-to-current tables for all retained
+  source revisions. Commit them with current, historical demands and native
+  eligibility in one non-failing idle-boundary segment. Repeated updates produce
+  v1-to-v3/v2-to-v3 links, never v1-to-v2-to-v3 forwarding chains. Rejection preserves
+  current and every old table. Producer notifications do not execute code.
+- Whole-version owners and traced dependencies govern retirement. RevisionStore
+  registration is not itself a permanent root. Reclaim an unneeded old record's
+  code ownership, local bindings and table without affecting the normal path.
+  Initializer/type metadata can delay retirement; R13/per-body reclamation remain
+  separately deferred. No predecessor Arc chain or Arc-count-only liveness test.
+- Keep exact-base linear updates, frozen declaration/layout/static/public namespace
+  contracts, bounded cumulative application demands and independent local coverage.
+  Old callers still require candidate current implementations for historical generic
+  applications. Preparation carries portable history; Runtime does not compile or
+  infer types when binding or calling. Source-editable products retain immutable
+  compilation capsules outside mutable compiler/cache owners.
 
-Target-document validation passed: Markdown whitespace/fences, relative file and
-heading links across affected documents, both new Mermaid diagrams parsed with
-11.12.0 and rendered/visually inspected in headless Chrome, and git diff --check.
-This was documentation-only; no Rust build, tests, Clippy or new benchmarks ran.
+MS00 selects immutable product-scoped IDs/tables plus checked local bindings;
+the [consumer/API decision](runtime-refactor-design.md#ms00-representation-and-api-decision-2026-11-09)
+owns that migration boundary. Current normalization duplicates identity-bearing
+metadata, so Arc wrapping alone is insufficient. Define parameterized generic/witness transfer at
+the shared compiler/contract owner and instantiate only genuinely local bindings.
+Ordinary value/borrow/generation checks and dynamic interface selection remain.
+New admissible interface implementations use current checked dispatch; this model
+does not impose the discarded old-graph/new-type runtime rejection restriction.
 
-On 2026-11-09, the user requested a call-model proposal based on the measured
-overhead. The same [target document](runtime-refactor-design.md#candidate-call-execution-model)
-now records a candidate: install prepared call-site/entry/codec tables, execute
-internal calls on an execution-owned logical slot stack, keep small traceable
-frames, and use one scoped Native boundary. Separate stable type/schema facts
-from per-value authority/loan/result checks and local roots from durable retention.
-Publication updates current entries and retained-caller correspondence; old
-computations keep their own body while ordinary inner calls remain current.
-Warm empty/scalar Native calls should create no type mappings or empty root leases.
+The implementation spans Runtime dispatch/linking, VM activation/parked frames,
+SDK source/native orchestration and contract/verifier preparation. Reuse existing
+old-body/current-inner-call tests, preserving source-free, actual-native, GC,
+reentry, borrowing, cancellation and error/effect coverage. Add distinct witnesses
+for atomic table replacement, multi-update direct rebinding, all-frame resume
+refresh and last-owner table reclamation. Sample independent Runtime threads,
+one-recipient/stale-base failure, cold/parked work, generic/witness transfer and
+original static initializer helper selection. Full matrices remain CI-owned.
 
-The proposal compares Lua 5.4.9 CallInfo/stack transitions and JNI 25 local/global
-root lifetimes, recording their differing typing, reload and thread assumptions
-at the design owner. It preserves generic/interface selection, GC/reentry safety,
-effects/traps, depth/cancellation and observable debugger/slice boundaries. Detailed
-public APIs and physical record/slow-path layouts need review; compiler/bytecode/
-ABI impacts are explicit. This does not activate implementation, native expansion,
-enum layouts or another work queue, and no proposed speedup is claimed.
-Design-only checks passed: relative links/headings and Markdown content, three
-Mermaid diagrams parsed/rendered with the new call-flow image visually inspected,
-and git diff --check. No Rust build, test, Clippy or new timing run was needed.
+The [implementation plan](multi-runtime-sharing-plan.md#phases) expands the existing
+MS00-MS05 sequence in place as the sole execution owner: baseline/identity/API
+closure; immutable product/detached preparation; prepared tables/activation refresh;
+Runtime current ownership/lock removal; native/isolation/lifetime integration;
+measured acceptance and documentation closeout. Each checkpoint must build with
+consumers migrated and run the selected checks plus required local structure,
+fmt, workspace all-target Clippy and diff checks. No compatibility aliases or
+per-call solver fallback; unexpected integration errors must be repaired within
+the owning phase before acceptance. The plan records exact test-owner seeds,
+source-free/native samples and CI-only matrix boundaries. MS00 records fresh
+baseline/check evidence before its checkpoint; later phases remain unstarted.
+
+Measure reusable preparation, local publication/binding,
+shared/local retained memory, current-only normal calls and old-body adaptation
+separately. No measured speedup, small memory bound or passing new implementation
+is claimed. Normal call costs beyond the absence of reload-specific machinery
+remain ordinary execution work, not additional reload scope.
+
+[Later call-model work](runtime-refactor-design.md#candidate-call-execution-model)
+reuses these BoundCall records for logical slots, lightweight frames and scoped
+Native adapters. Public Native APIs, slot storage/compaction, collector/enum layout
+changes, independent module linking, branch merging/skipped bases, optimizing
+tiers, native suspension/deoptimization and finer reclamation remain deferred.
+
+OpenJDK 25/JVMTI remain the reference for exact body retention, subsequent current
+calls, optimization eligibility and separate executable lifetime. These target
+records are design sketches, not callable APIs. Documentation-only validation:
+local file/anchor links, Markdown fences, preserved line endings, target consistency
+and git diff --check; no Rust build/tests/Clippy or new performance measurement.
 
 #### Installation current-lock measurement
 

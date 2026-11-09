@@ -1,0 +1,29 @@
+struct Player {
+    val score: i32,
+}
+
+trait Rule {
+    fn score(self) -> i32;
+}
+
+impl Rule for Player {
+    fn score(self) -> i32 {
+        self.score
+    }
+}
+
+static var CALLS: i32 = 0;
+
+fn identity<T>(value: T) -> T {
+    value
+}
+
+pub fn main() -> i32 {
+    CALLS = CALLS + 1;
+    val rule: Rule = Player { score: identity(42) };
+    rule.score()
+}
+
+pub fn calls() -> i32 {
+    CALLS
+}
