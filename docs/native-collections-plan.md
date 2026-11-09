@@ -5,6 +5,13 @@ Status: agreed direction recorded; implementation has not started. The
 placement. This plan owns NC01-NC06, the bounded API design, migration acceptance
 and progress ledger. API sketches are proposals, not currently callable APIs.
 
+Sequencing update, 2026-11-09: the user selected
+[Runtime/library detachment and existing-GC integration](runtime-refactor-design.md#next-scope-detach-the-standard-library-and-reuse-the-existing-gc)
+before full standard-library design. Runtime owns that immediate design boundary;
+this plan retains concrete collection implementation and acceptance. Earlier
+NC/PG phase pairings below are historical sequencing to rebase before activation,
+not a prerequisite to organizing Runtime or integrating its current collector.
+
 Storage inventory refresh, 2026-10-18: the prioritized
 [runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) and
 [object overhead work](implementation-roadmap.md#object-storage-overhead) are locally complete.
@@ -92,13 +99,16 @@ consumes the same ordinary declarations while owning Rust borrowing and registra
 Neither owner may turn an interface into a second storage/access authority.
 
 The queued [paged incremental GC design](paged-incremental-gc-design.md) owns the
-collector/page architecture. Accepted sequencing, 2026-10-26: opaque registration,
+collector/page architecture. Historical sequencing, 2026-10-26: opaque registration,
 the general payload protocol and affected collection integration are one coordinated
 replacement migration. Implement reference publication, accounting, scanning and
 opaque API changes together, not as a separate post-GC API revision. NC owns
 concrete collection layouts, algorithms and its detailed phases; the GC replacement
 cannot reach final acceptance with container-specific collector/storage paths
-deferred to NC. Planning this shared scope does not activate implementation.
+deferred to NC. The 2026-11-09 Runtime-first direction supersedes using that joint
+migration as a prerequisite for the immediate Runtime/Host boundary work. Rebase
+the concrete NC/PG handoffs on the resulting existing-GC protocol before their
+activation; retain the independent-library and generic collector acceptance goals.
 Current-call selection follows the implemented
 [publication contract](spec/module-activation.md#live-installations-and-call-selection),
 not historical wording that would pin every stored method body.
@@ -748,14 +758,15 @@ depend on this storage migration. Reuse implemented host registration/scoped
 borrowing; the roadmap owns subsequent activation changes.
 
 The [joint GC execution plan](paged-incremental-gc-design.md#execution-plan) owns
-PG00-PG06 and the collector activation order. NC01 pairs with PG00, NC02 with PG01,
-and NC03/NC04 execute at PG03 after the paged-storage checkpoint PG02. NC05 closes
-the early external fixture under PG05's actual incremental schedules; NC06 joins
-PG06 acceptance. PG04 integrates marking/publication between those handoffs.
+PG00-PG06. The earlier unimplemented schedule paired NC01 with PG00, NC02 with
+PG01, NC03/NC04 with PG03 after paged storage at PG02, NC05 with PG05's actual
+incremental schedules, and NC06 with PG06 acceptance. PG04 was to integrate
+marking/publication between those handoffs.
 NC02 may prove the public protocol with the synchronous collector and isolated
 scanner tests, but cannot claim interleaved GC acceptance. Record collection
 results only in this ledger; link PG results rather than copy their checklist.
-This sequencing is documentation, not implementation activation. Cancellation
+These historical pairings require rebasing after the Runtime-first scope above;
+they do not require a new collector for that scope. Cancellation
 policy and cx.poll redesign remain explicitly outside the joint migration.
 
 | Phase | Scope and exit condition |

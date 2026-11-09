@@ -14,12 +14,19 @@ performance acceptance are not authorized or complete. The
 [Current runtime semantics](spec/runtime.md#gc-heap) remain authoritative until an
 explicit implementation task changes them.
 
+Sequencing update, 2026-11-09: the user selected
+[standard-library detachment, Runtime/Host organization and integration of the existing GC](runtime-refactor-design.md#next-scope-detach-the-standard-library-and-reuse-the-existing-gc)
+as the next design scope. Paged storage and incremental collection remain queued;
+this document is not its prerequisite. Rebase PG/NC handoffs against the resulting
+Runtime and generic payload contracts before activating collector replacement.
+
 This document owns the proposed collector/storage architecture, PG00-PG06 execution
 order, unresolved decisions and GC progress/error ledger. The
 [native collections plan](native-collections-plan.md) continues to own NC01-NC06
 and the detailed collection migration ledger.
-Opaque registration, the general payload protocol and affected collection integration
-belong to the same GC replacement migration. NC retains the collection work breakdown;
+Collector-specific payload/scanning/publication changes and affected collection
+integration belong to the future GC replacement migration, reusing the generic
+Runtime/Host boundary established with the current collector. NC retains the collection work breakdown;
 its removal of special container paths is part of joint acceptance, not a later
 redesign. PG phases reference NC handoffs, not duplicate NC completion records.
 This task authorizes execution-plan documentation only; runtime implementation

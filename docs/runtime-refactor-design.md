@@ -1,11 +1,107 @@
-# Runtime Call and Native Execution Follow-up
+# Runtime Architecture and Host Boundary Refactor
 
-Status: queued design, not activated by the completed immutable Program/reload
-migration. Current product ownership, final call tables and publication are in the
+Status: next-scope design recorded at the user's request on 2026-11-09;
+implementation has not started. Current product ownership, final call tables and
+publication are in the
 [Runtime model](architecture/runtime.md) and [reload walkthrough](architecture/runtime/reload.md).
 The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns any
-future activation. The sketches below propose slot/frame/Native-adapter and
-optimizing-native extensions; they are not current APIs or performance results.
+future activation. This document owns the proposed Runtime responsibilities,
+execution and Host boundary, standard-library detachment and existing-GC integration.
+The sketches below are proposals, not current APIs or performance results.
+
+## Next scope: detach the standard library and reuse the existing GC
+
+The user-selected sequence is to detach the existing standard-library implementation,
+organize Runtime and its general Host interface, then connect the existing collector
+through that model. Full standard-library design and implementation follow later.
+This changes the earlier assumption that Runtime/library boundary work must wait
+for the paged incremental GC migration. It records scope and sequencing only;
+no Rust migration or final public API is activated by this documentation change.
+
+This document is the design owner. [Current architecture](architecture/runtime.md)
+continues to describe implemented behavior. The [native collections plan](native-collections-plan.md)
+owns later concrete storage/algorithm/cursor/host-adapter migration, and the
+[paged incremental GC design](paged-incremental-gc-design.md) owns a separate future
+collector replacement. Do not duplicate those plans' implementation ledgers here.
+
+### Responsibilities and dependency direction
+
+```text
+Standard-library crate        Application Native modules
+             \                 /
+              public Host / Native protocol
+                         |
+                       Runtime
+              execution, types, local state
+                         |
+              existing collector integration
+```
+
+Runtime owns execution sessions, frames/slots, call preparation and entry/return,
+installation/binding authority, statics, retained computations, cancellation and
+cleanup. General Host capabilities cover checked declarations and generic types,
+Native calls and callbacks, native payload allocation/access, managed edges,
+temporary/escaping roots and scoped loans. Standard-library and application
+providers must receive the same capabilities; a public Vec-specific heap method
+does not establish that boundary.
+
+Detach concrete collection storage, algorithms, cursors, library policies and
+library-specific Rust adapters from the new Runtime core. Before removal, identify
+compiler-known language roles and required declaration metadata separately from
+their concrete implementations. Detachment does not silently remove operator,
+Option/Result propagation, builtin value representation or execution semantics.
+Revisit actual boundaries rather than assuming every existing core operation can
+be moved unchanged into an optional module.
+
+Reuse the existing collector's algorithm and useful storage/handle foundations.
+Specify who owns execution roots, temporary Native protection, native payload edges,
+code/type provenance and retirement, and how the collector observes those owners.
+Preserve checked owner/slot/generation handles, collection across Native callbacks,
+loan exclusion and cleanup on errors/reentry/cancellation. This may reorganize the
+current collector integration; it does not require paged storage, incremental
+marking, a replacement allocator or a new value representation.
+
+### Sequence and reviewable exit conditions
+
+1. **Detach existing library implementation dependencies.** Inventory privileged
+   Runtime/GC/VM/SDK paths and their consumers; establish the Runtime-only build
+   and checked executable-input boundary before designing replacement libraries.
+2. **Organize the Runtime and Host model.** Describe ownership with core records,
+   diagrams and complete host-entry, script-call, Native-call, return, park/resume,
+   trap and publication paths. Reuse implemented immutable Programs, prepared
+   calls and exclusive Runtime publication. Settle one coherent registration and
+   call model before naming multiple public adapters.
+3. **Integrate the existing GC and prove the generic boundary.** Exercise allocation,
+   root handoff, payload edges, mutation and cleanup through the reorganized model.
+   A small external Native provider containing a managed reference and a script
+   callback is a Runtime contract witness; it does not require designing the full
+   Vec/HashMap/HashSet library. Test it under collection, reentry and failure.
+4. **Design and reconnect full libraries later.** Rebase the existing collection
+   plan on the proven protocol. Standard implementations must use that same
+   public path; restoring privileged paths is not an independent-library result.
+
+Before implementation activation, freeze the finite removal inventory, affected
+crate/build boundaries and consumer reconnection checkpoints. Any intermediate
+unbuildable SDK/library targets or deferred integration tests must have explicit
+causes and owning follow-up steps; do not disable checks or add fake-success
+stubs. Runtime-focused evidence is not a full-workspace or restored-stdlib claim.
+Retain the independent behavioral, source-free, GC/loan, cancellation and reload
+oracles at their semantic owners.
+
+Full collection/API redesign, paged/incremental GC, enum/niche/value-struct layouts,
+the deferred shared declaration-ID migration, R13 reclamation and broader
+AOT/JIT/deoptimization remain separate. Later call-model sections are design
+inputs; this scope record does not automatically activate every proposed optimization.
+
+Reference boundaries: [Lua 5.4.9 library initialization](https://github.com/lua/lua/blob/v5.4.9/linit.c)
+and [table library](https://github.com/lua/lua/blob/v5.4.9/ltablib.c) demonstrate
+ordinary registered library functions, while table storage remains core-owned.
+[AngelScript's array add-on](https://www.angelcode.com/angelscript/sdk/docs/manual/doc_addon_array.html)
+and [application GC behaviors](https://www.angelcode.com/angelscript/sdk/docs/manual/doc_gc_object.html)
+(online SDK manual reviewed 2026-11-09) demonstrate a registered generic container
+and provider-visible edge enumeration. Its reference-count/cycle-collection model
+differs from Kagari's precise tracing; these sources support the boundary, not
+reuse of its memory protocol or a Kagari performance claim.
 
 ## Candidate call execution model
 
@@ -21,6 +117,63 @@ two empty root leases. These results motivate moving stable preparation out of t
 invocation and using one execution-slot protocol. They do not establish a speedup
 for the proposed implementation or imply that all checks can move to installation.
 
+### Performance-first scope and removal review
+
+The user-selected priority on 2026-11-09 is to establish a small, fast execution
+core before adding defensive policies. The first performance checkpoint covers
+ordinary synchronous script and Native calls with cancellation, observers, slicing
+and statistics disabled. It is a bounded baseline, not acceptance of all existing
+execution features. Do not design a new permission matrix, configurable check
+registry or parallel checked/unchecked execution model to support this work.
+Existing API/specification behavior remains current until its owning migration;
+record any deferred integration instead of reporting a semantic regression as a pass.
+
+The source review identifies the following removals from the proposed ordinary
+call path. Rows describe ownership changes, not measured individual speedups.
+
+| Existing cost and evidence | Target ownership / removal |
+| --- | --- |
+| `frame/admission.rs` rechecks arity, generic environment shape and Program metadata for prepared calls. | Compile/verify and bind the internal transfer contract once. Internal entry consumes that contract; host-supplied arguments and dynamic receiver selection have their boundary checks. Do not route every call through public admission. |
+| `native/typed.rs::invoke` checks Rust mappings; result encoding checks again. | Prepare a codec per fixed Native application at binding/application preparation. Invocation performs actual conversion, with no reconstruction of a fixed Rust/script type mapping. Custom converter effects remain per value. |
+| The owned adapter copies arguments into a Vec, clones it for roots, and argument decoding creates another root scope. | Read protected execution slots directly. Temporary values use one local-root checkpoint; durable handles alone acquire durable roots. Warm empty/scalar calls allocate nothing. |
+| `executor/driver.rs`, `gc_safepoint`, call admission, Native entry/exit and return can each poll execution; `observe_execution` queries the active session even without an attached observer. | Keep cancellation/observer dispatch out of the initial plain-call baseline. Later choose polling sites from the actual responsiveness contract, consolidating adjacent callback-free checks. State explicitly when a benchmark disables these features. |
+| Ordinary Native calls pass through Pending, Running, Complete and a later NativeReturn driver action. | Invoke and return directly while retaining the logical frame. Materialize a completed continuation only where slicing/observation actually requires it; no asynchronous state machine for every synchronous callback. |
+| `frame/values.rs` reserves five backing owners and maintains generational windows/allocation order for ordinary stack calls. | Execution owns reusable frame/slot suffixes. Push/pop with saved positions; grow in a slow path. Keep independent retirement machinery at parked/escaping storage owners, not every nested call. |
+| Slot allocation clears all scalar payloads/flags and fills managed records with Unit. | First remove unnecessary scalar payload clearing. Keep managed clearing until existing initialization facts can exclude stale entries from GC/debug access. Reuse checked facts; do not make a new liveness-analysis project a prerequisite. |
+| Session, frames and banks use repeated RefCell admission; frames and value windows retain overlapping body/environment owners. | Give the active driver exclusive mutable execution access, with scoped reborrowing at Native boundaries. Retain exact body/type dependencies at their real owner and trace slots through that owner; avoid duplicate per-window pins and bookkeeping. Do not blanket replace Arc with Rc or retain storage references across growth/callbacks. |
+| `objects/invocation.rs::admit` allocates a MethodComputation even for an immediate interface call. | Carry the selected body/environment in the admitted frame. Allocate retained computation state only when it escapes or must persist independently. Preserve old-body/current-inner-call selection. |
+| Whole Runtime/installation/phase checks recur along internal target and frame entry. | Establish exclusive activation and bound body validity at entry/resume. Internal transitions reuse it; a callback or suspension revalidates only facts it can invalidate. Do not add epoch checks, locks or a validity cache to every instruction. |
+
+For example, repeated `tick(player)` calls from verified script code already have
+a known parameter type, prepared target and rooted `player` slot. Rebuilding that
+signature, validating its Program again, copying the argument into independently
+rooted packs and allocating an invocation identity adds no new fact. The proposed
+ordinary flow is:
+
+```text
+script: prepared target -> ensure stack space -> transfer operands -> push frame
+        -> interpreter continues -> publish result -> restore caller positions
+Native: prepared thunk/codec -> protected argument slots -> Rust callback
+        -> encode/publish result -> release temporary roots -> continue caller
+```
+
+Keep storage bounds, valid GC roots/result handoff, actual host-handle/loan access
+and checked language operations at their existing semantic owners. These make the
+execution produce valid results; they do not justify another generic admission
+layer. Defer extra quotas, always-on diagnostic counters and fault-hardening policy.
+An invalid internal prepared relationship is a compiler/linker defect to detect
+with verification/assertions, not a reason to reconstruct its proof on every call.
+
+Start with Native mapping/root duplication and internal admission/driver work,
+then simplify storage and ownership. The historical instrumented empty-call study
+attributes about 386 ns to script preparation and only about 7.5 ns within it to
+depth handling; the owned adapter attributes 16 allocations to two mapping checks
+and two more to empty roots. These overlapping diagnostic scopes precede Runtime
+lock removal and are prioritization evidence, not present-day additive costs.
+Refresh the empty/control/Lua measurements at the implementation baseline. The
+[lock-removal comparison](performance-baseline.md#runtime-owned-publication-and-lock-removal-windows-2026-11-09)
+does not replace an updated empty-call attribution or establish Lua parity.
+
 ### Prepare facts, then execute a bound call
 
 | Boundary | Work and validity |
@@ -28,9 +181,9 @@ for the proposed implementation or imply that all checks can move to installatio
 | Compile/verify Program | Check script types and call contracts; prepare argument/result locations, frame requirements, initialization/liveness facts and GC maps. Source-free verification independently proves the executable contracts. |
 | Bind/install in Runtime | Match declarations/applications, resolve local host/type identities, check Rust mapping against the declared signature and prepare codecs, link dense call-site/entry tables and compatible call ABI. Facts are scoped to this installation and checked body/application. |
 | Enter/resume from host | Check Runtime/installation/handle authority and phase; establish an exclusive activation and its code/root protection; validate actual external arguments. |
-| Internal call | Use the frame's committed BoundCall; enter a current ordinary target or exact retained closure body, check cancellation/depth/capacity and transfer prepared operands. |
+| Internal call | Use the frame's committed BoundCall; enter a current ordinary target or exact retained closure body, ensure frame/slot capacity and transfer prepared operands. Cancellation/observation follow the explicitly enabled execution contract; script calls have no separate logical-depth quota. |
 | Value access/conversion | Check actual object owner/generation, host availability, loans and value/result validity where required. Custom decoders/encoders still execute per value. |
-| Return | Publish the result while protected, retire only this frame/local scope, restore caller state and release depth. Preserve trap/effect order. |
+| Return | Publish the result while protected, retire only this frame/local scope and restore caller state. Release a native-stack guard only when this boundary acquired one. Preserve trap/effect order. |
 
 An internal call is not another host admission. Installation authority and code
 liveness proved for an exclusive activation are reused until a callback, collection,
@@ -80,14 +233,14 @@ interpreter Value records. Boundary adaptation remains explicit.
 ```mermaid
 flowchart TD
     SITE["Prepared call site"] --> TARGET["Read prepared BoundCall<br/>or enter retained closure body"]
-    TARGET --> CHECK["Required dynamic checks<br/>cancellation, depth and capacity"]
+    TARGET --> CHECK["Ensure frame/slot capacity"]
     CHECK --> ARGS["Transfer prepared arguments<br/>publish their initialized roots"]
     ARGS --> KIND{"Execution implementation"}
     KIND --> SCRIPT["Small script frame<br/>continue interpreter or eligible machine code"]
     KIND --> HOST["Scoped Native boundary<br/>read/write the same logical slots"]
     SCRIPT --> RESULT["Publish protected result to caller"]
     HOST --> RESULT
-    RESULT --> LEAVE["Retire frame/local roots<br/>restore caller and depth"]
+    RESULT --> LEAVE["Retire frame/local roots<br/>restore caller"]
 ```
 
 The compiler can place arguments directly in a prepared outgoing area or use a
@@ -101,12 +254,65 @@ Initialize real arguments and necessary GC state. Definite initialization and
 root maps allow dead/uninitialized temporaries to avoid blanket Value clearing,
 provided the collector/debugger cannot read stale bank contents. Unit requires
 no payload/result slot in the proposed call ABI. A logical empty frame still
-participates in depth, traces, cancellation and reload body selection; it cannot
-be erased merely because it contains no data.
+occupies frame storage and participates in reload body selection and enabled
+tracing/cancellation; it cannot be erased merely because it contains no data.
 
 For a managed result, publish the caller's root before releasing callee/local
 protection, through the existing non-collecting return handoff invariant. A failed
 conversion or return does not undo completed callback effects.
+
+### Stack exhaustion and Native reentry
+
+Decision accepted on 2026-11-09: ordinary script recursion is bounded by VM stack
+space, without a separate logical call-depth quota such as the current default of
+256. This is the target model; current Runtime limits and the
+[execution specification](spec/execution.md) remain implemented contracts until
+the migration updates the APIs, specification and affected tests together.
+
+The interpreter continues in its dispatch loop with explicit frames and slots.
+Each checked body supplies its frame/slot requirements. Execution owns the used
+positions, backing capacities and stack-space ceiling. The ordinary call path
+checks available frame and slot capacity, publishes arguments and pushes a frame;
+return restores saved positions. Do not increment/decrement an independent script
+depth counter or update peak-depth statistics on this path. Optional diagnostics
+must have an explicit collection mode rather than an unconditional call cost.
+
+Insufficient backing capacity enters a fallible growth path. Grow geometrically
+within the VM stack-space ceiling; exceeding that ceiling reports the proposed
+script `StackOverflow` outcome. Allocation failure within the ceiling remains
+out-of-memory. Count frame storage as well as scalar/managed slot storage, so an
+empty recursive function still consumes space. A capacity hit may bypass ceiling
+arithmetic only when that admitted capacity already respects the ceiling. Use
+checked size arithmetic, including outgoing arguments and required alignment.
+Choose the ceiling, its configuration and the exact public error/API during the
+finite implementation phase; this decision does not introduce another limit
+registry. Independently parked executions retain their own stack ownership;
+Native reentry does not share a fresh allowance for the same physical thread stack.
+
+Synchronous Native-to-script reentry can nest Rust calls even though ordinary
+script recursion does not. Guard boundaries that can grow the native stack and
+release their guards on every exit, including traps and cancellation. A bounded
+reentry counter is an acceptable fallback when its native-frame assumptions and
+supported platforms are established; it counts nested native transitions, not
+every logical script frame. Neither a VM stack-space ceiling nor `catch_unwind`
+provides recovery from an exhausted Rust thread stack. Arbitrary recursion inside
+a host callback remains host-owned. AOT/JIT calls using the native stack must
+provide their backend's corresponding stack check before execution is enabled.
+
+[Lua 5.4.9 stack handling](https://github.com/lua/lua/blob/v5.4.9/ldo.c)
+(`luaD_growstack` and `ccall`) and its
+[C-call accounting](https://github.com/lua/lua/blob/v5.4.9/lstate.c)
+(`luaE_checkcstack`/`luaE_incCstack`) distinguish the growable Lua value stack
+from nested C calls. Adopt that separation, with Kagari's explicit frame storage,
+precise roots and Rust cleanup; do not copy Lua's slot ceilings, C-frame estimates
+or longjmp unwinding. This is an ownership decision, not a measured speedup.
+
+Acceptance reuses recursion/reentry coverage to distinguish VM space exhaustion,
+allocation failure and Native reentry exhaustion. Check zero-slot recursion,
+different frame sizes, growth with live managed arguments and recovery/cleanup
+after rejected entry. Cancellation and observer integration follow the staged
+performance-first scope above. Compare warmed script/Native calls and
+recursive workloads before claiming an improvement.
 
 ### One Native boundary with prepared adapters
 
@@ -141,13 +347,15 @@ path. A handle explicitly retained beyond the call needs a durable owning root;
 requesting an owning argument representation also pays that ownership cost.
 
 Synchronous Native execution normally invokes the callback and performs the common
-return transition directly. Keep its logical Native frame for tracing/depth and
-release storage borrows before arbitrary Rust/reentry. Do not require three generic
-driver iterations for every callback. Explicit saved return/continuation state is
+return transition directly. Keep its logical Native frame for stack storage and
+enabled tracing; release storage borrows before arbitrary Rust/reentry. Do not
+require three generic driver iterations for every callback. Explicit saved
+return/continuation state is
 still necessary when the existing debugger/slicing contract admits parking after
 the callback but before return. Preserve those observable boundaries and results;
-never suspend a Running Rust callback or remove a poll/trace point without proving
-its required behavior. Async work continues through owned Future/wait machinery.
+never suspend a Running Rust callback. Poll/trace behavior belongs to enabled
+instrumentation and its integration checkpoint, not the initial plain-call baseline.
+Async work continues through owned Future/wait machinery.
 
 ### Reference mechanisms and acceptance
 
@@ -169,7 +377,7 @@ First acceptance witnesses are zero allocator requests for warmed empty/scalar
 internal calls and Native adapters, no repeated static type/schema construction,
 no duplicate empty root leases, table-based warm selection, and correct result/root
 handoff. Also exercise storage growth, malformed source-free calls, custom codec
-failure/effects, host reentry with GC, scoped loans, cancellation/depth, debugger/
+failure/effects, host reentry with GC, scoped loans, cancellation/stack exhaustion, debugger/
 slice exits, and old-body/current-inner-call reload with actual native selection.
 Run the existing empty/control/Lua workloads on the implemented model before
 claiming an improvement; the measured Lua numbers are context, not a promised target.

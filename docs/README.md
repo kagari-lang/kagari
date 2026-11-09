@@ -64,9 +64,10 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Runtime call and native follow-up](runtime-refactor-design.md): queued logical
-  slot/frame/Native-adapter and optimizing-native proposals. Implemented immutable
-  Program preparation, prepared reload and sharing belong in the
+- [Runtime architecture and Host boundary refactor](runtime-refactor-design.md):
+  next-scope standard-library detachment, Runtime organization and existing-GC
+  integration; later slot/frame/Native-adapter and optimizing-native proposals.
+  Implemented immutable Program preparation, prepared reload and sharing belong in the
   [Runtime map](architecture/runtime.md), not this future-work design.
 
 - [Enum layouts](enum-layout-design.md): deferred pending Runtime execution and

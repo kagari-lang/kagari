@@ -875,6 +875,10 @@ optimization remain separate scopes. Git history owns the completed OM ledger.
 ## Library-owned native collections
 
 [NC01-NC06](native-collections-plan.md) are queued and unstarted.
+The 2026-11-09 [Runtime-first scope](runtime-refactor-design.md#next-scope-detach-the-standard-library-and-reuse-the-existing-gc)
+first detaches the existing library implementation, organizes Runtime/Host ownership
+and integrates the current collector. Full standard-library design follows that
+boundary; rebase the earlier NC/PG phase coupling before activating either migration.
 Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
 reuse the resulting heap/descriptor contracts and refresh NC01's API/code inventory
 against the current scoped identity APIs.
@@ -884,9 +888,10 @@ and Vec/HashMap/HashSet FromIterator implementations.
 Libraries should own concrete storage and algorithms; runtime should supply checked
 dynamic access, accounting, GC, short operation protection, revision checks and pinned calls. NC01 identifies
 missing public storage and constructor/host evidence capabilities before migration.
-The opaque API adjustment and general payload protocol ship with the
+Future collector-specific payload/scanning changes ship with the
 [GC execution plan PG00-PG06](paged-incremental-gc-design.md#execution-plan), including
-affected collection integration. The plan records NC handoffs and staged activation
+affected collection integration, reusing the Runtime-first generic protocol.
+The plan records NC handoffs and staged activation
 of incremental collection; its phases are queued and unstarted. NC remains the
 detailed collection work breakdown; it is not a later API redesign. Joint acceptance removes container-specific
 collector/storage paths and uses the same public opaque protocol for standard and
@@ -1496,6 +1501,29 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 ### Runtime execution model review
 
+The user-selected next scope is
+[standard-library detachment, Runtime/Host organization and existing-GC integration](runtime-refactor-design.md#next-scope-detach-the-standard-library-and-reuse-the-existing-gc).
+The Runtime design document owns responsibilities, records and complete execution
+paths. Current architecture remains the implementation inventory; NC owns later
+full collection design/implementation and PG owns later collector replacement.
+Record this order before activating finite implementation phases. No new collector,
+full standard-library rewrite or shared declaration-ID migration is activated here.
+
+The accepted [stack-exhaustion model](runtime-refactor-design.md#stack-exhaustion-and-native-reentry)
+replaces the proposed per-script-call depth quota/counter with VM frame/slot space
+checks and a growth slow path. Native stack protection belongs to nested host
+reentry and native-code execution. Exact ceilings/errors and the coordinated
+limits API/specification/test migration remain implementation work; current
+execution contracts and cancellation behavior are unchanged by this design record.
+
+The [performance-first removal review](runtime-refactor-design.md#performance-first-scope-and-removal-review)
+prioritizes prepared internal entry, Native codec/root reuse, direct synchronous
+Native return, stack storage and exclusive execution ownership. Establish the plain
+synchronous call baseline before cancellation/observer/slicing integration; do not
+add a generic check-policy framework. Current source paths and historical cost
+attribution identify candidates, not individual speedup claims. Deferred execution
+features remain explicit integration work rather than waived acceptance checks.
+
 MS00-MS05 are locally accepted with per-phase commits. Immutable Program products,
 detached preparation, final current/retained call bindings and Runtime-owned exclusive
 publication are implemented. The [Runtime map](architecture/runtime.md),
@@ -1568,6 +1596,18 @@ matrices remain unrun CI scope; no known selected-test failure remains. This
 repair does not activate the deferred frame/slot/Native API proposal.
 
 #### Installation current-lock measurement
+
+The user-requested [MS03 lock-removal comparison](performance-baseline.md#runtime-owned-publication-and-lock-removal-windows-2026-11-09)
+measures `6cab2a83` versus its immediate successor `c2980dd0`, with identical
+harness/fixtures and seven alternating pairs for 19 workloads. Ordinary calls
+decrease 19.14%, matched host callbacks 15.08%, interfaces 18.26% and shared
+generics 18.89%; arithmetic is effectively unchanged. All checksums and the strict
+paired validator pass. This includes activation admission reuse and less mapping
+cloning in the same commit; it does not isolate Mutex instructions. The report
+records process ranges, unchanged Lua image sensitivity, setup/build separation
+and the Windows 11/i9 environment. Earlier Windows 10/i7 migration acceptance is
+a separate series. Only documentation changes remain; no further optimization or
+new full CI result is claimed.
 
 The user-authorized 2026-11-08 [current-cell Mutex measurement](performance-baseline.md#installation-current-cell-mutex-measurement-windows-2026-11-08)
 is complete as a diagnostic, with no production optimization/cutover. Uncontended

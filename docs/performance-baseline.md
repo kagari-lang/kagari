@@ -7244,3 +7244,137 @@ and exhaustive feature/backend/platform matrices remain CI-only and unrun locall
 Shared products do not bound retained revision count; actual long-lived roots and
 inherited static/type provenance can retain whole versions. No production capacity,
 RSS/peak, native continuation/deoptimization or type/code split result is claimed.
+
+
+## Runtime-owned publication and lock removal (Windows, 2026-11-09)
+
+### Scope and environment
+
+User-requested comparison of the Runtime lock-removal commit: baseline
+`6cab2a83` (prepared final calls, installation-owned current Mutex) versus its
+immediate successor `c2980dd0` (Runtime-owned exclusive publication). Both precede
+the later Native-validation acceptance work and `dcf090ea` identity-scope repairs.
+This measures the complete `c2980dd0` change, including activation admission reuse
+and avoiding unused publication-mapping clones in ordinary Direct calls. It does
+not isolate the machine cost of Mutex lock/unlock; the earlier
+[current-cell experiment](#installation-current-cell-mutex-measurement-windows-2026-11-08)
+answers that narrower question with different mechanisms and assumptions.
+
+Windows 11 Pro 10.0.26300, i9-12900K, 24 logical CPUs, 66,843,692 KiB visible RAM;
+rustc 1.99.1 (58cf8f9c3, LLVM 23.1.1), Cargo 1.99.1,
+`x86_64-pc-windows-msvc`. Workspace release defaults, opt-level 3, default Cargo
+target and parallelism. SDK source/native and mlua 0.12.2 `lua54,vendored` are
+compiled, but JIT preparation/execution is disabled. Lua is PUC 5.4.9. No profiler,
+counting allocator, forced GC policy or compiler flag override is introduced.
+Desktop background activity, CPU frequency and core placement are uncontrolled.
+These measurements use a different machine from the preceding MS00-MS05 acceptance
+record; do not compare their absolute timings as a before/after series.
+
+A detached worktree builds both revisions sequentially at the same source path.
+The main working tree remains at `dcf090ea`; no production source is instrumented.
+The harness, fixtures, Cargo manifests/lock and benchmark scripts are unchanged
+between the measured revisions. The dependency cache is reused where available;
+the isolated worktree's first release build takes 111.011 s, the candidate build
+28.778 s; cached forms builds take 0.361/0.365 s. All builds finish before their
+execution series and are excluded from the execution timers. An initial launch
+from the main checkout was stopped during setup and contributes no comparison data.
+
+### Protocol and results
+
+Use the existing [comparison driver](../scripts/benchmark_lua.py) and
+[strict evidence validator](../scripts/benchmark_results.py) unchanged. Freeze one
+checked baseline process for each suite, then run seven baseline/candidate pairs
+per suite, alternating which image runs first. Workload/engine reversal changes
+every two pairs. Each process creates fresh engine/Runtime state, prepares its
+workload outside execution timing, performs three warmups and eleven measured
+samples, and verifies results outside the timer. Processes and suites run serially;
+no build, test or other measurement overlaps them. Default execution GC remains
+part of each workload. Native rows run host callbacks through the interpreter;
+they are not JIT results.
+
+All 19 selected scenarios pass their independent checksums on both images. The
+28 paired processes contain 5,852 checked execution samples across both engines;
+all sample/configuration/order/binary-hash/workload-hash validation passes.
+Compilation, linking and other setup rows remain separate diagnostic samples;
+they do not establish a controlled startup speedup.
+
+Times below are microseconds per complete workload, except `entry`, normalized to
+one host invocation from its 1,000-call batch. Workload sizes remain frozen:
+50,000 arithmetic iterations, 30,000 branches, 10,000 helper calls, Fibonacci(20),
+2,000 array elements, 1,000 map keys and 5,000 iterations for every forms row.
+Before/after values are medians of seven process sample medians. The ratio is the
+median of seven paired candidate/baseline ratios, so it need not equal the ratio
+of the displayed medians. Min-max is the observed pair range, not a confidence
+interval. The last column is the unchanged Lua workload's diagnostic pair ratio;
+it is not used to normalize Kagari timings.
+
+| Workload | Before us | After us | After/before | Pair min-max | Lua after/before |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 465.400 | 466.100 | 0.99935 | 0.96412-1.10219 | 1.04642 |
+| arrays | 6973.100 | 6178.000 | 0.88159 | 0.86755-0.90637 | 0.93432 |
+| branches | 871.300 | 860.800 | 0.99147 | 0.97483-1.01102 | 0.98213 |
+| calls | 4675.500 | 3764.300 | 0.80865 | 0.77251-0.85999 | 0.98452 |
+| entry | 1.885 | 1.758 | 0.93289 | 0.89035-0.96025 | 0.85859 |
+| fibonacci | 10972.200 | 8896.000 | 0.81148 | 0.80179-0.82601 | 0.94880 |
+| maps | 5445.400 | 5031.100 | 0.90073 | 0.82807-0.95427 | 0.94881 |
+| forms_byte_state | 13292.500 | 12006.000 | 0.91010 | 0.88325-0.92262 | 1.04003 |
+| forms_capture_cell | 5987.300 | 5556.700 | 0.92705 | 0.90665-0.95671 | 0.98686 |
+| forms_concrete_generic | 2384.600 | 1928.300 | 0.82165 | 0.77560-0.83272 | 0.99906 |
+| forms_direct | 66.400 | 64.400 | 0.97765 | 0.94239-1.02333 | 1.03025 |
+| forms_field | 694.600 | 676.600 | 0.99252 | 0.93636-1.13418 | 1.04330 |
+| forms_helper | 2302.400 | 1841.300 | 0.80816 | 0.75907-0.82446 | 0.95559 |
+| forms_host_callback | 2971.800 | 2523.700 | 0.84922 | 0.82059-0.88648 | 1.00043 |
+| forms_interface | 8357.100 | 6832.900 | 0.81744 | 0.79507-0.86093 | 0.99421 |
+| forms_native | 2966.100 | 2512.500 | 0.84942 | 0.82292-0.86238 | 0.96800 |
+| forms_shared_generic | 11795.500 | 9508.900 | 0.81107 | 0.77371-0.84207 | 0.98041 |
+| forms_string_calls | 6386.900 | 5300.500 | 0.84147 | 0.80704-0.86005 | 0.97984 |
+| forms_string_constants | 3674.100 | 3164.700 | 0.86622 | 0.85736-0.89545 | 0.98753 |
+
+Ordinary 10,000-call workload time decreases 19.14%; the forms helper decreases
+19.18%, matched host callbacks 15.08%, interface calls 18.26%, shared generic calls
+18.89%, and recursive Fibonacci 18.85%. Arrays/maps decrease 11.84%/9.93% in their
+complete mixed workloads. Arithmetic is effectively unchanged (ratio 0.99935);
+small branch/direct/field differences do not establish specific improvements.
+All 19 Kagari rows satisfy the existing 1.05 regression threshold for this series.
+
+This pattern is consistent with the changed call path: admitted synchronous
+execution reuses installation authority instead of repeating current-cell liveness
+lookups, and ordinary Direct calls avoid copying unused binder transport metadata.
+The data does not separate those mechanisms or show that all saved time was lock
+cost. Unchanged Lua shifts across images, especially entry (ratio 0.85859), arrays
+(0.93432) and Fibonacci (0.94880), demonstrating image/layout or environmental
+sensitivity. Source inspection and the unchanged arithmetic control support the
+call-path interpretation, but no causal percentage is assigned to each change.
+The matched Lua host-callback row is nearly unchanged (1.00043). Do not claim every
+route improves by 19%, an isolated empty-call latency or general Lua parity.
+
+### Reproduction and evidence limits
+
+From one detached worktree, using an absolute freeze destination outside it:
+
+```text
+git checkout --detach 6cab2a83
+uv run python scripts/benchmark_lua.py --interpreter-only --freeze-baseline BASELINE.exe
+uv run python scripts/benchmark_lua.py --source-forms --freeze-baseline BASELINE.exe
+git checkout --detach c2980dd0
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable BASELINE.exe
+uv run python scripts/benchmark_lua.py --source-forms --runs 7 --baseline-executable BASELINE.exe
+uv run python scripts/check_benchmark.py ORIGINAL_PAIRED_RESULTS.json
+uv run python scripts/check_benchmark.py FORMS_PAIRED_RESULTS.json
+```
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Baseline release image | `21f6d2fc778defd3c238fb2276ca2261b83957427fd6820782280062bdce0a84` |
+| Candidate release image | `99bf6dc2581453f0800b7a822b93a849d188f3a281cc3d8438de5c3521db1ae2` |
+| Original harness/fixtures | `0d1e838cc1366c9ef45678242309d9605c3f7b930a26067e59b78b7566bca25b` |
+| Forms harness/fixtures | `5f946c8933b402bf9635bda0b06f83ac013db510be2992c53d8fd9c002e7fa7e` |
+| Cargo.lock | `b7e97eeadc9e6d58b129b207206e0f1e1d984984802804a56b7cf742fdfa98cd` |
+
+Raw samples, frozen reports, image snapshots and validated summaries are disposable
+under ignored target; this record retains methods, results and limits. These
+benchmarks establish measured behavior only for their checked inputs; the historical
+revisions' other language failures are not repaired or timed by this comparison.
+No new memory/GC-pause, actual-native, hot-reload lifecycle or full CI acceptance is
+claimed. Retained changes are documentation only, with content/link/diff checks;
+no production implementation or further optimization is included.
