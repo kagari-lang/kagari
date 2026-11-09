@@ -1,0 +1,16 @@
+use test::native_player::read;
+
+static var COUNT: i32 = 0;
+
+fn main() -> i32 {
+    40 + 2 % 5
+}
+
+pub fn script_next() -> i32 {
+    COUNT += 1;
+    COUNT
+}
+
+pub fn host_value() -> i32 {
+    read()
+}

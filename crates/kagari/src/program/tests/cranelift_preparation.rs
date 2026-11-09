@@ -8,62 +8,204 @@ use crate::{
         source::{ArtifactOptions, PreparationOptions},
     },
     error::{EmbeddingError, RuntimeFailureKind},
-    program::Program,
+    program::{Program, native::NativePreparationError},
+    runtime::Runtime as SdkRuntime,
+};
+use kagari_abi::native::NativeCodeOwner;
+use kagari_codegen::{
+    BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_contract::native::NativeCompilationProduct;
+use kagari_runtime::{
+    module::{InstalledProgram, entry::ProgramEntry},
+    native::{
+        binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
+        declarations::FunctionDecl, installation::NativeInstallation, module::NativeModule,
+        typed::NativeContext, types::Type,
+    },
+    value::Value,
+};
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 use rstest::rstest;
+use std::{
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicI32, Ordering},
+    },
+    thread,
+};
+
+const PLAYER_SOURCE: &str =
+    include_str!("../../../tests/fixtures/embedding/native-shared-players.kgr");
+
+fn player_module(catalog: &DeclarationCatalog, value: Arc<AtomicI32>) -> NativeModule {
+    let mut builder = ModuleBuilder::new("test::native_player", catalog).unwrap();
+    let read = builder
+        .define_function(FunctionDecl::new("read").returns(Type::i32()))
+        .unwrap();
+    builder
+        .bind(
+            read,
+            move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<i32> {
+                Ok(value.load(Ordering::SeqCst))
+            },
+        )
+        .unwrap();
+    builder.finish().unwrap()
+}
+
+/// Observes actual finalized products without changing the backend's output.
+struct LifetimeBackend {
+    backend: CraneliftBackend,
+    pages: Vec<Weak<dyn NativeCodeOwner>>,
+}
+
+// SAFETY: every configuration/input/product is delegated unchanged to the real
+// Cranelift implementation. Weak page observations grant no execution authority.
+unsafe impl CodegenBackend for LifetimeBackend {
+    fn configuration(&self) -> BackendConfiguration {
+        self.backend.configuration()
+    }
+
+    fn compile_function(
+        &mut self,
+        input: BackendFunctionInput<'_>,
+    ) -> Result<NativeCompilationProduct, BackendCompileError> {
+        let product = self.backend.compile_function(input)?;
+        self.pages.push(Arc::downgrade(&product.owner));
+        Ok(product)
+    }
+}
+
+fn scalar(runtime: &SdkRuntime, loaded: &InstalledProgram, entry: &str) -> i32 {
+    let report = runtime
+        .execute(loaded, entry, &[], &Default::default())
+        .unwrap();
+    let Value::I32(value) = report.return_value.value(runtime.runtime().gc()).unwrap() else {
+        panic!("scalar player result")
+    };
+    value
+}
 
 #[test]
 fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() {
-    let engine = KagariEngine::default();
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("native.kgr", "fn main() -> i32 { 40 + 2 % 5 }"),
-            Default::default(),
-        )
-        .unwrap();
     for encoded in [false, true] {
-        let program = if encoded {
-            let artifact = BytecodeArtifact::from_bytes(
-                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
-            )
-            .unwrap();
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
-        } else {
-            engine
-                .compile_to_program(
-                    SourceFile::new("native.kgr", "fn main() -> i32 { 40 + 2 % 5 }"),
-                    PreparationOptions {
-                        retain_native_input: true,
-                        ..Default::default()
-                    },
+        let first_value = Arc::new(AtomicI32::new(101));
+        let second_value = Arc::new(AtomicI32::new(201));
+        let first_host = Arc::downgrade(&first_value);
+        let mut builder = KagariEngine::builder().unwrap();
+        let first_provider = player_module(builder.declarations(), first_value.clone());
+        let second_provider = player_module(builder.declarations(), second_value.clone());
+        builder.install(first_provider).unwrap();
+        let engine = builder.build().unwrap();
+        let prepare = |source: &str| {
+            if encoded {
+                let artifact = engine
+                    .compile_to_artifact(SourceFile::new("native.kgr", source), Default::default())
+                    .unwrap();
+                let artifact = BytecodeArtifact::from_bytes(
+                    &artifact.records().to_bytes(artifact.definitions()).unwrap(),
                 )
-                .unwrap()
+                .unwrap();
+                Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+            } else {
+                engine
+                    .compile_to_program(
+                        SourceFile::new("native.kgr", source),
+                        PreparationOptions {
+                            retain_native_input: true,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap()
+            }
         };
+        let program = prepare(PLAYER_SOURCE);
+        assert_eq!(PLAYER_SOURCE.matches("40 + 2 % 5").count(), 1);
+        let replacement = prepare(&PLAYER_SOURCE.replace("40 + 2 % 5", "43"));
+        let candidate = program
+            .prepare_replacement(&replacement, &Default::default())
+            .unwrap();
+        let mir = Arc::downgrade(program.state.mir.as_ref().unwrap());
         let context = ExecutionContext {
             jit_policy: JitPolicy::Enabled,
             ..Default::default()
         };
-        let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let prepared = NativeCompiler::default()
-            .prepare(
-                &program,
-                ProgramEntry::Main,
-                &mut CraneliftBackend::for_host().unwrap(),
-                &context.cancellation,
-            )
-            .and_then(|native_code| runtime.install_native(&loaded, &native_code))
-            .unwrap();
+        let mut first = engine.runtime(context.clone());
+        let mut modules = kagari_stdlib::modules().unwrap();
+        modules.push(second_provider);
+        let mut second = SdkRuntime::new(
+            NativeInstallation::prepare(&modules)
+                .unwrap()
+                .runtime(Default::default()),
+            context.clone(),
+        );
+        drop(modules);
+        let first_program = first.load_program(&program, Default::default()).unwrap();
+        let second_program = second.load_program(&program, Default::default()).unwrap();
+        assert!(Arc::ptr_eq(
+            first
+                .program(&first_program)
+                .unwrap()
+                .state
+                .mir
+                .as_ref()
+                .unwrap(),
+            second
+                .program(&second_program)
+                .unwrap()
+                .state
+                .mir
+                .as_ref()
+                .unwrap()
+        ));
+        let worker_program = program.clone();
+        let worker_candidate = candidate.clone();
+        let (native, next_native, pages) = thread::spawn(move || {
+            let mut compiler = NativeCompiler::default();
+            let mut backend = LifetimeBackend {
+                backend: CraneliftBackend::for_host().unwrap(),
+                pages: Vec::new(),
+            };
+            let native = compiler
+                .prepare(
+                    &worker_program,
+                    ProgramEntry::Main,
+                    &mut backend,
+                    &Default::default(),
+                )
+                .unwrap();
+            let next = compiler
+                .prepare(
+                    &worker_candidate,
+                    ProgramEntry::Main,
+                    &mut backend,
+                    &Default::default(),
+                )
+                .unwrap();
+            (native, next, backend.pages)
+        })
+        .join()
+        .unwrap();
+        assert_eq!(
+            pages.len(),
+            2,
+            "both bodies must compile through real Cranelift"
+        );
+        let prepared = first.install_native(&first_program, &native).unwrap();
+        let independent = second.install_native(&second_program, &native).unwrap();
         let PreparedNativeEntry::Native(installed) = &prepared else {
-            panic!("scalar entry should compile to native code");
+            panic!("native first player")
         };
-
+        let PreparedNativeEntry::Native(other) = &independent else {
+            panic!("native second player")
+        };
+        assert_eq!(installed.artifact().code.entry, other.artifact().code.entry);
         drop(program);
+        drop(engine);
         for policy in [
             JitPolicy::Enabled,
             JitPolicy::Disabled,
@@ -72,19 +214,21 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             JitPolicy::CompileOnFirstCall,
             JitPolicy::CompileAfterThreshold(10),
         ] {
-            // Scheduling variants still consume explicitly prepared code only.
             let execution = ExecutionContext {
                 jit_policy: policy,
                 ..Default::default()
             };
-            let report = runtime
-                .execute_prepared(&loaded, ProgramEntry::Main, &[], &execution, &prepared)
+            let report = first
+                .execute_prepared(
+                    &first_program,
+                    ProgramEntry::Main,
+                    &[],
+                    &execution,
+                    &prepared,
+                )
                 .unwrap();
             assert_eq!(
-                report
-                    .return_value
-                    .value(runtime.runtime().gc())
-                    .expect("retained execution result"),
+                report.return_value.value(first.runtime().gc()).unwrap(),
                 Value::I32(42)
             );
             let jit = report.jit.unwrap();
@@ -103,12 +247,94 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                 assert!(jit.diagnostics.is_empty());
             }
             drop(report.return_value);
-            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+            assert_eq!(first.runtime().gc().active_roots(), 0);
         }
+        assert_eq!(scalar(&first, &first_program, "script_next"), 1);
+        assert_eq!(scalar(&first, &first_program, "host_value"), 101);
+        assert_eq!(scalar(&second, &second_program, "host_value"), 201);
+        first
+            .replace_program(&first_program, &candidate, Default::default())
+            .unwrap();
+        let updated = first.install_native(&first_program, &next_native).unwrap();
+        assert_eq!(scalar(&first, &first_program, "script_next"), 2);
+        assert_eq!(scalar(&second, &second_program, "script_next"), 1);
+        first_value.store(102, Ordering::SeqCst);
+        assert_eq!(scalar(&first, &first_program, "host_value"), 102);
+        assert_eq!(scalar(&second, &second_program, "host_value"), 201);
+        let second_before = second.runtime().publication_token(&second_program).unwrap();
+        assert!(matches!(
+            second.install_native(&second_program, &next_native),
+            Err(NativePreparationError::WrongVersion)
+        ));
+        assert_eq!(
+            second.runtime().publication_token(&second_program).unwrap(),
+            second_before
+        );
+        for (runtime, loaded, entry, value) in [
+            (&first, &first_program, &updated, 43),
+            (&second, &second_program, &independent, 42),
+        ] {
+            let report = runtime
+                .execute_prepared(loaded, ProgramEntry::Main, &[], &context, entry)
+                .unwrap();
+            assert_eq!(
+                report.return_value.value(runtime.runtime().gc()).unwrap(),
+                Value::I32(value)
+            );
+            assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+        }
+        drop((native, next_native, prepared, updated));
+        first.close().unwrap();
+        drop(first);
+        drop(first_value);
+        assert!(
+            first_host.upgrade().is_none(),
+            "shared code must not retain another player's Rust capture"
+        );
+        assert!(
+            pages[0].upgrade().is_some(),
+            "second player still owns the old pages"
+        );
+        assert!(
+            pages[1].upgrade().is_none(),
+            "failed delivery must not retain the new pages in player two"
+        );
+        assert!(mir.upgrade().is_some());
+        second_value.store(202, Ordering::SeqCst);
+        assert_eq!(scalar(&second, &second_program, "host_value"), 202);
+        let report = second
+            .execute_prepared(
+                &second_program,
+                ProgramEntry::Main,
+                &[],
+                &context,
+                &independent,
+            )
+            .unwrap();
+        assert_eq!(
+            report.return_value.value(second.runtime().gc()).unwrap(),
+            Value::I32(42)
+        );
+        assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+        drop(report.return_value);
+        assert_eq!(second.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            second.runtime().resources().counters().current_call_depth,
+            0
+        );
+        drop(independent);
+        second.close().unwrap();
+        drop(second);
+        assert!(pages.iter().all(|page| page.upgrade().is_none()));
+        assert!(
+            mir.upgrade().is_none(),
+            "candidate identity must not retain predecessor MIR"
+        );
     }
 }
 
 #[rstest]
+#[case::ordinary_call("fn helper() -> i32 { 42 } fn main() -> i32 { helper() }", 42)]
 #[case::mutable_local("fn main() -> i32 { var value = 40; value += 2; value }", 42)]
 #[case::remainder("fn main() -> i32 { 42 % 5 }", 2)]
 #[case::capturing_closure(

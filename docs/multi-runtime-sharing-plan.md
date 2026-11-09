@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: execution authorized on 2026-11-09, including a commit per completed
-phase. MS00-MS03 are locally accepted; MS04-MS05 have not started. The user selected the
+phase. MS00-MS04 are locally accepted; MS05 has not started. The user selected the
 [Runtime target architecture](runtime-refactor-design.md), requested this phase
 plan, then authorized its execution. Routine choices within the selected scope
 do not require another design-approval round. The progress ledger records actual
@@ -960,8 +960,8 @@ detached preparation or new call tables; later phase status appears below.
 
 ## Progress ledger
 
-Execution is active. MS00-MS03 are accepted locally with the evidence below.
-Next: MS04 player isolation, actual-native and asynchronous lifetime integration.
+Execution is active. MS00-MS04 are accepted locally with the evidence below.
+Next: MS05 frozen measurement and documentation closure.
 
 | Phase | Status | Acceptance evidence / carried errors |
 | --- | --- | --- |
@@ -969,7 +969,7 @@ Next: MS04 player isolation, actual-native and asynchronous lifetime integration
 | MS01 | Complete locally | Shared immutable Program, detached preparation, local identity admission and native compiler split; selected integration/source-free cases and required local checks pass |
 | MS02 | Complete locally | Shared facts/history, prepared upcasts, final target tables and complete parked-stack refresh; selected core/SDK/VM/source-free cases and mandatory local checks pass |
 | MS03 | Complete locally | Identity-only handles, Runtime-owned current and mutable publication; scoped admission replaces current liveness locks; selected lifecycle/distribution cases and mandatory checks pass |
-| MS04 | Not started | Await MS03 |
+| MS04 | Complete locally | Real Cranelift source/encoded sharing, distinct Rust/script state, failed native delivery and final-owner reclamation pass; selected async/fault cases and mandatory checks pass |
 | MS05 | Not started | Await MS04; final CI status remains separate |
 
 At a checkpoint record the concrete change, changed contract/owner, selected
@@ -1242,3 +1242,53 @@ cargo test -p kagari --no-default-features --test artifact_features portable_art
 No known build/integration errors are carried. Full-workspace tests and exhaustive
 matrices remain CI-only and were not run locally. Native/player integration remains
 MS04; implementation-map closure and frozen performance gates remain MS05 owners.
+
+### MS04 local acceptance — 2026-11-09
+
+The existing real-Cranelift source/encoded-MIR scenario now compiles both revisions
+on a worker, drops its compiler/backend, and distributes the same finalized product
+to two independent Runtime owners. The shared MIR Arc and simultaneous executable
+entry address are checked alongside actual Native execution values. Each Runtime
+installs a different Rust provider capture; script statics and Rust values remain
+independent before and after publishing only player one. Delivering player one's
+new native product to player two's old revision rejects without advancing its token
+or invalidating its old native entry. Closing player one releases its Rust capture
+and new pages while player two still executes the shared old pages; last-recipient
+teardown releases those pages and the original MIR even with the candidate retained.
+The initial static's inherited provenance is a legitimate old-program owner (R13),
+so no Future-only/per-body collection claim is inferred from the MIR weak probe.
+
+A test-only backend observer delegates unchanged to actual Cranelift and records
+Weak page owners. It does not fabricate products, widen a production accessor or
+replace execution with a mock. Existing disabled-policy fallback assertions remain,
+and every supported enabled route still asserts Native status. The same scenario
+passes both source-retained input and independently encoded/decoded MIR input.
+
+Seven further SDK boundary cases pass: four unsupported MIR cases, real native
+version/GC admission, async result publication/cancellation and debugger-driven
+cancellation/traces. The unsupported table adds one distinct ordinary-call witness;
+current Cranelift cannot enter calls or suspension. A caller with changed ordinary
+callees therefore has no supported native product here: it declines before entry.
+Old bytecode roots/current inner links are covered by MS02-MS03's resumed recursive,
+shared, module and nested-Future scenarios. No native continuation, deoptimization,
+inlining or automatic delivery capability was invented to claim that coverage.
+Three existing core teardown cases also pass for queued payload/destructor/control
+faults, preserving cancellation, complete cleanup and stale producer notifications.
+
+Reproduction filters use the existing owners:
+
+```text
+cargo test -p kagari --lib source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop
+cargo test -p kagari --lib unsupported_mir_selects_interpreter_before_any_script_instruction
+cargo test -p kagari --lib real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints
+cargo test -p kagari --lib async_output_publication_contract
+cargo test -p kagari --lib async_debugger_drive_contract
+cargo test -p kagari-runtime --lib owned_retirement_drains_all_parked_roots_after_payload_drop_fault
+```
+
+The fixture passes `kg fmt --check`; structure, Rust fmt, workspace all-target
+Clippy and diff checks pass. There are no intermediate semantic/build failures or
+carried integration errors. Existing source-free/typed/loan checks passed in MS03
+and their unchanged production paths were not rerun as a feature matrix. Full native,
+platform and workspace test matrices remain CI-only. Frozen performance gates and
+implementation-map closure remain MS05 work; no measured performance claim is made.
