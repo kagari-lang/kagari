@@ -703,7 +703,7 @@ pub fn runner() -> Run { 7 }
             compile_program(&next_source, Some(&module)),
         )
         .unwrap();
-    vm.runtime().publish_staged_reload(candidate).unwrap();
+    vm.runtime_mut().publish_staged_reload(candidate).unwrap();
     assert!(
         vm.runtime()
             .collect_garbage()

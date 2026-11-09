@@ -123,8 +123,9 @@ fn portable_artifact_executes_without_source_compilation() {
 
     // The decoded export graph, not frontend state or a root-reset adapter, owns
     // relative lookup through a namespace-only facade into a private item owner.
-    let cells = loaded.module("host_api").unwrap().module("cells").unwrap();
-    assert!(loaded.module("alias_model").is_err());
+    let facade = runtime.module(&loaded.root(), "host_api").unwrap();
+    let cells = runtime.module(&facade, "cells").unwrap();
+    assert!(runtime.module(&loaded.root(), "alias_model").is_err());
     let root_answer = runtime
         .function::<(), i32>(&loaded.root(), "answer")
         .unwrap();

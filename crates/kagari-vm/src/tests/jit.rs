@@ -325,7 +325,7 @@ fn native_products_must_match_current_selection_before_entry_or_fallback() {
         .unwrap();
     let old = runtime.select_program(&program).unwrap();
     let stale = native_fixtures::install_i32::<7>(&runtime, &old, false);
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     vm.reload_program(&program, None, program_code(9)).unwrap();
     let current = vm.runtime().select_program(&program).unwrap();
     let prepared = PreparedNativeEntry::Native(stale.clone());

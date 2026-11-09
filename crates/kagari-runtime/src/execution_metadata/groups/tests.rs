@@ -139,7 +139,7 @@ fn load_source(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
 #[test]
 fn operation_application_environment_cycles_release_the_actual_metadata_records() {
     for selected in [false, true] {
-        let (runtime, loaded_program, loaded) = load();
+        let (mut runtime, loaded_program, loaded) = load();
         let table = loaded
             .bytecode
             .interface_tables

@@ -242,7 +242,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         fn main() -> i32 { val offset = [41]; remember(|value| value + offset[0]); invoke(1) }
         pub fn run() -> i32 { invoke(1) }
     "#;
-    let (vm, loaded) = compile(old, Some(&module));
+    let (mut vm, loaded) = compile(old, Some(&module));
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let old_key = loaded.key();

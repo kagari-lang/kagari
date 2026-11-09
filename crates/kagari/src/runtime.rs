@@ -112,7 +112,7 @@ impl Runtime {
                 "replacement does not expect the installation's current Program base",
             ));
         }
-        let guard = self.runtime().begin_publication(previous)?;
+        let guard = self.runtime_mut().begin_publication(previous)?;
         let candidate = guard
             .stage_reload_verified_program(options.program_name, program.clone().into_verified())
             .map_err(EmbeddingError::reload_validation)?;

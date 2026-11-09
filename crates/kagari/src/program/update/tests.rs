@@ -154,6 +154,36 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
     runtime
         .replace_program(&program, &candidate, Default::default())
         .unwrap();
+    let recipient_before = recipient
+        .runtime()
+        .publication_token(&recipient_program)
+        .unwrap();
+    let published_before = runtime.runtime().publication_token(&program).unwrap();
+    let local_cancellation = CancellationToken::default();
+    local_cancellation.cancel();
+    assert!(matches!(
+        recipient.replace_program(
+            &recipient_program,
+            &candidate,
+            ReloadOptions {
+                cancellation: local_cancellation,
+                ..Default::default()
+            }
+        ),
+        Err(EmbeddingError::Cancelled)
+    ));
+    assert_eq!(
+        recipient
+            .runtime()
+            .publication_token(&recipient_program)
+            .unwrap(),
+        recipient_before
+    );
+    assert_eq!(
+        runtime.runtime().publication_token(&program).unwrap(),
+        published_before
+    );
+    assert_eq!(call(&recipient, &recipient_program, "answer"), 40);
     recipient
         .replace_program(&recipient_program, &candidate, Default::default())
         .unwrap();
@@ -500,7 +530,7 @@ fn admission_bounds_and_request_cancellation_precede_compilation() {
     cancelled_preparation.cancel();
     let mut runtime = engine.runtime(Default::default());
     let program = runtime.load_program(&prepared, Default::default()).unwrap();
-    let guard = runtime.runtime().begin_publication(&program).unwrap();
+    let guard = runtime.runtime_mut().begin_publication(&program).unwrap();
     let mut detached = Update::new();
     detached.replace_function("answer", "pub fn answer() -> i32 { 2 }");
     let candidate = prepared.prepare_update(detached).unwrap();
@@ -605,7 +635,10 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
             .runtime()
             .stage_reload_verified_program(&program, None, artifact.bytecode().clone())
             .unwrap();
-        runtime.runtime().publish_staged_reload(candidate).unwrap();
+        runtime
+            .runtime_mut()
+            .publish_staged_reload(candidate)
+            .unwrap();
     } else {
         runtime
             .program(&program)
@@ -641,7 +674,10 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
             .runtime()
             .stage_reload_verified_program(&program, None, direct.clone().into_verified())
             .unwrap();
-        runtime.runtime().publish_staged_reload(candidate).unwrap();
+        runtime
+            .runtime_mut()
+            .publish_staged_reload(candidate)
+            .unwrap();
     } else {
         let base = runtime.program(&program).unwrap();
         let candidate = base
@@ -887,7 +923,7 @@ fn stale_publication_releases_candidate_capsule_and_preserves_current_source() {
     }
     .unwrap();
     let token = runtime.runtime().publication_token(&program).unwrap();
-    let guard = runtime.runtime().begin_publication(&program).unwrap();
+    let guard = runtime.runtime_mut().begin_publication(&program).unwrap();
     assert!(guard.publish(candidate).is_err());
     runtime.runtime().collect_garbage().unwrap();
     assert!(capsule.upgrade().is_none());

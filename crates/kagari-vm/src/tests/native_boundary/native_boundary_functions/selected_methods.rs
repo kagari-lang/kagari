@@ -153,7 +153,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         pub fn wrong_receiver() -> Counter<bool> { Counter { amount: 21, marker: true } }
         pub fn run() -> i32 { val relay: Relay = 0; relay.relay(make()) }
     "#;
-    let (vm, old) = fixture_without_foundation(source, Some(&module));
+    let (mut vm, old) = fixture_without_foundation(source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let run = vm
@@ -306,7 +306,7 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         include_str!("../../../../tests/fixtures/native/selected-generic-object-results.kgr"),
         Some(&module),
     );
@@ -337,7 +337,7 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
         drop(item);
     }
-    publish_unused_version(&vm, &_owner_program);
+    publish_unused_version(&mut vm, &_owner_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 

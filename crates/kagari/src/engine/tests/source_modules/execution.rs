@@ -280,7 +280,7 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
             Value::I32(value)
         );
     }
-    assert!(runtime.runtime().publish_staged_reload(stale).is_err());
+    assert!(runtime.runtime_mut().publish_staged_reload(stale).is_err());
     drop(retention);
     let collected: HashSet<_> = runtime
         .runtime()

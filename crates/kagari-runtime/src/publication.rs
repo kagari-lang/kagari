@@ -75,7 +75,7 @@ impl Drop for SynchronousActivation<'_> {
 /// is runtime-wide and dynamically checked, including reentry through `&Runtime`.
 #[must_use]
 pub struct PublicationGuard<'runtime> {
-    runtime: &'runtime Runtime,
+    runtime: &'runtime mut Runtime,
     target: InstalledProgram,
 }
 
@@ -86,7 +86,7 @@ impl Runtime {
     /// `ExecutionPhaseViolation`. Foreign/retired targets, native borrows and
     /// closed/faulted runtimes retain their existing error categories.
     pub fn begin_publication(
-        &self,
+        &mut self,
         target: &InstalledProgram,
     ) -> Result<PublicationGuard<'_>, RuntimeError> {
         self.resources().ensure_not_publishing()?;
@@ -119,6 +119,12 @@ impl Runtime {
 }
 
 impl PublicationGuard<'_> {
+    /// Read-only Runtime access while publication authority is held. Execution,
+    /// driving and nested publication remain dynamically forbidden.
+    pub fn runtime(&self) -> &Runtime {
+        self.runtime
+    }
+
     /// Stage verified executable metadata for this guard's installation.
     /// No script, initializer or host callback is invoked by linking.
     pub fn stage_reload_verified_program(

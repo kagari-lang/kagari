@@ -117,7 +117,7 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
 
 #[test]
 fn enum_variant_handles_keep_old_layouts_alive_and_release_them_after_reload() {
-    let (vm, old) = fixture(SOURCE, None);
+    let (mut vm, old) = fixture(SOURCE, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let item_type = vm

@@ -129,10 +129,14 @@ impl CallRoute {
 pub struct SelectedTarget {
     owner: ExecutableModule,
     target: CallableTarget,
-    mapping: PublicationMapping,
+    mapping: Arc<PublicationMapping>,
 }
 
 impl SelectedTarget {
+    pub(crate) fn into_entry(self) -> (ExecutableModule, CallableTarget) {
+        (self.owner, self.target)
+    }
+
     pub fn owner(&self) -> &ExecutableModule {
         &self.owner
     }
@@ -275,7 +279,7 @@ impl Runtime {
             }
             candidate
         } else {
-            let current = installation.capture_current()?;
+            let current = self.modules.capture_current(installation)?;
             if !route.inner.scope.is_published() {
                 return Err(RuntimeError::execution_phase_violation(
                     "staged callable requires candidate execution",
@@ -297,16 +301,26 @@ impl Runtime {
         &self,
         prepared: &PreparedSelection,
     ) -> Result<SelectedTarget, RuntimeError> {
+        let (owner, target) = self.select_prepared_entry(prepared)?;
+        Ok(SelectedTarget {
+            owner,
+            target,
+            mapping: prepared.mapping.clone(),
+        })
+    }
+
+    /// Ordinary direct calls need only the checked entry; generic transport
+    /// metadata is retained by the table and is not cloned on this path.
+    pub(crate) fn select_prepared_entry(
+        &self,
+        prepared: &PreparedSelection,
+    ) -> Result<(ExecutableModule, CallableTarget), RuntimeError> {
         let owner = self
             .modules
             .loaded(prepared.owner)
             .ok_or_else(|| invalid("selected callable body was released"))?;
         self.validate_executable_module(&owner)?;
-        Ok(SelectedTarget {
-            owner,
-            target: prepared.target,
-            mapping: prepared.mapping.clone(),
-        })
+        Ok((owner, prepared.target))
     }
 }
 

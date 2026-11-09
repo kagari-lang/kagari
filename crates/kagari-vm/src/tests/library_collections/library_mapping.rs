@@ -276,7 +276,7 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let iterator = vm
         .execute(&old, "make")
         .unwrap()

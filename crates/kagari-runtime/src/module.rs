@@ -86,12 +86,12 @@ use kagari_common::{
     },
 };
 use std::{
-    cell::{BorrowError, RefCell},
+    cell::{BorrowError, Cell, RefCell},
     collections::{HashMap, HashSet},
     ops::Deref,
     sync::{
-        Arc, Mutex, OnceLock, Weak,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, OnceLock, Weak,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -160,8 +160,6 @@ pub(crate) struct Installation {
     registry_owner: HostRegistryId,
     pub(crate) id: InstallationId,
     root_identity: ModuleIdentity,
-    current: Mutex<Option<Arc<ProgramDescriptor>>>,
-    next_declaration: AtomicU64,
 }
 
 /// One captured namespace query; never exposed as an ordinary live handle.
@@ -766,6 +764,11 @@ pub struct ModuleStore {
     // Separate from executable storage so teardown can revoke metadata authority
     // even while storage is borrowed by a failing execution/collection path.
     installations: HashMap<InstallationId, Arc<Installation>>,
+    current: RefCell<HashMap<InstallationId, Arc<ProgramDescriptor>>>,
+    next_declaration: Cell<u64>,
+    // Global installation revocation also invalidates an active admission proof.
+    // Publication does not change this flag or require a per-call version check.
+    retired: Cell<bool>,
     inner: RefCell<ModuleStoreInner>,
     abandoned: Arc<AtomicBool>,
 }
@@ -865,7 +868,7 @@ impl ModuleStore {
         };
         let previous = expected_base
             .map(|baseline| {
-                let previous = installation.capture_current()?;
+                let previous = self.capture_current(&installation)?;
                 if previous.key() != baseline {
                     return Err(RuntimeError::module_validation("dispatch baseline changed"));
                 }
@@ -874,7 +877,7 @@ impl ModuleStore {
             .transpose()?;
         let token = PublicationToken::new(installation.registry_owner, installation.id, epoch);
         let mut dispatch = PublicationDispatch::prepare(
-            &installation,
+            self,
             token,
             previous
                 .as_ref()

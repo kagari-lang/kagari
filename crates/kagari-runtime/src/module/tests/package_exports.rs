@@ -230,9 +230,9 @@ fn relative_binding_fixture() -> (Runtime, InstalledProgram) {
 
 #[test]
 fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliases() {
-    let (runtime, program) = relative_binding_fixture();
+    let (mut runtime, program) = relative_binding_fixture();
     let root = program.root();
-    let api = program.module("slotless").unwrap();
+    let api = runtime.module(&program.root(), "slotless").unwrap();
     let selected = runtime.bind_function::<(), i32>(&api, "selected").unwrap();
     let child = runtime
         .bind_function::<(), i32>(&api, "again::value")
@@ -258,7 +258,7 @@ fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliase
     );
     // Exporting an item never grants a Module for its private implementation owner.
     for path in ["implementation", "facade::nested::implementation"] {
-        let error = root.module(path).unwrap_err();
+        let error = runtime.module(&root, path).unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
         assert!(error.message().contains("public path not found"));
     }
@@ -296,7 +296,7 @@ fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliase
 fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_without_effects() {
     let (runtime, program) = relative_binding_fixture();
     let root = program.root();
-    let api = program.module("slotless").unwrap();
+    let api = runtime.module(&program.root(), "slotless").unwrap();
     let executable = runtime.select_program(&program).unwrap();
     assert!(
         !executable
@@ -311,7 +311,8 @@ fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_with
         object.type_argument().ty(),
         root_object.type_argument().ty()
     );
-    let nested = program.module("facade").unwrap().module("nested").unwrap();
+    let facade = runtime.module(&program.root(), "facade").unwrap();
+    let nested = runtime.module(&facade, "nested").unwrap();
     let nested_object = runtime.bind_type(&nested, "Object", &[]).unwrap();
     assert_eq!(
         nested_object.type_argument().ty(),
@@ -774,7 +775,7 @@ fn relative_object_binding_rejections_preserve_state_and_heap(
     #[case] detail: &str,
 ) {
     let (runtime, program) = relative_binding_fixture();
-    let api = program.module("slotless").unwrap();
+    let api = runtime.module(&program.root(), "slotless").unwrap();
     let executable = runtime.select_program(&program).unwrap();
     let arguments = runtime
         .type_arguments(&executable, None, &[Ty::Builtin(BuiltinType::I32)])
@@ -812,7 +813,7 @@ fn relative_object_binding_rejections_preserve_state_and_heap(
 #[case::cyclic_namespace("again::Object")]
 fn relative_object_alias_paths_retain_the_same_nominal_layout(#[case] path: &str) {
     let (runtime, program) = relative_binding_fixture();
-    let api = program.module("slotless").unwrap();
+    let api = runtime.module(&program.root(), "slotless").unwrap();
     let object = runtime.bind_type(&api, "Object", &[]).unwrap();
     let alias = runtime.bind_type(&api, path, &[]).unwrap();
     assert_eq!(alias.type_argument().ty(), object.type_argument().ty());

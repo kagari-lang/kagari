@@ -188,7 +188,7 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
 
 #[test]
 fn prepared_methods_select_current_code_and_preserve_receiver_admission() {
-    let (vm, old) = fixture_without_foundation(PLAYER, None);
+    let (mut vm, old) = fixture_without_foundation(PLAYER, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let old_type = vm

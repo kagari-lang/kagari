@@ -120,7 +120,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
         pub fn text_evidence() -> String { text() }
         pub fn owned(callback: fn() -> String) -> String { callback() }
     "#;
-    let (vm, old) = fixture(source, Some(&module));
+    let (mut vm, old) = fixture(source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     // Native completion can park before returning to its script caller. Its
@@ -374,7 +374,7 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
     let old = runtime.load_program("cycle", program.clone()).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let native = vm
         .runtime()
         .bind_function_declaration::<(i32, i32), i32>(

@@ -249,7 +249,7 @@ fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
 #[test]
 fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     let (module, declaration, damage_declaration) = registration();
-    let (vm, owner) = fixture(SOURCE, Some(&module));
+    let (mut vm, owner) = fixture(SOURCE, Some(&module));
     let _owner_program = owner;
     let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();
@@ -307,6 +307,7 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
             Ok(())
         })
         .unwrap();
+    drop((cx, nested));
     vm.reload_program(
         &_owner_program,
         Some("functions".into()),
@@ -314,6 +315,9 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     )
     .unwrap();
     let _newer_program = _owner_program.clone();
+    let runtime = vm.runtime();
+    let newer = runtime.select_program(&_newer_program).unwrap();
+    let mut cx = vm.context(&newer).unwrap();
     let newer_type = runtime
         .bind_native_type::<PlayerState>(&_newer_program.root(), &declaration, &[])
         .unwrap();

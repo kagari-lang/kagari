@@ -637,7 +637,7 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
 
 #[test]
 fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
-    let (runtime, loaded_program, loaded) = module();
+    let (mut runtime, loaded_program, loaded) = module();
     let declaration = runtime
         .definition_context()
         .intern(&DefinitionPath {

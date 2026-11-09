@@ -262,7 +262,7 @@ fn assigns_stable_object_identity_and_kind() {
 
 #[test]
 fn hash_map_replaces_duplicates_and_accounts_units() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{HashMap};
 fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new(); map.insert("b", 2); map.insert("a", 1); map.insert("b", 3); map }"#,
         None,
@@ -313,14 +313,14 @@ fn main() -> HashMap<String,i32> { val map: HashMap<String,i32> = HashMap::new()
     // Empty container (1) plus two one-byte module constants (2 units each).
     assert_eq!(heap.stats().current_heap_units, 5);
     drop(root);
-    publish_unused_version(&vm, &_loaded_program);
+    publish_unused_version(&mut vm, &_loaded_program);
     vm.runtime().collect_garbage().unwrap();
-    assert_eq!(heap.stats().current_heap_units, 0);
+    assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
 }
 
 #[test]
 fn hash_set_replaces_duplicates_and_accounts_units() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         r#"use std::collections::{HashSet};
 fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.insert("b"); set.insert("a"); set.insert("b"); set }"#,
         None,
@@ -362,9 +362,9 @@ fn main() -> HashSet<String> { val set: HashSet<String> = HashSet::new(); set.in
     // Empty container (1) plus two one-byte module constants (2 units each).
     assert_eq!(heap.stats().current_heap_units, 5);
     drop(root);
-    publish_unused_version(&vm, &_loaded_program);
+    publish_unused_version(&mut vm, &_loaded_program);
     vm.runtime().collect_garbage().unwrap();
-    assert_eq!(heap.stats().current_heap_units, 0);
+    assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
 }
 
 #[test]

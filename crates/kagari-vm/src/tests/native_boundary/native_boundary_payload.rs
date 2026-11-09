@@ -465,7 +465,7 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
 fn native_handles_pin_old_scopes_and_transfer_with_their_runtime() {
     let dropped = Arc::new(AtomicUsize::new(0));
     let (module, declaration, _, _) = module(dropped.clone());
-    let (vm, old) = fixture(SOURCE, Some(&module));
+    let (mut vm, old) = fixture(SOURCE, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let native = vm

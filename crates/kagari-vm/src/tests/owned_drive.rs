@@ -90,7 +90,7 @@ fn resumed_frames_select_current_direct_recursive_shared_and_module_calls() {
         )
         .unwrap();
     let old = runtime.select_program(&program).unwrap();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let execution = vm
         .start(&old, ProgramEntry::Main, &[], ExecutionOptions::default())
         .unwrap();

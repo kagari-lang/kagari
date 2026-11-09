@@ -458,22 +458,23 @@ have a physical executable slot. Retained handles need no reacquisition after re
 The SDK surface is:
 
 ```text
-Runtime::load_program(&mut self, &PreparedProgram, LoadOptions) -> LoadResult<Program>
-Runtime::reload_program(&self, &Program, &PreparedProgram, ReloadOptions) -> ReloadResult<()>
-Program::root(&self) -> Module
-Program::module(&self, path: &str) -> Result<Module, RuntimeError>
-Module::module(&self, path: &str) -> Result<Module, RuntimeError>
+Runtime::load_program(&mut self, &Program, LoadOptions) -> LoadResult<InstalledProgram>
+Program::prepare_update(&self, Update) -> RunResult<Program>
+Runtime::replace_program(&mut self, &InstalledProgram, &Program, ReloadOptions) -> ReloadResult<()>
+InstalledProgram::root(&self) -> Module
+Runtime::module(&self, &Module, path: &str) -> RunResult<Module>
 Runtime::object_type(&self, &Module, path: &str) -> RunResult<ObjectType>
 ```
 
 `function` and `async_function` also bind relative to a supplied `Module`; neither
 falls back to the Program root. Whole-program `execute`, `execute_prepared` and
-native entry preparation instead take `Program` and explicitly select its current
-root. `ProgramEntry::Main` retains its separate private-root-entry capability.
+native entry execution instead take `InstalledProgram` and explicitly select its current
+root. Detached native compilation takes the immutable `Program`. `ProgramEntry::Main` retains its separate private-root-entry capability.
 There is no implicit Program-to-Module conversion or legacy `LoadedModule` alias.
 `LoadOptions.program_name` and `ReloadOptions.program_name` are diagnostic labels,
 not compiled or installation identities; reload changes the label only on success.
-Source `update` and prepared reload target the same installation and return unit
+Detached `Program::prepare_update` produces an immutable candidate. Mutable
+`Runtime::replace_program` publishes it into the same installation and returns unit
 success, not replacement handles. See [source updates](#source-updates).
 
 Paths contain 1..64 nonempty ASCII identifier segments separated by `::`. The
@@ -500,10 +501,10 @@ its handles after compatible publication. Simplified pseudocode:
 
 ```text
 program = runtime.load_program(prepared, options)
-users = program.module("api::users")
+users = runtime.module(program.root(), "api::users")
 score = runtime.function(users, "score")
 player_type = runtime.object_type(users, "Avatar")
-runtime.reload_program(program, replacement, options)
+runtime.replace_program(program, replacement, options)
 runtime.function(users, "selected")  // fresh lookup in the latest namespace
 runtime.call(score, ())              // original declaration's current implementation
 ```

@@ -76,7 +76,7 @@ impl Vm {
     }
 
     pub fn reload_program(
-        &self,
+        &mut self,
         active: &InstalledProgram,
         name: Option<String>,
         program: DefinitionMetadata<BytecodeProgram>,
@@ -91,7 +91,7 @@ impl Vm {
     }
 
     pub fn reload_artifact(
-        &self,
+        &mut self,
         active: &InstalledProgram,
         name: Option<String>,
         artifact: DefinitionMetadata<KbcArtifact>,

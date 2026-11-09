@@ -693,7 +693,7 @@ fn run(case: &Case<'_>, route: Route, module: &Program, candidate_program: Optio
         let before = vm.runtime().modules().loaded_count();
         let stale_members = stale.module().members().count();
         assert!(matches!(
-            vm.runtime().publish_staged_reload(stale),
+            vm.runtime_mut().publish_staged_reload(stale),
             Err(ReloadValidationError::ModuleNotActive { .. })
         ));
         assert_eq!(

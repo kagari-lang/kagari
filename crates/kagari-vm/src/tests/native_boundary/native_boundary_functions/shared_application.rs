@@ -128,7 +128,7 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
     let owner = runtime.load_program("shared-application", decoded).unwrap();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     assert_eq!(
         vm.execute_typed::<(), i32>(&owner, "evidence", ()).unwrap(),
         42
@@ -190,7 +190,7 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
             owner.verified_program().clone(),
         )
         .unwrap();
-    vm.runtime().publish_staged_reload(candidate).unwrap();
+    vm.runtime_mut().publish_staged_reload(candidate).unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(vm.call(&boxed, (45,)).unwrap(), 45);
     drop(boxed);
@@ -205,7 +205,7 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
         .runtime()
         .stage_reload_verified_program(&_owner_program, None, current.verified_program().clone())
         .unwrap();
-    vm.runtime().publish_staged_reload(candidate).unwrap();
+    vm.runtime_mut().publish_staged_reload(candidate).unwrap();
     drop(current);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert!(collected.reclaimed_modules.contains(&current_key));

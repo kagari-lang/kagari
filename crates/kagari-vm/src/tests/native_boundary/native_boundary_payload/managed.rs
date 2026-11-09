@@ -166,7 +166,7 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
         name,
         callback,
     } = registration();
-    let (vm, owner) = fixture(SOURCE, Some(&module));
+    let (mut vm, owner) = fixture(SOURCE, Some(&module));
     let _owner_program = owner;
     let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let object: Holder = vm.execute_typed(&owner, "cycle", (41,)).unwrap();
@@ -218,7 +218,7 @@ fn registered_payload_fields_support_aliases_reentry_and_rootless_callback_cycle
     // Holder/callback, the updated name, and the module string constant.
     assert_eq!(cx.collect_garbage().unwrap().live_objects, 4);
     drop((held, cx, native_type, name, callback));
-    publish_unused_version(&vm, &_owner_program);
+    publish_unused_version(&mut vm, &_owner_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
@@ -305,7 +305,7 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
     let Registration {
         module, callback, ..
     } = registration();
-    let (vm, old) = fixture(SOURCE, Some(&module));
+    let (mut vm, old) = fixture(SOURCE, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let object: Holder = vm.execute_typed(&old, "cycle", (41,)).unwrap();
@@ -351,7 +351,7 @@ fn stored_callback_keeps_old_code_and_releases_the_old_program_with_its_cycle() 
     // Current holder/callback, its name, and its module string constant.
     assert_eq!(collected.live_objects, 4);
     drop((replacement, cx));
-    publish_unused_version(&vm, &_new_program);
+    publish_unused_version(&mut vm, &_new_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 

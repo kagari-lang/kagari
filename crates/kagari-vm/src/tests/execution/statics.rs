@@ -200,7 +200,7 @@ fn candidate_indirect_reads_and_writes_cannot_touch_shared_or_private_cells() {
         .unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
     let staged = vm
         .runtime()
@@ -234,7 +234,7 @@ fn candidate_indirect_reads_and_writes_cannot_touch_shared_or_private_cells() {
         StaticState::Uninitialized(_)
     ));
     let current = staged.module().clone();
-    vm.runtime().publish_staged_reload(staged).unwrap();
+    vm.runtime_mut().publish_staged_reload(staged).unwrap();
     let _current_program = _old_program.clone();
     assert!(matches!(
         state(vm.runtime(), &current, "added"),
@@ -263,7 +263,7 @@ fn runtime_transfer_preserves_ready_failed_and_unstarted_recipe_ownership() {
         .unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
     assert!(vm.execute(&old, "fail").is_err());
     let staged = vm
@@ -277,7 +277,7 @@ fn runtime_transfer_preserves_ready_failed_and_unstarted_recipe_ownership() {
         )
         .unwrap();
     let current = staged.module().clone();
-    vm.runtime().publish_staged_reload(staged).unwrap();
+    vm.runtime_mut().publish_staged_reload(staged).unwrap();
     let _current_program = _old_program.clone();
     let vm = std::thread::spawn(move || {
         vm.runtime().collect_garbage().unwrap();
@@ -437,7 +437,7 @@ fn imported_static_keeps_ready_values_and_calls_current_helpers_on_first_access(
     let program = runtime.load_program("imports", compile(source)).unwrap();
     let old = runtime.select_program(&program).unwrap();
     assert_eq!(runtime.resources().counters().peak_call_depth, 0);
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     assert_eq!(call(&vm, &old, "read_ready"), Value::I32(7));
     let changed_expression = source.replace("value: i32 = helper()", "value: i32 = helper() + 1");
     assert!(matches!(
@@ -458,7 +458,7 @@ fn imported_static_keeps_ready_values_and_calls_current_helpers_on_first_access(
         .stage_reload_program(&program, Some("imports".into()), compile(&changed_helper))
         .unwrap();
     let current = staged.module().clone();
-    vm.runtime().publish_staged_reload(staged).unwrap();
+    vm.runtime_mut().publish_staged_reload(staged).unwrap();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(call(&vm, &current, "read_ready"), Value::I32(7));
     assert_eq!(call(&vm, &current, "read"), Value::I32(90));

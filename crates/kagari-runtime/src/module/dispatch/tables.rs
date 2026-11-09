@@ -2,7 +2,7 @@
 use crate::{
     error::RuntimeError,
     module::{
-        Installation, VerifiedProgram,
+        ModuleStore, VerifiedProgram,
         admission::DefinitionAdmission,
         dispatch::{
             PublicationDispatch, PublicationToken,
@@ -33,14 +33,14 @@ pub(super) struct DispatchTables {
 
 impl PublicationDispatch {
     pub(in crate::module) fn prepare(
-        installation: &Installation,
+        store: &ModuleStore,
         token: PublicationToken,
         previous: Option<&Self>,
         program: &VerifiedProgram,
         admission: Arc<DefinitionAdmission>,
     ) -> Result<Self, RuntimeError> {
         let (index, scope) = DeclarationIndex::prepare(
-            installation,
+            store,
             token,
             previous.map(|old| &old.index),
             program,

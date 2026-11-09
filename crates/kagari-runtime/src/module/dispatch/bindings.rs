@@ -24,7 +24,7 @@ type RouteKey = (ModuleKey, CallableTarget);
 pub(crate) struct PreparedSelection {
     pub(super) owner: ModuleKey,
     pub(super) target: CallableTarget,
-    pub(super) mapping: PublicationMapping,
+    pub(super) mapping: Arc<PublicationMapping>,
 }
 
 /// Liveness belongs to actual bindings and the supplying whole program. The
@@ -69,7 +69,7 @@ impl PublicationDispatch {
             let initial = Arc::new(PreparedSelection {
                 owner: origin,
                 target: placement.1,
-                mapping,
+                mapping: Arc::new(mapping),
             });
             self.routes.insert(
                 *placement,
@@ -168,7 +168,7 @@ fn prepare_target(
     Ok(Arc::new(PreparedSelection {
         owner: owner.key(),
         target,
-        mapping,
+        mapping: Arc::new(mapping),
     }))
 }
 

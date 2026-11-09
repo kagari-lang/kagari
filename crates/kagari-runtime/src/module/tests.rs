@@ -324,8 +324,8 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
             &context,
         )
         .unwrap();
-        let admission = installation
-            .capture_current()
+        let admission = store
+            .capture_current(&installation)
             .ok()
             .map(|baseline| validate_verified_reload_candidate(&baseline, &code).unwrap());
         {
@@ -363,7 +363,7 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
         assert!(store.is_program_root(member.key()));
     }
     assert_eq!(
-        installation.capture_current().unwrap().key(),
+        store.capture_current(&installation).unwrap().key(),
         baseline.key()
     );
     assert_eq!(store.loaded_count(), 6);
@@ -383,7 +383,7 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
     }
     assert_eq!(store.loaded_count(), 4);
     assert_eq!(
-        installation.capture_current().unwrap().key(),
+        store.capture_current(&installation).unwrap().key(),
         baseline.key()
     );
     assert_eq!(
@@ -393,7 +393,7 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
 
     let published = candidate.publish(&store).unwrap();
     assert_eq!(
-        installation.capture_current().unwrap().key(),
+        store.capture_current(&installation).unwrap().key(),
         published.key()
     );
     for member in published.members() {
@@ -452,7 +452,7 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
     };
     let candidate = stage(1).unwrap();
     assert_eq!(store.loaded_count(), 1);
-    assert!(installation.capture_current().is_err());
+    assert!(store.capture_current(&installation).is_err());
     drop(candidate);
     assert_eq!(store.loaded_count(), 0);
     let candidate = stage(3).unwrap();
@@ -577,7 +577,7 @@ fn assigns_stable_module_ids_across_epochs() {
     assert_eq!(other.id.index(), 1);
     assert_eq!(store.loaded_count(), 3);
     assert_eq!(
-        installation.capture_current().unwrap().epoch,
+        store.capture_current(&installation).unwrap().epoch,
         ModuleEpoch(2)
     );
 }

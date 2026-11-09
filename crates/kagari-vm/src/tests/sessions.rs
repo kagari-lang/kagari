@@ -9,7 +9,7 @@ use crate::{
         },
         native_fixtures,
     },
-    vm::{ReloadError, Vm},
+    vm::Vm,
 };
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
@@ -19,7 +19,6 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     host::HostBorrowKind,
     module::{ExecutableModule, entry::ProgramEntry},
-    reload::ReloadValidationError,
     resource::RuntimeLimits,
     value::Value,
 };
@@ -366,18 +365,12 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
         let old = runtime.load_program("versions.kgr", first).unwrap();
         let _old_program = old;
         let old = runtime.select_program(&_old_program).unwrap();
-        let vm = Vm::new(runtime);
+        let mut vm = Vm::new(runtime);
         let scope = vm
             .runtime()
             .begin_execution(&old, vm.runtime().execution_options())
             .unwrap();
-        let error = vm
-            .reload_program(&_old_program, Some("versions.kgr".into()), program(9))
-            .unwrap_err();
-        assert!(
-            matches!(error, ReloadError::Validation(ReloadValidationError::Runtime(error))
-            if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
-        );
+        // This live session excludes mutable reload through Rust borrowing.
         assert_eq!(
             vm.runtime().select_program(&_old_program).unwrap().key(),
             old.key()
@@ -423,7 +416,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     let loaded = runtime.load_program("trap.kgr", module).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, ProgramEntry::Main)
             .unwrap()
@@ -439,7 +432,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         .runtime()
         .stage_reload_verified_program(&_loaded_program, None, loaded.verified_program().clone())
         .unwrap();
-    vm.runtime().publish_staged_reload(candidate).unwrap();
+    vm.runtime_mut().publish_staged_reload(candidate).unwrap();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }
@@ -493,7 +486,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let loaded = runtime.select_program(&_loaded_program).unwrap();
             let mut options = runtime.execution_options();
             options.cancellation = token;
-            let vm = Vm::new(runtime);
+            let mut vm = Vm::new(runtime);
             let session = vm.runtime().begin_execution(&loaded, options).unwrap();
             let prepared = native_fixtures::unsupported();
             let error = if jit {
@@ -532,7 +525,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
                     loaded.verified_program().clone(),
                 )
                 .unwrap();
-            vm.runtime().publish_staged_reload(candidate).unwrap();
+            vm.runtime_mut().publish_staged_reload(candidate).unwrap();
             assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
             assert!(!vm.runtime().is_quarantined());
         }

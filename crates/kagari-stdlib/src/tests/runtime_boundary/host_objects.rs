@@ -293,7 +293,7 @@ fn applied_fields_preserve_nominal_arguments() {
 
 #[test]
 fn binding_handles_pin_old_versions_but_the_cache_does_not() {
-    let (runtime, old) = fixture();
+    let (mut runtime, old) = fixture();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let ty = runtime

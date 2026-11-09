@@ -17,12 +17,12 @@ An embedding host may explicitly call functions during a restricted candidate se
 ## Live installations and call selection
 
 Each load creates an independent installation, even for the same prepared code or
-diagnostic label. `Program` and its `Module` handles are live installation handles;
+diagnostic label. `InstalledProgram` and its `Module` handles identify a live installation;
 `ExecutableModule` is an exact executable-version owner. Reload and source update
 return `ReloadResult<()>` in the SDK, advancing the installation rather than
 returning a replacement handle. Runtime ownership, installation identity and
 retirement checks remain mandatory; labels confer no authority. Runtime owns the
-installation: dropping Program/Module handles does not unload it, cancel tasks or
+installation: dropping InstalledProgram/Module handles does not unload it, cancel tasks or
 reset statics. Independently retained callable handles remain usable while it is
 live. Runtime close/drop clears live metadata and ends execution/object-access
 authority; a retained exact descriptor cannot revive it. `root()` can still construct
@@ -94,7 +94,9 @@ script publication does not replace arbitrary Rust code.
 Compatible publication preserves each previously public canonical namespace as a
 reachable query start, including namespaces retained through an earlier alias.
 Equivalent root path spellings alone do not justify removing a namespace held by
-an existing `Module`. Every query captures one latest publication; declaration
+an existing `Module`. Live queries require the supplying Runtime; identity handles own no mutable
+current pointer. Explicit snapshots retain immutable publication metadata. Every
+query captures one latest publication; declaration
 lookup and executable-target lookup cannot mix publications. Failed publication
 leaves the same handles observing the old contents; success exposes additions
 without reacquisition.

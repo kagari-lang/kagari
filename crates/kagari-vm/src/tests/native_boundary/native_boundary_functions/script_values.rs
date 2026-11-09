@@ -65,7 +65,7 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         include_str!("../../../../tests/fixtures/native/generic-script-value-handles.kgr"),
         Some(&module),
     );
@@ -148,7 +148,7 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         assert!(value.decode::<i32>(&mut cx).is_err());
         drop((callback, result, cx));
     }
-    publish_unused_version(&vm, &_owner_program);
+    publish_unused_version(&mut vm, &_owner_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
 }

@@ -222,7 +222,7 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         let mut options = runtime.execution_options();
         options.cancellation = token;
-        let vm = Vm::new(runtime);
+        let mut vm = Vm::new(runtime);
         let session = vm.runtime().begin_execution(&loaded, options).unwrap();
 
         assert!(
@@ -242,7 +242,7 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
             Value::I32(7)
         );
         // Check a fresh session on the same version before retiring its constants.
-        publish_unused_version(&vm, &_loaded_program);
+        publish_unused_version(&mut vm, &_loaded_program);
         assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     }
 }
@@ -455,7 +455,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let _old_program = old;
         let old = runtime.select_program(&_old_program).unwrap();
         let old_key = old.key();
-        let vm = Vm::new(runtime);
+        let mut vm = Vm::new(runtime);
         let closure = vm
             .execute(&old, "make")
             .unwrap()
@@ -495,7 +495,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         retained.lock().unwrap().take();
         drop(rooted);
         assert_clean(&vm);
-        publish_unused_version(&vm, &_new_program);
+        publish_unused_version(&mut vm, &_new_program);
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(vm.runtime().gc().allocated_objects(), 0);
     }
@@ -553,7 +553,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                     token: options.cancellation.clone(),
                 })
                 .unwrap();
-            let vm = Vm::new(runtime);
+            let mut vm = Vm::new(runtime);
             let session = vm.runtime().begin_execution(&loaded, options).unwrap();
             vm.runtime().attach_execution_observer().unwrap();
             match vm.execute(&loaded, ProgramEntry::Main) {
@@ -587,7 +587,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
                     .expect("retained execution result"),
                 Value::I32(7)
             );
-            publish_unused_version(&vm, &_loaded_program);
+            publish_unused_version(&mut vm, &_loaded_program);
             assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
             if vm
                 .runtime()

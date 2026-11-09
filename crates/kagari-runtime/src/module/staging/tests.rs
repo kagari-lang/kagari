@@ -13,7 +13,6 @@ use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetada
 use rstest::rstest;
 use std::{
     mem,
-    panic::{AssertUnwindSafe, catch_unwind},
     task::{Context, Waker},
     thread,
 };
@@ -52,7 +51,11 @@ fn staged_initial_load_prepares_token_and_metadata_before_visibility() {
     let installation = candidate.installation.clone();
     let key = candidate.program.module().key();
     assert_eq!(
-        installation.capture_current().unwrap_err().kind(),
+        runtime
+            .modules
+            .capture_current(&installation)
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::StaleHandle
     );
     assert_eq!(
@@ -80,7 +83,7 @@ fn staged_initial_load_abandonment_foreign_owner_and_shutdown_never_publish() {
     drop(candidate);
     drop(view);
     assert!(runtime.validate_executable_module(&module).is_err());
-    assert!(installation.capture_current().is_err());
+    assert!(runtime.modules.capture_current(&installation).is_err());
     assert_eq!(
         runtime.collect_garbage().unwrap().reclaimed_modules,
         vec![module.key()]
@@ -96,7 +99,7 @@ fn staged_initial_load_abandonment_foreign_owner_and_shutdown_never_publish() {
         foreign.publish_staged_load(candidate).unwrap_err().kind(),
         RuntimeErrorKind::StaleHandle
     );
-    assert!(installation.capture_current().is_err());
+    assert!(runtime.modules.capture_current(&installation).is_err());
     assert_eq!(
         foreign.publication_token(&existing).unwrap(),
         existing_token
@@ -106,7 +109,7 @@ fn staged_initial_load_abandonment_foreign_owner_and_shutdown_never_publish() {
     let installation = candidate.installation.clone();
     runtime.close().unwrap();
     assert!(runtime.publish_staged_load(candidate).is_err());
-    assert!(installation.capture_current().is_err());
+    assert!(runtime.modules.capture_current(&installation).is_err());
     let code = VerifiedProgram::new(program(), runtime.definition_context()).unwrap();
     assert!(runtime.stage_load_verified_program("closed", code).is_err());
 }
@@ -158,9 +161,8 @@ fn staged_initial_load_admission_rejects_forgotten_scopes_and_publication_guards
         runtime.publish_staged_load(candidate).unwrap_err().kind(),
         RuntimeErrorKind::ExecutionPhaseViolation
     );
-    assert!(installation.capture_current().is_err());
+    assert!(runtime.modules.capture_current(&installation).is_err());
     drop(runtime);
-    assert!(live.capture_current().is_err());
 }
 
 #[test]
@@ -353,7 +355,10 @@ fn safepoints_reject_borrowed_module_storage_without_panicking(#[case] automatic
     } else {
         result.unwrap();
     }
-    let executable = baseline.capture_current().unwrap();
+    let executable = runtime
+        .modules
+        .capture_current(&baseline.installation)
+        .unwrap();
     assert_eq!(
         view.records[&executable.key()].module.epoch,
         executable.epoch
@@ -401,7 +406,7 @@ fn same_label_installations_have_independent_current_metadata_and_caches() {
     assert_eq!(current.id, old.id);
     assert_eq!(current.installation_id(), old.installation_id());
     assert_eq!(current.name, "renamed");
-    assert_eq!(namespace.capture_current().unwrap().root.key(), next);
+    assert_eq!(runtime.capture_module(&namespace).unwrap().root.key(), next);
     assert_eq!(
         runtime.select_program(&second).unwrap().key(),
         independent.key()
@@ -415,7 +420,7 @@ fn same_label_installations_have_independent_current_metadata_and_caches() {
         vec![old.key()]
     );
     assert!(runtime.validate_executable_module(&old).is_err());
-    assert_eq!(namespace.capture_current().unwrap().root.key(), next);
+    assert_eq!(runtime.capture_module(&namespace).unwrap().root.key(), next);
 }
 
 #[test]
@@ -465,7 +470,7 @@ fn foreign_and_retired_handles_never_retarget_by_label() {
     runtime.modules.retire_installations();
     drop(storage);
     assert_eq!(
-        namespace.capture_current().err().unwrap().kind(),
+        runtime.capture_module(&namespace).err().unwrap().kind(),
         RuntimeErrorKind::StaleHandle
     );
     assert_eq!(
@@ -485,49 +490,6 @@ fn foreign_and_retired_handles_never_retarget_by_label() {
 }
 
 #[test]
-fn poisoned_cells_fail_admission_and_retirement_only_clears_authority() {
-    let mut runtime = Runtime::default();
-    let target = runtime.load_program("candidate", program()).unwrap();
-    let candidate = stage(&mut runtime, &target);
-    let before = Arc::downgrade(&candidate.baseline.program);
-    let installation = target.installation.clone();
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| {
-            let _guard = installation.current.lock().unwrap();
-            panic!("poison metadata for admission test");
-        }))
-        .is_err()
-    );
-    assert_eq!(
-        target.capture_current().unwrap_err().kind(),
-        RuntimeErrorKind::EngineFault
-    );
-    assert_eq!(
-        runtime.select_program(&target).unwrap_err().kind(),
-        RuntimeErrorKind::EngineFault
-    );
-    let error = candidate.program.publish(&runtime.modules).unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    runtime.modules.retire_installations();
-    assert!(
-        installation
-            .current
-            .lock()
-            .unwrap_err()
-            .into_inner()
-            .is_none()
-    );
-    // Recovery never clears poison or re-admits the former publication.
-    assert_eq!(
-        target.capture_current().unwrap_err().kind(),
-        RuntimeErrorKind::EngineFault
-    );
-    drop(candidate.baseline);
-    drop(runtime);
-    assert!(before.upgrade().is_none());
-}
-
-#[test]
 fn rejected_close_preserves_liveness_but_drop_always_retires_installations() {
     let mut runtime = Runtime::default();
     let target = runtime.load_program("candidate", program()).unwrap();
@@ -544,20 +506,12 @@ fn rejected_close_preserves_liveness_but_drop_always_retires_installations() {
         RuntimeErrorKind::ModuleValidation
     );
     assert_eq!(runtime.select_program(&target).unwrap().key(), key);
-    assert_eq!(namespace.capture_current().unwrap().root.key(), key);
+    assert_eq!(runtime.capture_module(&namespace).unwrap().root.key(), key);
 
     // A forgotten driver guard keeps close's precondition failing during Drop.
-    // Destruction must still revoke the independent installation cells.
+    // Destruction must still revoke the Runtime-owned current records.
     mem::forget(turn);
     drop(runtime);
-    assert_eq!(
-        target.capture_current().unwrap_err().kind(),
-        RuntimeErrorKind::StaleHandle
-    );
-    assert_eq!(
-        namespace.capture_current().unwrap_err().kind(),
-        RuntimeErrorKind::StaleHandle
-    );
     assert!(code.upgrade().is_none());
 }
 
@@ -573,11 +527,15 @@ fn shutdown_fault_retires_handles_even_when_close_returns_an_error() {
         RuntimeErrorKind::EngineFault
     );
     assert_eq!(
-        target.capture_current().unwrap_err().kind(),
+        runtime
+            .modules
+            .capture_current(&target.installation)
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::StaleHandle
     );
     assert_eq!(
-        namespace.capture_current().unwrap_err().kind(),
+        runtime.capture_module(&namespace).unwrap_err().kind(),
         RuntimeErrorKind::StaleHandle
     );
     assert_eq!(

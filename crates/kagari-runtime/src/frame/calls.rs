@@ -154,11 +154,9 @@ impl ExecutionStack<'_> {
                 );
             }
         };
-        let selected = runtime.select_prepared_call(&route.selected)?;
-        let loaded = selected.owner().clone();
-        let target = selected.target();
         let arguments = FrameArguments::frame(slots, &call.arguments);
-        let environment = if let Some(contract) = shared {
+        let (loaded, target, environment) = if let Some(contract) = shared {
+            let selected = runtime.select_prepared_call(&route.selected)?;
             let prepared = runtime.prepare_selected_shared_environment(
                 &owner,
                 environment.clone(),
@@ -190,9 +188,11 @@ impl ExecutionStack<'_> {
             {
                 return Err(RuntimeError::module_validation("invalid shared call entry"));
             }
-            Some(prepared)
+            let (loaded, target) = selected.into_entry();
+            (loaded, target, Some(prepared))
         } else {
-            None
+            let (loaded, target) = runtime.select_prepared_entry(&route.selected)?;
+            (loaded, target, None)
         };
         self.push_admitted_arguments(
             runtime,

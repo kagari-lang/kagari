@@ -211,7 +211,7 @@ fn generic_bindings_keep_type_evidence_without_pinning_ordinary_code() {
     let declaration = declaration_query(&module, DefinitionKind::Function, "identity");
     let source =
         include_str!("../../../../tests/fixtures/native/generic-binding-type-evidence.kgr");
-    let (vm, old) = fixture_without_foundation(source, Some(&module));
+    let (mut vm, old) = fixture_without_foundation(source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let item = vm
@@ -453,7 +453,7 @@ fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code()
     let module = builder.finish().unwrap();
     let source =
         include_str!("../../../../tests/fixtures/native/admitted-selected-current-callback.kgr");
-    let (vm, program) = fixture_without_foundation(source, Some(&module));
+    let (mut vm, program) = fixture_without_foundation(source, Some(&module));
     let old = vm.runtime().select_program(&program).unwrap();
     let counter = vm
         .runtime()

@@ -105,7 +105,8 @@ pub fn main() {
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
     // `api` is a namespace-only facade. Keep its canonical child across reload.
-    let users = loaded.module("api").unwrap().module("users").unwrap();
+    let facade = runtime.module(&loaded.root(), "api").unwrap();
+    let users = runtime.module(&facade, "users").unwrap();
     let player_type = runtime.object_type(&users, "Avatar").unwrap();
     let root_score = runtime
         .function::<(), i32>(&loaded.root(), "score")

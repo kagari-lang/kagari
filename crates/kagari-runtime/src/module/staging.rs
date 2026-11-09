@@ -113,13 +113,13 @@ impl StagedProgram {
                 ));
             }
         };
-        let mut current = self.installation.current.lock().map_err(|_| {
-            RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                "installation metadata lock poisoned",
-            )
+        let mut current = store.current.try_borrow_mut().map_err(|_| {
+            RuntimeError::module_validation("current programs borrowed during publication")
         })?;
-        let current_key = current.as_ref().map(|program| {
+        current
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::resource_limit("current programs"))?;
+        let current_key = current.get(&self.installation.id).map(|program| {
             let root = &program.modules[program.root.index()];
             ModuleKey {
                 id: root.id,
@@ -137,7 +137,7 @@ impl StagedProgram {
         self.module.program.dispatch.scope.mark_published();
         self.lease.published.store(true, Ordering::Relaxed);
         let removed_stage = entry.remove();
-        let previous = current.replace(replacement);
+        let previous = current.insert(self.installation.id, replacement);
         let previous_routes = mem::replace(&mut inner.routes, next_routes);
         for (key, execution) in &mut next_execution {
             mem::swap(

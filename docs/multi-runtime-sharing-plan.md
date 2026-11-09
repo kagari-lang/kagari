@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: execution authorized on 2026-11-09, including a commit per completed
-phase. MS00-MS02 are locally accepted; MS03-MS05 have not started. The user selected the
+phase. MS00-MS03 are locally accepted; MS04-MS05 have not started. The user selected the
 [Runtime target architecture](runtime-refactor-design.md), requested this phase
 plan, then authorized its execution. Routine choices within the selected scope
 do not require another design-approval round. The progress ledger records actual
@@ -960,15 +960,15 @@ detached preparation or new call tables; later phase status appears below.
 
 ## Progress ledger
 
-Execution is active. MS00-MS02 are accepted locally with the evidence below.
-Next: MS03 current-selection ownership and the public live-query cutover.
+Execution is active. MS00-MS03 are accepted locally with the evidence below.
+Next: MS04 player isolation, actual-native and asynchronous lifetime integration.
 
 | Phase | Status | Acceptance evidence / carried errors |
 | --- | --- | --- |
 | MS00 | Complete locally | Frozen identity/API map, sharing/A/A baseline and gates; 25 selected tests and required local checks pass; full matrices remain CI-only |
 | MS01 | Complete locally | Shared immutable Program, detached preparation, local identity admission and native compiler split; selected integration/source-free cases and required local checks pass |
 | MS02 | Complete locally | Shared facts/history, prepared upcasts, final target tables and complete parked-stack refresh; selected core/SDK/VM/source-free cases and mandatory local checks pass |
-| MS03 | Not started | Await MS02 |
+| MS03 | Complete locally | Identity-only handles, Runtime-owned current and mutable publication; scoped admission replaces current liveness locks; selected lifecycle/distribution cases and mandatory checks pass |
 | MS04 | Not started | Await MS03 |
 | MS05 | Not started | Await MS04; final CI status remains separate |
 
@@ -1166,3 +1166,79 @@ filters, not a claim of one fresh all-green transcript. No known build or integr
 failure is carried forward. Full-workspace tests and exhaustive matrices remain
 CI-only and were not run locally. No performance claim is made: MS03 still owns
 current-cell liveness-lock removal and MS05 owns the frozen measurement gates.
+
+### MS03 local acceptance — 2026-11-09
+
+`Installation` now contains registry/installation/root namespace identity only.
+Runtime-owned `ModuleStore.current` holds immutable published descriptors; the
+stable declaration allocator is local too. No installation current Mutex or
+handle-only live query remains. `Runtime::module(&Module, path)` captures the
+current public graph; SDK navigation delegates to that owner. Immutable executable
+and source snapshots keep their existing metadata semantics without granting an
+execution lease. Close retires current authority independently of executable-store
+borrows, and identity handles retain no current descriptor after Runtime drop.
+
+Public publication acquires `&mut Runtime`; `PublicationGuard` retains that
+exclusive borrow and exposes a read-only Runtime view for metadata work. Core
+publication and VM reload consumers use mutable owners. SDK load/replace/call/poll/
+close already use their mutable host facades. Lower-level backend/NativeContext
+execution primitives continue to operate through scoped shared Runtime views;
+their synchronous admission, borrow, cancellation and cleanup checks remain
+mandatory. This is an execution view inside the one owner, not cross-thread live
+Runtime sharing or an alternate publication API.
+
+Inner executable validation reuses the active session's admitted installation.
+It still checks physical record/generation and Runtime ownership, but does not
+read current or compare publication revisions. Explicit global installation
+retirement revokes the active proof through a Runtime-local flag, before cleanup;
+ordinary publication never changes that flag. New installation admission can reset
+it only at the guarded idle boundary. Entry/resume and other-installation admission
+still use checked local installation/current records. Heap handle and Native loan
+revocation remain separate operation checks, not cached permissions.
+
+Tests now end borrowed contexts/views before mutable publication and reacquire
+them afterwards. The removed current-cell poison test has no replacement model to
+test; closure/close/drop, stale/foreign identity and borrowed-store revocation
+oracles remain. Forgotten-scope, observer, callback and Native-borrow tests exercise
+the actual retained dynamic admission boundary, while a compile-fail public example
+requires mutable publication. The existing worker distribution scenario also rejects
+one cancelled recipient before retrying the same product, asserting both recipients'
+publication tokens and independent state.
+
+Ordinary direct calls now resolve only their final checked entry, without copying
+unused transport metadata. Shared/host selections retain a shared immutable mapping;
+binder preferences are not copied per call. The common argument/entry/root admission
+and selected body/environment rules remain unchanged.
+
+Core/SDK checks and workspace all-target Clippy pass after migration repairs.
+Representative intermediate diagnostics were missing handle-only query methods,
+immutable owners at mutable publication sites, and borrowed contexts held across
+reload. No compatibility aliases, unsafe aliasing or disabled checks were added to
+resolve them. The selected 35 core tests pass, covering staging, stale/foreign/closed identities,
+forgotten scopes, dynamic Native/observer guards, initializer cleanup, live namespace
+continuity and immutable snapshots across threads. Fifteen SDK cases pass for Runtime
+movement across awaits, two-recipient preparation/publication with a cancelled retry,
+stale preparation, typed/scoped calls, nested async reload, generic operations and
+actual Cranelift products. Three VM cases pass for borrowed Native/interface context
+renewal and complete resumed call selection. The no-frontend artifact consumer and
+mutable-publication compile-fail doctest pass. After the final direct-entry ownership
+change, four dispatch cases, two SDK retained-body/handle cases and the resumed-call
+VM case were rerun successfully; unchanged passing boundaries were not repeated.
+
+Mandatory local structure (1872 files, no violations), fmt, workspace all-target
+Clippy and diff checks pass; 86 local documentation links/fences/CRLF checks pass.
+No current-cell lock site remains in handwritten Rust. Representative reproduction:
+
+```text
+cargo test -p kagari-runtime --lib module::staging::tests
+cargo test -p kagari-runtime --lib session::execution_sessions::publication
+cargo test -p kagari-runtime --doc publish_staged_reload
+cargo test -p kagari --lib runtime::tests::embedding::runtime_transfer
+cargo test -p kagari --lib complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline
+cargo test -p kagari-vm --lib generic_interface_constraints_keep_selected_operations_alive_through_gc_and_reload
+cargo test -p kagari --no-default-features --test artifact_features portable_artifact_executes_without_source_compilation
+```
+
+No known build/integration errors are carried. Full-workspace tests and exhaustive
+matrices remain CI-only and were not run locally. Native/player integration remains
+MS04; implementation-map closure and frozen performance gates remain MS05 owners.

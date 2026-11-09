@@ -27,7 +27,7 @@ use std::sync::{
 
 #[test]
 fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
-    let (vm, owner) = fixture(
+    let (mut vm, owner) = fixture(
         r#"
         use std::collections::{HashMap, HashSet};
         pub fn make() -> (HashMap<String, Vec<i32>>, HashSet<i32>) {
@@ -79,7 +79,7 @@ fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
     let other = foreign.runtime().select_program(&_other_program).unwrap();
     assert!(set.len(&foreign.context(&other).unwrap()).is_err());
     drop((removed, values, map, alias, set, make, size, cx));
-    publish_unused_version(&vm, &_owner_program);
+    publish_unused_version(&mut vm, &_owner_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
@@ -243,7 +243,7 @@ fn stored_key_protocol_selects_current_code_and_keeps_metadata_until_last_value_
     let old = runtime.load_program("hash-cycle", code(1)).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let result = vm.execute(&old, "make").unwrap().return_value;
     let value = result.value(vm.runtime().gc()).unwrap();
     let Value::Tuple(_) = &value else {

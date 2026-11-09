@@ -110,7 +110,7 @@ fn custom_key_factories_use_current_bodies_and_helpers_through_reentry_and_reloa
         pub fn markers() -> (i32, i32, i32, i32) { (HASH_BODY, HASH_HELPER, EQ_BODY, EQ_HELPER) }
         "#,
     );
-    let (vm, old) = fixture(&source, Some(&module));
+    let (mut vm, old) = fixture(&source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let key_type = vm

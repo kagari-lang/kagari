@@ -505,7 +505,7 @@ fn pending_commit_preserves_completion_and_cancellation_notifications() {
 
 #[test]
 fn publication_queues_completions_without_polling_a_parked_future() {
-    let f = Fixture::new(false);
+    let mut f = Fixture::new(false);
     let (owner, saved) = f.park(0);
     let completion = f.take_completions().pop().unwrap();
     let guard = f.runtime.begin_publication(&f.program).unwrap();
@@ -518,7 +518,8 @@ fn publication_queues_completions_without_polling_a_parked_future() {
     );
     assert!(owner.is_ready());
     assert_eq!(
-        f.runtime
+        guard
+            .runtime()
             .resume_owned_execution(&owner)
             .err()
             .unwrap()
@@ -528,7 +529,7 @@ fn publication_queues_completions_without_polling_a_parked_future() {
     assert_eq!(f.probe.converted.load(Ordering::SeqCst), 0);
     assert_eq!(f.probe.continued.load(Ordering::SeqCst), 0);
     assert_eq!(f.probe.cancelled[0].load(Ordering::SeqCst), 0);
-    assert!(f.runtime.gc().validate_value(&saved));
+    assert!(guard.runtime().gc().validate_value(&saved));
     let candidate = guard
         .stage_reload_verified_program(None, f.module.verified_program().clone())
         .unwrap();

@@ -11,7 +11,7 @@ use crate::{
     program::Program,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_runtime::{error::RuntimeErrorKind, module::entry::ProgramEntry, value::Value};
+use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
@@ -247,10 +247,8 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         .runtime()
         .begin_execution(&selected_old, context.runtime_options())
         .unwrap();
-    assert!(matches!(
-        runtime.runtime().begin_publication(&old),
-        Err(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation
-    ));
+    // The live session's Runtime borrow statically excludes mutable publication.
+    // Dynamic admission for forgotten scopes and callbacks is tested at its owner.
     assert_eq!(
         runtime.runtime().select_program(&old).unwrap().key(),
         selected_old.key()

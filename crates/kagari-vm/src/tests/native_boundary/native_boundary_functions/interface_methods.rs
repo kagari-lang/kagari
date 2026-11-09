@@ -263,7 +263,7 @@ fn interface_dispatch_collects_during_reentry_and_selects_current_default_code()
         "use example::interface_methods::collect;\n{}",
         SOURCE.replace("self.get() - amount", "collect(); self.get() - amount")
     );
-    let (vm, old) = fixture_without_foundation(&source, Some(&module));
+    let (mut vm, old) = fixture_without_foundation(&source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let player: Interface = vm.execute_typed(&old, "make", (100,)).unwrap();

@@ -79,7 +79,7 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
     let faults = Arc::new(Faults::default());
     let native = module(&faults);
     let source = "use fixture::payload::{Payload, new}; fn main() -> Payload { new() }";
-    let (vm, loaded) = compile(source, Some(&native));
+    let (mut vm, loaded) = compile(source, Some(&native));
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     let value = vm
@@ -168,7 +168,7 @@ fn clearing_reloaded_static_cells_disposes_payloads_once_even_when_destructors_p
         fn main() { val a = first; val b = second; }
         pub fn clear() { first = []; second = []; }
     "#;
-    let (vm, old) = compile(source, Some(&native));
+    let (mut vm, old) = compile(source, Some(&native));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     drop(vm.execute(&old, ProgramEntry::Main).unwrap());
@@ -181,7 +181,7 @@ fn clearing_reloaded_static_cells_disposes_payloads_once_even_when_destructors_p
         )
         .unwrap();
     let current = staged.module().clone();
-    vm.runtime().publish_staged_reload(staged).unwrap();
+    vm.runtime_mut().publish_staged_reload(staged).unwrap();
     let _current_program = _old_program.clone();
     vm.runtime().collect_garbage().unwrap();
     assert_eq!(faults.drops.load(Ordering::SeqCst), 0);

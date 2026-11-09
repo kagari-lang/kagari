@@ -324,7 +324,7 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
         .unwrap();
     let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
     let old_key = old.key();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let saved_root = vm.execute(&old, "make").unwrap().return_value;
     let saved = saved_root.value(vm.runtime().gc()).unwrap();
     vm.reload_program(&_old_program, Some("local-reload".into()), replacement)
@@ -414,7 +414,7 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
     let late_constructed =
         ModuleDecl::method_id(contract.declaration, "late_constructed", old.definitions()).unwrap();
     let old_key = old.key();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let saved = vm
         .execute(&old, "make")
         .unwrap()
@@ -514,7 +514,7 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
         .unwrap();
     let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
     let old_key = old.key();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let saved = vm
         .execute(&old, "make")
         .unwrap()
@@ -594,7 +594,7 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let saved = vm.execute(&old, "make").unwrap().return_value;
     vm.reload_program(&_old_program, Some("receiver-reload".into()), replacement)
         .unwrap();
@@ -677,7 +677,7 @@ fn shared_collection_comparison_selects_current_operations(
             prepare_with_demands(&engine, replacement_source, &old)
         }
     };
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let factory = vm.execute(&old, "make").unwrap().return_value;
     let old_probe = vm.execute(&old, "probe").unwrap().return_value;
     vm.reload_program(

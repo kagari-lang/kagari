@@ -232,7 +232,7 @@ fn returned_closures_retain_bodies_while_bound_functions_select_current() {
             "#
         )
     };
-    let (vm, old) = fixture_without_foundation(&source(41), None);
+    let (mut vm, old) = fixture_without_foundation(&source(41), None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let answer = vm

@@ -116,7 +116,7 @@ fn inherent_application_handles_select_current_code_after_reload() {
     let source = SOURCE
         .replace("String", "bool")
         .replace("\"other\"", "true");
-    let (vm, old) = fixture_without_foundation(&source, None);
+    let (mut vm, old) = fixture_without_foundation(&source, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let i32_type = ConversionContext::new(vm.runtime(), &old)

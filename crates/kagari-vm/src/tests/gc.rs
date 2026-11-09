@@ -160,7 +160,7 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
     let loaded = runtime.load_program("closure_epoch.kgr", old).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let closure = vm
         .execute(&loaded, "make")
         .unwrap()

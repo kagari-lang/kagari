@@ -381,7 +381,7 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
     }
     .unwrap();
     let module = module.finish().unwrap();
-    let (vm, loaded) = source_free_vm(
+    let (mut vm, loaded) = source_free_vm(
         r#"
         use example::typed::{wrap, inspect};
         fn main() -> i32 {
@@ -401,7 +401,7 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
             .expect("retained execution result"),
         Value::I32(42)
     );
-    publish_unused_version(&vm, &_loaded_program);
+    publish_unused_version(&mut vm, &_loaded_program);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 

@@ -214,7 +214,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             let loaded = runtime.load_program("path-reentry.kgr", program).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
-            let vm = Vm::new(runtime);
+            let mut vm = Vm::new(runtime);
             let scope = vm
                 .runtime()
                 .begin_execution(&loaded, vm.runtime().execution_options())
@@ -248,7 +248,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                     loaded.verified_program().clone(),
                 )
                 .unwrap();
-            vm.runtime().publish_staged_reload(replacement).unwrap();
+            vm.runtime_mut().publish_staged_reload(replacement).unwrap();
             vm.runtime().collect_garbage().unwrap();
             assert_eq!(vm.runtime().gc().allocated_objects(), 0);
             assert_eq!(vm.runtime().host_dirty_paths().len(), 1);

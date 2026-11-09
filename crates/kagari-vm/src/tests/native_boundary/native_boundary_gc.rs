@@ -102,7 +102,7 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 
 #[test]
 fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
-    let (vm, loaded) = compile(
+    let (mut vm, loaded) = compile(
         include_str!("../../../tests/fixtures/native/structural-and-identity-hash-keys.kgr"),
         None,
     );
@@ -258,8 +258,8 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     let candidate = runtime
         .stage_reload_verified_program(&_loaded_program, None, loaded.verified_program().clone())
         .unwrap();
-    runtime.publish_staged_reload(candidate).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
@@ -412,7 +412,7 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let (vm, old) = compile(
+    let (mut vm, old) = compile(
         r#"use fixture::capture::capture;
         struct Item { val value: i32 }
         fn main() -> i32 {

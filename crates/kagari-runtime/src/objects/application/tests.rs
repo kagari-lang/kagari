@@ -108,7 +108,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
         .unwrap();
     declaration.finish().unwrap();
     let module = module.finish().unwrap();
-    let (runtime, loaded_program, loaded) = load_source(
+    let (mut runtime, loaded_program, loaded) = load_source(
         r#"
     use example::defaults::Read;
     impl Read for i32 { fn read(self) -> i32 { self } }
@@ -298,7 +298,7 @@ fn apply_generic(
 
 #[test]
 fn applied_facts_reuse_receiver_independent_identity_and_distinguish_types_and_versions() {
-    let (runtime, loaded_program, loaded, table) = generic_fixture();
+    let (mut runtime, loaded_program, loaded, table) = generic_fixture();
     let first_value = runtime
         .make_interface(&loaded, table, Value::I32(1))
         .unwrap();
@@ -703,7 +703,7 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
 #[case::abandoned(false)]
 #[case::published(true)]
 fn optional_application_retention_expires_with_abandoned_witness_providers(#[case] publish: bool) {
-    let (runtime, loaded_program, loaded, table) = generic_fixture();
+    let (mut runtime, loaded_program, loaded, table) = generic_fixture();
     let value = runtime
         .make_interface(&loaded, table, Value::I32(1))
         .unwrap();
@@ -779,7 +779,7 @@ fn optional_application_retention_expires_with_abandoned_witness_providers(#[cas
 
 #[test]
 fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() {
-    let (runtime, loaded_program, mut loaded) = load_source(
+    let (mut runtime, loaded_program, mut loaded) = load_source(
         r#"
         trait Read { fn read(self) -> i32; }
         impl Read for i32 { fn read(self) -> i32 { self } }

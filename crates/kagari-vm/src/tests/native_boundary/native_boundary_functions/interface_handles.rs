@@ -145,7 +145,7 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
 fn retained_interfaces_select_current_dispatch_after_reload_and_thread_transfer() {
     let source =
         include_str!("../../../../tests/fixtures/native/retained-interface-current-dispatch.kgr");
-    let (vm, old) = fixture_without_foundation(source, None);
+    let (mut vm, old) = fixture_without_foundation(source, None);
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let value: Interface = vm.execute_typed(&old, "make", ()).unwrap();

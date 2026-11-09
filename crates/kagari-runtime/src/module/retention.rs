@@ -277,7 +277,14 @@ mod tests {
             runtime.load_program("new", program()).unwrap_err().kind(),
             RuntimeErrorKind::EngineFault
         );
-        assert_eq!(target.capture_current().unwrap().key(), baseline.key());
+        assert_eq!(
+            runtime
+                .modules
+                .capture_current(&target.installation)
+                .unwrap()
+                .key(),
+            baseline.key()
+        );
         assert_eq!(runtime.modules().loaded_count(), 1);
     }
 }

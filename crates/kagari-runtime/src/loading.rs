@@ -152,6 +152,20 @@ impl Runtime {
                 "executable module has been released",
             ));
         }
+        // Entry/resume admitted this installation before activating the session.
+        // Synchronous scopes exclude publication/close, so inner calls reuse that
+        // authority without reading current or comparing publication revisions.
+        // Explicit retirement still revokes it before cleanup, even with borrowed
+        // executable storage. Heap values and native loans remain checked below
+        // their own operation boundaries, independently of this code admission.
+        if self
+            .resources()
+            .active_session()
+            .is_some_and(|session| session.root.installation_id() == module.installation_id())
+            && self.modules.activation_is_live()
+        {
+            return Ok(());
+        }
         self.modules.validate_executable_installation(module)
     }
 
@@ -413,8 +427,15 @@ impl Runtime {
 
     /// Admit and publish a previously staged candidate at the host boundary.
     /// Call `PublicationGuard::publish` instead when admission is already held.
+    ///
+    /// Publication requires the exclusive host owner, including from callbacks:
+    /// ```compile_fail
+    /// fn publish(runtime: &kagari_runtime::Runtime, candidate: kagari_runtime::StagedReload) {
+    ///     runtime.publish_staged_reload(candidate).unwrap();
+    /// }
+    /// ```
     pub fn publish_staged_reload(
-        &self,
+        &mut self,
         candidate: StagedReload,
     ) -> Result<(), ReloadValidationError> {
         self.begin_publication(&candidate.target)

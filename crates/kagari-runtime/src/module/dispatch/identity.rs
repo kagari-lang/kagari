@@ -2,7 +2,7 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     module::{
-        Installation, VerifiedProgram,
+        ModuleStore, VerifiedProgram,
         admission::DefinitionAdmission,
         dispatch::{PublicationToken, invalid},
     },
@@ -346,7 +346,7 @@ impl PublicationMapping {
 
 impl DeclarationIndex {
     pub(super) fn prepare(
-        installation: &Installation,
+        store: &ModuleStore,
         token: PublicationToken,
         previous: Option<&Self>,
         program: &VerifiedProgram,
@@ -414,7 +414,7 @@ impl DeclarationIndex {
                             "installation declaration index",
                         ));
                     }
-                    let identity = StableDeclarationId(installation.reserve_declaration()?);
+                    let identity = StableDeclarationId(store.reserve_declaration()?);
                     known.insert(canonical, identity);
                     identity
                 }

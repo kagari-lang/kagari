@@ -1,4 +1,4 @@
-//! Installation identity and live metadata admission, separate from executable leases.
+//! Identity-only handles; the supplying Runtime owns live selection and revocation.
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -9,81 +9,48 @@ use crate::{
     },
 };
 use kagari_common::identity::ModuleIdentity;
-use std::sync::{Arc, Mutex, atomic::Ordering};
+use std::{mem, sync::Arc};
 
 impl InstalledProgram {
-    /// Construct the root namespace identity, even after the installation is closed.
-    /// Lookup and binding through that identity still require a live installation.
+    /// Construct the root namespace identity, including after close. Live queries
+    /// require the supplying Runtime; this handle owns no executable publication.
     pub fn root(&self) -> Module {
         self.installation
             .namespace_handle(self.installation.root_identity.clone())
     }
-
-    pub(crate) fn capture_current(&self) -> Result<ExecutableModule, RuntimeError> {
-        self.installation.capture_current()
-    }
 }
 
 impl Module {
-    pub(crate) fn capture_current(&self) -> Result<ModuleSnapshot, RuntimeError> {
-        Ok(ModuleSnapshot {
-            root: self.installation.capture_current()?,
-            namespace: self.namespace.clone(),
-        })
-    }
-
     pub(crate) fn namespace_handle(&self, namespace: ModuleIdentity) -> Self {
         self.installation.namespace_handle(namespace)
     }
 }
 
 impl Installation {
-    pub(super) fn reserve_declaration(&self) -> Result<u64, RuntimeError> {
-        self.next_declaration
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
-                next.checked_add(1)
-            })
-            .map_err(|_| RuntimeError::resource_limit("stable declaration identity exhausted"))
-    }
-
     pub(crate) fn namespace_handle(self: &Arc<Self>, namespace: ModuleIdentity) -> Module {
         Module {
             installation: self.clone(),
             namespace,
         }
     }
-
-    pub(crate) fn capture_current(&self) -> Result<ExecutableModule, RuntimeError> {
-        let program = self
-            .current
-            .lock()
-            .map_err(|_| {
-                RuntimeError::new(
-                    RuntimeErrorKind::EngineFault,
-                    "installation metadata lock poisoned",
-                )
-            })?
-            .clone()
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::StaleHandle, "installation is closed")
-            })?;
-        Ok(ExecutableModule {
-            slot: program.root,
-            program,
-        })
-    }
-
-    fn retire(&self) {
-        // Poison recovery may revoke authority, never admit metadata or execution.
-        let previous = match self.current.lock() {
-            Ok(mut current) => current.take(),
-            Err(poisoned) => poisoned.into_inner().take(),
-        };
-        drop(previous);
-    }
 }
 
 impl ModuleStore {
+    /// An active session reuses its admitted installation until explicit global
+    /// retirement. Publication itself neither revokes nor compares this authority.
+    pub(crate) fn activation_is_live(&self) -> bool {
+        !self.retired.get()
+    }
+
+    pub(super) fn reserve_declaration(&self) -> Result<u64, RuntimeError> {
+        let next = self.next_declaration.get();
+        self.next_declaration
+            .set(next.checked_add(1).ok_or_else(|| {
+                RuntimeError::resource_limit("stable declaration identity exhausted")
+            })?);
+        Ok(next)
+    }
+
     pub(crate) fn reserve_installation(
         &mut self,
         registry_owner: HostRegistryId,
@@ -102,10 +69,9 @@ impl ModuleStore {
             registry_owner,
             id,
             root_identity,
-            current: Mutex::new(None),
-            next_declaration: Default::default(),
         });
         self.installations.insert(id, installation.clone());
+        self.retired.set(false);
         Ok(installation)
     }
 
@@ -128,6 +94,28 @@ impl ModuleStore {
         Ok(())
     }
 
+    pub(crate) fn capture_current(
+        &self,
+        installation: &Arc<Installation>,
+    ) -> Result<ExecutableModule, RuntimeError> {
+        self.validate_installation(installation, installation.registry_owner)?;
+        let program = self
+            .current
+            .try_borrow()
+            .map_err(|_| {
+                RuntimeError::module_validation("current programs borrowed during lookup")
+            })?
+            .get(&installation.id)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeError::new(RuntimeErrorKind::StaleHandle, "installation is closed")
+            })?;
+        Ok(ExecutableModule {
+            slot: program.root,
+            program,
+        })
+    }
+
     pub(crate) fn validate_executable_installation(
         &self,
         module: &ExecutableModule,
@@ -139,22 +127,18 @@ impl ModuleStore {
                 RuntimeError::new(RuntimeErrorKind::StaleHandle, "unregistered installation")
             })?;
         self.validate_installation(installation, module.registry_owner)?;
-        let live = installation
+        if self
             .current
-            .lock()
+            .try_borrow()
             .map_err(|_| {
-                RuntimeError::new(
-                    RuntimeErrorKind::EngineFault,
-                    "installation metadata lock poisoned",
-                )
+                RuntimeError::module_validation("current programs borrowed during admission")
             })?
-            .is_some();
-        if live {
+            .contains_key(&installation.id)
+        {
             return Ok(());
         }
-        // Initial linking needs exact candidate metadata before the first
-        // publication. StagedLoad retains this lease without exposing executable
-        // entry authority; reload leases cannot authorize a retired installation.
+        // Initial metadata linking is admitted only by its live candidate lease.
+        // A reload lease cannot authorize a closed installation.
         let inner = self.inner.try_borrow().map_err(|_| {
             RuntimeError::module_validation("module store borrowed during admission")
         })?;
@@ -184,39 +168,44 @@ impl ModuleStore {
                 RuntimeError::new(RuntimeErrorKind::StaleHandle, "unregistered installation")
             })?;
         self.validate_installation(installation, module.registry_owner)?;
-        installation.capture_current()
+        self.capture_current(installation)
     }
 
     pub(super) fn current_roots(&self) -> Result<Vec<ModuleKey>, RuntimeError> {
-        self.installations
+        let current = self.current.try_borrow().map_err(|_| {
+            RuntimeError::module_validation("current programs borrowed during collection")
+        })?;
+        Ok(current
             .values()
-            .filter_map(|installation| match installation.capture_current() {
-                Ok(module) => Some(Ok(module.program_key())),
-                Err(error) if error.kind() == RuntimeErrorKind::StaleHandle => None,
-                Err(error) => Some(Err(error)),
+            .map(|program| {
+                let root = &program.modules[program.root.index()];
+                ModuleKey {
+                    id: root.id,
+                    epoch: root.epoch,
+                }
             })
-            .collect()
+            .collect())
     }
 
-    /// Revoke all live metadata authority before Runtime state is released.
-    /// This does not borrow executable storage and recovers poison only for clearing.
+    /// Revoke authority independently of executable storage. No current-table
+    /// borrow or callback escapes this operation; destruction follows the borrow.
     pub(crate) fn retire_installations(&self) {
-        for installation in self.installations.values() {
-            installation.retire();
-        }
+        self.retired.set(true);
+        let previous = mem::take(&mut *self.current.borrow_mut());
+        drop(previous);
     }
 }
 
 impl Runtime {
-    /// Capture the current root of this Runtime's live installation once.
-    /// The returned exact publication is not itself an executable retention lease.
+    /// Capture an immutable publication through its supplying Runtime. The
+    /// descriptor itself grants no executable retention or revival authority.
     pub fn select_program(
         &self,
         program: &InstalledProgram,
     ) -> Result<ExecutableModule, RuntimeError> {
         self.modules
             .validate_installation(&program.installation, self.host.owner())?;
-        let root = program.capture_current()?;
+        let root = self.modules.capture_current(&program.installation)?;
         self.validate_executable_module(&root)?;
         Ok(root)
     }
@@ -224,7 +213,10 @@ impl Runtime {
     pub(crate) fn capture_module(&self, module: &Module) -> Result<ModuleSnapshot, RuntimeError> {
         self.modules
             .validate_installation(&module.installation, self.host.owner())?;
-        let snapshot = module.capture_current()?;
+        let snapshot = ModuleSnapshot {
+            root: self.modules.capture_current(&module.installation)?,
+            namespace: module.namespace.clone(),
+        };
         self.validate_executable_module(&snapshot.root)?;
         Ok(snapshot)
     }

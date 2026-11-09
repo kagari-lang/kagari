@@ -1,8 +1,9 @@
 //! Live public namespace navigation and exact executable export evidence.
 
 use crate::{
+    Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    module::{ExecutableModule, InstalledProgram, Module, ModuleSnapshot, VerifiedProgram},
+    module::{ExecutableModule, Module, ModuleSnapshot, VerifiedProgram},
 };
 use kagari_bytecode::program::exports::ExportTarget;
 use kagari_common::identity::table::DefinitionId;
@@ -67,32 +68,22 @@ impl VerifiedProgram {
     }
 }
 
-impl InstalledProgram {
-    /// Navigate a public module path from this installation's current root.
-    /// The returned handle retains canonical namespace identity, not an executable
-    /// generation or the alias spelling. Closed installations reject navigation.
-    pub fn module(&self, path: &str) -> Result<Module, RuntimeError> {
-        self.root().module(path)
-    }
-}
-
-impl Module {
-    /// Navigate relative to this canonical namespace in the current publication.
-    /// Public aliases and prefix namespaces need no physical executable slot.
-    /// Paths contain 1..64 ASCII identifiers separated by `::`, without
-    /// `crate`/`self`/`super`. Invalid, absent and wrong-kind paths report
-    /// `TypedPathValidation`; closed handles report `StaleHandle`.
-    pub fn module(&self, path: &str) -> Result<Self, RuntimeError> {
-        let snapshot = self.capture_current()?;
+impl Runtime {
+    /// Navigate the current public graph relative to a canonical namespace.
+    /// Handles retain identities, including aliases without physical code slots.
+    /// Invalid/private paths report TypedPathValidation; closed or foreign handles
+    /// report StaleHandle. The returned handle owns no executable publication.
+    pub fn module(&self, namespace: &Module, path: &str) -> Result<Module, RuntimeError> {
+        let snapshot = self.capture_module(namespace)?;
         let target = snapshot.resolve_public_path(path, PublicPathKind::Module)?;
-        let PublicPathTarget::Module(namespace) = target else {
+        let PublicPathTarget::Module(target) = target else {
             return Err(public_path_error(
                 path,
                 PublicPathKind::Module,
                 PublicPathError::InvalidGraph,
             ));
         };
-        Ok(self.namespace_handle(namespace.clone()))
+        Ok(namespace.namespace_handle(target.clone()))
     }
 }
 
@@ -286,8 +277,8 @@ mod tests {
             .load_verified_program("paths", function_program(FUNCTION_PATHS))
             .unwrap();
         let root = program.root();
-        let child = program.module("api").unwrap();
-        let alias = program.module("mirror").unwrap();
+        let child = runtime.module(&program.root(), "api").unwrap();
+        let alias = runtime.module(&program.root(), "mirror").unwrap();
         let root_run = runtime.bind_function::<(), i32>(&root, "run").unwrap();
         let child_run = runtime.bind_function::<(), i32>(&child, "run").unwrap();
         let nested = runtime.bind_function::<(), i32>(&root, "api::run").unwrap();
@@ -314,8 +305,8 @@ mod tests {
         let captured = runtime.capture_module(&child).unwrap();
         let old_target = captured.function_target("selected").unwrap();
         assert_eq!(old_target.0.bytecode.identity.path, ["hidden"]);
-        assert!(root.module("hidden").is_err());
-        assert!(child.module("selected").is_err());
+        assert!(runtime.module(&root, "hidden").is_err());
+        assert!(runtime.module(&child, "selected").is_err());
         let replacement = FUNCTION_PATHS
             .replace("hidden::left as selected", "hidden::right as selected")
             .replace("{ 10 }", "{ 11 }");
@@ -363,7 +354,7 @@ mod tests {
             .load_verified_program("paths", function_program(FUNCTION_PATHS))
             .unwrap();
         let root = program.root();
-        let child = program.module("api").unwrap();
+        let child = runtime.module(&program.root(), "api").unwrap();
         // No root fallback even though Count exists there.
         let error = runtime
             .bind_function::<(), i32>(&child, "Count")
@@ -589,18 +580,24 @@ mod tests {
         let input = navigation_program(false);
         let first = runtime.load_program("same-label", input.clone()).unwrap();
         let second = runtime.load_program("same-label", input).unwrap();
-        let prefix = first.module("api").unwrap();
-        let alias = first.module("alias").unwrap();
+        let prefix = runtime.module(&first.root(), "api").unwrap();
+        let alias = runtime.module(&first.root(), "alias").unwrap();
         assert_eq!(prefix.namespace, alias.namespace);
         assert!(Arc::ptr_eq(&prefix.installation, &alias.installation));
-        let users = prefix.module("users").unwrap();
-        assert_eq!(users.module("parent").unwrap().namespace, prefix.namespace);
+        let users = runtime.module(&prefix, "users").unwrap();
         assert_eq!(
-            first.module("internal").unwrap_err().kind(),
+            runtime.module(&users, "parent").unwrap().namespace,
+            prefix.namespace
+        );
+        assert_eq!(
+            runtime
+                .module(&first.root(), "internal")
+                .unwrap_err()
+                .kind(),
             RuntimeErrorKind::TypedPathValidation
         );
         assert_eq!(
-            users.module("added").unwrap_err().kind(),
+            runtime.module(&users, "added").unwrap_err().kind(),
             RuntimeErrorKind::TypedPathValidation
         );
         let old = runtime.select_program(&first).unwrap();
@@ -614,12 +611,12 @@ mod tests {
             .stage_reload_program(&first, Some("new-label".into()), navigation_program(true))
             .unwrap();
         runtime.publish_staged_reload(candidate).unwrap();
-        let added = users.module("added").unwrap();
+        let added = runtime.module(&users, "added").unwrap();
         assert_eq!(added.namespace, first.root().namespace);
         assert!(Arc::ptr_eq(&added.installation, &first.installation));
-        assert!(prefix.module("users::added").is_ok());
-        assert!(alias.module("users::added").is_ok());
-        assert!(second.module("api::users::added").is_err());
+        assert!(runtime.module(&prefix, "users::added").is_ok());
+        assert!(runtime.module(&alias, "users::added").is_ok());
+        assert!(runtime.module(&second.root(), "api::users::added").is_err());
         assert_ne!(runtime.select_program(&first).unwrap().key(), old.key());
 
         let foreign = Runtime::default();
@@ -629,11 +626,11 @@ mod tests {
         runtime.close().unwrap();
         assert_live_binding_authority(&runtime, &prefix, &argument);
         assert_eq!(
-            first.root().module("api").unwrap_err().kind(),
+            runtime.module(&first.root(), "api").unwrap_err().kind(),
             RuntimeErrorKind::StaleHandle
         );
         assert_eq!(
-            users.module("added").unwrap_err().kind(),
+            runtime.module(&users, "added").unwrap_err().kind(),
             RuntimeErrorKind::StaleHandle
         );
         assert!(runtime.validate_executable_module(&old).is_err());

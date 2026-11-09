@@ -123,7 +123,7 @@ fn rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast() {
 
 #[test]
 fn application_publication_checks_owners_and_retains_only_published_edges() {
-    let (runtime, loaded_program, loaded, table, value) = fixture();
+    let (mut runtime, loaded_program, loaded, table, value) = fixture();
     let id = identity(&runtime, &value);
     let root = runtime.root_value(value).unwrap();
     let snapshot = runtime.gc.interface_metadata(id).unwrap();
@@ -355,7 +355,7 @@ fn shared_descriptions_keep_receiver_views_separate_and_retire_after_last_root()
 
 #[test]
 fn interface_descriptions_do_not_merge_reloaded_implementation_generations() {
-    let (runtime, loaded_program, loaded, table, old) = fixture();
+    let (mut runtime, loaded_program, loaded, table, old) = fixture();
     let old_root = runtime.root_value(old).unwrap();
     let staged = runtime
         .stage_reload_verified_program(&loaded_program, None, loaded.verified_program().clone())

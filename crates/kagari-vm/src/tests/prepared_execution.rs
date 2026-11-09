@@ -288,7 +288,7 @@ fn debugging_selects_interpreter_before_entering_native_code() {
 #[test]
 fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
     let program = compile("fn main() {}", false);
-    let (vm, module) = setup(program.clone());
+    let (mut vm, module) = setup(program.clone());
     let _module_program = module;
     let module = vm.runtime().select_program(&_module_program).unwrap();
     let preparation = prepared(&vm, &module, native_unit);

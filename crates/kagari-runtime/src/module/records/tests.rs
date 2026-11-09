@@ -209,7 +209,7 @@ fn immutable_descriptors_can_cross_threads_without_retaining_native_links_or_cac
 
 #[test]
 fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collection() {
-    let (runtime, loaded_program, loaded, code) = fixture();
+    let (mut runtime, loaded_program, loaded, code) = fixture();
     let args = [Ty::Builtin(BuiltinType::I32)];
     let id = generic_structure(&loaded);
     let enum_id = generic_enum(&loaded);
@@ -291,7 +291,7 @@ fn installed_layout_applications_reuse_caches_but_old_type_facts_survive_collect
 
 #[test]
 fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
-    let (runtime, loaded_program, loaded, code) = fixture();
+    let (mut runtime, loaded_program, loaded, code) = fixture();
     let id = generic_structure(&loaded);
     let declaration = loaded.bytecode.structures[id.index()].declaration;
     let parameter = GenericParam {
@@ -446,7 +446,7 @@ fn layout_scopes_preserve_provenance_across_bounded_retention_and_retirement() {
 
 #[test]
 fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions() {
-    let (runtime, previous_program, _previous, code) = fixture();
+    let (mut runtime, previous_program, _previous, code) = fixture();
     let (definitions, mut code) = code.into_parts();
     let args = [Ty::Builtin(BuiltinType::I32)];
     let source = code.root.index();
@@ -700,7 +700,7 @@ fn equivalent_member_layouts_share_prepared_identity_without_aliasing_versions()
 
 #[test]
 fn layout_admission_is_bounded_and_does_not_retain_producer_programs() {
-    let (runtime, old_program, old, code) = fixture();
+    let (mut runtime, old_program, old, code) = fixture();
     let id = generic_structure(&old);
     runtime
         .publish_staged_reload(

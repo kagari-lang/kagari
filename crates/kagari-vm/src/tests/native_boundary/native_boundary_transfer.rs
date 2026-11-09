@@ -226,7 +226,7 @@ fn live_runtime_moves_with_send_only_payloads_observer_and_pinned_closure() {
         }
         pub fn run() -> i32 { invoke(1) }
     "#;
-    let (vm, loaded) = compile(source, Some(&native));
+    let (mut vm, loaded) = compile(source, Some(&native));
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
     vm.runtime()

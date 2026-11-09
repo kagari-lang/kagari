@@ -12,6 +12,11 @@ use kagari_runtime::{
 };
 
 impl Runtime {
+    /// Navigate a live namespace through this Runtime's current public graph.
+    pub fn module(&self, namespace: &Module, path: &str) -> RunResult<Module> {
+        Ok(self.runtime().module(namespace, path)?)
+    }
+
     /// Bind a public callable relative to `module` in its latest publication.
     /// `name` is a public `::`-separated path, including module and item aliases.
     /// Argument/result types are checked without executing script. Calls select the

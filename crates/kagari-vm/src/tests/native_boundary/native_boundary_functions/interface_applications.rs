@@ -140,7 +140,7 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
         pub fn wrong_key() -> Key<bool> { Key { tag: true, value: 42 } }
         pub fn evidence(target: Invoke, value: Key<i32>) -> i32 { target.invoke(value) }
     "#;
-    let (vm, old) = fixture_without_foundation(source, Some(&module));
+    let (mut vm, old) = fixture_without_foundation(source, Some(&module));
     let _old_program = old;
     let old = vm.runtime().select_program(&_old_program).unwrap();
     let target: Interface = vm.execute_typed(&old, "make", ()).unwrap();
@@ -225,6 +225,7 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
             .reclaimed_modules
             .contains(&old.key())
     );
+    drop(cx);
     vm.reload_program(
         &_old_program,
         None,
@@ -234,7 +235,7 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
         ),
     )
     .unwrap();
-    drop((new_invoke, new_target, cx));
+    drop((new_invoke, new_target));
     let reclaimed = vm.runtime().collect_garbage().unwrap().reclaimed_modules;
     assert!(reclaimed.contains(&old.key()));
     assert!(reclaimed.contains(&new.key()));
