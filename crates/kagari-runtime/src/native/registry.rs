@@ -105,6 +105,35 @@ impl Default for NativeRegistry {
     }
 }
 
+/// One cold link/revalidation pass over a fixed program and immutable registry.
+/// The registry owns every keyed Arc for the entire pass; keys cannot be recycled.
+/// A new pass starts empty, so no authority crosses publication or recipients.
+#[derive(Default)]
+pub(crate) struct DependencyValidation {
+    catalogs: HashSet<(usize, usize, usize, usize)>,
+}
+
+impl DependencyValidation {
+    fn validate(
+        &mut self,
+        required: &DeclarationCatalog,
+        program: &VerifiedProgram,
+        admission: &DefinitionAdmission,
+    ) -> NativeResult<()> {
+        let key = (
+            Arc::as_ptr(&required.types) as usize,
+            Arc::as_ptr(&required.traits) as usize,
+            Arc::as_ptr(&required.declarations) as usize,
+            Arc::as_ptr(&required.implementations) as usize,
+        );
+        if !self.catalogs.contains(&key) {
+            dependencies::validate(required, program, admission)?;
+            self.catalogs.insert(key);
+        }
+        Ok(())
+    }
+}
+
 impl NativeRegistry {
     /// Validate carried declarations before publication, including unused entries.
     pub(crate) fn validate_installed_contracts(
@@ -242,17 +271,13 @@ impl NativeRegistry {
         import: &NativeImport,
         program: &VerifiedProgram,
         admission: &DefinitionAdmission,
-        validated: &mut HashSet<DefinitionId>,
+        validated: &mut DependencyValidation,
     ) -> NativeResult<Arc<LinkedNativeFunction>> {
         let entry = self
             .entries
             .get_id(admission.runtime_id(import.binding)?)
             .ok_or_else(|| RuntimeError::module_validation("native binding is not installed"))?;
-        let binding = admission.runtime_id(import.binding)?;
-        if !validated.contains(&binding) {
-            dependencies::validate(&entry.required_catalog, program, admission)?;
-            validated.insert(binding);
-        }
+        validated.validate(&entry.required_catalog, program, admission)?;
         let declaration = program
             .modules()
             .iter()

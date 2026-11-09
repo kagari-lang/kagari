@@ -371,7 +371,7 @@ compatible hot update. Execution-strategy configuration and trusted deployment
 artifact loading remain distinct from managing individual callable code products.
 
 The current [SDK preparation](../crates/kagari/src/program/native.rs) exposes
-`Runtime::prepare_native`, while [SDK execution](../crates/kagari/src/runtime.rs)
+`NativeCompiler::prepare` and `Runtime::install_native`, while [SDK execution](../crates/kagari/src/runtime.rs)
 accepts an explicit `PreparedNativeEntry` through `execute_prepared`.
 [AOT installation](../crates/kagari/src/aot.rs) also returns that product-specific
 entry. The runtime selects a current function but rejects an explicitly supplied
@@ -381,7 +381,7 @@ Recent CI test repairs establish that existing rejection behavior, not acceptanc
 of the desired public API. Do not remove the low-level correspondence check merely
 to make an old product callable as a new implementation.
 
-Required outcome: retained Program/Module/function/member bindings continue to
+Required outcome: retained InstalledProgram/Module/function/member bindings continue to
 select the current implementation after compatible publication, without rebinding
 or caller cache maintenance. Select and retain the matching internal code product
 after normal declaration/application admission. Preserve runtime/installation
@@ -1456,8 +1456,8 @@ Remaining host scope stays here or with existing owners, not a replacement HM qu
   needed, keeping tooling snapshots explicit, editor overlays out of ordinary
   compilation, multi-module diagnostics and source-free consumers intact. Direct
   preparation already avoids mandatory encode/decode; do not reimplement it.
-  Shareable products require proven ownership, never unsafe Send/Sync additions;
-  [MS](multi-runtime-sharing-plan.md) owns frozen-product sharing and per-Runtime costs.
+  Immutable Send + Sync Program products and per-Runtime bindings are implemented;
+  their [bounded sharing measurements](performance-baseline.md#shared-program-and-prepared-reload-acceptance-windows-2026-11-09) do not establish production capacity.
 - [Generated tuple bridges in source updates](review.md#generated-tuple-bridges-in-source-updates)
   remain an unresolved compiler planner/correspondence defect. Review owns the cause,
   reproduction, affected API and repair acceptance; implementation remains deferred.
@@ -1489,7 +1489,6 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 | Track | Scope and dependencies |
 | --- | --- |
-| [Runtime ownership, prepared reload and sharing](multi-runtime-sharing-plan.md#phases) | MS00-MS05 execution authorized with per-phase commits; MS00 locally accepted, MS01 next, MS01-MS05 unstarted. Freeze representation/API/baseline; share immutable Program and detach source preparation; prepare normal/old-body call tables with full-stack resume refresh; move live lookup/publication into exclusive Runtime and remove current locks; accept actual-native isolation/lifetime; finish measured integration. Preserve installed state, bounded history and current-inner-call semantics. New direct calls add no reload-specific lookup/adapter path. Slot/Native API redesign, GC/enum layouts, R13 and native expansion remain separate. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
 | [Paged storage and incremental GC](paged-incremental-gc-design.md#execution-plan) | PG00-PG06 documented, queued and unstarted: close contracts/baseline with NC01; complete generic provider capabilities and early external proof with NC02; replace physical storage; migrate collections through NC03/NC04; integrate incremental graph/barriers; enable sweep/driver interleaving with NC05; finish joint acceptance with NC06. Standard collections and host adapters must use the same public generic protocol as an independent provider, with no retained privileged paths. Preserve precise tracing, checked identities, compact storage, joint object/program reachability and collecting Native callbacks; no retention prepass for callback-bearing algorithms. PG00 must resolve physical layout, scan/publication, scheduling and numerical acceptance before dependent changes. No measured speedup or hard pause bound is claimed. Existing cancellation policy is unchanged; poll redesign, R13 and concurrent/generational collection remain separate. |
 
@@ -1497,103 +1496,40 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 ### Runtime execution model review
 
-Design and implementation-plan preparation on `design/runtime-execution-model`.
-The [existing MS00-MS05 execution plan](multi-runtime-sharing-plan.md#phases) is
-active under the user's 2026-11-09 authorization, with a commit per completed
-phase. MS00 is locally accepted; production cutover starts in MS01. The [Runtime execution map](architecture/runtime.md)
-and its call/reload walkthroughs describe implementation `48d79b2a`, including
-current-cell locks, repeated admission and current-inner-call semantics. The
-[target architecture](runtime-refactor-design.md) preserves those call-selection
-semantics while replacing preparation, ownership and lookup mechanics.
+MS00-MS05 are locally accepted with per-phase commits. Immutable Program products,
+detached preparation, final current/retained call bindings and Runtime-owned exclusive
+publication are implemented. The [Runtime map](architecture/runtime.md),
+[call walkthrough](architecture/runtime/calls.md) and [reload walkthrough](architecture/runtime/reload.md)
+own current behavior. The [bounded performance record](performance-baseline.md#shared-program-and-prepared-reload-acceptance-windows-2026-11-09) passes
+all frozen memory/load/current-call gates, including a repeated timing series.
+Native dependency validation now filters exact identities before contract adoption
+and deduplicates exact immutable catalogs within each cold validation pass.
 
-#### Runtime refactor target architecture
+Focused phase/final tests, source-free and actual-Cranelift two-player lifetime
+coverage, structure, fmt, workspace all-target Clippy and diff/link checks pass
+locally. Full-workspace tests and exhaustive feature/backend/platform matrices
+remain CI-only and were not run locally. The completed plan/phase ledger is retired
+to Git history; this queue owns remaining work rather than a replacement MS plan.
 
-The selected 2026-11-09 model is independent immutable Program preparation,
-exclusive per-Runtime publication and whole-version sharing/retention. A retained
-Future/closure/queued invocation keeps its exact body/provider and environment;
-ordinary calls inside it select current implementations. Whole-old-graph freezing
-and conservative drain/dependency-impact admission are superseded alternatives,
-not parallel modes or active work queues.
+Detached preparation checks/lowers once; independent Send / !Sync Runtime owners
+validate their own providers/state and publish at idle synchronous boundaries.
+Old closures/Futures/frames/queues retain bodies/providers/environments; their ordinary
+inner calls use final links directly to current implementations. Parking clears
+whole-stack function views and resume refreshes every frame. New Direct calls have
+no reload-specific lock, revision test, correspondence solver or old-table lookup.
+Ordinary argument/frame/root/loan/interface costs remain. Shared whole versions and
+inherited static/type provenance can retain many revisions; no small fixed memory
+bound or per-body reclamation is implied by the measured sharing reductions.
 
-The [prepared call-table design](runtime-refactor-design.md#prepared-call-tables-and-old-code-redirection)
-records these responsibilities:
-
-- Shared Program bodies retain immutable instructions, layouts and checked call
-  recipes. Runtime installations own current, revision records, local bindings,
-  persistent state and native eligibility. Keep Send + Sync products separate from
-  mutable preparation/compiler state; Runtime stays exclusively driven Send / !Sync.
-- Each installed revision has a CallTable with body-local BoundCall arrays. Current
-  code uses normal links; retained old code uses final links to current targets.
-  Preparation resolves correspondence and transfer recipes before execution. Current
-  direct calls have no reload-specific version test, retired lookup or adapter.
-- FrameState retains source body, PC, environment, slots and code/root ownership.
-  ActiveBodyView borrows exact code and the committed calls slice during synchronous
-  execution. On resumption refresh every parked frame, including parents restored
-  after child return; do not retain stale table snapshots in Futures.
-- Prepare candidate normal tables and direct-to-current tables for all retained
-  source revisions. Commit them with current, historical demands and native
-  eligibility in one non-failing idle-boundary segment. Repeated updates produce
-  v1-to-v3/v2-to-v3 links, never v1-to-v2-to-v3 forwarding chains. Rejection preserves
-  current and every old table. Producer notifications do not execute code.
-- Whole-version owners and traced dependencies govern retirement. RevisionStore
-  registration is not itself a permanent root. Reclaim an unneeded old record's
-  code ownership, local bindings and table without affecting the normal path.
-  Initializer/type metadata can delay retirement; R13/per-body reclamation remain
-  separately deferred. No predecessor Arc chain or Arc-count-only liveness test.
-- Keep exact-base linear updates, frozen declaration/layout/static/public namespace
-  contracts, bounded cumulative application demands and independent local coverage.
-  Old callers still require candidate current implementations for historical generic
-  applications. Preparation carries portable history; Runtime does not compile or
-  infer types when binding or calling. Source-editable products retain immutable
-  compilation capsules outside mutable compiler/cache owners.
-
-MS00 selects immutable product-scoped IDs/tables plus checked local bindings;
-the [consumer/API decision](runtime-refactor-design.md#ms00-representation-and-api-decision-2026-11-09)
-owns that migration boundary. Current normalization duplicates identity-bearing
-metadata, so Arc wrapping alone is insufficient. Define parameterized generic/witness transfer at
-the shared compiler/contract owner and instantiate only genuinely local bindings.
-Ordinary value/borrow/generation checks and dynamic interface selection remain.
-New admissible interface implementations use current checked dispatch; this model
-does not impose the discarded old-graph/new-type runtime rejection restriction.
-
-The implementation spans Runtime dispatch/linking, VM activation/parked frames,
-SDK source/native orchestration and contract/verifier preparation. Reuse existing
-old-body/current-inner-call tests, preserving source-free, actual-native, GC,
-reentry, borrowing, cancellation and error/effect coverage. Add distinct witnesses
-for atomic table replacement, multi-update direct rebinding, all-frame resume
-refresh and last-owner table reclamation. Sample independent Runtime threads,
-one-recipient/stale-base failure, cold/parked work, generic/witness transfer and
-original static initializer helper selection. Full matrices remain CI-owned.
-
-The [implementation plan](multi-runtime-sharing-plan.md#phases) expands the existing
-MS00-MS05 sequence in place as the sole execution owner: baseline/identity/API
-closure; immutable product/detached preparation; prepared tables/activation refresh;
-Runtime current ownership/lock removal; native/isolation/lifetime integration;
-measured acceptance and documentation closeout. Each checkpoint must build with
-consumers migrated and run the selected checks plus required local structure,
-fmt, workspace all-target Clippy and diff checks. No compatibility aliases or
-per-call solver fallback; unexpected integration errors must be repaired within
-the owning phase before acceptance. The plan records exact test-owner seeds,
-source-free/native samples and CI-only matrix boundaries. MS00 records fresh
-baseline/check evidence before its checkpoint; later phases remain unstarted.
-
-Measure reusable preparation, local publication/binding,
-shared/local retained memory, current-only normal calls and old-body adaptation
-separately. No measured speedup, small memory bound or passing new implementation
-is claimed. Normal call costs beyond the absence of reload-specific machinery
-remain ordinary execution work, not additional reload scope.
-
-[Later call-model work](runtime-refactor-design.md#candidate-call-execution-model)
-reuses these BoundCall records for logical slots, lightweight frames and scoped
-Native adapters. Public Native APIs, slot storage/compaction, collector/enum layout
-changes, independent module linking, branch merging/skipped bases, optimizing
-tiers, native suspension/deoptimization and finer reclamation remain deferred.
-
-OpenJDK 25/JVMTI remain the reference for exact body retention, subsequent current
-calls, optimization eligibility and separate executable lifetime. These target
-records are design sketches, not callable APIs. Documentation-only validation:
-local file/anchor links, Markdown fences, preserved line endings, target consistency
-and git diff --check; no Rust build/tests/Clippy or new performance measurement.
+Remaining scope has existing owners: [R13](review.md#r13--type-and-layout-provenance-retains-retired-code)
+for type/layout versus executable lifetime; the [call-model proposal](runtime-refactor-design.md#candidate-call-execution-model)
+for slots/frames/Native adapters; [native API review](#deferred-native-execution-api-boundary-review)
+for ordinary public handles rather than version-specific entries; and
+[native expansion gates](review.md#native-expansion-gates) for supported machine-code
+operations. Collector/enum layout, independent module linking, branch merging or
+skipped-base preparation, optimizing tiers and native continuations/deoptimization
+remain separate. Whole-old-call-graph freezing and conservative draining are not
+additional reload modes.
 
 #### Installation current-lock measurement
 

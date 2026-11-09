@@ -1,100 +1,69 @@
 # One Bytecode Call through the Runtime
 
-Implementation map of `48d79b2a`; start with the [Runtime model](../runtime.md).
-This page expands one successful, ordinary named script-function call with scalar
-arguments, no generic environment, no candidate initialization and no reload during
-the active synchronous scope. Alternate kinds are covered separately below.
-
-For example, `state = step(state)` calls `step(i32) -> i32`. The workload can be
-fully warmed: no preparation cache miss, new script object or GC cycle is required
-for the following selection, validation, initialization and transfer work to run.
+Start with the [Runtime model](../runtime.md). For `state = step(state)`, the
+ordinary nongeneric bytecode call uses a final binding prepared before publication.
+The same entry mechanism serves current code and retained old callers; their
+supplying call tables have already been bound directly to current implementations.
 
 ## Prepared facts and the actual entry path
 
-Before execution, portable bytecode describes the callee, logical argument/result
-slots, semantic contracts and source origins. Runtime preparation creates:
-
 ```text
-PreparedCall {
-    pc,
-    target: Static | Shared | Interface | Closure,
-    arguments: Box<[Location]>,
-    destination: Option<Location>
-}
-LinkedCall::Direct(CallRoute)
-CallRoute {
-    scope: Arc<PublicationDefinitions>,
-    origin: ModuleKey,
-    target: CallableTarget,
-    selection: named application | native import | retained body
-}
+PreparedCall { pc, target, arguments: Box<[Location]>, destination }
+LinkedCall::Direct(BoundRoute)
+BoundRoute { route: CallRoute, selected: Arc<PreparedSelection> }
+PreparedSelection { owner: ModuleKey, target: CallableTarget, mapping }
 ```
 
-Location already identifies a physical bank slot. CallRoute already binds an
-installation and callable identity; execution still selects its current or
-retained implementation. Binding once is therefore not the same as pinning the
-old body forever.
+The shared product prepares locations and checked callable facts. Installation
+resolves recipient authority and creates the final generational module key/target.
+`CallRoute` is metadata identity for publication and saved host bindings. Ordinary
+Direct execution reads `selected` without a current-version test or route-registry
+lookup. It does not clone the unused generic transport mapping.
 
-The scalar region encounters the prepared Call and exits its temporary frame/bank
-borrows. `complete_transition` invokes `push_prepared_call`. This is an internal
-transition in the same execution, not another root host session.
-
-Sources: [call preparation](../../../crates/kagari-runtime/src/module/execution/calls.rs),
-[linked calls](../../../crates/kagari-runtime/src/module/linked_execution/calls.rs),
-[region transition](../../../crates/kagari-runtime/src/frame/cursor/transitions.rs),
-[call transition](../../../crates/kagari-runtime/src/frame/calls.rs).
-
-## Selection and frame entry, including locks
+## Selection and frame entry
 
 ```mermaid
 flowchart TD
-    CALL["Bytecode Call<br/>end borrowed caller region"] --> SITE["Read caller slots and linked route<br/>clone relevant shared owners"]
-    SITE --> SELECT["select_call_route<br/>CHECK execution and registration<br/>LOOKUP installation"]
-    SELECT --> L1["LOCK 1: capture_current<br/>clone current Arc, then unlock"]
-    L1 --> TARGET["Select same-publication target<br/>or translate into current publication"]
-    TARGET --> L2["LOCK 2: validate selected executable<br/>read installation liveness, then unlock"]
-    L2 --> MAP["LOOKUP target contract<br/>construct publication mapping"]
-    MAP --> ADMIT["push_admitted_arguments<br/>CHECK entry, arguments, depth and callee"]
-    ADMIT --> L3["LOCK 3: admit Program metadata<br/>read installation liveness again, then unlock"]
-    L3 --> BANK["BORROW ExecutionValues<br/>CHECK source and destination slots"]
-    BANK --> INIT["RESERVE backing capacity<br/>INIT scalar flags and value slots<br/>COPY parameters"]
-    INIT --> ROOT["ROOT window and exact dependencies<br/>insert Window and return FrameSlots"]
-    ROOT --> FRAME["Push ExecutionFrame<br/>continue with callee Script action"]
-    classDef lock fill:#ffe1df,stroke:#b13a32,color:#111;
-    class L1,L2,L3 lock;
+    CALL["Bytecode Call<br/>end borrowed caller region"] --> SITE["Read prepared final binding and caller slots"]
+    SITE --> TARGET["Resolve checked module key / target<br/>validate physical owner and generation"]
+    TARGET --> AUTH["Reuse active installation admission<br/>check retirement and execution phase"]
+    AUTH --> ADMIT["Admit arguments, depth and callee layout"]
+    ADMIT --> BANK["Borrow value banks<br/>check locations and initialized operands"]
+    BANK --> INIT["Reserve capacity if needed<br/>initialize window and transfer parameters"]
+    INIT --> ROOT["Publish exact dependencies and roots"]
+    ROOT --> FRAME["Push callee frame and continue driver"]
 ```
 
-This shows **at least three separate acquisitions** on the ordinary successful
-path before the callee body. It is a static source-path count, not instrumentation
-of every transitive helper or a universal lock count for every call kind. A local
-same-installation call reads the same Installation cell at these sites.
-The [current-cell lock measurement](../../performance-baseline.md#installation-current-cell-mutex-measurement-windows-2026-11-08)
-separately measures uncontended operations and fixed-publication interpreter paths;
-its timing differences do not establish an exact dynamic lock count.
+There is no Installation current-cell Mutex, per-call publication correspondence
+solver, old-version chain or retired-table lookup here. Publication is excluded
+throughout synchronous activation. Entry/resume and cross-installation admission
+still check the supplying installation; explicit retirement revokes the active
+proof. Actual object identities, loans, cancellation, capacity, depth and argument/
+result validity remain dynamic where required.
 
-| Lock | Why the current code takes it | Path |
-| --- | --- | --- |
-| 1 | Obtain the current publication and clone its Arc | select_call_route -> Installation::capture_current |
-| 2 | Establish that the selected exact executable still belongs to a live installation | select_call_route -> validate_executable_module -> validate_executable_installation |
-| 3 | Admit the selected program as a frame metadata edge | push_admitted_arguments -> validate_metadata(Program) -> inspect_metadata -> validate_executable_module -> validate_executable_installation |
+Host named bindings differ: invocation resolves their metadata route through the
+Runtime's current prepared selection. Interface receivers and captured closures
+also have their own checked selection behavior. They do not make the ordinary
+Direct path perform public lookup or infer types.
 
-Every guard ends before the function body. The locks protect a shared metadata
-cell, not concurrent script execution. Neither a hot reload nor lock contention
-is necessary for an uncontended lock/unlock sequence to occur. Candidate sessions
-skip the ordinary capture-current branch; interfaces/closures follow other paths.
+Parking clears function-link views on every frame, including parents waiting on a
+child. Resume refreshes the entire stack from committed tables. Bodies, PCs,
+captures, values, return destinations and lexical environments remain exact.
+See the [reload sequence](reload.md) for publication and repeated updates.
 
-Sources: [selection](../../../crates/kagari-runtime/src/module/dispatch.rs),
-[current cell and liveness](../../../crates/kagari-runtime/src/module/installation.rs),
-[executable validation](../../../crates/kagari-runtime/src/loading.rs),
-[metadata validation](../../../crates/kagari-runtime/src/execution_metadata.rs),
-[frame admission](../../../crates/kagari-runtime/src/frame/admission.rs).
+Sources: [prepared calls](../../../crates/kagari-runtime/src/module/execution/calls.rs),
+[final bindings](../../../crates/kagari-runtime/src/module/linked_execution/calls.rs),
+[target entry](../../../crates/kagari-runtime/src/module/dispatch.rs),
+[call transition](../../../crates/kagari-runtime/src/frame/calls.rs),
+[parking/resume](../../../crates/kagari-runtime/src/frame/owned.rs),
+[executable validation](../../../crates/kagari-runtime/src/loading.rs).
 
 ## Work performed at each boundary
 
 | Stage | Operations and data changes | Callback / collection boundary |
 | --- | --- | --- |
 | Read call site | BORROW caller stack; obtain exact owner, slots, links and environment; LOOKUP prepared call/route; clone relevant shared owners | Temporary caller borrow ends before later transitions |
-| Select target | CHECK runtime phase; LOOKUP and validate installation; inspect candidate session; LOCK current; choose target; validate executable; LOOKUP target contract; create scope mapping | No user callback or collection in this internal selection |
+| Select target | Read final checked module key/target; validate physical record/generation and reuse active installation authority; shared calls use prepared mapping metadata | No user callback or collection in this internal selection |
 | Admit frame | Reject invalid initializer/suspending entry; inspect managed argument ownership/candidate membership; RESERVE frame capacity; enter checked call depth; LOOKUP callee layout; validate parameter count and program metadata | Error order and rollback of entered depth are preserved |
 | Allocate window | BORROW banks; CHECK source window owner/generation, initialized operands and destination representations; RESERVE managed/scalar/initialization/window/order storage | RESERVE can allocate Rust backing; it does not imply a script GC cycle |
 | Initialize/transfer | INIT scalar payloads to zero, scalar flags to false and managed records to Unit; COPY parameters into admitted destinations | Warm capacity avoids allocator requests, not these initialization/copy operations |
@@ -145,7 +114,7 @@ Sources: [return handling](../../../crates/kagari-runtime/src/frame/returns.rs),
 
 ## Native call: what an empty body still pays for
 
-An ordinary Native-import Call shares the route-selection/frame-admission path.
+An ordinary Native-import Call consumes its prepared binding and the common frame-admission path.
 Its frame starts Pending and has logical result slot 0 and parameter slots after
 it. The callback-facing structures expose the current mutation boundary:
 
@@ -226,8 +195,8 @@ Sources: [Native frame execution](../../../crates/kagari-runtime/src/frame/nativ
 
 | Kind | Additional selection/lifetime work |
 | --- | --- |
-| Concrete named call | The main scenario above; already linked route still selects the current publication |
-| Shared generic named call | Same route selection, plus prepared environment transport and concrete argument/receiver compatibility checks |
+| Concrete named call | The main scenario above; committed binding already identifies the current implementation |
+| Shared generic named call | Prepared final target, plus prepared environment transport and concrete argument/receiver compatibility checks |
 | Interface/required method | Resolve receiver and checked protocol evidence; apply generic facts where needed; admit the selected invocation and validate arguments; use the common frame allocator |
 | Interface computation retention | A newly admitted MethodInvocation allocates MethodComputation containing selected body/environment in the metadata ApplicationStore; a warm reusable application cache does not remove this distinct short-lived record |
 | Created closure/Future body | Select its retained exact computation and environment; validate captures/arguments and use common admission; ordinary named calls inside it still select current implementations |
@@ -240,20 +209,11 @@ Sources: [interface selection](../../../crates/kagari-runtime/src/objects/invoca
 [closure admission](../../../crates/kagari-runtime/src/frame/closures.rs),
 [Native ABI bridge](../../../crates/kagari-runtime/src/jit_abi.rs).
 
-## What this exposes for review
+## Cost boundaries
 
-- The three highlighted lock acquisitions concern the same current/liveness
-  facts during an activation where publication is prohibited. Their present
-  producer/consumer boundaries are visible; their measured time share is not.
-- Initialization, transfer and metadata retention can cost time with zero warmed
-  allocator requests. A no-allocation result does not certify a cheap call.
-- A short interface invocation currently creates collectible computation metadata.
-  Keeping a selected body alive is required; its allocation owner is reviewable.
-- One semantic call protocol need not require the same heavy physical transition
-  for every small library operation. Any reduced path must preserve current-body
-  selection, rooted arguments/results, errors, reentry and cancellation.
-
-The [Runtime review findings](../runtime.md#review-findings) own the question map;
-the [performance record](../../performance-baseline.md#bo17-bo19-scalar-dispatch-windows-2026-10-27)
-owns historical timing. No source-backed diagram alone establishes a predicted
-speedup or permission to remove a check.
+Window initialization/transfer, roots, interface computation records and typed
+Native adapters remain ordinary costs. Warm backing capacity avoids allocator
+requests, not all initialization or checks. Historical timings below are tied to
+their recorded revision; current migration measurements are in the
+[performance record](../../performance-baseline.md). A source-path diagram alone
+cannot establish a speedup or authorize removing validation.

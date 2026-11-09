@@ -191,7 +191,7 @@ because it is allocated. Active installations are roots; superseded versions nee
 a live frame, object, host handle or other reachable version to retain them.
 Cycles between old module state, closures and environments must be collectable
 once their external roots disappear. Immutable code independently held by a
-PreparedProgram may remain allocated without retaining runtime module state.
+Program may remain allocated without retaining runtime module state.
 
 Freeze the live sets before sweeping. Detach unreachable records, then release
 their storage without dereferencing already removed dependencies. Ordinary Rust

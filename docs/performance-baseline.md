@@ -6378,7 +6378,7 @@ check passes with both guarantees enabled.
 
 User-requested diagnosis on `design/runtime-execution-model`, production source
 `48d79b2a`. The initial worktree changes were documentation only. This measures
-the `Installation.current` lock identified in the [ordinary Call walkthrough](architecture/runtime/calls.md#selection-and-frame-entry-including-locks).
+the `Installation.current` lock identified in the [ordinary Call walkthrough](architecture/runtime/calls.md#selection-and-frame-entry).
 It is not a production optimization, reload implementation or native-tier change.
 
 ### Environment and estimator
@@ -7007,3 +7007,240 @@ checks pass. Only documentation remains changed. Relative links, content/fences,
 whitespace, source restoration hashes, complete sample matrices and git diff
 --check pass. No workspace test/Clippy or full CI acceptance is claimed for
 discarded diagnostic code; no production code was committed.
+
+
+## Shared Program and prepared reload acceptance (Windows, 2026-11-09)
+
+The MS00-MS05 migration shares immutable products and optional MIR, prepares source
+updates outside Runtime, and installs final current/retained call bindings under
+Runtime-owned publication. The [ownership map](architecture/runtime.md) and
+[reload sequence](architecture/runtime/reload.md) own the lasting implementation;
+the completed phase ledger is in Git history. This is a bounded synthetic acceptance,
+not a production player-capacity estimate, universal call speedup or R13 completion.
+
+### Environment, frozen workload and gates
+
+Baseline: MS00 commit `25aace9e`, executable production `1d66c45a` plus the checked-in
+storage probe. Candidate: MS01-MS04 through `95f02e6a` plus MS05's local cold Native
+validation repair and probe/document changes. Windows 10 Pro 10.0.19045,
+i7-10700F (16 logical CPUs), 67,017,248 KiB visible RAM, x86_64-pc-windows-msvc;
+rustc 1.99.1 (58cf8f9c3, LLVM 23.1.1), Cargo 1.99.1. Workspace release defaults,
+opt-level 3, default Cargo target/parallelism; SDK source/native and vendored
+Lua 5.4.9 through the locked mlua/lua-src dependencies. Build caches are warm where
+available; fresh process/state and three warmups precede eleven measured lifecycles.
+All benchmark processes are serial, with no overlapping builds/tests/measurements.
+Desktop background activity and CPU frequency/placement are not controlled.
+
+`runtime_storage --sharing N F DOMAIN INPUT` prepares one product outside N
+simultaneously retained Runtime lifecycles. F=0 uses the tiny control; F=32/128
+uses the fixed struct/trait/static/generic fixture plus generated scalar functions.
+All seven cases below are frozen in this order for ordinary timing and separate
+allocation builds. The fresh-domain empty phase constructs/drops a default engine
+per recipient and includes provider preparation. It is not pure Runtime creation.
+The corrected domain counter reads the recipient host definition scope; the old
+counter read the product scope, which no longer denotes the recipient after the
+identity-admission migration. One cold metadata snapshot per recipient changes no
+script workload. Root backing counts are one in all cases; fresh recipients have
+N distinct local domains, shared recipients one provider domain. Source/native
+contracts and shared recipe ownership are also checked at their semantic owners.
+
+Frozen gates are all required: one immutable code/recipe backing per product;
+at least 50% reduction in marginal load-retained bytes and in the large/fresh
+32-player cases; load medians at most 75% of baseline for 32 ordinary/large players;
+tiny shared empty Runtime time at most 110%; every current-call paired-median ratio
+at most 1.05. Stable requested-byte counts establish memory gates, not RSS proxies.
+A setup timing crossing its limit within observed variation requires a second
+complete serial timing series; disagreeing runs are inconclusive. The first
+candidate series has a large-case 1,229.076 ms outlier and variable tiny-empty
+samples, so all seven timing cases are repeated without filtering any outlier.
+Both complete series pass the frozen median gates. No threshold is relaxed.
+
+### Shared and local requested memory
+
+Allocation builds count Rust requests, cumulative requested bytes and live requested
+bytes; they do not measure allocator capacity, process RSS, native mappings or peak.
+Engine/checked inputs and the one shared product are held outside recipient snapshots.
+Each player checks return values and its independent static increment. All eleven
+load-retained samples are identical per case and every warmed enclosing lifecycle
+balances to zero. Pre-reserved vector/set buffers are outside phase snapshots but
+freed during teardown, so printed phase deltas alone need not sum to zero.
+
+| N / extra functions / domain / input | Baseline load live bytes | Candidate load live bytes | Reduction | Candidate load requests / cumulative bytes |
+| --- | ---: | ---: | ---: | ---: |
+| 1 / 32 / shared / bytecode | 13,335,904 | 2,280,926 | 82.90% | 204,063 / 24,005,412 |
+| 32 / 32 / shared / bytecode | 426,748,928 | 72,989,632 | 82.90% | 6,529,984 / 768,172,672 |
+| 128 / 32 / shared / bytecode | 1,706,995,712 | 291,958,528 | 82.90% | 26,121,216 / 3,072,711,168 |
+| 32 / 0 / shared / bytecode | 410,915,232 | 71,467,360 | 82.61% | 6,483,360 / 759,867,584 |
+| 32 / 128 / shared / bytecode | 475,100,608 | 77,815,744 | 83.62% | 6,628,768 / 791,204,224 |
+| 32 / 32 / fresh / bytecode | 428,487,296 | 73,175,808 | 82.92% | 6,531,264 / 768,505,088 |
+| 32 / 32 / shared / mir | 426,748,928 | 72,989,632 | 82.90% | 6,530,016 / 768,173,184 |
+
+Marginal load-retained cost `(load(128)-load(32))/96` is 2,280,926 bytes/player
+versus 13,335,904 baseline; limit 6,667,952. Large/fresh limits are 237,550,304 /
+214,243,648 bytes. Optional MIR changes no per-player load-retained bytes.
+Fresh-engine empty-phase request totals vary slightly; they are not invariant
+load counts and are not used as a memory gate.
+
+Separate diagnostic snapshots of one warmed ordinary player attribute local
+requested bytes as follows. The stage row includes its dispatch/routes subsets;
+these rows must not be added twice. Small remaining load allocations lie outside
+these selected snapshots. Diagnostic execution time is not ordinary timing.
+
+| Preparation owner/boundary | Requests | Cumulative bytes | Net live bytes |
+| --- | ---: | ---: | ---: |
+| Native/identity link | 41,213 | 7,304,289 | 204,048 |
+| Staged records/state, including next two rows | 114,497 | 8,985,896 | 1,747,876 |
+| Dispatch/declaration index subset | 104,224 | 8,165,729 | 1,018,142 |
+| Route/final selection subset | 1,007 | 72,812 | 66,416 |
+| Closed Native signatures | 8,009 | 495,180 | 310,284 |
+| Linked function call/layout views | 45 | 3,600 | 1,864 |
+| Publication net after displaced views drop | 19 | 18,460 | 10,596 |
+
+Product preparation over held engine/checked inputs retains an incremental
+7,552,986 bytes without MIR / 11,957,974 with MIR (cumulative requests 544,628,958 /
+544,473,398 bytes). These are incremental preparation allocations, not the full
+transitive product size: already held source/definition backings are excluded.
+First load retains another 359,229 shared/domain warm bytes; subsequent lifecycles
+retain zero beyond their local teardown. These counts include shared caches and
+append-only identity-domain growth, not exclusively Program payload. Native pages
+are outside this accounting; actual Cranelift page sharing and last-recipient release
+are independently asserted, not inferred from these byte counts.
+
+Attribution snapshots use the existing thread-local counting allocator around
+`link_program`, `stage_verified_program`, `PublicationDispatch::prepare`,
+`bind_members`, closed-signature preparation, `link_execution` and commit after
+old view release. The shared product uses an outer `measure` around engine.prepare;
+first-load cache retention uses the enclosing lifecycle count. Three warm lifecycles
+and eleven samples use the identical fixed workload. All temporary instrumentation
+is removed and each affected source restored byte-for-byte before normal checks.
+
+### Preparation and setup timing
+
+| N / extra functions / domain / input | Baseline load ms | Candidate series 1 ms | Candidate series 2 ms (min-max) |
+| --- | ---: | ---: | ---: |
+| 1 / 32 / shared / bytecode | 42.954 | 23.365 | 23.087 (22.326-29.989) |
+| 32 / 32 / shared / bytecode | 1417.558 | 796.606 | 813.645 (773.175-852.033) |
+| 128 / 32 / shared / bytecode | 5756.381 | 3217.202 | 3175.501 (3087.160-3381.591) |
+| 32 / 0 / shared / bytecode | 1360.255 | 782.989 | 782.920 (753.679-863.622) |
+| 32 / 128 / shared / bytecode | 1537.477 | 797.838 | 797.767 (790.877-855.201) |
+| 32 / 32 / fresh / bytecode | 1432.275 | 805.405 | 786.556 (776.059-836.281) |
+| 32 / 32 / shared / mir | 1431.042 | 782.663 | 782.951 (772.496-825.997) |
+
+32-player ordinary/large load limits: 1063.169 / 1153.107 ms. Tiny shared empty
+Runtime total: baseline 0.3239 ms; series 1/2 0.3162/0.3272 ms; limit 0.35629 ms.
+
+The initial candidate fails: 5,988.913 ms ordinary 32-player load (183.363 ms
+single player). Temporary phase timing attributes about 81.37 ms per Native-link
+pass to required-catalog validation; staging and precommit both validate. Product
+IDs made a linear search adopt unrelated full contracts repeatedly. Filtering by
+checked declaration identity (necessary type name/kind before full equality), then
+reusing successful validation for exact immutable catalog-map identities within
+one pass, fixes that local cold defect. Registry owns all keyed Arcs; a fresh set
+is used for every product/recipient/staging/revalidation pass. Exact contract,
+provider, binding, signature and installed-module checks remain. There is no
+persistent authority cache, execution lookup, full-image remap or weakened gate.
+
+### Current calls and retained old work
+
+MS00 unchanged-image A/A controls use seven alternating pairs, three warmups
+and eleven measured samples per process; every selected median pair ratio is 0.9716-1.0180, inside
+0.95-1.05. Reuse that unchanged-image stability evidence. Candidate comparisons
+again use seven alternating process pairs, unchanged inputs/size/batch/checksum,
+matched machine/toolchain/features/lockfile and separate setup. Gate is the median
+of seven pair ratios, not an average across routes or pooled individual samples.
+
+The strict driver initially rejects the changed harness digest. Exact source
+reconstruction from MS00 `25aace9e` verifies only API adaptations: SDK product
+renaming, InstalledProgram naming, and the native prepare/install branch excluded
+by interpreter-only mode. Workload fixtures/loops/timers/checksums are unchanged.
+A disposable adapter accepts only these exact digest pairs under interpreter-only
+mode, records that audit, and delegates every other metadata/binary/sample/order/
+checksum check to the unchanged validator. Frozen images/reports are unmodified;
+the general benchmark validator is not relaxed. The full harnesses are not claimed
+to be byte-identical. Audited original/candidate digest pairs:
+
+- original: `cbe3cd56a118fcca729ecdbdfaf09291fbb6f73a31d1ee19a8d80e01b644b57d` / `7915c88998ddbdf8a2b2a8c3a1173ee87380f44b888b07f6fe16c4bbf24d5718`.
+- forms: `38a7c148386d55a90a6c8aa2e632552d8cf632fb527db739db927b58a003889b` / `5f946c8933b402bf9635bda0b06f83ac013db510be2992c53d8fd9c002e7fa7e`.
+
+| Route | Baseline median ms | Candidate median ms | Median pair ratio | Pair ratio min-max | A/A median |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| calls | 8.5385 | 6.9425 | 0.81734 | 0.73515-0.83998 | 0.98235 |
+| forms_byte_state | 21.6137 | 20.5137 | 0.95289 | 0.93215-0.96483 | 1.00324 |
+| forms_capture_cell | 9.7381 | 10.1000 | 1.03838 | 0.98868-1.05424 | 1.01804 |
+| forms_concrete_generic | 4.2537 | 3.5722 | 0.83856 | 0.81149-0.91120 | 0.99927 |
+| forms_direct | 0.0998 | 0.0983 | 0.98195 | 0.90516-1.58889 | 1.00101 |
+| forms_field | 1.0576 | 1.0791 | 1.02236 | 0.92010-1.05814 | 0.99172 |
+| forms_helper | 4.1354 | 3.4351 | 0.84291 | 0.72811-1.07243 | 0.99121 |
+| forms_host_callback | 4.9875 | 4.2822 | 0.85730 | 0.83877-0.89658 | 1.01205 |
+| forms_interface | 12.5495 | 10.8375 | 0.86910 | 0.82985-0.88264 | 1.01632 |
+| forms_native | 5.0054 | 4.2522 | 0.85783 | 0.84210-0.95498 | 0.99628 |
+| forms_shared_generic | 18.2471 | 14.7407 | 0.80597 | 0.71202-0.82745 | 0.99953 |
+| forms_string_calls | 10.6570 | 9.1314 | 0.85712 | 0.84530-0.85937 | 0.99520 |
+| forms_string_constants | 5.9730 | 5.2337 | 0.86267 | 0.84728-0.89547 | 0.97164 |
+
+All thirteen routes pass 1.05. Capture-cell and field have small measured increases;
+no every-route speedup is claimed. Ordinary frame/window transfer, roots, interface
+selection and typed Native conversions remain outside reload-specific selection.
+Source inspection separately confirms ordinary Direct uses its final generational
+entry without a current-cell lock/revision comparison/retired-table lookup/solver
+or unused mapping clone. Host live bindings and generic/interface operations have
+their documented distinct checked paths; Arc ownership is not zero total call cost.
+
+Seven additional sequential `runtime_storage --reload` processes run five checked
+5000-helper workloads, each with three warmups/eleven samples. The fresh candidate,
+current while old closure alive, old closure and current after collection are distinct
+rows. The old closure keeps its +10 body while helper changes +1 to +2. Drop+GC
+must remove its old ModuleKey, changing records 78 to 39. The fixture has no static
+provenance that would independently retain A; it does not establish R13 reclamation.
+Rows include their actual host entry/conversion and are not pure lookup nanoseconds.
+
+| Reload route | Median process ms | Process median min-max ms |
+| --- | ---: | ---: |
+| reload_current_fresh | 3.3529 | 3.3171-3.3840 |
+| reload_retained_before | 3.3501 | 3.3072-3.9862 |
+| reload_current_old_alive | 3.3554 | 3.3361-5.4824 |
+| reload_retained_after | 3.3089 | 3.2883-3.4387 |
+| reload_current_old_collected | 3.3683 | 3.3200-3.5317 |
+
+Separate cold setup, in milliseconds (median process; min-max):
+
+- original_prepare_ns: 822.383 (794.872-901.491).
+- candidate_prepare_ns: 801.645 (783.716-876.475).
+- compatibility_ns: 94.477 (89.198-105.785).
+- fresh_load_ns: 24.521 (22.988-26.898).
+- publication_ns: 137.273 (130.757-188.684).
+
+### Reproduction and acceptance limits
+
+Build ordinary and allocation storage executables separately and save each before
+the other build. Run the seven-case order above without overlaps, then repeat the
+ordinary timing series. Use `--features diagnostics` only for allocation evidence.
+Run the ordinary `--reload` probe in seven serial processes. For calls/forms, use
+`scripts/benchmark_lua.py --workload calls --runs 7 --baseline-executable BASELINE`
+and `--source-forms --runs 7 --baseline-executable BASELINE`, with the strict exact
+API-adaptation audit described above for these historical images. A new baseline
+must be frozen before future harness changes; altered inputs/checksums/configuration
+are not covered by this historical audit. No outlier removal or gate relaxation.
+
+| Saved image | SHA-256 |
+| --- | --- |
+| MS00 calls/forms | 1a9fdce6c5a4a49b2f1bb0f92bcb754782345f27792c4813980a51a2a614b516 |
+| MS05 storage ordinary | 3a07223c9cae9f29362be79e94eac9218868d2d7da5641946dd1c3de0f8d83e9 |
+| MS05 storage allocation | e8a40fafe60d5d3ad2ad70e212627fc2de5e4039b58a62edf1eb6bbe1301939e |
+| MS00 storage ordinary | 94307c1a073165a60e567454d6081c356d2730954e8526c3b3179125b7666897 |
+| MS00 storage allocation | da4122106eae3797257a0788057fdf9d554f1902e1df2af7e4e492b17a059c2c |
+| MS05 calls/forms | 3c49d11295cfbcf56c79be7e05716d2085696a51e98709b6f17a4d829cfd4a60 |
+
+Final storage/main build wall time 5.022 s; separate allocation build 52.316 s;
+diagnostic attribution build 51.78 s, all outside execution timers. Raw logs/reports
+remain disposable under ignored target; this section retains methods/results/limits.
+
+Thirteen focused final tests pass for the changed Native linking/provider/source-free
+boundaries, detached distribution, retained generic reload and real-Cranelift two-player
+source/encoded-MIR scenario. Earlier unchanged phase evidence covers cancellation,
+loans/reentry, whole-stack resume, stale/foreign handles and cleanup. Structure,
+Rust fmt, workspace all-target Clippy and diff/link checks pass. Full-workspace tests
+and exhaustive feature/backend/platform matrices remain CI-only and unrun locally.
+Shared products do not bound retained revision count; actual long-lived roots and
+inherited static/type provenance can retain whole versions. No production capacity,
+RSS/peak, native continuation/deoptimization or type/code split result is claimed.

@@ -3,6 +3,8 @@
 #[cfg(feature = "diagnostics")]
 mod memory;
 #[cfg(not(feature = "diagnostics"))]
+mod reload;
+#[cfg(not(feature = "diagnostics"))]
 mod revisions;
 mod sharing;
 
@@ -99,6 +101,11 @@ fn lifecycle(engine: &KagariEngine, program: &Program, context: &ExecutionContex
 }
 
 fn main() {
+    #[cfg(not(feature = "diagnostics"))]
+    if env::args().nth(1).as_deref() == Some("--reload") {
+        reload::run();
+        return;
+    }
     if env::args().nth(1).as_deref() == Some("--sharing") {
         sharing::run();
         return;

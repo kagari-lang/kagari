@@ -7,17 +7,14 @@ explicitly marked and do not describe implemented behavior.
 
 For source-level data structures and ID lookup, start with the
 [HIR reading guide](architecture/hir.md).
-For Runtime ownership, concrete data structures, value lifetimes and operation
-costs, start with the [Runtime execution map](architecture/runtime.md). Its
+For Runtime ownership, data structures and value lifetimes, start with the
+[Runtime execution map](architecture/runtime.md). Its
 [bytecode call](architecture/runtime/calls.md) and
-[hot reload](architecture/runtime/reload.md) walkthroughs expose actual locks,
-validation, allocation/transfer and publication boundaries for architecture review.
-The [Runtime refactor architecture](runtime-refactor-design.md) separately records
-the target model, beginning with centralized update preparation and independent
-Runtime publication; its API sketches are not implemented contracts. The selected
-2026-11-09 design preserves current-inner-call semantics through prepared normal
-and old-body redirect tables. It retains whole immutable Program versions for old
-computation bodies while replacing their lookup/ownership mechanics.
+[hot reload](architecture/runtime/reload.md) walkthroughs describe prepared final
+calls, Runtime-local current publication and detached immutable Program preparation.
+Retained computations keep exact bodies while their ordinary inner calls select
+current implementations. The [call-model proposal](runtime-refactor-design.md)
+records separate deferred slot/frame/Native-adapter work.
 
 ## Architectural Principles
 
@@ -440,11 +437,11 @@ source database / snapshots
   -> compiler source lowering and bounded reachable monomorphization
   -> verified concrete MIR with sealed analyses
        -> compiler core bytecode emission -> verified bytecode
-            -> SDK direct PreparedProgram (same-generation MIR retained on request)
+            -> SDK direct Program (same-generation MIR retained on request)
        -> codegen + explicit helper links -> owned native product
 
 .kbc envelope (bytecode + optional portable MIR)
-  -> SDK PreparedProgram (validation and, with native, canonical MIR correspondence)
+  -> SDK Program (validation and, with native, canonical MIR correspondence)
   -> runtime-specific linking and immutable module versions
   -> interpreter, or explicit native preparation/install/execute
 ```
@@ -1627,7 +1624,7 @@ are necessary for Kagari's shared-state/pinned-code boundary, not performance sh
 
 ## Live installations and publication
 
-`kagari-runtime::module` separates live `Program`/`Module` installation handles from
+`kagari-runtime::module` separates live `InstalledProgram`/`Module` installation handles from
 exact `ExecutableModule` owners. Each load creates independent state and authority,
 even from the same prepared product or display label. Installation identity owns
 statics, script type compatibility and current publication; shutdown retires its
@@ -1636,32 +1633,28 @@ capabilities. Reload advances it and returns unit rather than replacing live han
 `ModuleStore` owns installations keyed by checked, nonreused Runtime-local
 `InstallationId`, paired with registry ownership for cross-Runtime admission.
 Members, epochs, static bindings and caches are installation-scoped, not keyed by
-diagnostic labels. `Program` shares the installation; `Module` adds a canonical
+diagnostic labels. `InstalledProgram` shares the installation; `Module` adds a canonical
 logical `ModuleIdentity`, not a physical slot. `ExecutableModule` instead holds
 an immutable `ProgramDescriptor` publication and `ModuleRef` for exact execution.
 There is no legacy `LoadedModule` alias or implicit conversion between these roles.
 
-The installation's short `Mutex<Option<Arc<ProgramDescriptor>>>` metadata cell
-holds the current publication; `None` means closed. A query clones one descriptor
-under the lock and traverses it after releasing the guard. `ModuleSnapshot` uses
-one contract-owned bounded public-path traversal for module/function/type lookup;
-function declaration and target evidence come from that same captured publication.
-The cell is not a second namespace cache. HIR owns source resolution, compiler
-lowering owns export/layout demand, contract/MIR/bytecode verification owns portable
-public authority, and runtime consumes those checked facts without a frontend.
-See [public type exports](spec/artifacts.md#public-type-exports) and the
-[host path/error contract](spec/embedding-api.md#installed-programs-and-public-paths).
+Runtime's ModuleStore owns a local current-publication map. Identity handles have
+no current cell. `Runtime::module` and binding/source APIs capture one descriptor
+through the supplying Runtime; public graph traversal cannot mix publications.
+`ModuleSnapshot` uses bounded checked module/function/type lookup. HIR owns source
+resolution, compiler lowering owns export/layout demand, contract/MIR/bytecode
+verification owns portable public authority, and Runtime consumes checked facts
+without a frontend. See [public type exports](spec/artifacts.md#public-type-exports)
+and [host paths](spec/embedding-api.md#installed-programs-and-public-paths).
 
-Publication completes fallible staging, static/current-target bindings and source
-association before the metadata swap, with no fallible suffix or callbacks. Never
-hold the cell guard during execution, retention registration or descriptor destruction.
-Poisoned access reports `EngineFault`; close/drop may recover the guard only to clear
-the cell, dropping removed descriptors outside it. A query already holding a snapshot
-may finish metadata traversal but cannot thereby gain post-close execution authority.
-Metadata handles can be Send + Sync without making Runtime/GC concurrently accessible;
-the exclusive Runtime driver remains Send, not Sync.
+Publication requires a mutable Runtime owner and completes fallible staging,
+provider validation, source association and final normal/retained function links
+before committing current/routes/links together. No callbacks or fallible suffix
+follow visibility; displaced descriptors/tables drop after guards end. Handle-only
+current queries and current-cell synchronization are absent. The exclusive Runtime
+driver remains Send, not Sync; scoped backend views retain dynamic admission.
 
-Binding validates registry ownership, exact installation registration/cell identity
+Binding validates registry ownership, exact installation registration/identity
 and liveness before selecting evidence. Layout/enum/type-argument admission preserves
 installation-qualified nominal identity. `LinkedProgramBindings.shared_traits`
 records actual native imports and immutable `ProgramLayouts` retains that authority;
@@ -1671,18 +1664,19 @@ Compatible publications reuse checked type authority; independent installations 
 not gain object/static interchange or cross-installation linking.
 
 Exact execution, object/type layouts and native products retain required leases;
-sharing a descriptor or live metadata cell is not an execution lease. Live handles
+sharing a descriptor or identity handle is not an execution lease. Live handles
 never pin old publications. Type-only payload separation remains the unresolved
 [R13 finding](review.md#r13--type-and-layout-provenance-retains-retired-code): an
 ObjectType can still retain more executable payload than logically needed. Cleanup
 releases records after their actual owners end; namespace completion does not claim
-that split or the separate [multi-Runtime sharing work](multi-runtime-sharing-plan.md).
+that split. Immutable products and optional MIR are shared across independent
+Runtime installations; local bindings, statics, heaps and authority remain local.
 
 The ownership precedents are [JVMS 25 §5.3](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-5.html#jvms-5.3)
 (defining owner plus name), the [Rust Reference's public aliases](https://doc.rust-lang.org/reference/items/use-declarations.html)
-(canonical item authority distinct from its containing path), and the stable
-[Rust Mutex contract](https://doc.rust-lang.org/std/sync/struct.Mutex.html)
-(scoped metadata access and explicit poison handling), reviewed on 2026-10-24.
+(canonical item authority distinct from its containing path), reviewed on 2026-10-24. The
+[reload ownership references](architecture/runtime/reload.md#reference-mechanisms)
+record the separate immutable-product and retained-body precedents.
 Kagari adopts neither loader delegation/initialization nor JVM concurrency or Rust's
 complete source-path rules. Its installation leases and exclusive publication
 boundary remain its own; no performance improvement is inferred from these precedents.
@@ -2390,14 +2384,15 @@ CPU/memory quota. See [execution](spec/execution.md) and [security](spec/securit
 
 ## Embedding API
 
-Current entrypoints are KagariEngine, Runtime, PreparedProgram and
+Current entrypoints are KagariEngine, Runtime, Program and
 ExecutionContext. SDK features are independent: no features gives artifact-only
 interpretation; `source` adds the frontend; `native` adds frontend-free MIR/codegen
 preparation. Default features enable both; the host supplies a concrete backend.
 Source-only builds can emit portable MIR for native-only consumers.
 
 Prepare reusable checked products, then link them in each runtime. `execute`
-interprets; `prepare_native` compiles/caches and installs exact-version handles;
+interprets; `NativeCompiler::prepare` compiles/caches outside Runtime and
+`Runtime::install_native` checks/binds exact-version products locally;
 `execute_prepared` consumes that decision. Reload validates a prepared candidate
 before serialized publication and retains exact bodies needed by existing computations.
 The typed facade binds `function`/`async_function` and member descriptors once;

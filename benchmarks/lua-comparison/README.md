@@ -688,8 +688,24 @@ timing. The warmed allocation lifecycle asserts balanced local teardown. Preallo
 container buffers are outside phase snapshots, so printed release deltas alone
 are not a leak check. `fresh` includes creation of an independent engine/provider
 per Runtime in its empty phase. Shared source/MIR inputs stay outside recipient
-snapshots. See the [MS00 frozen protocol and results](../../docs/multi-runtime-sharing-plan.md#ms00-frozen-evidence-protocol)
+snapshots. See the [frozen sharing protocol and results](../../docs/performance-baseline.md#shared-program-and-prepared-reload-acceptance-windows-2026-11-09)
 for the finite matrix, baseline environment, attribution limits and acceptance gates.
+
+The ordinary build also accepts a bounded retained-body probe:
+
+```sh
+target/release/examples/runtime_storage --reload
+```
+
+It separates original/candidate preparation, compatibility preparation and local
+publication from five 5000-helper execution samples (three warmups, eleven samples).
+Fresh current code, current with an old closure alive, that exact old closure and
+current after old collection are separate rows. Checksums require the old closure
+body to survive while its ordinary helper selects new code; dropping it and GC must
+remove the old physical module key. The fixture deliberately has no static retention
+edge, so this is not type/code lifetime separation or a universal version bound.
+Run seven processes serially for the recorded process-median comparison; do not use
+the diagnostic allocation build for timing or infer pure lookup cost from host calls.
 
 ## Execution architecture diagnostics (HP00)
 

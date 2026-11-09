@@ -126,6 +126,9 @@ pub(super) fn validate(
     program: &VerifiedProgram,
     admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
+    // Select the exact identity (or identity-bearing type shape) before adopting
+    // a candidate contract. Equality remains authoritative; scanning must not
+    // repeatedly remap unrelated declarations for every installed binding.
     let definitions = required.definitions();
     for (id, expected) in required.types.entries() {
         let owner = definitions
@@ -134,7 +137,7 @@ pub(super) fn validate(
         if !program.modules().iter().any(|module| {
             &module.identity == owner.module()
                 && module.public_items.iter().any(
-                    |item| matches!(item, PublicItem::Type(declaration) if admission.runtime(declaration, &Default::default()).as_ref().is_ok_and(|actual| actual == expected)),
+                    |item| matches!(item, PublicItem::Type(declaration) if declaration.name == expected.name && declaration.kind == expected.kind && admission.runtime(declaration, &Default::default()).as_ref().is_ok_and(|actual| actual == expected)),
                 )
         }) {
             return Err(RuntimeError::module_validation(format!(
@@ -179,6 +182,9 @@ pub(super) fn validate(
         if !program.modules().iter().any(|module| {
             &module.identity == owner.module()
                 && module.native_declarations.iter().any(|declaration| {
+                    if admission.runtime_id(declaration.declaration).ok() != Some(id) {
+                        return false;
+                    }
                     admission
                         .runtime(declaration, &Default::default())
                         .as_ref()
@@ -200,14 +206,22 @@ pub(super) fn validate(
             .filter(|module| &module.identity == owner.module())
             .flat_map(|module| &module.public_items)
             .any(|item| match item {
-                PublicItem::InterfaceTable(actual) => admission
-                    .runtime(actual.as_ref(), &Default::default())
-                    .as_ref()
-                    .is_ok_and(|actual| implementation_matches(&id, expected, actual)),
-                PublicItem::InherentTable(actual) => admission
-                    .runtime(actual.as_ref(), &Default::default())
-                    .as_ref()
-                    .is_ok_and(|actual| inherent_matches(id, expected, actual)),
+                PublicItem::InterfaceTable(actual)
+                    if admission.runtime_id(actual.declaration).ok() == Some(id) =>
+                {
+                    admission
+                        .runtime(actual.as_ref(), &Default::default())
+                        .as_ref()
+                        .is_ok_and(|actual| implementation_matches(&id, expected, actual))
+                }
+                PublicItem::InherentTable(actual)
+                    if admission.runtime_id(actual.declaration).ok() == Some(id) =>
+                {
+                    admission
+                        .runtime(actual.as_ref(), &Default::default())
+                        .as_ref()
+                        .is_ok_and(|actual| inherent_matches(id, expected, actual))
+                }
                 _ => false,
             })
         {

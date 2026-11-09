@@ -324,7 +324,7 @@ Both use the same prepared-program validation and interpreter. Source inputs and
 artifact bytes are bounded before admission; browser-owned results are converted
 while rooted, without exposing heap addresses.
 
-`PreparedProgram::from_artifact` always validates the envelope and bytecode. With
+`Program::from_artifact` always validates the envelope and bytecode. With
 `native` enabled it additionally checks portable MIR and canonical correspondence;
 without `native`, the MIR payload remains opaque and only its envelope bounds and
 integrity are interpreted. A source-only build can still emit portable MIR for a
@@ -576,10 +576,10 @@ read bytes
 Ordinary source preparation retains an exact verified source package by default.
 Artifact export uses `ArtifactOptions::retain_source`, default `false`; hosts must
 explicitly opt in to distributing source. Source-free artifacts remain valid.
-`PreparedProgram::from_artifact` preserves a supplied verified source package even
+`Program::from_artifact` preserves a supplied verified source package even
 without the SDK `source` feature, but does not gain an immutable compilation capsule.
-Source text alone cannot enable `Runtime::update`; that API requires the exact
-publication's captured compilation context.
+Source text alone cannot enable `Program::prepare_update`; it requires that exact
+product's captured immutable compilation context.
 
 The optional package carries physical documents, logical module mappings, complete
 authored declaration extents/fingerprints and executable-to-authored associations.

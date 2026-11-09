@@ -147,22 +147,26 @@ presence in MIR does not imply support by the current scalar backend.
 
 ## Preparation, Installation and Execution
 
-`PreparedProgram` retains a shared `VerifiedProgram` and, with `native`, optional
-verified MIR and a bounded native product cache. Cache keys include program-local
-function identity, complete backend configuration and runtime/helper ABI versions.
-Successful products and unsupported decisions are reusable; cancellation and
-compiler errors are not cached. Runtime-specific handles are never cached there.
+Immutable SDK `Program` retains shared verified bytecode and optional verified MIR.
+A separate `NativeCompiler` owns the bounded native cache (at most 4096 exact
+revision/function/configuration/runtime-ABI/helper-ABI decisions). Successful
+products and unsupported decisions are reusable; cancellation/compiler errors and
+Runtime-specific authority are not cached. Keys retain opaque revision tokens,
+not source/MIR/bytecode payloads.
 
-`Runtime::prepare_native` checks the exact prepared/loaded version identity,
-entry and runtime policy, compiles or reuses the product and installs it for this
-runtime. `Runtime::install_native_function` is unsafe for direct callers; it checks
+`NativeCompiler::prepare(&Program, entry, backend, cancellation)` compiles or reuses
+an immutable NativeCode product without Runtime access. The host can distribute it
+after compiler/backend drop. `Runtime::install_native(&mut self, installed, &code)`
+checks the exact recipient revision, entry and local policy/authority before
+creating a Runtime-specific prepared entry.
+`Runtime::install_native_function` is unsafe for direct callers; it checks
 the descriptor, host ABI, declared access, entry/function/signature and metadata bounds,
 while the caller proves code correctness and lifetime. SDK orchestration can satisfy
 that contract using the unsafe backend guarantee and verified correspondence.
 
 `InstalledNativeFunction` retains its code owner, loaded version and dependency
 closure. Runtime invocation creates ordinary sessions/frames, checks authority and
-ownership and shares cancellation, GC, cancellation and trace behavior with the VM.
+ownership and shares GC, cancellation and trace behavior with the VM.
 `Vm::execute_prepared` accepts an installed entry or an explicit unsupported decision.
 It never compiles. Only a pre-entry unsupported/policy decision may fall back;
 a native failure after entry is returned with its trace and never restarted.

@@ -1,0 +1,25 @@
+fn helper(value: i32) -> i32 {
+    value + 1
+}
+
+pub fn current(count: i32) -> i32 {
+    var value = 0;
+    var total = 0;
+    while value < count {
+        total += helper(value);
+        value += 1;
+    }
+    total
+}
+
+pub fn saved() -> fn(i32) -> i32 {
+    |count| {
+        var value = 0;
+        var total = 0;
+        while value < count {
+            total += helper(value);
+            value += 1;
+        }
+        total + 10
+    }
+}

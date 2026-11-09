@@ -108,7 +108,8 @@ fn lifecycle(engine: &KagariEngine, program: &Program, options: &Options) -> Mea
     for runtime in &mut runtimes {
         let loaded = runtime.load_program(program, Default::default()).unwrap();
         let selected = runtime.runtime().select_program(&loaded).unwrap();
-        domains.insert(selected.definitions().id());
+        // Code keeps product IDs; measure the recipient identity domain independently.
+        domains.insert(runtime.runtime().host().definitions().id());
         backings.insert(Arc::as_ptr(&selected.bytecode) as usize);
         installed.push(loaded);
     }
@@ -164,10 +165,15 @@ fn print_sample(index: usize, value: &Measurement) {
 
 pub(super) fn run() {
     let options = Options::parse();
+    let preparation = Instant::now();
     let engine = KagariEngine::default();
+    let engine_ns = preparation.elapsed().as_nanos();
+    let preparation = Instant::now();
     let checked = engine
         .compile_source(SourceFile::new("sharing.kgr", options.source()))
         .unwrap();
+    let analysis_ns = preparation.elapsed().as_nanos();
+    let preparation = Instant::now();
     let program = engine
         .prepare(
             &checked,
@@ -177,7 +183,11 @@ pub(super) fn run() {
             },
         )
         .unwrap();
+    let product_ns = preparation.elapsed().as_nanos();
     assert_eq!(program.has_native_input(), options.mir);
+    println!(
+        "sharing_preparation,engine_ns={engine_ns},analysis_ns={analysis_ns},product_ns={product_ns}"
+    );
     println!(
         "sharing_setup,runtimes={},extra_functions={},fresh_domain={},mir={}",
         options.runtimes, options.extra_functions, options.fresh_domain, options.mir

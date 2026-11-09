@@ -1,207 +1,136 @@
 # Reading the Runtime Execution Model
 
-This is an implementation map of `48d79b2a`, reviewed on 2026-11-08. It describes
-the code that exists, including locks, interior mutation and collection-specific
-paths. It is not the proposed replacement architecture. The
-[architecture overview](../architecture.md), [execution specification](../spec/execution.md)
-and [activation specification](../spec/module-activation.md) remain the contract owners.
-The [Runtime refactor design](../runtime-refactor-design.md) records the target
-architecture separately, starting with hot reload.
-
-Read a complete operation without opening Rust source:
-
-| Question | Start here |
-| --- | --- |
-| What owns execution, objects and program versions? | [Physical ownership](#physical-ownership), then [data structures](#core-data-structures) |
-| What happens for one bytecode Call, including repeated locks? | [Call walkthrough](runtime/calls.md) |
-| How is a new program prepared and published? What happens to old frames? | [Reload walkthrough](runtime/reload.md) |
-| Where are values stored, and what keeps them alive? | [Values and roots](#values-and-roots) |
-| What survives suspension or an error? | [Execution lifetime](#execution-lifetime) |
-| Which existing choices conflict with the requested direction? | [Review findings](#review-findings) |
-
-## Reading conventions and scope
-
-Diagrams show actual owners and transitions, rather than source-directory names.
-Structure sketches retain relevant field names/types but omit unrelated fields;
-they are not complete Rust declarations or binary layout promises.
-
-| Marker | Meaning |
-| --- | --- |
-| `LOCK` | Acquire/release a Mutex; distinguish it from an exclusive Rust borrow |
-| `BORROW` | Dynamically acquire a RefCell-backed view; this is not a thread lock |
-| `LOOKUP` | Resolve an ID, route, contract or cache entry |
-| `CHECK` | Validate a value, owner, generation, type, phase or operation authority |
-| `RESERVE` | Check/grow Rust backing capacity; warmed spare capacity may avoid allocator calls |
-| `INIT` / `COPY` | Initialize storage or transfer already represented data |
-| `ROOT` | Publish protection or traced dependencies; an Arc clone alone is not a script GC root |
-| `CALLBACK` | Invoke Rust/script user code; temporary conflicting borrows must have ended |
-| `COMMIT` | Publish a prepared state change; preserve its completed effects on later failure |
-
-A source-visible check or lock is concrete work, not a measured percentage of
-elapsed time. Branch-specific counts are bounded to the scenario stated beside
-the diagram. Timing assertions belong to the [performance record](../performance-baseline.md),
-not to the number of diagram boxes. The latest full Lua comparison there measures
-`19aa9570`, not this implementation-map revision.
-
-The requested direction for the next design is: an immutable compiled Program,
-exclusive Runtime access for driving/updating, Send for host thread migration,
-and independent stdlib providers. Shared versus exclusive code ownership is a
-storage choice whose benefit must be measured. Cross-thread live metadata queries
-are not a requirement of that direction. Existing public contracts described
-below have not yet been replaced.
+This map describes implemented ownership after the immutable Program and prepared
+reload migration. The [architecture overview](../architecture.md),
+[execution specification](../spec/execution.md) and
+[activation specification](../spec/module-activation.md) own the contracts.
+Read the [call walkthrough](runtime/calls.md) for entry/return costs and the
+[reload walkthrough](runtime/reload.md) for preparation, publication and retention.
+Measurements and their limits belong in the [performance record](../performance-baseline.md).
 
 ## Physical ownership
 
-Solid arrows show primary containment. Dashed arrows show references/shared
-handles, which can include strong Arc ownership; they do not imply GC reachability.
-
 ```mermaid
 flowchart TD
+    PRODUCT["Immutable SDK Program<br/>Arc ProgramState, Send + Sync"] --> CODE["Verified bytecode, execution/layout facts<br/>source inputs and optional verified MIR"]
     SDK["SDK Runtime"] --> VM["Vm"]
     VM --> RT["Core Runtime<br/>Send, not Sync"]
-    RT --> MS["ModuleStore"]
-    MS --> IN["Installation<br/>shared Arc"]
-    IN --> CUR["current<br/>Mutex + Option + Arc"]
-    CUR --> PD["ProgramDescriptor<br/>exact publication"]
-    MS --> REC["RefCell ModuleStoreInner<br/>records, statics, retentions"]
+    RT --> STORE["ModuleStore<br/>local current map and declaration allocator"]
+    STORE --> RECORD["Local records, statics, final call bindings<br/>host/native authority and native eligibility"]
+    STORE --> DESC["Current and retained exact ProgramDescriptors"]
+    DESC -.-> PRODUCT
+    HANDLE["InstalledProgram / Module<br/>identity only"] -.-> ID["Installation identity"]
     RT --> GC["GcHeap"]
-    RT --> SERVICE["Scheduler, tasks, host registries<br/>borrow table and caches"]
-    HANDLE["Public Program<br/>and Module handles"] -.-> IN
-    classDef inspect fill:#fff0d6,stroke:#a65f00,color:#111;
-    class CUR inspect;
+    GC --> RESOURCE["ResourceState<br/>sessions, frames and value banks"]
+    RT --> SERVICE["Scheduler, host registry, loans and caches"]
+    COMPILER["Preparation-owned NativeCompiler"] --> PAGES["Immutable NativeCode / finalized pages"]
+    PAGES -.-> RECORD
 ```
 
-Expand GcHeap to see the actual execution-state containment:
+Solid arrows show containment; dashed arrows show shared references, not script GC
+reachability. `ModuleStore.current` is Runtime-local `RefCell` state. Installation
+handles contain no current pointer or executable lease. Live queries borrow the
+supplying Runtime; immutable source snapshots can be copied independently.
+Publication requires `&mut Runtime`, and synchronous admission excludes publication,
+close and conflicting loans during active execution. Scoped backend/NativeContext
+views retain dynamic admission and borrow checks; they do not permit concurrent
+heap access. Moving Runtime between host threads is an ownership transfer.
 
-```mermaid
-flowchart TD
-    GC["GcHeap"] --> OBJ["RefCell ObjectStorage"]
-    GC --> ROOT["RefCell RootTable"]
-    GC --> META["Metadata stores<br/>environments, interfaces,<br/>applications and operation groups"]
-    GC --> RES["ResourceState"]
-    RES --> SS["SessionStore<br/>session records and frame stacks"]
-    RES --> EV["RefCell ExecutionValues<br/>scalar and managed banks"]
-    RES --> PUB["PublicationState<br/>and runtime phase"]
-    classDef inspect fill:#fff0d6,stroke:#a65f00,color:#111;
-    class RES inspect;
-```
+Execution records and value banks remain physically below GcHeap through
+ResourceState. Splitting these owners, redesigning slots and changing the collector
+are separate work. Arc references keep Rust owners alive; explicit roots and joint
+object/metadata traversal determine script reachability.
 
-Two facts are intentionally visible rather than corrected in the drawing:
-
-1. Execution records and value banks are physically below GcHeap, through
-   ResourceState. A logical sketch placing execution beside the heap would hide
-   this current ownership choice.
-2. Runtime is exclusively driven, but public live Program/Module metadata handles
-   share an Installation whose current publication is Mutex-protected.
-
-The core Runtime stores services and registries; `kagari-vm` drives interpreter
-transitions. The SDK Runtime wraps Vm and adds host-facing preparation/call
-orchestration. These are different Rust types with the same short name, not three
-independent script heaps. Native compiled execution uses the shared runtime/ABI
-bridge; it is not the same thing as a Rust Native callback.
-
-Sources: [SDK Runtime](../../crates/kagari/src/runtime.rs),
-[Vm](../../crates/kagari-vm/src/vm.rs),
+Sources: [SDK Program](../../crates/kagari/src/program.rs),
+[SDK Runtime](../../crates/kagari/src/runtime.rs), [Vm](../../crates/kagari-vm/src/vm.rs),
 [core Runtime](../../crates/kagari-runtime/src/lib.rs),
-[GcHeap](../../crates/kagari-runtime/src/gc.rs),
+[ModuleStore](../../crates/kagari-runtime/src/module.rs),
+[Installation](../../crates/kagari-runtime/src/module/installation.rs),
 [ResourceState](../../crates/kagari-runtime/src/resource.rs).
 
 ## From a program product to execution
 
-```mermaid
-flowchart TD
-    DECL["Native module declarations and local Rust bindings"] --> CHECKED["Checked executable contracts"]
-    FRONT["HIR, MIR and compiler"] --> BC["Bytecode product"]
-    BC --> VERIFY["Bounded artifact and bytecode verification"]
-    CHECKED --> VERIFY
-    VERIFY --> VP["VerifiedProgram with prepared execution facts"]
-    VP --> LINK["Runtime-local host and Native linking"]
-    LINK --> STAGE["Stage installation records, lazy statics and exact descriptors"]
-    STAGE --> PUBLISH["Publish current descriptor"]
-    PUBLISH --> CALL["Select entry and establish execution session"]
-    CALL --> DRIVE["Drive bytecode or admitted compiled body"]
-```
+1. Source services check/lower a package, or artifact preparation independently
+   verifies portable executable contracts. Optional retained source is diagnostic
+   metadata; it does not replace verification or supply a compilation capsule.
+2. SDK `Program` shares immutable bytecode, checked call/layout facts, bounded
+   historical demands, optional immutable source inputs and optional verified MIR.
+   Preparation has no Runtime, script effects or installed Rust captures.
+3. Loading adopts declaration identities into the recipient scope without remapping
+   a complete executable image. Runtime checks its own installed providers and builds
+   local state, type admissions and final call bindings. Lazy statics stay lazy.
+4. Publication commits current and prepared function links together. Host entry or
+   resume admits authority; ordinary direct bytecode calls consume final entries.
+5. Each Runtime retains independent heap, statics, providers, scheduler and native
+   eligibility even when products, native pages or preparation inputs are shared.
 
-Declarations can be consumed before execution; local Rust closures are attached
-implementations, not serialized executable contracts. Runtime links verified
-bytecode/contracts without source analysis. Optional machine-code preparation
-consumes verified MIR/native input separately, and execution uses the native ABI
-bridge. Refactoring internal frames need not change compiler output; changing
-that ABI or portable contracts has cross-layer consumers.
-
-Initial load reserves a fresh installation, stages linked records, then publishes
-from an empty current cell. Each independent load gets its own runtime state even
-for shared prepared code. Reload instead stages against an existing installation
-and must preserve its current/static contracts. Neither load forces lazy statics.
-The [reload walkthrough](runtime/reload.md) expands the latter transition.
-
-Source: [verification/preparation](../../crates/kagari-runtime/src/module.rs),
-[loading/linking/publication](../../crates/kagari-runtime/src/loading.rs).
+Sources: [identity admission](../../crates/kagari-runtime/src/module/admission.rs),
+[load/publication](../../crates/kagari-runtime/src/loading.rs),
+[dispatch facts](../../crates/kagari-runtime/src/module/dispatch/facts.rs),
+[linked execution](../../crates/kagari-runtime/src/module/linked_execution.rs).
 
 ## Core data structures
 
 ### Program product, installation and publication
 
-The current type named Program is a live installation handle, not simply a
-compiled bytecode package. The requested replacement terminology must account
-for this difference explicitly.
-
 ```text
-PreparedProgram {                         // Preparation-side SDK owner; !Send/!Sync.
-    state: Rc<ProgramState>
-}
+Program { state: Arc<ProgramState> }              SDK immutable shared product
 ProgramState {
-    bytecode: VerifiedProgram,
-    compilation: optional retained inputs,
-    mir: optional verified native input,
-    native: RefCell<compiled-product cache>
+    bytecode: VerifiedProgram,                    no owner back-reference
+    history: Arc<RetainedDemands>,                metadata, not executable ancestry
+    expected_base: Option<Weak<ProgramState>>,
+    compilation: optional Arc<CompilationInputs>,
+    mir: optional Arc<VerifiedMirProgram>
 }
-VerifiedProgram {                         // Immutable, verified executable product.
-    modules: Arc<[Arc<BytecodeModule>]>,
-    execution: Arc<[ExecutionModule]>,
-    definitions, update evidence, exports, dependencies, ...
-}
-
-Program { installation: Arc<Installation> }
-Module  { installation: Arc<Installation>, namespace: ModuleIdentity }
-Installation {
-    registry_owner: HostRegistryId,
-    id: InstallationId,
-    current: Mutex<Option<Arc<ProgramDescriptor>>>,
-    next_declaration: AtomicU64,
-    ...
+InstalledProgram { installation: Arc<Installation> }
+Module { installation: Arc<Installation>, namespace: ModuleIdentity }
+Installation { registry_owner, id, root }         identity only
+ModuleStore {
+    current: RefCell<HashMap<InstallationId, Arc<ProgramDescriptor>>>,
+    next_declaration: Cell<u64>,
+    inner: RefCell<ModuleStoreInner>, ...
 }
 ExecutableModule { program: Arc<ProgramDescriptor>, slot: ModuleRef }
 ProgramDescriptor {
-    installation: InstallationId,
-    code: VerifiedProgram,
+    code: VerifiedProgram,                       attaches shared SDK owner, if any
+    definitions: Arc<DefinitionAdmission>,
     dispatch: Arc<PublicationDispatch>,
-    retained_demands, layouts, layout_admissions,
-    root: ModuleRef,
-    modules: Vec<LinkedModule>, ...
+    retained_demands, layouts, layout_admissions, source,
+    installation, root, modules, ...
 }
+PreparedSelection { owner: ModuleKey, target, mapping: Arc<PublicationMapping> }
 ```
 
-VerifiedProgram includes prepared interpreter descriptions as well as portable
-bytecode. It does not own an installation's mutable statics or player heap.
-PreparedProgram additionally retains source/native preparation facilities; the
-loaded Runtime does not retain that Rc-backed SDK owner.
+These sketches omit fields and are not binary layout promises. `ExecutableModule`
+retains an exact descriptor; physical registration, owner/generation and installation
+liveness still govern execution. A surviving descriptor cannot revive a closed
+Runtime. `Runtime::program(&InstalledProgram)` recovers the exact shared SDK product;
+a low-level publication without that owner cannot fabricate source preparation.
 
-Program and Module follow the installation's current publication. ExecutableModule
-identifies one exact publication/member. Its Arc keeps the descriptor available,
-but runtime registration, liveness and explicit retention still govern execution
-authority and runtime state. A descriptor surviving shutdown cannot revive them.
-Installation.current is None before initial publication and after retirement;
-the installation identity can outlive its executable authority.
+Product DefinitionIds remain lexical. `DefinitionAdmission` supplies checked
+product/local correspondence; closed Runtime types and lexical binders keep explicit
+provenance. Shared pure dispatch/layout facts grant no recipient provider authority.
+Local call entries contain generational keys and metadata, not strong predecessor
+code references. The weak route registry lets saved host bindings follow current
+implementations without retaining obsolete executable bodies. Expired identities are
+pruned at the next publication; their metadata can remain until then, but current
+Direct calls never consult this registry.
 
-Runtime-local ModuleRecord entries hold static-cell bindings, constants, native
-bindings, linked execution and descriptor/layout caches. ModuleStoreInner holds
-the records and static cells separately from the immutable descriptor. Replacing
-current therefore does not mean replacing or zeroing all mutable state.
+### Cache ownership
 
-Sources: [prepared products](../../crates/kagari/src/program.rs),
-[module data](../../crates/kagari-runtime/src/module.rs),
-[runtime-local records](../../crates/kagari-runtime/src/module/records.rs).
+| Owner | Validity and lifetime |
+| --- | --- |
+| VerifiedProgram | Shared pure execution/layout/dispatch facts and successful initial historical demands, exact immutable product lifetime; cancellation does not poison preparation |
+| Module records | Local linked calls, applied function/environment views, layouts and installed Native bindings; prepared/replaced with publication and traced with their actual owners |
+| Native dependency validation | Temporary exact immutable required-catalog map identities, one callback-free link/revalidation pass against one product/recipient; registry owns keyed Arcs and each pass starts empty |
+| NativeCompiler | At most 4096 exact revision/function/configuration/runtime-ABI/helper-ABI decisions; no Runtime access or execution-time cache lookup |
+| NativeCode and installed entries | Immutable finalized page owners; each recipient checks exact revision and local policy/authority before installation |
+
+A successful publication does not mean all old payload is immediately collectible.
+Whole versions remain for actual closures, Futures, frames, queues, roots and type/
+layout provenance. The unresolved [R13 finding](../review.md#r13--type-and-layout-provenance-retains-retired-code)
+can retain an initial whole Program for inherited statics/types. There is no strong
+executable predecessor chain, per-body unloading guarantee or Future-only lifetime.
 
 ### Session, active scope, frame and value window
 
@@ -385,27 +314,10 @@ Sources: [VM driver](../../crates/kagari-vm/src/executor/driver.rs),
 [close](../../crates/kagari-runtime/src/scheduler/lifecycle.rs),
 [Runtime drop](../../crates/kagari-runtime/src/task/cleanup.rs).
 
-## Review findings
+## Remaining review scope
 
-These are source-backed review points, not proof that each cost dominates timing.
-They do not authorize removing validation or implementing a replacement API.
-
-| Finding | Visible mechanism | Question for the replacement design |
-| --- | --- | --- |
-| R1: shared live metadata reaches execution | Installation.current is a Mutex-backed Arc cell; ordinary Call selection and liveness validation read it repeatedly | Can runtime-owned current selection use exclusive activation authority, with cross-thread metadata limited to explicit snapshots/identity? |
-| R2: execution is below the heap | GcHeap owns ResourceState, which owns sessions and operand banks | Should execution and object storage be peer owners, with the collector consuming explicit root views? |
-| R3: short method computations enter GC metadata storage | MethodInvocation::admit allocates MethodComputation for a newly admitted selection | Which selected facts can a frame own directly, and which actually escape into persistent computations? |
-| R4: multiple layers reacquire call facts | Selection, metadata admission, argument transfer, typed conversion and return handling have distinct validation/ownership steps | For each fact, identify its producer, validity interval and invalidating events; preserve checks at real external/resume/mutation boundaries |
-| R5: library operations retain engine authority | Vec primitive variants, Sequence/Map/Set codecs and concrete heap payload operations remain | Can stdlib and independent providers use one general protocol with efficient admitted calls and storage access? |
-| R6: unified selection has a heavy physical path | prepare_calls rewrites Native imports to general Call and clears native_calls | How can current-provider selection coexist with lightweight logical argument/result windows? |
-| R7: Program means different things at different layers | PreparedProgram, VerifiedProgram, live Program and exact ExecutableModule have different lifetimes | Make immutable product, installation state and selected computation distinct before renaming types |
-
-The [call walkthrough](runtime/calls.md) and [reload walkthrough](runtime/reload.md)
-connect these findings to full operations. The [roadmap review entry](../implementation-roadmap.md#runtime-execution-model-review)
-owns follow-up scope. MIR/compiler reorganization, enum layout, collector
-replacement and shared-program implementation are not activated by this map.
-
-This document should change with the execution owners: update a structure and
-its operation walkthrough together. Keep semantic requirements, current work,
-conditional branches and proposed changes distinguishable. Source links are
-audit anchors; understanding the sequence should not require following them.
+Slot/window initialization, value transfer, interface computation metadata, typed
+Native conversion and collection still have ordinary execution costs. Their owners
+and follow-up scope are in the [roadmap](../implementation-roadmap.md#runtime-execution-model-review).
+Removing reload-specific locks/selection does not establish zero call cost or
+complete the separate slot, Native API, collector, enum-layout or R13 work.

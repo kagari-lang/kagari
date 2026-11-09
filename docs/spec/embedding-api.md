@@ -26,7 +26,7 @@ no package acquisition or source-analysis dependency.
 
 `KagariEngine::compile_to_program` checks source and prepares it for execution;
 `prepare` accepts an already checked module or captured package. Both return the
-same `PreparedProgram` used by artifact import. One private lowering owner pairs
+same `Program` used by artifact import. One private lowering owner pairs
 verified MIR with bytecode emitted from that exact MIR. The bytecode seal retains
 scoped identities, exports and suspension facts. Preparation does not construct a
 KBC envelope, encode/decode MIR or repeat unchanged bytecode graph verification.
@@ -43,7 +43,7 @@ artifacts remain untrusted and independently validated. Caller cancellation is
 carried by lowering options through source checking and preparation admission.
 
 Source options propagate cancellation through checking, lowering and bytecode
-admission. `PreparedProgram::from_artifact` propagates its caller token through
+admission. `Program::from_artifact` propagates its caller token through
 resource checks, identity adoption and executable graph validation; interruption
 returns `ProgramPreparationError::Cancelled` without a prepared program. Loading
 still validates the receiving runtime's installed bindings before publication.
@@ -431,7 +431,10 @@ HostRegistry
 ModuleLoader
   resolves source modules, bytecode artifacts, package roots, and imports
 
-Program / Module
+Program
+  shares an immutable verified product, source inputs and optional MIR
+
+InstalledProgram / Module
   identify a live installation and one of its logical modules
 
 ExecutableModule
@@ -446,20 +449,20 @@ The actual Rust API may split these objects across crates, but the same ownershi
 
 ## Installed programs and public paths
 
-`PreparedProgram` is a verified preparation product. `Runtime::load_program`
-returns a `Program` identifying one installation; loading the same product again
-creates independent state and authority, even with the same display label.
-`Program::root()` constructs its root `Module`. `Program::module(path)` starts at
-that root; `Module::module(path)` starts at the supplied logical namespace.
-Navigation reads the installation's latest published contents, not an immutable
-public snapshot. Aliases retain canonical namespace identity; a namespace need not
-have a physical executable slot. Retained handles need no reacquisition after reload.
+SDK `Program` is an immutable `Send + Sync` preparation product.
+`Runtime::load_program` returns an `InstalledProgram`; loading the same product
+again creates independent state and authority even with the same display label.
+`InstalledProgram::root()` constructs its root identity `Module`.
+`Runtime::module(&Module, path)` navigates from the supplied logical namespace in
+one latest publication. Handles own no mutable current pointer or executable lease.
+Aliases retain canonical namespace identity; a namespace need not have a physical
+executable slot. Retained handles need no reacquisition after compatible reload.
 
 The SDK surface is:
 
 ```text
 Runtime::load_program(&mut self, &Program, LoadOptions) -> LoadResult<InstalledProgram>
-Program::prepare_update(&self, Update) -> RunResult<Program>
+Program::prepare_update(&self, Update) -> CompileResult<Program>
 Runtime::replace_program(&mut self, &InstalledProgram, &Program, ReloadOptions) -> ReloadResult<()>
 InstalledProgram::root(&self) -> Module
 Runtime::module(&self, &Module, path: &str) -> RunResult<Module>
@@ -467,10 +470,10 @@ Runtime::object_type(&self, &Module, path: &str) -> RunResult<ObjectType>
 ```
 
 `function` and `async_function` also bind relative to a supplied `Module`; neither
-falls back to the Program root. Whole-program `execute`, `execute_prepared` and
+falls back to the installation root. Whole-program `execute`, `execute_prepared` and
 native entry execution instead take `InstalledProgram` and explicitly select its current
 root. Detached native compilation takes the immutable `Program`. `ProgramEntry::Main` retains its separate private-root-entry capability.
-There is no implicit Program-to-Module conversion or legacy `LoadedModule` alias.
+There is no implicit InstalledProgram-to-Module conversion or legacy `LoadedModule` alias.
 `LoadOptions.program_name` and `ReloadOptions.program_name` are diagnostic labels,
 not compiled or installation identities; reload changes the label only on success.
 Detached `Program::prepare_update` produces an immutable candidate. Mutable
@@ -542,7 +545,7 @@ and absent names are indistinguishable. Failures have no script effects:
 | Wrong arity or arguments on a closed alias | `TypedPathValidation`: `type argument count mismatch` |
 | Generic declaration without executable application | `ModuleValidation`: `missing executable function application` or `missing executable struct application` |
 | Foreign runtime, unknown installation or closed handle | `StaleHandle`, never same-name fallback |
-| Poisoned metadata cell or impossible verified target | `EngineFault`, never missing-path fallback |
+| Impossible verified target or invariant failure | `EngineFault`, never missing-path fallback |
 
 SDK mapping preserves `TypedPathValidation`, maps `StaleHandle` to
 `StaleModuleOrHostRoot` and module verification failures to `BytecodeVerification`.
@@ -564,11 +567,12 @@ The embedding API must expose operations equivalent to:
 compile_source(source, compile_options) -> CompileResult<CheckedModule>
 emit_artifact(checked_module, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 compile_to_artifact(source, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
-prepare_artifact(artifact, compatibility, cancellation) -> PreparedProgram
-load_program(prepared_program, load_options) -> LoadResult<Program>
-execute(program, entry, args, execution_context) -> RunResult<Value>
-reload_program(program, prepared_candidate, reload_options) -> ReloadResult<()>
-update(program, update_batch) -> ReloadResult<()>
+prepare_artifact(artifact, compatibility, cancellation) -> Program
+load_program(program, load_options) -> LoadResult<InstalledProgram>
+execute(installed, entry, args, execution_context) -> RunResult<Value>
+base.prepare_update(update_batch) -> CompileResult<Program>
+base.prepare_replacement(candidate, cancellation) -> ReloadResult<Program>
+replace_program(installed, prepared_candidate, reload_options) -> ReloadResult<()>
 ```
 
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
@@ -577,7 +581,7 @@ The current Rust facade uses `KagariEngine` for compile and artifact emission an
 `Runtime` for load, execute, reload and optional backend execution. Native
 declarations and bindings are installed through `KagariEngineBuilder` before engine
 construction; live object roots and scoped host access belong to the runtime.
-`Runtime::reload_program` stages and validates the candidate before publishing,
+`Runtime::replace_program` stages and validates the candidate before publishing,
 following [module-activation.md](module-activation.md). Validation errors retain their
 reload codes.
 Reload preserves the existing module identities, public ABI and typed-path contracts.
@@ -601,17 +605,22 @@ The candidate session borrows its staged owner. Ordinary execution rejects stage
 module handles, and publication requires candidate execution to have ended.
 
 `Runtime::execute` runs through the interpreter.
-`PreparedProgram::from_artifact` consumes `DefinitionMetadata<BytecodeArtifact>`,
+`Program::from_artifact` consumes `DefinitionMetadata<BytecodeArtifact>`,
 checks resource limits against the retained input table, explicitly imports into
 its preparation context, and validates reusable code before runtime linking.
 Identity import never creates executable verification evidence.
 With `native`, it also verifies optional portable MIR and canonical bytecode
-correspondence. `Runtime::prepare_native` uses a trusted, host-supplied
-`CodegenBackend`, caches products by complete configuration/version identity and
-installs a handle for that runtime. `execute_prepared` consumes that decision without
-compiling. Only pre-entry unsupported/policy decisions fall back; compiler errors
-and failures after entering native code remain errors. No codegen/MIR dependency
-is added to runtime or VM. See [artifacts](artifacts.md#sdk-feature-boundary) for
+correspondence. With `native`, detached `NativeCompiler::prepare(&Program, entry,
+backend, cancellation)` uses a trusted host-supplied `CodegenBackend` and returns
+immutable `NativeCode`. The preparation owner caches at most 4096 exact
+revision/function/configuration/runtime-ABI/helper-ABI decisions; keys retain no
+source/MIR/code payload. `Runtime::install_native(&mut self, installed, &code)`
+independently checks the exact recipient revision and local authority/policy, then
+returns its `PreparedNativeEntry`. Several recipients can share finalized pages
+after compiler/backend drop, with independent eligibility and provider captures.
+`execute_prepared` consumes this local decision without compiling. Only pre-entry
+unsupported/policy decisions fall back; compiler errors and failures after native
+entry remain errors. No codegen/MIR dependency is added to core runtime or VM. See [artifacts](artifacts.md#sdk-feature-boundary) for
 source-only, artifact-only and frontend-free native configurations.
 
 Each call applies that call's ExecutionContext cancellation and execution
@@ -778,7 +787,7 @@ preserve identity and share retention; dropping the last handle permits collecti
 Ordinary field/collection reads and callback results need no manual root operation.
 
 Backend VM execution (`execute`, `execute_typed`, `start`, `execute_prepared`),
-SDK `execute`/`execute_prepared` and SDK `prepare_native` accept `ProgramEntry` from
+SDK `execute`/`execute_prepared` and `NativeCompiler::prepare` accept `ProgramEntry` from
 `kagari_runtime::module::entry`. A string converts to `ProgramEntry::Export` and
 selects only a checked public path. Use `ProgramEntry::Main` to explicitly invoke
 the root's separately verified zero-argument script entry, including a private
@@ -937,8 +946,8 @@ Engine invariant violations may panic in debug builds, but production APIs still
 
 Reload is explicit.
 
-The host supplies a validated `PreparedProgram` candidate for an existing live
-`Program`, not a label or raw module id. `reload_program` returns `ReloadResult<()>`;
+The host supplies an immutable `Program` candidate prepared against the exact base
+of an existing `InstalledProgram`. `replace_program` returns `ReloadResult<()>`;
 the same live handles observe the new publication. The SDK retains the candidate's
 exact verified identity during staging and publication.
 The runtime validates:
@@ -965,11 +974,12 @@ or Actor state-replacement mode; general Serde conversion remains independent.
 ## Source updates
 
 With the SDK `source` feature, `kagari::update::Update` builds a detached batch;
-`Runtime::update(&Program, Update) -> ReloadResult<()>` checks and publishes it.
+`Program::prepare_update(Update) -> CompileResult<Program>` checks and prepares it
+without borrowing Runtime. `Runtime::replace_program` publishes separately.
 The builder does not compile or publish. Its operations are:
 
 - `replace_function(target, definition)`: one complete authored definition, not a
-  body fragment. `target` is a checked public path or an opaque `SourceDeclaration`.
+  body fragment. `target` is a checked public path or an product-owned `SourceEditTarget` from the exact base Program.
   The replacement stays in its original owner/import context and cannot rename the
   target or change a frozen callable contract. A locator can address private
   functions, methods and named locals without granting permission to call them.
@@ -979,14 +989,16 @@ The builder does not compile or publish. Its operations are:
   in an already captured package, allowing a new module in the candidate closure.
 - `with_cancellation(token)`: choose a submission cancellation token.
 
-For an existing `program` with a replaceable public `answer` declaration:
+For an existing `installed` handle with a replaceable public `answer` declaration:
 
 ```rust,ignore
 use kagari::update::Update;
 
 let mut update = Update::new();
 update.replace_function("answer", "pub fn answer() -> i32 { 42 }");
-runtime.update(&program, update)?;
+let base = runtime.program(&installed)?;
+let candidate = base.prepare_update(update)?;
+runtime.replace_program(&installed, &candidate, Default::default())?;
 ```
 
 This illustrates submission; admission still checks frozen declarations, local
@@ -1016,14 +1028,20 @@ for interpreter/optional JIT execution, not AOT patch delivery. Native preparati
 remains explicit, with exact-product validation and pre-entry fallback under the
 [JIT contract](jit.md); no hidden backend callback is retained in Runtime.
 
-Source preparation retains an immutable compilation capsule: physical bytes and
-origins, module/package mappings and declaration environment, selected root,
-acquisition provenance, compiler identity and preparation settings. The SDK associates
-it with the **exact publication token**, before core commit, and rolls back the
-association on failure. A later low-level reload without its own capsule makes source
-update fail with `MissingCompilationContext`; it never reuses an older SDK baseline.
-An artifact's retained source package supplies diagnostics, not this compilation
-capsule, even when all visible source text is present.
+Source preparation retains an immutable compilation capsule in Program: physical
+bytes/origins, package/module mappings, declaration environment, selected root,
+acquisition provenance, compiler identity and preparation settings. It carries no
+installed Rust callback captures or mutable source database. `source_declarations`
+returns checked product-owned edit targets with weak exact-base identity; targets
+from another product reject. Runtime source observations remain diagnostic, not
+portable edit authority.
+
+A candidate carries bounded cumulative demands plus a weak exact-base association,
+not a strong predecessor chain. `Runtime::program(&InstalledProgram)` obtains the
+current shared SDK product, including its exact optional source/native inputs.
+A low-level publication without that owner reports `MissingCompilationContext`
+instead of rebuilding a cache wrapper or reusing a stale source capsule. Artifact
+source packages supply diagnostics, not compilation inputs, even when text exists.
 
 ## Exact source inspection
 
@@ -1032,7 +1050,7 @@ Runtime inspection works without source analysis. The SDK forwards to the core
 
 | API | Selection and retention |
 | --- | --- |
-| `source_snapshot(&Program)` | Captures one current `ProgramSourceSnapshot`, including its publication and optional verified source package |
+| `source_snapshot(&InstalledProgram)` | Captures one current `ProgramSourceSnapshot`, including its publication and optional verified source package |
 | `snapshot.declarations()` / `snapshot.function(&declaration)` | Opaque authored locators and definitions from that snapshot; stable locators can resolve in a later publication of the same installation |
 | `function_source(&FunctionSourceTarget)` | Selects a live route now, or reads a copied exact observation without selecting newer code |
 | `value_source_target(&RootedValue)` | Captures the observed callable/Future body without polling or claiming it |
@@ -1100,18 +1118,18 @@ Allowed policies include:
 
 JIT policy must not change script-visible behavior.
 When JIT is disabled or valid input is unsupported, the interpreter remains the
-execution path. The current SDK requires explicit `prepare_native` and
-`execute_prepared`; compile-on-load, first-call and threshold scheduling are future
-policy choices, not implemented automatic schedulers. Ordinary `execute` requires
+execution path. The SDK requires explicit detached `NativeCompiler::prepare`, local
+`Runtime::install_native` and `execute_prepared`; compile-on-load, first-call and
+threshold scheduling are future choices. Ordinary `execute` requires
 `JitPolicy::Disabled`.
 
-With `native`, `Runtime::prepared_program(&Program) -> RunResult<PreparedProgram>`
-creates a fresh preparation-side cache over the installation's current verified
-bytecode and optional MIR. After a source update, use it with explicit native
-preparation; Runtime retains neither that cache wrapper nor a codegen backend.
-Native products must match the selected body/version/configuration, never just a
-stable callable identity. Native preparation failure leaves code, statics and source
-unchanged; it does not undo an already successful source publication.
+Native products must match exact body/version/configuration/ABI, not merely a stable
+callable identity. Wrong-version installation rejects without changing publication
+or previous native eligibility. Preparation failure cannot mutate code, statics or
+source; it does not undo an already successful source publication. Old finalized
+pages are reclaimed when their actual owners disappear, independently of current
+entry eligibility. No native continuation, optimizing inlining or deoptimization
+support is implied by these APIs.
 
 ## Debugger API
 
@@ -1146,11 +1164,12 @@ borrows finish before transfer. Native payloads/observers require Send, while
 shared registrations require Send + Sync. Thread-affine services stay outside the
 runtime and use host message/ID boundaries.
 
-PreparedProgram remains preparation-side Rc ownership with a RefCell native cache;
-it is neither Send nor Sync and is not retained by Runtime. Load/install code
-before transfer, or prepare independently on the receiving worker. Installed native
-products retain transferable finalized owners. This does not advertise concurrent
-shared native preparation or a portable shared Program API.
+Immutable Program and finalized NativeCode are `Send + Sync` and can be prepared
+on a worker, then distributed to independent Runtime owners. Source engine/query
+state and the mutable NativeCompiler remain preparation services with exclusive
+access. Runtime owns current publication and local eligibility; installation handles
+carry identity, while live queries require the supplying Runtime. This does not
+permit concurrent execution against one mutable heap.
 
 Host APIs must not expose one mutable script heap concurrently to multiple script threads.
 Cross-isolate value sharing requires explicit serialization, host handles, or embedding-defined transfer rules.

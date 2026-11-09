@@ -1,209 +1,174 @@
 # One Hot Reload through the Runtime
 
-Implementation map of `48d79b2a`; start with the [Runtime model](../runtime.md).
-The scenario is an ordinary update from published version A to compatible version
-B in one existing installation. It does not run a candidate initializer or migrate
-arbitrary live data. The [activation specification](../../spec/module-activation.md)
-owns the full compatibility/publication contract.
-For the replacement ownership and preparation model, see the
-[Runtime refactor design](../../runtime-refactor-design.md); the walkthrough below
-continues to describe the current implementation.
+Start with the [Runtime model](../runtime.md). This scenario replaces compatible
+version A with B in one installation. The [activation specification](../../spec/module-activation.md)
+owns declaration/static compatibility and call-selection semantics; the
+[embedding specification](../../spec/embedding-api.md#source-updates) owns host APIs.
 
-## Data being replaced and data being retained
-
-```mermaid
-flowchart TD
-    H["Live Program and<br/>Module handles"] --> I["Installation identity"]
-    I --> C["current<br/>Mutex + Option + Arc ProgramDescriptor"]
-    C --> A["A before commit"]
-    C -.-> B["B after commit"]
-    ST["ModuleStore static cells"] --> CELL["Existing cell values<br/>and initialization states"]
-    A --> AB["A bindings to existing cells"]
-    B --> BB["B bindings to the same existing cells"]
-    AB --> CELL
-    BB --> CELL
-    OLD["Parked A frames,<br/>created closures and Futures"] --> A
-    ST --> NEW["New candidate cells<br/>private until publication"]
-    B --> NEW
-```
-
-The commit replaces the installation's current descriptor pointer. Existing
-statics are shared through checked cell bindings, not overwritten with the new
-initializer's value. Their original lazy initialization recipes/states are
-preserved. Additions receive candidate bindings; loading and ordinary reload do
-not execute initializers. Existing object layouts and other retained contracts
-must pass compatibility; None or an empty container does not waive that check.
-
-Key records are:
-
-```text
-PreparedReload {
-    installation,
-    baseline: ExecutableModule,             // Exact A.
-    admission, name, program: VerifiedProgram,
-    bindings: Vec<LinkedHostBindings>
-}
-StagedReload {
-    target: Program, baseline: ExecutableModule,
-    initialization_error,
-    program: StagedProgram
-}
-StagedProgram {
-    installation: Arc<Installation>,
-    module: ExecutableModule,               // Exact candidate B.
-    lease: Arc<CandidateLease>,
-    expected_base: Option<ModuleKey>        // Must still be A at commit.
-}
-PublicationState {
-    synchronous: Cell<usize>,
-    publishing: Cell<bool>
-}
-```
-
-Sources: [reload preparation](../../../crates/kagari-runtime/src/loading.rs),
-[candidate/publication records](../../../crates/kagari-runtime/src/module/staging.rs),
-[static-cell bindings](../../../crates/kagari-runtime/src/module/state/cells.rs),
-[publication admission](../../../crates/kagari-runtime/src/publication.rs).
-
-## Prepare, stage, admit and commit
+## Prepare once, publish independently
 
 ```mermaid
 sequenceDiagram
     participant Host
-    participant Runtime
-    participant Stage as Candidate B
-    participant Store as ModuleStore and caches
-    participant Current as Installation.current
-    Host->>Runtime: Request reload of live installation
-    Runtime->>Runtime: CHECK publication boundary, acquire<br/>exclusive publication guard
-    Note over Runtime: No synchronous execution, callback,<br/>reentry or driver scope
-    Runtime->>Current: LOCK: capture baseline A
-    Current-->>Runtime: Exact A descriptor, unlock
-    Runtime->>Runtime: CHECK normalized verified B against A<br/>contracts
-    Runtime->>Store: Link Native and host bindings, reserve<br/>epoch, stage records
-    Store->>Stage: Build B execution, dispatch and<br/>static-cell bindings
-    Stage-->>Runtime: StagedReload with expected_base A
-    Runtime->>Runtime: CHECK guard, candidate errors and live<br/>baseline
-    Runtime->>Store: CHECK publication bindings, prepare cache<br/>invalidation
-    Runtime->>Runtime: Recheck publication admission
-    Runtime->>Store: BORROW mutable records, validate candidate<br/>lease and staged entry
-    Runtime->>Current: LOCK: compare current key with<br/>expected_base A
-    alt still A
-        Current->>Current: COMMIT: mark B published and replace A<br/>pointer with B
-        Current-->>Runtime: Unlock
-        Runtime->>Store: Release record borrow
-        Runtime->>Runtime: Release old descriptor reference outside<br/>lock
-        Runtime->>Store: Commit prepared cache invalidation
-        Runtime-->>Host: Success, release publication guard
-    else changed, closed or invalid
-        Current-->>Runtime: Reject without replacing current
-        Runtime-->>Host: Error, release publication guard
-    end
+    participant Product as Immutable Program A
+    participant Prep as Source / artifact / native preparation
+    participant Runtime as Exclusive Runtime owner
+    participant Store as Local records and current map
+    Host->>Product: prepare_update(edits), or prepare_replacement(B)
+    Product->>Prep: Check/lower/verify complete candidate with retained demands
+    Prep-->>Host: Shared immutable Program B, weak exact base A
+    Host->>Runtime: replace_program(installed, B, options), mutable borrow
+    Runtime->>Runtime: Admit idle synchronous publication boundary
+    Runtime->>Store: Validate exact current base and local provider authority
+    Runtime->>Store: Stage records, state bindings and candidate call entries
+    Runtime->>Store: Prepare final selections and rebound retained function tables
+    Runtime->>Store: Recheck baseline, leases, bindings and cancellation
+    Runtime->>Store: Commit current, routes and execution links together
+    Runtime->>Runtime: Release guards, then drop displaced owners
+    Runtime-->>Host: Success; same installation handles
 ```
 
-The drawing combines the ordinary guarded update with its commit. SDK preparation
-may precede a prepared-product reload; the core also exposes staging separately
-from publication. A separately staged candidate still needs publication admission
-and baseline rechecks at commit. This distinction explains why preparation stores
-expected_base rather than assuming the first baseline read will always remain
-valid until a later host publication request.
-The guarded path defers abandoned-storage collection. Separately invoked,
-unguarded core staging can service an abandonment safepoint before staging; it
-must not be confused with the guarded metadata-only preparation window.
+Preparation parses/checks/lowers source independently of Runtime. The resulting
+Program shares bytecode, checked source inputs and optional verified MIR. Its
+bounded cumulative demands and semantic declaration/binder history contain metadata,
+not strong predecessor code owners. The expected base is exact opaque product
+identity, not a label, hash or source position. Preparing against a different base
+requires an explicit new candidate; stale local recipients reject.
 
-The sequence's lock labels identify categories, not an exact full reload lock
-count: validation/capture helpers can read the cell again during cold preparation.
-The [ordinary Call walkthrough](calls.md#selection-and-frame-entry-including-locks)
-separately traces repeated reads in the hot execution path.
+Each recipient checks its own installed providers, identities, local state and
+baseline. A failed/cancelled recipient cannot change the shared product or another
+Runtime. Sharing does not transfer Rust callback captures, heap objects, statics,
+scheduler state or execution authority. Portable inputs still require independent
+verification at their process boundary.
 
-The actual commit is short and has no fallible suffix after its final baseline
-check: mark the dispatch scope/lease published, remove the prepared staged entry,
-replace current, release both guards, then drop the previous descriptor/stage
-references. Interpreter invalidation was prepared before this point and its commit
-is non-failing. No user callback or old-descriptor destruction occurs under the
-current-cell guard.
+The Runtime stages installation-local records without remapping the entire code,
+export or source image. Fallible correspondence, layout/type admission and final
+call-table allocation precede visibility. Low-level staged initialization remains
+an explicit separate operation; ordinary SDK replacement executes no initializer
+or callback. Staged handles cannot escape candidate execution authority.
 
-## When publication is allowed
+Sources: [detached edits](../../../crates/kagari/src/program/update.rs),
+[product preparation](../../../crates/kagari/src/program.rs),
+[SDK replacement](../../../crates/kagari/src/runtime.rs),
+[staging and commit](../../../crates/kagari-runtime/src/module/staging.rs),
+[loading and validation](../../../crates/kagari-runtime/src/loading.rs).
+
+## Publication boundary and atomicity
 
 | Runtime condition | Publication |
 | --- | --- |
-| Host top level with no synchronous activation or conflicting Native loan | Admissible after target/runtime checks |
-| Running script, Native callback, observer, synchronous reentry or their cleanup | Rejected, even if an active-session pointer is hidden |
-| Retained/parked frames or waiting Tasks, with no active drive scope | Permitted |
-| Another PublicationGuard is live | Rejected |
-| Closed/quarantined Runtime or retired/foreign installation | Rejected through the existing error boundary |
+| Host top level, no synchronous activation or conflicting Native loan | Admissible after exact target/baseline checks |
+| Script, callback, observer, synchronous reentry or cleanup active | Rejected, including when an active-session pointer is temporarily hidden |
+| Parked frames, cold Futures or waiting Tasks, no active drive scope | Permitted; no conservative draining requirement |
+| Publication guard already held | Another publication, execution/resume or driver consumption rejects |
+| Closed/quarantined Runtime, foreign/stale/retired installation | Rejected through the existing error boundary |
 
-While PublicationGuard is held, script entry, resumption, driver consumption and
-another publication reject. Producer-side completion notifications may still mark
-owned work ready; they do not execute code or publish a version.
+`begin_publication` requires `&mut Runtime`. Its guard retains that borrow and
+provides a read-only view for checked metadata work. Runtime-local current access
+uses short `RefCell` borrows, with no Installation current-cell Mutex or shared
+handle-only current query. Lower-level execution views still enforce dynamic
+admission, reentry and loan rules. Completion notifications can mark owned work
+ready while parked; producer threads do not execute code or publish versions.
 
-These are dynamic checks in the current `&Runtime` implementation. They are not
-currently expressed solely by requiring `&mut Runtime` on reload. A guard does
-not hold the Installation Mutex throughout preparation.
+The final baseline check is followed only by non-failing commit operations: mark
+the candidate published, remove its staged lease, replace current and prepared
+routes, and swap every affected record's execution links. Guards end before
+old descriptors/tables are dropped. No user callback runs under these guards.
+Failure before commit preserves current and authoritative static state; abandoned
+staging is retired through its existing lease/collection path.
 
-## Which body executes after the swap
+## Exact old bodies, current ordinary calls
 
 ```text
-Before publication:
-    current = A
-    an old Future has selected resume_body@A and is parked
-
-Commit:
-    current = B
-
-After publication:
-    a new ordinary named call selects its body@B
-    the old Future resumes its retained resume_body@A
-    an ordinary helper() call inside that old body selects helper@B
+Before: current A; a Future has selected resume_body@A and is parked.
+Commit: current B; prepare A's outgoing ordinary calls directly against B.
+After:  new helper() calls enter helper@B.
+        the Future resumes resume_body@A at its saved PC/environment.
+        helper() inside that old body enters helper@B.
 ```
 
-Current selection uses a CallRoute's installation/declaration/application identity.
-Same-publication calls retain an existing target placement; crossing publications
-uses the new dispatch table and transports checked scope/binder correspondence.
-It is not an in-place overwrite of A's instruction bytes or a permanent rewrite
-of every A frame to B.
+Created closures, cold Futures, admitted frames and queued invocations keep their
+selected bodies/providers and type environments. New ordinary named calls use
+current implementations. Publication does not overwrite old instruction bytes or
+change a suspended Future's remaining body. Saved named host bindings follow their
+canonical declaration through current prepared routes rather than pinning old code.
 
-Created closures, cold Futures, admitted frames and admitted queued invocations
-retain selected bodies/providers and matching environments. Live named Function
-bindings follow current implementations. Already selected computations retain
-what they need; merely keeping a live Program/Module handle does not pin A as the
-current version. A suspended old computation must not freeze its ordinary inner
-calls to A.
+Both candidate and retained records receive final generational target entries.
+The candidate's ordinary Direct path starts with normal links. Retained A call
+sites point directly to B; another publication points A and B directly to C, without
+an A-to-B-to-C forwarding chain. Publication resolves declaration/application/binder
+correspondence once. Shared generic calls transport checked prepared metadata;
+actual supplied values, witnesses, receiver dispatch and loans still require their
+normal checks. There is no runtime type inference or per-call correspondence search.
 
-Sources: [route selection](../../../crates/kagari-runtime/src/module/dispatch.rs),
-[dispatch tables](../../../crates/kagari-runtime/src/module/dispatch/tables.rs),
-[call-selection contract](../../spec/module-activation.md#live-installations-and-call-selection).
+A parked execution releases function-link views for its entire stack before ending
+the activation. Resume refreshes every frame's views, including parents waiting on
+a child; exact body, PC, capture, lexical environment, values and return destination
+are unchanged. Synchronous active frames cannot overlap publication. This closes
+the stale-parent-link case without draining all outstanding Futures.
 
-## Failure, retirement and why the current Mutex exists
+Sources: [prepared route registry](../../../crates/kagari-runtime/src/module/dispatch/bindings.rs),
+[function rebinding](../../../crates/kagari-runtime/src/module/linked_execution.rs),
+[call links](../../../crates/kagari-runtime/src/module/linked_execution/calls.rs),
+[metadata transport](../../../crates/kagari-runtime/src/module/dispatch/identity.rs),
+[park/resume](../../../crates/kagari-runtime/src/frame/owned.rs),
+[ordinary call path](calls.md#selection-and-frame-entry).
 
-| Event | Observable outcome |
+## Retention, native eligibility and failure
+
+| Event | Result |
 | --- | --- |
-| Compatibility/linking/binding/admission fails before commit | Current installation and authoritative static state remain at A |
-| Candidate was prepared against A but current is no longer A | Reject stale candidate; do not overwrite a newer publication |
-| Unpublished candidate is abandoned | Last candidate lease marks abandonment; ordinary cleanup/collection later retires candidate storage |
-| B is published while A has live computations/layout dependencies | Retain required old code/state edges until their references disappear |
-| Runtime closes | Clear live metadata authority and retire executions; surviving Arc descriptors cannot authorize new execution |
+| Compatibility/linking/admission/cancellation failure | No publication or authoritative static-state change |
+| Candidate expects A, recipient already runs B | Stale-base rejection; no implicit merge or skipped-base preparation |
+| Old closure/Future/frame/queue or explicit root survives | Retain its required whole Program and matching metadata |
+| Last executable dependency disappears | Joint collection can retire old records and code owners; route registry holds weak identities |
+| Saved named host binding survives old code collection | Its metadata identity still follows the current implementation |
+| Runtime closes/drops | Revoke current authority and drain owned work; identity handles cannot revive it |
 
-An immutable descriptor's Arc lifetime and the Runtime's object/program graph
-reachability are separate. Swapping current releases one shared reference, not
-every old executable/runtime record. The collector considers current installations,
-explicit retentions and object/metadata dependencies before reclaiming old state.
+Repeated updates can retain many whole revisions if actual roots span those
+revisions. Local records/bindings and publication preparation grow with retained
+work; shared products do not impose a fixed version-count or memory bound. Hosts
+own indefinitely retained computations. Bounded metadata history avoids executable
+ancestry, but does not turn whole-version retention into per-body reclamation.
 
-The current API allows `Program::module` / `Module::module` to navigate live
-metadata without borrowing Runtime. Those handles are Send + Sync. A host thread
-may query the shared current cell while the exclusive Runtime driver on another
-thread publishes or closes it. Mutex protects that pointer read/swap; it does not
-permit concurrent script execution. Arc alone cannot synchronize replacement of
-the enclosing Option.
+The descriptor attaches the SDK Program owner without a cycle: ProgramState's own
+bytecode has no back-reference. Revision tokens, source observations and historical
+demand/correspondence records carry no executable payload. Whole-version retention
+is deliberate; [R13 type/layout provenance](../../review.md#r13--type-and-layout-provenance-retains-retired-code)
+can independently retain an initial Program through inherited statics/types. No
+Future-only or immediate per-body reclamation promise follows from publication.
 
-This is a concrete mismatch with the requested direction: Send is needed to move
-Runtime between host threads, while shared live metadata queries were not requested.
-Whether to retain that API, restrict queries to Runtime or expose explicit immutable
-snapshots is a design decision. Replacing Mutex mechanically would not settle the
-ownership contract. Independently, the publication rules establish a stable
-current-version interval during synchronous execution that the hot call path does
-not currently fully exploit.
+`NativeCompiler` owns mutable compilation decisions outside Runtime. Immutable
+NativeCode/pages can be distributed after compiler/backend drop. Each recipient
+checks exact revision/root/configuration/ABI and local eligibility before installation;
+wrong-version delivery leaves the prior entry and publication unchanged. Replacing
+current changes eligibility separately from page lifetime: another recipient or
+selected computation may still own pages. Unsupported calls/suspension in the
+current backend decline before native entry. Native continuations, inlining,
+deoptimization and automatic JIT delivery are separate work, not a hidden guarantee
+of this reload model.
 
-Sources: [live metadata access](../../../crates/kagari-runtime/src/module/exports.rs),
-[current cell and retirement](../../../crates/kagari-runtime/src/module/installation.rs),
-[joint collection](../../../crates/kagari-runtime/src/gc/collection.rs).
+Sources: [native preparation/install](../../../crates/kagari/src/program/native.rs),
+[joint collection](../../../crates/kagari-runtime/src/gc/collection.rs),
+[retention leases](../../../crates/kagari-runtime/src/module/retention.rs).
+
+## Reference mechanisms
+
+Consulted on 2026-11-09: the Wasmtime API pages identify themselves as 52.0.0-dev,
+not a pinned Kagari dependency or source audit. [Module](https://docs.wasmtime.dev/api/wasmtime/struct.Module.html)
+separates an immutable Send + Sync compiled representation from stateful instances.
+[InstancePre](https://docs.wasmtime.dev/api/wasmtime/struct.InstancePre.html) permits
+pre-instantiation import work but reuse across Stores depends on captured imports.
+Kagari adopts shared code versus local state and that authority limitation. It
+retains its own tracing heap, scoped nominal types and no-script-effects loading;
+Wasmtime instantiation may execute a start function.
+
+[JVMTI 25 RedefineClasses](https://docs.oracle.com/en/java/javase/25/docs/specs/jvmti.html#RedefineClasses)
+preserves active old bodies while subsequent calls use replacements and static
+values survive. [OpenJDK 25+36](https://github.com/openjdk/jdk/blob/jdk-25%2B36/src/hotspot/share/prims/jvmtiRedefineClasses.cpp#L3748)
+tracks dependent compiled code and deoptimizes at a safepoint. Kagari adopts separate
+body selection, executable lifetime and native eligibility, but publishes between
+exclusive activations and additionally retains cold closures/Futures and parked
+stacks. Its checked generic/witness transport and final per-installation bindings
+are custom adaptations; no HotSpot concurrency/deoptimization implementation or
+whole-old-call-graph freeze is assumed.

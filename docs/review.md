@@ -354,8 +354,9 @@ Databases in RefCell so [source operations](../crates/kagari/src/engine/source.r
 can update inputs, settings and query caches through `&self`. Explicit `&mut self`
 is a possible simplification here, but only after reviewing callers and session
 ownership; these preparation-side borrows are not established execution hotspots.
-Other inspected owners include the preparation-side native cache, SDK publication
-associations, runtime GC storage/root tables, host borrowing and execution state.
+Other inspected owners include runtime GC storage/root tables, host borrowing
+and execution state. Native compilation now has a separate exclusive compiler owner;
+Runtime current lookup/publication is local and installation handles are identity-only.
 Their purposes and constraints differ; this inspection is not an exhaustive audit.
 
 As documented by [Rust's cell module](https://doc.rust-lang.org/std/cell/index.html)
@@ -390,7 +391,7 @@ not same-thread aliasing or synchronous script-to-host-to-script reentry.
 - Revisit ownership if cells conceal mixed responsibilities or circular access.
   Do not substitute Mutex/RwLock, unchecked UnsafeCell or raw pointers solely to
   remove RefCell. Cross-thread frozen-product/cache design remains owned by the
-  [multi-Runtime plan](multi-runtime-sharing-plan.md), not this review entry.
+  [Runtime product/publication owner](architecture/runtime.md#core-data-structures), not this review entry.
 
 Any proposed change must identify its actual owner, affected call/borrow boundaries
 and a concrete simplification, reproduced correctness issue or measured cost.
@@ -779,9 +780,9 @@ supplied native-input MIR against the bytecode before installing a product.
 | Phase | Work actually owned there | Lifetime and remaining obligations |
 | --- | --- | --- |
 | Source/checking | Parsing, recoverable HIR, name/type/trait checks, source identities and dependency analysis | Analysis sessions retain their caches; no corresponding CST/HIR owner was found through a loaded runtime descriptor. R7 now retains lowering state and processes demand deltas; inline modules share physical parse storage. |
-| Lowering/verification | Instantiate bounded generic demands, lower checked facts, verify MIR and bytecode, retain executable declarations/layout contracts | Source-free type/witness information is not automatically redundant. Optional preparation MIR may remain with its preparation owner, not automatically the runtime. |
+| Lowering/verification | Instantiate bounded generic demands, lower checked facts, verify MIR and bytecode, retain executable declarations/layout contracts | Source-free type/witness information is not automatically redundant. Immutable SDK Program owns optional MIR and compilation inputs; installed exact code now shares that whole owner without a cycle. |
 | Preparation | `VerifiedProgram::from_bytecode` builds reusable execution layouts, scalar/managed locations and call placements | Immutable verified bytecode and prepared execution records coexist. These are an intentional execution representation, not source reanalysis. Exact version identity is now payload-independent; R13 concerns type-only holders of current descriptors. |
-| Runtime link/install | Remap definition identities, validate installed native declarations, bind layouts/call targets and exact code ownership | Runtime-specific authority and installed host identity cannot be established only by compile-time verification. Cold dependent layouts may be prepared later. |
+| Runtime link/install | Adopt product/local identity correspondence without copying the executable image; validate local native contracts and prepare final layouts/call targets | Runtime-specific authority and installed host identity cannot be established only by compile-time verification. Cold dependent layouts may be prepared later. |
 | Call admission | Check current runtime/generation, type/environment, depth and arguments; reserve/populate frame windows transactionally | Only successful admission publishes a frame. Host callbacks and reentry retain the same pinned session and termination state. |
 | Execution | Checked scalar operations, dynamic object identity/access/bounds, field/index kernels, calls and safepoints | Prepared scalar locations avoid repeated type resolution. Identity/bounds checks are semantic costs, not automatically removable work. |
 | Suspension/retirement | Retain live frame windows and code leases; detach transient borrows; consume/cancel completion and release windows | Async safety concerns the actual graph, including mutable aliases. One guarded traversal serves each transition; post-poll and later transitions require fresh proofs. |
@@ -798,7 +799,7 @@ Identity and release boundaries:
   may relocate. It is inaccurate to describe this as either raw-pointer moving GC
   or wholly immobile storage.
 - **Functions/modules/code:** local slots are interpreted within a loaded program;
-  `LoadedModule` owns an `Arc<ProgramDescriptor>`. Executable admission also requires
+  `ExecutableModule` owns an `Arc<ProgramDescriptor>`. Executable admission also requires
   live runtime/version authority. Keeping old type facts does not resurrect retired
   executable admission. Native products keep owned code and exact program leases.
 - **Roots:** frame windows, explicit root leases, module state, closure/callable
@@ -905,7 +906,7 @@ Current memory risks span different owners:
 | Native buffers/collection capacity | Committed `HeapCharge` separates logical occupancy from attributed retained capacity. Its partial byte ledger is not allocator usable size, external host memory or RSS. |
 | Frame/closure/async state | Typed banks and captures are real retained state; parked stacks keep live windows and code. No fresh maximum-frame or suspension-liveness benchmark was run. |
 | Temporary peak | Conversion protection, grow-before-commit and prepare-before-remove deliberately retain old and new values together. Removing this peak without an alternative commit protocol would weaken failure semantics. |
-| Runtime metadata/code | Exact version tokens no longer retain original code/snapshots. Installation-scoped identity retention is measured and retained; R13 remains type-only provenance retaining retired code. No loaded-runtime CST/HIR/MIR retention was found through its descriptor. |
+| Runtime metadata/code | Exact version tokens no longer retain original code/snapshots. Installation-scoped identity retention is measured and retained; R13 remains type-only provenance retaining retired code. The historical review found no source/MIR owner there; since the immutable Program migration, installed code deliberately retains the shared product, including optional source inputs/MIR. R13 can therefore keep that whole owner alive. |
 | Historical capacity | Root registration drains releases and object discovery visits occupied stores. Free indices and generation tombstones can still outlive most objects; root snapshots and metadata scans retain separate costs. |
 
 Do not introduce generations, incremental tracing, concurrent collection or raw
@@ -948,8 +949,15 @@ This is not an endorsement of infinite cheap name/snapshot retention, a measured
 append-time peak/RSS result or a source-session compiler-cache study. No new writer
 model or process-global leak is established; domain redesign is not queued by R13.
 
+**Current sharing boundary.** Installed exact code retains the SDK Program owner
+with optional immutable source inputs/MIR. This deliberate whole-version association
+does not form a predecessor chain, but inherited static/type provenance can retain
+an initial whole product even after Futures finish. Shared product ownership does
+not complete the separate type/code split. See the
+[Runtime ownership map](architecture/runtime.md#program-product-installation-and-publication).
+
 **Remaining ownership mismatch.** `StructLayoutRef` in
-[module.rs](../crates/kagari-runtime/src/module.rs) retains a `LoadedModule`;
+[module.rs](../crates/kagari-runtime/src/module.rs) retains an `ExecutableModule`;
 [TypeArgument](../crates/kagari-runtime/src/frame/types/arguments.rs) and
 [associated bindings](../crates/kagari-runtime/src/frame/types/bindings.rs) retain
 supplying provenance. For example, a host keeps only each old Record layout while
@@ -1559,8 +1567,8 @@ comparison without a user-authored tuple `impl`. Old execution demands can retai
 references to that generated implementation. Even changing only an element's `eq`
 body can then fail source-update preparation with `Identity(InvalidContract)`.
 
-The [SDK source-update path](../crates/kagari/src/runtime/update.rs) uses
-`Compilation::lower_with_demands`, so this gap affects `runtime.update(...)` when
+The [SDK source-update path](../crates/kagari/src/program/update.rs) uses
+`Compilation::lower_with_demands`, so this gap affects `Program::prepare_update(...)` when
 its retained demands contain the affected generated identities. Failure occurs
 before publication; the installed program remains unchanged. This is not the
 removed Hash/Eq protection graph or an intentional compatibility rejection.

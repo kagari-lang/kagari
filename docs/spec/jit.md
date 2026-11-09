@@ -62,23 +62,26 @@ validation and mutation commit guarantees through shared runtime services.
 
 ## Preparation and Fallback
 
-Hosts explicitly call `Runtime::prepare_native`, then `execute_prepared`.
-Preparation performs no script execution. It checks the exact loaded/prepared version
-and policy, builds links, compiles or reuses a cached product, and installs it for the
-runtime. Source and artifact routes share this flow. `execute` remains interpreter-only.
-Preparation uses the runtime's default `ExecutionContext.jit_policy`; each prepared
-invocation independently uses the context passed to `execute_prepared`. A disabled
-preparation returns an explicit fallback decision without compiling. Enabling a later
-invocation does not retroactively compile that decision. Conversely, disabling an
-invocation interprets even a previously native-prepared function, without changing
-or consuming the prepared handle.
+Hosts explicitly call detached `NativeCompiler::prepare`, then local
+`Runtime::install_native`, then `execute_prepared`. Compilation has no Runtime,
+script effects or local JIT policy. It validates exact product/entry, backend
+configuration, cancellation and the compiler product. Source and artifact routes
+share this flow; immutable finalized products may be distributed to recipients.
 
-Policy fallback does not authorize invalid input. Preparation still validates
-cancellation, loaded-program ownership, exact version and entry before skipping
-compilation. Execution retains the original prepared handle and validates its
-runtime, function and supplying version before policy can select interpretation.
-Reports identify interpreter fallback and its policy reason; the same valid handle
-can subsequently execute natively under an enabled context.
+Installation independently checks the recipient's exact revision and Runtime
+ownership before policy can select fallback. It uses the Runtime default
+`ExecutionContext.jit_policy`; each invocation independently uses the context
+passed to `execute_prepared`. Disabled installation returns an explicit fallback
+entry without mutating the compilation product. Enabling a later invocation does
+not retroactively install that decision. Disabling an invocation interprets even
+a previously native-prepared function without changing or consuming its handle.
+
+Execution validates the local handle's Runtime, function and supplying version
+before policy can select interpretation. Invalid/stale/foreign input is an error,
+not fallback permission. Reports identify fallback and its policy reason; the same
+valid native handle can later execute under an enabled context. Ordinary `execute`
+remains interpreter-only. Compilation cache ownership and page lifetimes are in
+[the backend contract](codegen-backend.md#preparation-installation-and-execution).
 
 Missing portable MIR, unsupported valid operations, disabled JIT policy and an
 attached execution observer select pre-entry interpreter fallback. Compiler/link

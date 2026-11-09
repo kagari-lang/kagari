@@ -6,6 +6,7 @@ use crate::{
         LinkedProgramBindings, ModuleEpochRetention, VerifiedProgram,
         admission::DefinitionAdmission, retention::ProgramLease, staging::StagedProgram,
     },
+    native::registry::DependencyValidation,
     publication::PublicationGuard,
     reload::{
         ModuleEpoch, ReloadValidationError, updates::ReloadAdmission, validate_load_candidate,
@@ -18,9 +19,8 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::BytecodeProgram,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 impl Runtime {
     /// Keep one exact module version reachable until the last lease is dropped.
@@ -48,7 +48,7 @@ impl Runtime {
         module: &BytecodeModule,
         program: &VerifiedProgram,
         admission: &DefinitionAdmission,
-        validated: &mut HashSet<DefinitionId>,
+        validated: &mut DependencyValidation,
     ) -> Result<LinkedHostBindings, RuntimeError> {
         self.native_entries
             .validate_installed_contracts(module, admission)?;
@@ -73,7 +73,7 @@ impl Runtime {
             self.definition_context(),
             &self.execution_options().cancellation,
         )?;
-        let mut validated = HashSet::new();
+        let mut validated = DependencyValidation::default();
         let members = program
             .modules()
             .iter()
@@ -244,7 +244,7 @@ impl Runtime {
         &self,
         program: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
-        let mut validated = HashSet::new();
+        let mut validated = DependencyValidation::default();
         for member in program.members() {
             let current = self.link_native_module(
                 &member.bytecode,
@@ -378,7 +378,7 @@ impl Runtime {
             .map_err(ReloadValidationError::Runtime)?;
         // Only admission may have changed; do not rebuild immutable checked evidence.
         validate_reload_target(&baseline, Some(&latest))?;
-        let mut validated = HashSet::new();
+        let mut validated = DependencyValidation::default();
         for (module, prepared) in program.modules().iter().zip(&bindings.members) {
             let current = self
                 .link_native_module(module, &program, &bindings.definitions, &mut validated)

@@ -48,7 +48,7 @@ clean up the owned staging directory. The CLI owns process execution/diagnostics
 the SDK does not assume a linker executable or compile on load.
 
 `unsafe AotBundle::load` checks the bundle and opens the trusted DLL. The bundle
-retains a `PreparedProgram` and an executable owner. The host loads that Program
+retains a `Program` and an executable owner. The host loads that Program
 using its ordinary runtime configuration, calls `bundle.install`, then uses
 `execute_prepared` and `bundle.entry`. Installation rejects a different prepared
 Program, runtime or entry. Host registrations are still explicit and checked.

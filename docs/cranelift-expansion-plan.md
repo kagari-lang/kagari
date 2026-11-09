@@ -152,7 +152,7 @@ needed; do not expose private interpreter internals as a new backend interface.
 
 Preparation must cover dynamic targets as well as static call edges. The initial
 strategy conservatively inventories synchronous functions in each explicitly
-supplied PreparedProgram and its verified module closure, including closure bodies,
+supplied Program and its verified module closure, including closure bodies,
 interface implementations and existing specializations/shared bodies. Deferred
 async factories/resume bodies remain excluded. Hosts can supply additional exact
 Program versions for retained callbacks; an entry's static call graph cannot prove

@@ -1,10 +1,8 @@
 # Module loading and activation
 
-> The [Runtime refactor target](../runtime-refactor-design.md#prepared-call-tables-and-old-code-redirection)
-> preserves the call-selection semantics below while replacing per-call lookup
-> with prepared normal/old-body call tables and independent Program preparation.
-> The [roadmap](../implementation-roadmap.md#runtime-execution-model-review) owns
-> this unimplemented architectural migration.
+The [Runtime model](../architecture/runtime.md) and
+[reload walkthrough](../architecture/runtime/reload.md) describe the implemented
+immutable products, Runtime-owned current state and prepared final call bindings.
 
 Import resolution is a compile-time and link-time operation. It does not execute script code. Cyclic imports are allowed when their declarations and linked contracts are valid.
 
@@ -18,9 +16,9 @@ An embedding host may explicitly call functions during a restricted candidate se
 
 Each load creates an independent installation, even for the same prepared code or
 diagnostic label. `InstalledProgram` and its `Module` handles identify a live installation;
-`ExecutableModule` is an exact executable-version owner. Reload and source update
-return `ReloadResult<()>` in the SDK, advancing the installation rather than
-returning a replacement handle. Runtime ownership, installation identity and
+`ExecutableModule` is an exact executable-version owner. Detached source preparation returns an immutable `Program` candidate; SDK
+`Runtime::replace_program` returns `ReloadResult<()>`, advancing the installation
+rather than returning replacement handles. Runtime ownership, installation identity and
 retirement checks remain mandatory; labels confer no authority. Runtime owns the
 installation: dropping InstalledProgram/Module handles does not unload it, cancel tasks or
 reset statics. Independently retained callable handles remain usable while it is
@@ -127,7 +125,9 @@ synchronous reentry and their cleanup still count as active scopes even if the
 active-session pointer is temporarily hidden. Parked frames, waiting tasks and
 producer-side completion notifications do not prevent publication.
 
-`Runtime::begin_publication` admits an exclusive guard before SDK source preparation.
+Detached SDK source preparation finishes before publication admission.
+`Runtime::begin_publication` requires `&mut Runtime` and retains its exclusive
+borrow through the guard.
 While held, script entry/resumption, driver consumption and another publication
 reject. Staging and commit are metadata-only: no initializers, callbacks or GC-driven
 host destruction run as preparation effects. Commit rechecks installation/base
@@ -135,7 +135,7 @@ identity, bindings and admission. Rejection or cancellation before commit preser
 both the executable and authoritative source baseline. Explicit candidate execution
 is separate and cannot run under the publication guard.
 
-One publication covers one complete Program installation, including affected imported
+One publication covers one complete installation, including affected imported
 modules. It is not a global update of every installation using a package. Code
 atomicity is not a business-state transaction: an operation can call a helper,
 suspend, then call its new body after publication. If unchanged storage acquires a

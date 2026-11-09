@@ -64,11 +64,10 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Runtime refactor architecture](runtime-refactor-design.md): target ownership and
-  execution model, beginning with hot reload. Covers centralized preparation,
-  shared immutable Programs, per-Runtime publication, cache ownership, old-body
-  retention and AOT/JIT invalidation/deoptimization boundaries. Design review only;
-  API sketches and production cutover are not implemented.
+- [Runtime call and native follow-up](runtime-refactor-design.md): queued logical
+  slot/frame/Native-adapter and optimizing-native proposals. Implemented immutable
+  Program preparation, prepared reload and sharing belong in the
+  [Runtime map](architecture/runtime.md), not this future-work design.
 
 - [Enum layouts](enum-layout-design.md): deferred pending Runtime execution and
   ownership review. EL00 baseline/models are retained; EL01-EL04 remain unstarted.
@@ -89,13 +88,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   [async execution](async-execution-design.md) and [task scopes](host-task-scope-design.md).
   Complete workspace/feature/backend/platform acceptance remains pending CI.
 
-- [Runtime ownership, prepared reload and sharing](multi-runtime-sharing-plan.md#phases):
-  MS00-MS05 execution is authorized with per-phase commits; MS00 is locally accepted, MS01 next.
-  Close baseline/identity/API choices, share immutable Program and detach updates,
-  prepare normal/old-body call tables, remove current-version locks through Runtime
-  ownership, then validate native/isolation/lifetime and integrated measurements.
-  This is the existing sharing plan expanded in place; no separate reload queue,
-  production implementation or large-project capacity result is claimed.
+- [Runtime CI acceptance](implementation-roadmap.md#runtime-execution-model-review):
+  immutable products, detached preparation, final call bindings and exclusive
+  publication are implemented; actual-native/player lifetime and frozen sharing/
+  performance gates pass locally. Complete workspace/feature/platform matrices
+  remain CI-only. Current behavior is in the [Runtime map](architecture/runtime.md).
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load
   goal explicitly unmet. Further frontend preparation work is deferred; the
