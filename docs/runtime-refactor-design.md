@@ -45,6 +45,100 @@ temporary/escaping roots and scoped loans. Standard-library and application
 providers must receive the same capabilities; a public Vec-specific heap method
 does not establish that boundary.
 
+### Proposed crate consolidation and single Runtime
+
+Recommended after the user's 2026-11-09 ownership review; implementation is not
+activated by this proposal. The current chain is SDK `runtime::Runtime { vm, ... }`
+-> `kagari_vm::Vm { runtime }` -> `kagari_runtime::Runtime`. Vm has no separate
+execution-state fields, while interpretation is split between its executor and
+Runtime's `frame/cursor`. Preserve the useful modules, remove these object/crate
+boundaries and converge on one Runtime type.
+
+| Owner | Target responsibility and disposition |
+| --- | --- |
+| `kagari-runtime` | Retain. Own the single public Runtime, installed program state, executions, language objects, Host/Native APIs and execution implementations. Absorb the VM executor/debug integration as ordinary modules. |
+| `kagari-vm` | Remove after moving consumers and unique tests. Delete the `Vm` wrapper; do not leave a forwarding crate or alternate execution entrypoint. |
+| `kagari` | Retain source preparation, artifact/backend tooling and SDK composition. Remove its distinct Runtime struct and execution-context/error translations that only wrap the same operation. Expose the canonical Runtime through an exact intentional facade export, with the required re-export-whitelist entry when implemented. |
+| `kagari-compiler`, HIR/MIR/source crates | Retain their compilation responsibilities. Prepare executable products outside Runtime; Runtime must load/run without these production dependencies. No compiler rewrite is required by this consolidation. |
+| `kagari-bytecode`, `kagari-contract`, `kagari-abi` | Retain executable representation, checked contracts and backend ABI ownership. Crate consolidation does not reopen their formats or language rules. |
+| `kagari-gc` | Retain the implemented independent collector. It owns storage, tracing/collection machinery and GC-scoped access; Runtime owns language-specific layouts, edges, root sources and execution integration. |
+| `kagari-stdlib` | Retain as an independent provider of concrete library types/functions through Runtime's public Host API. Runtime neither depends on it nor installs it automatically. Detach privileged implementation paths before later library design. |
+
+Target production dependency direction (arrows mean depends on):
+
+```mermaid
+flowchart TD
+    APP["Host application"] --> SDK["kagari<br/>preparation and SDK composition"]
+    APP --> LIB["kagari-stdlib<br/>explicit library provider"]
+    SDK --> COMP["compiler/source/backend preparation"]
+    SDK --> RT["kagari-runtime<br/>one Runtime type, interpreter and Host API"]
+    LIB --> RT
+    COMP --> CONTRACT["bytecode / executable contracts / ABI"]
+    RT --> CONTRACT
+    RT --> GC["kagari-gc<br/>independent collector"]
+```
+
+An artifact-only host may depend directly on `kagari-runtime`; an SDK host uses
+the same type through the facade. Installing a standard provider is explicit.
+Neither path creates another Runtime owner or requires a provider to depend on
+the source-enabled SDK. There is no Runtime-to-SDK dependency.
+
+Inside Runtime, keep responsibilities in ordinary modules:
+
+| Module responsibility | Owned data / work |
+| --- | --- |
+| Public Runtime entrypoints | Construction, provider installation, program load/replace, call/resume and collection orchestration. No second CoreRuntime/Runtime pair. |
+| Programs and installations | Shared immutable executable products; local current bindings, statics and exact retained bodies. Publication remains exclusive and outside synchronous execution. |
+| Execution | Frames, slots, local roots and parked execution state. These are Runtime execution state, not collector-owned scheduling/state records. |
+| Interpreter | Prepared instruction dispatch, PC progression and ordinary call/return transitions. Move the existing runtime cursor and VM driver/dispatch under this one owner; remove overlapping fallback handlers after their semantics are covered. |
+| Host/Native | Registration, prepared codecs, scoped callbacks/reentry and host-owned resources. Script and Native calls use the same execution storage. |
+| Heap integration | Language representations, root/edge enumeration and collector entrypoints, using `kagari-gc`. The collector does not interpret bytecode or own Session/Frame records. |
+| Optional debugging/async/native execution | Attach to the same state and call selection. Keep feature-specific driving outside the initial plain synchronous loop; do not introduce an execution-backend trait framework merely to replace Vm. |
+
+Runtime owns these fields directly or through cohesive records. An interpreter
+activation borrows the relevant execution/services; it is not another persistent
+object that owns Runtime. Split field borrows for closed regions, release storage
+borrows before a Native callback, and reborrow on return. Do not implement the
+merge by wrapping the old CoreRuntime in a newly renamed internal state object.
+
+The existing SDK Program also needs a real boundary correction: its ProgramState
+currently owns optional compilation inputs/MIR and is recovered from installed
+code through a type-erased owner/downcast. The canonical executable Program belongs
+with runtime-side immutable program preparation and contains checked code/layout/
+debug/reload evidence, without source-analysis ownership. Source inputs and MIR
+preparation stay with the compiler/preparation owner. SDK preparation produces the
+canonical product; artifact-only loading produces that same type. Preserve exact
+revision/base/history and code retention, but remove the Runtime-to-SDK owner
+recovery mechanism. Do not add another public Program wrapper or source cache just
+to preserve the obsolete API. Runtime installation state remains separate from the
+shared executable product.
+
+For `runtime.call(add, (1, 2))`, the canonical Runtime admits the external call
+once, obtains its active execution and invokes its private interpreter. The
+interpreter transfers operands and continues through script calls; Native calls
+invoke the prepared thunk and return to the same loop. A callback calling script
+uses that same internal entry, with the required reentry scope. Results return to
+the public call directly. There is no SDK Runtime -> Vm -> CoreRuntime trampoline.
+JIT/AOT code later uses the same Runtime data and call contracts, not another Vm.
+
+Migration scope is finite: detach library-specific execution helpers; co-locate
+the interpreter modules and merge entry/error/context ownership; remove the two
+wrappers and VM package; migrate the executable-product boundary and affected
+SDK/CLI/web/benchmark/provider consumers; then integrate the existing GC crate.
+Preserve unique source-free, GC/reentry, debug/async and actual-native tests at
+their new owners. Exact file moves and intermediate build boundaries belong to
+implementation activation. Do not combine this with unrelated compiler changes.
+Acceptance includes absence of the VM dependency and Runtime wrappers, one call
+entry and compilation-free artifact execution. Measure performance independently;
+removing a crate or wrapper does not by itself establish a runtime speedup.
+
+Reference: Lua 5.4.9 separates [API entrypoints](https://github.com/lua/lua/blob/v5.4.9/lapi.c),
+[execution state](https://github.com/lua/lua/blob/v5.4.9/lstate.h) and
+[interpreter code](https://github.com/lua/lua/blob/v5.4.9/lvm.c) within one runtime
+implementation. Adopt explicit state ownership with module-level execution code;
+Lua's dynamic typing, C pointers, coroutine/thread relationships and unwinding are
+different. This supports cohesive ownership, not a proof that Rust crates are slow.
+
 Detach concrete collection storage, algorithms, cursors, library policies and
 library-specific Rust adapters from the new Runtime core. Before removal, identify
 compiler-known language roles and required declaration metadata separately from
@@ -53,13 +147,18 @@ Option/Result propagation, builtin value representation or execution semantics.
 Revisit actual boundaries rather than assuming every existing core operation can
 be moved unchanged into an optional module.
 
-Reuse the existing collector's algorithm and useful storage/handle foundations.
+Reuse the implemented [kagari-gc](../crates/kagari-gc/README.md) collector rather
+than redesigning its algorithm during Runtime integration. Current production
+Runtime still uses its older in-crate GcHeap and does not yet depend on kagari-gc;
+the target replaces that integration with language-specific adapters to the
+independent collector. Preserve useful language layout/handle contracts where
+applicable, with an explicit finite replacement of obsolete storage paths.
 Specify who owns execution roots, temporary Native protection, native payload edges,
 code/type provenance and retirement, and how the collector observes those owners.
 Preserve checked owner/slot/generation handles, collection across Native callbacks,
 loan exclusion and cleanup on errors/reentry/cancellation. This may reorganize the
-current collector integration; it does not require paged storage, incremental
-marking, a replacement allocator or a new value representation.
+current collector integration; it does not authorize a new GC algorithm, additional
+paged-storage migration or the deferred enum/value representation redesign.
 
 ### Sequence and reviewable exit conditions
 

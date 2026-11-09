@@ -1509,6 +1509,14 @@ full collection design/implementation and PG owns later collector replacement.
 Record this order before activating finite implementation phases. No new collector,
 full standard-library rewrite or shared declaration-ID migration is activated here.
 
+The [proposed crate consolidation](runtime-refactor-design.md#proposed-crate-consolidation-and-single-runtime)
+merges `kagari-vm` execution into `kagari-runtime`, removes Vm and the SDK Runtime
+wrapper, and makes the facade expose the canonical Runtime. It also assigns the
+source-free executable Program to runtime-side preparation and removes SDK owner
+downcasting; source/MIR preparation stays outside Runtime. Keep independent stdlib
+and the existing `kagari-gc`, whose Runtime integration is still pending. This is
+the recommended ownership direction, not an implemented deletion or activated phase.
+
 The accepted [stack-exhaustion model](runtime-refactor-design.md#stack-exhaustion-and-native-reentry)
 replaces the proposed per-script-call depth quota/counter with VM frame/slot space
 checks and a growth slow path. Native stack protection belongs to nested host
