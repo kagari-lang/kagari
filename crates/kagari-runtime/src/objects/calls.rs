@@ -294,6 +294,11 @@ impl Runtime {
                             .ok_or_else(invalid)?,
                     );
                     self.gc.alloc_bound_operation(BoundOperation {
+                        interface_key: owner.identity_admission().runtime_in(
+                            &associated_interface,
+                            &self.definition_context().snapshot(),
+                            &Default::default(),
+                        )?,
                         receiver_identity,
                         application: None,
                         associated_interface,

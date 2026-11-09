@@ -1,5 +1,7 @@
 use super::*;
-use crate::{context::JitPolicy, program::PreparedProgram};
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
+use crate::{context::JitPolicy, program::Program};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
@@ -38,21 +40,20 @@ fn public_source_glob_reexports_members_through_artifacts() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if native {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
                 .unwrap();
             let expected = match prepared {
                 PreparedNativeEntry::Native(_) => JitExecutionStatus::Native,
@@ -94,7 +95,7 @@ fn parent_module_can_execute_pub_super_child_function() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -131,8 +132,7 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
@@ -183,7 +183,7 @@ fn parent_module_can_call_pub_super_inherent_method() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -216,7 +216,7 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -258,7 +258,7 @@ fn wildcard_import_can_expose_a_public_inline_child_module() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -292,7 +292,7 @@ fn wildcard_import_follows_a_public_module_alias() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -320,7 +320,7 @@ fn wildcard_import_follows_a_public_native_module_alias() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -363,7 +363,7 @@ fn declared_external_child_module_resolves_qualified_calls() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();

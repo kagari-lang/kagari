@@ -1,7 +1,6 @@
 use super::{FLOATS, Float, assert_checks, context, engine, programs};
 use crate::{
-    BytecodeArtifact, program::PreparedProgram,
-    runtime::tests::language::numeric_checks::NumericChecks,
+    BytecodeArtifact, program::Program, runtime::tests::language::numeric_checks::NumericChecks,
 };
 use kagari_bytecode::{instruction::ConstantOperand, program::updates};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
@@ -170,8 +169,7 @@ fn serialized_float_constants_reach_installed_to_bits_without_payload_changes(
         ("encoded constants", decoded),
     ] {
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert_checks(&program, route, &source, &checks);
     }
 }

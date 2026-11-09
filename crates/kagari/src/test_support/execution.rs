@@ -1,10 +1,12 @@
 //! Shared preparation for ordinary source/SDK contracts. Registration and
 //! invalidation tests should build their own engine instead of using this helper.
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine, source::CheckedModule},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -50,8 +52,7 @@ pub fn assert_returns_i32(
                 &artifact.records().to_bytes(artifact.definitions()).unwrap(),
             )
             .unwrap();
-            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .unwrap()
+            Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
         });
     assert_prepared_returns_i32(engine, direct.as_ref(), encoded.as_ref(), routes, expected);
 }
@@ -65,7 +66,7 @@ pub fn assert_artifact_returns_i32(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     assert_prepared_returns_i32(
         engine,
         None,
@@ -77,8 +78,8 @@ pub fn assert_artifact_returns_i32(
 
 fn assert_prepared_returns_i32(
     engine: &KagariEngine,
-    direct: Option<&PreparedProgram>,
-    encoded: Option<&PreparedProgram>,
+    direct: Option<&Program>,
+    encoded: Option<&Program>,
     routes: &[Route],
     expected: i32,
 ) {
@@ -100,14 +101,14 @@ fn assert_prepared_returns_i32(
         let loaded = runtime.load_program(program, Default::default()).unwrap();
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {

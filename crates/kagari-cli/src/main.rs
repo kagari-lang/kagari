@@ -1,3 +1,5 @@
+#[cfg(feature = "jit")]
+use kagari::program::native::NativeCompiler;
 mod aot;
 mod args;
 mod checking;
@@ -20,7 +22,7 @@ use kagari::{
         source::{ArtifactOptions, PreparationOptions},
     },
     error::EmbeddingError,
-    program::{PreparedProgram, ProgramPreparationError},
+    program::{Program, ProgramPreparationError},
     runtime::{LoadOptions, Runtime},
 };
 use kagari_bytecode::artifact::ArtifactCompatibility;
@@ -30,7 +32,7 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     error::RuntimeError,
     host::{HostCallContext, HostError},
-    module::{Program, entry::ProgramEntry},
+    module::{InstalledProgram, entry::ProgramEntry},
     native::builder::ModuleBuilder,
     value::Value,
 };
@@ -174,7 +176,7 @@ fn run_loaded_artifact(
 
     jit: bool,
 ) -> Result<(), CliError> {
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         artifact,
         &ArtifactCompatibility::default(),
         &Default::default(),
@@ -185,7 +187,7 @@ fn run_loaded_artifact(
 
 fn run_prepared_program(
     engine: &KagariEngine,
-    program: &PreparedProgram,
+    program: &Program,
     load_options: LoadOptions,
     jit: bool,
 ) -> Result<(), CliError> {
@@ -211,8 +213,8 @@ fn run_prepared_program(
 
 fn execute_entry(
     runtime: &mut Runtime,
-    program: &PreparedProgram,
-    loaded: &Program,
+    program: &Program,
+    loaded: &InstalledProgram,
     context: &ExecutionContext,
     jit: bool,
 ) -> Result<ExecutionReport, CliError> {
@@ -227,20 +229,20 @@ fn execute_entry(
 #[cfg(feature = "jit")]
 fn execute_entry_with_jit(
     runtime: &mut Runtime,
-    program: &PreparedProgram,
-    loaded: &Program,
+    program: &Program,
+    loaded: &InstalledProgram,
     context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
     let mut backend = CraneliftBackend::for_host()
         .map_err(|error| CliError::message(1, format!("failed to initialize JIT: {error}")))?;
-    let prepared = runtime
-        .prepare_native(
+    let prepared = NativeCompiler::default()
+        .prepare(
             program,
-            loaded,
             ProgramEntry::Main,
             &mut backend,
             &context.cancellation,
         )
+        .and_then(|native_code| runtime.install_native(loaded, &native_code))
         .map_err(|error| CliError::message(1, format!("native preparation failed: {error}")))?;
     runtime
         .execute_prepared(loaded, ProgramEntry::Main, &[], context, &prepared)
@@ -250,8 +252,8 @@ fn execute_entry_with_jit(
 #[cfg(not(feature = "jit"))]
 fn execute_entry_with_jit(
     _runtime: &mut Runtime,
-    _program: &PreparedProgram,
-    _loaded: &Program,
+    _program: &Program,
+    _loaded: &InstalledProgram,
     _context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
     Err(CliError::message(

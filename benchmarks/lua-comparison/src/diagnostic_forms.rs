@@ -1,6 +1,6 @@
 //! Protocol scaling probes, separate from the frozen Lua parity workloads.
 use crate::diagnostics;
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_source::source::SourceFile;
 
 const SOURCE: &str = r#"
@@ -152,7 +152,7 @@ pub(super) fn run() {
         )
         .unwrap();
     let prepared =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     for n in [2_500, 5_000] {
         for entry in entries {

@@ -309,7 +309,7 @@ fn shared_native_interfaces_keep_nested_script_trait_provenance() {
         .remove(0);
     let bindings = Arc::new(
         TypeBindings::new(
-            runtime.definition_context(),
+            &runtime.definition_context().snapshot(),
             vec![parameter.clone()],
             vec![script_argument],
         )

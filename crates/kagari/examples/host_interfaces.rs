@@ -4,7 +4,7 @@ use kagari::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, metadata::DefinitionMetadata,
@@ -153,7 +153,7 @@ fn main() {
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)

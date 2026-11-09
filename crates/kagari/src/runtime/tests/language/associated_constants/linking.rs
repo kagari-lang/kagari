@@ -1,6 +1,4 @@
-use crate::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
-};
+use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source_database::SourceLayer;
@@ -46,7 +44,7 @@ fn imported_defaults_keep_the_trait_module_constant_resolution() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();

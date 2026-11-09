@@ -4,7 +4,7 @@ use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::module::entry::ProgramEntry;
 use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
 
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{
     cancellation::CancellationToken,
@@ -126,7 +126,7 @@ fn main() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let report = runtime

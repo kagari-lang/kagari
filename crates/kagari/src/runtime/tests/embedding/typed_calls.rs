@@ -3,7 +3,7 @@
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Program,
     runtime::Runtime as SdkRuntime,
 };
 use kagari_bytecode::artifact::KbcArtifact;
@@ -46,7 +46,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> PreparedProgram {
+fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> Program {
     // Exercise SDK admission and source observations under explicitly authored providers.
     let mut sources = SourceDatabase::default();
     let root = sources
@@ -79,7 +79,7 @@ fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> PreparedPr
         KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
     let artifact =
         KbcArtifact::with_source_package(artifact, &package, &Default::default()).unwrap();
-    PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }
 
 fn future_provider() -> NativeModule {
@@ -129,7 +129,9 @@ fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies
         .unwrap();
     assert_eq!(runtime.call(&function, ()).unwrap(), 10);
     runtime
-        .reload_program(&program, &second, Default::default())
+        .program(&program)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(runtime.call(&function, ()).unwrap(), 20);
@@ -178,7 +180,9 @@ fn async_typed_admission_retains_selected_factory_before_any_poll() {
         .unwrap();
     let mut admitted = runtime.submit_async(&function, ()).unwrap();
     runtime
-        .reload_program(&program, &second, Default::default())
+        .program(&program)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     runtime.runtime().collect_garbage().unwrap();
     let mut current = runtime.submit_async(&function, ()).unwrap();
@@ -267,7 +271,9 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
     assert_eq!(other_source.text, "fn read(self) -> i32 { 9 }");
     assert_ne!(old.target, other_source.target);
     runtime
-        .reload_program(&program, &second, Default::default())
+        .program(&program)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     let SourceQuery::Available(current) = runtime.runtime().function_source(&target).unwrap()
     else {
@@ -364,7 +370,9 @@ fn interface_source_targets_intrinsic_bridges_survive_executable_reclamation() {
         observations.push((target, before));
     }
     runtime
-        .reload_program(&program, &second, Default::default())
+        .program(&program)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     assert!(
         runtime
@@ -424,7 +432,7 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

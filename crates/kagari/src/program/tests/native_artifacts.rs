@@ -5,7 +5,7 @@ use crate::{
         source::{ArtifactOptions, NativeInputExport},
     },
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
@@ -72,8 +72,7 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert_eq!(
             program.has_native_input(),
             native_input == NativeInputExport::PortableMir
@@ -114,7 +113,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
         let bytecode = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
         let artifact =
             KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
     };
     let first = prepare("pub fn main() -> i32 { 1 }");
     let second = prepare("pub fn main() -> i32 { 2 }");
@@ -130,13 +129,17 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
         runtime.runtime().select_program(&independent).unwrap().id
     );
     runtime
-        .reload_program(&old, &second, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     let selected = runtime.runtime().select_program(&current).unwrap();
     assert!(second.bytecode().same_version(selected.verified_program()));
     let error = runtime
-        .reload_program(&current, &incompatible, Default::default())
+        .program(&current)
+        .and_then(|base| base.prepare_replacement(&incompatible, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&current, &candidate, Default::default()))
         .unwrap_err();
     assert!(
         matches!(&error, EmbeddingError::ReloadValidation { code, .. }
@@ -148,7 +151,9 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
         selected.key()
     );
     runtime
-        .reload_program(&old, &second, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     assert_eq!(runtime.call(&retained, ()).unwrap(), 2);
     let rebound = runtime.function::<(), i32>(&root, "main").unwrap();

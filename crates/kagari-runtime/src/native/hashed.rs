@@ -1,8 +1,10 @@
 //! Shared traced Rust hash-table payloads. Script hashing never borrows a table.
 use crate::{
     error::RuntimeError,
+    frame::types::compatibility::TypeView,
     native::{
         binding::NativeResult,
+        context::LinkedCallable,
         hash_storage::{HashMapStorage, HashSetStorage},
         storage::{NativePayload, NativeStorage, StorageContext},
         storage_type::StorageType,
@@ -11,7 +13,7 @@ use crate::{
     value::Value,
 };
 use kagari_contract::standard::RuntimePrimitive;
-use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
+use kagari_types::declaration::native::NativeStorageLayout;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -60,11 +62,37 @@ impl NativePayload for SetPayload {
     }
 }
 
-fn builtin_keys(context: &StorageContext<'_>, key: &Ty) -> NativeResult<bool> {
+fn matches_key(
+    context: &StorageContext<'_>,
+    key: &StorageType,
+    callable: &LinkedCallable,
+    count: usize,
+) -> NativeResult<bool> {
+    let owner = callable.owner(context.owner())?;
+    if let Some(signature) = &callable.scoped_signature {
+        return Ok(signature.params.len() == count
+            && signature
+                .params
+                .iter()
+                .all(|argument| key.matches_view(argument.view(&owner))));
+    }
+    Ok(callable.params.len() == count
+        && callable.params.iter().all(|ty| {
+            key.matches_view(TypeView::new(
+                ty,
+                &owner,
+                callable
+                    .environment
+                    .as_ref()
+                    .map(|environment| environment.types.as_ref()),
+            ))
+        }))
+}
+
+fn builtin_keys(context: &StorageContext<'_>, key: &StorageType) -> NativeResult<bool> {
     let hash = context.selected(0)?;
     let equal = context.selected(1)?;
-    if hash.params.as_ref() != [key.clone()] || equal.params.as_ref() != [key.clone(), key.clone()]
-    {
+    if !matches_key(context, key, hash, 1)? || !matches_key(context, key, equal, 2)? {
         return Err(RuntimeError::module_validation(
             "hash storage callable receiver differs from its key type",
         ));
@@ -78,7 +106,7 @@ impl NativeStorage {
         Self::with_layout(NativeStorageLayout::Map { key, value }, move |context| {
             let key_contract = context.element_contract(key)?;
             let value_contract = context.element_contract(value)?;
-            let builtin_keys = builtin_keys(context, &key_contract.ty)?;
+            let builtin_keys = builtin_keys(context, &key_contract)?;
             Ok(MapPayload {
                 key: key_contract,
                 value: value_contract,
@@ -91,7 +119,7 @@ impl NativeStorage {
     pub(crate) fn set(element: usize) -> Self {
         Self::with_layout(NativeStorageLayout::Set { element }, move |context| {
             let contract = context.element_contract(element)?;
-            let builtin_keys = builtin_keys(context, &contract.ty)?;
+            let builtin_keys = builtin_keys(context, &contract)?;
             Ok(SetPayload {
                 element: contract,
                 builtin_keys,

@@ -2,7 +2,7 @@
 //! Source compilation/preparation, handle drops, execution, and engine creation
 //! are outside both timing intervals. A fresh runtime is used for every sample.
 use kagari_source::source::SourceFile;
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::value::Value;
 use std::{hint::black_box, time::Instant};
 
@@ -63,7 +63,7 @@ fn main() {
         );
     }
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut construction_times = Vec::with_capacity(SAMPLES);
     let mut link_times = Vec::with_capacity(SAMPLES);
     for sample in 0..(WARMUPS + SAMPLES) {

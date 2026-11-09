@@ -6,7 +6,7 @@ mod host;
 #[path = "../../examples/async_tasks/provider.rs"]
 mod provider;
 
-use kagari::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
+use kagari::{BytecodeArtifact, engine::KagariEngine, program::Program};
 
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
@@ -64,7 +64,7 @@ fn source_free_structured_pair_contract() {
     )
     .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let module = runtime.load_program(&program, Default::default()).unwrap();
     let run = runtime
@@ -149,6 +149,6 @@ fn source_free_async_execution_contract() {
     let bytes = fs::read(path).expect("emit the async_tasks example artifact first");
     let artifact = BytecodeArtifact::from_bytes(&bytes).unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     host::run(engine, program, io).unwrap();
 }

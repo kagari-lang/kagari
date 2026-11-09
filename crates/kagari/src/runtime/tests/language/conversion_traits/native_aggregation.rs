@@ -1,4 +1,4 @@
-use crate::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 
@@ -17,8 +17,7 @@ fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
             .compile_to_artifact(SourceFile::new("overflow.kgr", source), Default::default())
             .unwrap();
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();

@@ -2,7 +2,7 @@
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    module::{ExecutableModule, Module, ModuleSnapshot, Program, VerifiedProgram},
+    module::{ExecutableModule, InstalledProgram, Module, ModuleSnapshot, VerifiedProgram},
 };
 use kagari_bytecode::program::exports::ExportTarget;
 use kagari_common::identity::table::DefinitionId;
@@ -17,6 +17,22 @@ use kagari_contract::{
 use kagari_types::callable::Signature;
 
 impl VerifiedProgram {
+    /// Resolve a checked authored declaration without requiring a specialization
+    /// or an installation. Private access and execution authority are not granted.
+    pub fn exported_function_declaration(
+        &self,
+        path: &str,
+    ) -> Result<DefinitionId, PublicPathError> {
+        let root = &self.modules[self.root.index()].identity;
+        match self
+            .exports
+            .resolve_public_path(root, path, PublicPathKind::Function)?
+        {
+            PublicPathTarget::Function(declaration) => Ok(declaration),
+            _ => Err(PublicPathError::InvalidGraph),
+        }
+    }
+
     pub(crate) fn export_graph(&self) -> &ProgramExports {
         &self.exports
     }
@@ -51,7 +67,7 @@ impl VerifiedProgram {
     }
 }
 
-impl Program {
+impl InstalledProgram {
     /// Navigate a public module path from this installation's current root.
     /// The returned handle retains canonical namespace identity, not an executable
     /// generation or the alias spelling. Closed installations reject navigation.
@@ -169,15 +185,7 @@ impl ExecutableModule {
         &self,
         path: &str,
     ) -> Result<DefinitionId, PublicPathError> {
-        let code = &self.program.code;
-        let root = &code.modules[code.root.index()].identity;
-        match code
-            .exports
-            .resolve_public_path(root, path, PublicPathKind::Function)?
-        {
-            PublicPathTarget::Function(declaration) => Ok(declaration),
-            _ => Err(PublicPathError::InvalidGraph),
-        }
+        self.program.code.exported_function_declaration(path)
     }
 
     /// Resolve a public Program-root path into a handle for the exact target generation.

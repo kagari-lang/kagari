@@ -1,5 +1,5 @@
 #![cfg(feature = "source")]
-use crate::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
@@ -67,8 +67,7 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
             .unwrap();
         assert!(snapshot.file(stale).is_none());
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let context = ExecutionContext::default();
         let mut runtime = session.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -217,7 +216,7 @@ fn runtimes_from_one_installation_have_independent_native_state_and_heap_owners(
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let owner = first.load_program(&program, Default::default()).unwrap();
     let context = ExecutionContext::default();
     assert_eq!(

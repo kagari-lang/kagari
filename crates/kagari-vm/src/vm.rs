@@ -16,7 +16,7 @@ use kagari_runtime::{
     error::RuntimeError,
     error_trace::ResultFailure,
     gc::roots::RootedValue,
-    module::{ExecutableModule, Program, entry::ProgramEntry},
+    module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
     reload::ReloadValidationError,
     session::{ExecutionSession, ExecutionTrace},
     value::Value,
@@ -77,7 +77,7 @@ impl Vm {
 
     pub fn reload_program(
         &self,
-        active: &Program,
+        active: &InstalledProgram,
         name: Option<String>,
         program: DefinitionMetadata<BytecodeProgram>,
     ) -> Result<(), ReloadError> {
@@ -92,7 +92,7 @@ impl Vm {
 
     pub fn reload_artifact(
         &self,
-        active: &Program,
+        active: &InstalledProgram,
         name: Option<String>,
         artifact: DefinitionMetadata<KbcArtifact>,
         compatibility: &ArtifactCompatibility,

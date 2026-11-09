@@ -1,5 +1,5 @@
 use super::{artifact, engine};
-use crate::program::PreparedProgram;
+use crate::program::Program;
 use kagari_runtime::module::entry::ProgramEntry;
 use rstest::rstest;
 
@@ -11,7 +11,7 @@ use rstest::rstest;
 #[case::variant_member("fn main() { enums::wrong_variant(enums::make(40, 2)); }")]
 fn native_enum_operations_reject_wrong_payloads_members_and_indices(#[case] body: &str) {
     let engine = engine();
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         artifact(&engine, body),
         &Default::default(),
         &Default::default(),

@@ -46,6 +46,9 @@ impl Runtime {
         ty: &Type,
     ) -> NativeResult<TypeArgument> {
         let ty = ty.adopt(self.definition_context())?;
+        let ty = owner
+            .identity_admission()
+            .product(&ty, &Default::default())?;
         self.resolve_type_arguments(owner, slice::from_ref(&ty))?
             .pop()
             .ok_or_else(|| RuntimeError::module_validation("nominal type scope"))

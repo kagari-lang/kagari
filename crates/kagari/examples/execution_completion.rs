@@ -9,7 +9,7 @@ use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
     frame::ExecutionFrame,
-    module::Program,
+    module::InstalledProgram,
     session::{ExecutionEvent, ExecutionObserver, owned::OwnedExecution},
     value::Value,
 };
@@ -73,7 +73,7 @@ impl Route {
 
 struct Fixture {
     runtime: Runtime,
-    module: Program,
+    module: InstalledProgram,
     context: ExecutionContext,
     instructions: usize,
 }

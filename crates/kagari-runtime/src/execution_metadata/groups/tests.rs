@@ -8,7 +8,7 @@ use crate::{
         application_key::{ApplicationArguments, ApplicationKey, MethodIdentity},
     },
     frame::types::{EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope},
-    module::{ExecutableModule, Program},
+    module::{ExecutableModule, InstalledProgram},
     value::Value,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -57,7 +57,7 @@ fn detached_environments_reject_recycled_group_slots() {
     let runtime = Runtime::default();
     let old = runtime.gc.alloc_operation_group(vec![]).unwrap();
     let mut environment =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     environment.add_receiver(&runtime.gc, old).unwrap();
     let environment = runtime.alloc_environment(environment).unwrap();
     runtime
@@ -103,7 +103,7 @@ fn borrowed_group_views_reject_allocation_and_sweeping_before_detachment() {
     assert!(runtime.gc.operation_group(id).is_some());
 }
 
-fn load() -> (Runtime, Program, ExecutableModule) {
+fn load() -> (Runtime, InstalledProgram, ExecutableModule) {
     let source = r#"
         trait Read { fn read(self) -> i32; fn second(self) -> i32; }
         impl Read for i32 { fn read(self) -> i32 { self } fn second(self) -> i32 { 2 } }
@@ -112,7 +112,7 @@ fn load() -> (Runtime, Program, ExecutableModule) {
     load_source(source)
 }
 
-fn load_source(source: &str) -> (Runtime, Program, ExecutableModule) {
+fn load_source(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("group.kgr", source.into(), SourceLayer::Base)
@@ -180,7 +180,8 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
             .unwrap();
         let operation = runtime.gc.bound_operation(operation_id).unwrap();
         let mut environment =
-            EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+            EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![])
+                .unwrap();
         if selected {
             environment
                 .add_operation(&runtime.gc, operation_id)
@@ -235,7 +236,12 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
     }
 }
 
-fn selections() -> (Runtime, Program, ExecutableModule, Vec<OperationId>) {
+fn selections() -> (
+    Runtime,
+    InstalledProgram,
+    ExecutableModule,
+    Vec<OperationId>,
+) {
     let (runtime, loaded_program, loaded) = load();
     let table = loaded
         .bytecode
@@ -293,7 +299,7 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
     let first = (*runtime.gc.bound_operation(ids[0]).unwrap()).clone();
     let sibling = (*runtime.gc.bound_operation(ids[1]).unwrap()).clone();
     let mut environment =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     environment.add_operation(&runtime.gc, ids[0]).unwrap();
     let environment = runtime.alloc_environment(environment).unwrap();
     let root = runtime
@@ -327,7 +333,7 @@ fn selected_witnesses_keep_the_group_without_exposing_siblings() {
     );
     // Whole-receiver selection deliberately exposes its complete verified table.
     let mut receiver =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     receiver.add_receiver(&runtime.gc, ids[0].group).unwrap();
     let receiver = runtime.alloc_environment(receiver).unwrap();
     assert_eq!(
@@ -389,7 +395,7 @@ fn operation_access_checks_owner_generation_and_member_bounds() {
         RuntimeErrorKind::ModuleValidation
     );
     let mut bindings =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     assert!(bindings.add_operation(&runtime.gc, invalid).is_err());
     assert!(bindings.operations().is_empty());
     assert_eq!(runtime.gc.stats(), before);
@@ -469,7 +475,7 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
     let expected = expected.clone();
     drop(snapshot);
     let mut environment =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     let before = environment.types.clone();
     environment.add_receiver(&runtime.gc, group).unwrap();
     assert!(
@@ -479,7 +485,8 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
     );
     let environment = runtime.alloc_environment(environment).unwrap();
     let environment_id = environment.id;
-    let mut child = EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+    let mut child =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     child.include(Some(environment.clone())).unwrap();
     let retained = child.types.clone();
     drop((child, environment));
@@ -503,7 +510,8 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
         arguments: vec![],
     };
     assert_eq!(retained.resolve(&projection).unwrap(), expected);
-    let mut invalid = EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+    let mut invalid =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     let before = invalid.types.clone();
     assert!(invalid.add_receiver(&runtime.gc, group).is_err());
     assert!(invalid.operations().is_empty());

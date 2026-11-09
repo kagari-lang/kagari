@@ -1,7 +1,7 @@
 //! Executor-neutral runtime turns; typed invocation futures are a separate facade.
 use crate::{RunResult, context::ExecutionContext, error::EmbeddingError, runtime::Runtime};
 use kagari_runtime::{
-    module::Program,
+    module::InstalledProgram,
     scheduler::{TurnBudget, tasks::TaskEvent, wake::DriverRegistration},
     task::control::TaskScopeOwner,
 };
@@ -31,13 +31,13 @@ impl Runtime {
 
     /// Managed scopes progress through Runtime polling and retire admission slots
     /// automatically; scope owner drop requests cancellation of its independent Tasks.
-    pub fn create_task_scope(&mut self, module: &Program) -> RunResult<TaskScopeOwner> {
+    pub fn create_task_scope(&mut self, module: &InstalledProgram) -> RunResult<TaskScopeOwner> {
         self.create_task_scope_with_context(module, &self.default_context.clone())
     }
 
     pub fn create_task_scope_with_context(
         &mut self,
-        module: &Program,
+        module: &InstalledProgram,
         context: &ExecutionContext,
     ) -> RunResult<TaskScopeOwner> {
         context.validate_for_execute("TaskScope")?;

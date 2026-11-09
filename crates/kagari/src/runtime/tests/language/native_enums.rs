@@ -2,7 +2,7 @@
 use crate::{
     BytecodeArtifact,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -50,7 +50,7 @@ fn native_registered_enums_execute_from_serialized_artifacts_with_traced_payload
         BytecodeArtifact::from_bytes(&original.records().to_bytes(original.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     // A fresh Engine loads the executable; it never analyzes the source above.
     let mut runtime = engine().runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

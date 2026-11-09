@@ -2,7 +2,7 @@
 use crate::{
     Runtime, StagedReload,
     error::RuntimeError,
-    module::{Program, VerifiedProgram},
+    module::{InstalledProgram, VerifiedProgram},
     reload::ReloadValidationError,
     resource::ResourceState,
 };
@@ -76,7 +76,7 @@ impl Drop for SynchronousActivation<'_> {
 #[must_use]
 pub struct PublicationGuard<'runtime> {
     runtime: &'runtime Runtime,
-    target: Program,
+    target: InstalledProgram,
 }
 
 impl Runtime {
@@ -87,7 +87,7 @@ impl Runtime {
     /// closed/faulted runtimes retain their existing error categories.
     pub fn begin_publication(
         &self,
-        target: &Program,
+        target: &InstalledProgram,
     ) -> Result<PublicationGuard<'_>, RuntimeError> {
         self.resources().ensure_not_publishing()?;
         self.check_publication_boundary()?;

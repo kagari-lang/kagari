@@ -4,12 +4,12 @@ use kagari_contract::source::AuthoredDeclaration;
 use kagari_runtime::{
     frame::ExecutionFrame,
     gc::roots::RootedValue,
-    module::Program,
+    module::InstalledProgram,
     source::{FunctionSourceTarget, ProgramSourceSnapshot, SourceDeclaration, SourceQuery},
 };
 
 impl Runtime {
-    pub fn source_snapshot(&self, program: &Program) -> RunResult<ProgramSourceSnapshot> {
+    pub fn source_snapshot(&self, program: &InstalledProgram) -> RunResult<ProgramSourceSnapshot> {
         Ok(self.runtime().source_snapshot(program)?)
     }
 
@@ -27,7 +27,7 @@ impl Runtime {
 
     pub fn resolve_source_declaration(
         &self,
-        program: &Program,
+        program: &InstalledProgram,
         declaration: &SourceDeclaration,
     ) -> RunResult<AuthoredDeclaration> {
         Ok(self

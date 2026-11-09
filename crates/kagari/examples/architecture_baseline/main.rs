@@ -1,6 +1,8 @@
 //! O1 architecture baseline; run with default source/native features.
 //! `cargo run -p kagari --example architecture_baseline`
 //! Timings include the counting allocator's atomic bookkeeping overhead.
+#[cfg(feature = "native")]
+use kagari::program::native::NativeCompiler;
 use kagari_abi::native::NativeLinkDescription;
 use kagari_runtime::module::entry::ProgramEntry;
 mod memory;
@@ -8,7 +10,7 @@ mod memory;
 use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
@@ -45,8 +47,8 @@ fn sample(mut action: impl FnMut(), label: &str, count: usize) {
     );
 }
 
-fn prepare(bytes: &[u8]) -> PreparedProgram {
-    PreparedProgram::from_artifact(
+fn prepare(bytes: &[u8]) -> Program {
+    Program::from_artifact(
         KbcArtifact::from_bytes(bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -199,14 +201,14 @@ fn main() {
     let mut runtime = engine.runtime(native_context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let before_native = live_bytes();
-    let native = runtime
-        .prepare_native(
+    let native = NativeCompiler::default()
+        .prepare(
             &program,
-            &loaded,
             ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
+        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
         .unwrap();
     let cache_and_install_bytes = live_bytes() - before_native;
     drop(native);
@@ -217,28 +219,30 @@ fn main() {
     sample(
         || {
             black_box(
-                runtime
-                    .prepare_native(
+                {
+                    let native_code = NativeCompiler::default().prepare(
                         &program,
-                        &loaded,
                         ProgramEntry::Main,
                         &mut backend,
                         &Default::default(),
-                    )
-                    .unwrap(),
+                    );
+                    native_code
+                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                }
+                .unwrap(),
             );
         },
         "cached_preparation_and_install",
         101,
     );
-    let native = runtime
-        .prepare_native(
+    let native = NativeCompiler::default()
+        .prepare(
             &program,
-            &loaded,
             ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
+        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
         .unwrap();
     for use_native in [false, true] {
         let mut checksum = 0;

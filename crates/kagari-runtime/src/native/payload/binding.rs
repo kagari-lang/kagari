@@ -64,7 +64,7 @@ impl Runtime {
             argument.validate(self)?;
         }
         let environment = Arc::new(TypeBindings::new(
-            self.definition_context(),
+            &self.definition_context().snapshot(),
             declared.generic_params.clone(),
             arguments.to_vec(),
         )?);

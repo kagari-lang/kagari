@@ -145,7 +145,7 @@ fn shared_lifecycle(
                 runtime
                     .alloc_environment(
                         EnvironmentRecord::new(
-                            runtime.definition_context(),
+                            &runtime.definition_context().snapshot(),
                             body.parameters.clone(),
                             arguments,
                         )
@@ -220,8 +220,12 @@ fn witness_lifecycle(
             .map(|_| {
                 runtime
                     .alloc_environment(
-                        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![])
-                            .unwrap(),
+                        EnvironmentRecord::new(
+                            &runtime.definition_context().snapshot(),
+                            vec![],
+                            vec![],
+                        )
+                        .unwrap(),
                     )
                     .unwrap()
             })

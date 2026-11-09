@@ -160,7 +160,9 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
     assert!(old_bundle.install(&second, &old).is_err());
     let old_selected = first.runtime().select_program(&old).unwrap();
     first
-        .reload_program(&old, new_bundle.program(), Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(new_bundle.program(), &Default::default()))
+        .and_then(|candidate| first.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let new = old.clone();
     assert!(old_bundle.install(&first, &new).is_err());
@@ -172,11 +174,12 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
         )
         .unwrap();
     let incompatible =
-        PreparedProgram::from_artifact(incompatible, &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(incompatible, &Default::default(), &Default::default()).unwrap();
     assert!(
         first
-            .reload_program(&new, &incompatible, Default::default())
+            .program(&new)
+            .and_then(|base| base.prepare_replacement(&incompatible, &Default::default()))
+            .and_then(|candidate| first.replace_program(&new, &candidate, Default::default()))
             .is_err()
     );
     drop((old_bundle, new_bundle));

@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -51,7 +51,7 @@ fn static_source_prepares_and_roundtrips_unused_initializer_descriptors() {
                     .is_empty()
             );
         }
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     }
 }
 

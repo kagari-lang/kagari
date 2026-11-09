@@ -2,7 +2,7 @@
 use crate::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -35,7 +35,7 @@ fn run(source: &str, expected_error: Option<&str>) {
         KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -63,7 +63,9 @@ fn run(source: &str, expected_error: Option<&str>) {
     // The published version owns its materialized constants. Replace it with an
     // unused version so this assertion still detects leaked execution roots.
     runtime
-        .reload_program(&loaded, &program, Default::default())
+        .program(&loaded)
+        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
     assert!(!runtime.runtime().is_quarantined());

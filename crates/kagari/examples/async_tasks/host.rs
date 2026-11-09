@@ -1,8 +1,6 @@
 //! This same host is exercised by the independent source-free feature consumer.
 use super::provider::FakeIo;
-use kagari::{
-    engine::KagariEngine, error::EmbeddingError, program::PreparedProgram, runtime::Runtime,
-};
+use kagari::{engine::KagariEngine, error::EmbeddingError, program::Program, runtime::Runtime};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     native::{completion::CompletionStatus, objects::Object},
@@ -68,7 +66,7 @@ fn settle(runtime: &mut Runtime, wake: &Waker, ready: &Receiver<()>) -> HostResu
     Err("demo exceeded notification bound".into())
 }
 
-pub fn run(engine: KagariEngine, program: PreparedProgram, io: FakeIo) -> HostResult<()> {
+pub fn run(engine: KagariEngine, program: Program, io: FakeIo) -> HostResult<()> {
     let mut runtime = engine.runtime(Default::default());
     let module = runtime
         .load_program(&program, Default::default())

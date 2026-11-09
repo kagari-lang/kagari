@@ -140,7 +140,7 @@ impl Runtime {
             .map(|position| applied.parameter(self, fallback, position))
             .collect::<Result<Vec<_>, RuntimeError>>()?;
         let generic = template.arguments.iter().enumerate().all(|(position, ty)| {
-            matches!(ty, Ty::Parameter { owner, position: slot } if *owner == nominal.declaration && *slot == position)
+            matches!(ty, Ty::Parameter { owner, position: slot } if *owner == template.declaration && *slot == position)
         });
         let scope = if arguments.iter().any(TypeArgument::has_origin) && !generic {
             if !template
@@ -160,7 +160,7 @@ impl Runtime {
             }
             None
         } else {
-            self.prepare_layout_scope(&owner, nominal.declaration, &arguments)?
+            self.prepare_layout_scope(&owner, template.declaration, &arguments)?
         };
         let layout = self
             .modules

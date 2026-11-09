@@ -20,6 +20,7 @@ struct Schema {
 }
 
 fn schema(program: &ExecutableModule, id: DefinitionId) -> Option<Schema> {
+    let id = program.identity_admission().lexical_id(id)?;
     let identity = program.definitions().resolve(id).ok()?.module().clone();
     let module = program
         .members()
@@ -58,9 +59,30 @@ fn schema(program: &ExecutableModule, id: DefinitionId) -> Option<Schema> {
         .cloned()
     });
     Some(Schema {
-        external,
-        public_type,
-        interface,
+        external: external
+            .map(|record| {
+                program
+                    .identity_admission()
+                    .runtime(&record, &Default::default())
+            })
+            .transpose()
+            .ok()?,
+        public_type: public_type
+            .map(|record| {
+                program
+                    .identity_admission()
+                    .runtime(&record, &Default::default())
+            })
+            .transpose()
+            .ok()?,
+        interface: interface
+            .map(|record| {
+                program
+                    .identity_admission()
+                    .runtime(&record, &Default::default())
+            })
+            .transpose()
+            .ok()?,
     })
 }
 
@@ -150,10 +172,18 @@ fn applied_aggregate(
                 new.find_struct_definition(nominal),
             ) {
                 (Some((a, ai)), Some((b, bi))) => {
-                    let a = a.bytecode.structures[ai.index()]
-                        .apply(&nominal.arguments, &Default::default())?;
-                    let b = b.bytecode.structures[bi.index()]
-                        .apply(&nominal.arguments, &Default::default())?;
+                    let a = a.applied_struct_layout(ai, &nominal.arguments)?;
+                    let b = b.applied_struct_layout(bi, &nominal.arguments)?;
+                    let a = a
+                        .module()
+                        .identity_admission()
+                        .runtime(a.layout(), &Default::default())
+                        .ok()?;
+                    let b = b
+                        .module()
+                        .identity_admission()
+                        .runtime(b.layout(), &Default::default())
+                        .ok()?;
                     if a != b {
                         return None;
                     }
@@ -169,10 +199,34 @@ fn applied_aggregate(
                 new.find_enum_definition(nominal),
             ) {
                 (Some((a, ai)), Some((b, bi))) => {
-                    let a = a.bytecode.enumerations[ai.index()]
-                        .apply(&nominal.arguments, &Default::default())?;
-                    let b = b.bytecode.enumerations[bi.index()]
-                        .apply(&nominal.arguments, &Default::default())?;
+                    let a_template = &a.bytecode.enumerations[ai.index()];
+                    let b_template = &b.bytecode.enumerations[bi.index()];
+                    let a_arguments = if a
+                        .identity_admission()
+                        .equivalent(&a_template.arguments, &nominal.arguments)
+                    {
+                        &a_template.arguments
+                    } else {
+                        &nominal.arguments
+                    };
+                    let b_arguments = if b
+                        .identity_admission()
+                        .equivalent(&b_template.arguments, &nominal.arguments)
+                    {
+                        &b_template.arguments
+                    } else {
+                        &nominal.arguments
+                    };
+                    let a = a_template.apply(a_arguments, &Default::default())?;
+                    let b = b_template.apply(b_arguments, &Default::default())?;
+                    let a = old
+                        .identity_admission()
+                        .runtime(a.as_ref(), &Default::default())
+                        .ok()?;
+                    let b = new
+                        .identity_admission()
+                        .runtime(b.as_ref(), &Default::default())
+                        .ok()?;
                     if a != b {
                         return None;
                     }

@@ -3,7 +3,7 @@ use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::{ExecutionStack, types::arguments::TypeArgument},
-    module::{ExecutableModule, Program},
+    module::{ExecutableModule, InstalledProgram},
     native::{
         adapter::Async,
         binding::{Codec, NativeBinding, NativeResult},
@@ -159,7 +159,7 @@ fn owned_initializer_unwind_releases_session_and_cancellation_owner_immediately(
 
 struct Fixture {
     runtime: Runtime,
-    program: Program,
+    program: InstalledProgram,
     module: ExecutableModule,
     request: usize,
     probe: Arc<Probe>,

@@ -43,7 +43,8 @@ fn fixture() -> (Runtime, ExecutableModule, PreparedClosure) {
     assert_eq!(loaded.bytecode.functions.len(), 1);
     let environment = runtime
         .alloc_environment(
-            EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
+            EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![])
+                .unwrap(),
         )
         .unwrap();
     let value = runtime

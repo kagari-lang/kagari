@@ -1,3 +1,4 @@
+pub(crate) mod admission;
 mod applied_layout_identity;
 pub(crate) mod collection;
 pub(crate) mod constants;
@@ -8,15 +9,17 @@ pub mod entry;
 pub mod execution;
 mod exports;
 mod installation;
+mod inventory;
 pub(crate) mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
 pub(crate) mod layout_storage;
 mod layouts;
 pub(crate) mod linked_execution;
-mod normalization;
+pub mod owner;
 mod records;
 pub mod retention;
+pub mod revision;
 pub(crate) mod staging;
 pub mod state;
 #[cfg(test)]
@@ -31,13 +34,16 @@ use crate::{
         cells::{CellId, StaticCell},
     },
     module::{
+        admission::DefinitionAdmission,
         dispatch::{PublicationDispatch, PublicationToken},
         execution::ExecutionModule,
         layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
         layout_identity::{LayoutIdentity, ProgramLayouts},
         layout_scope::LayoutScope,
+        owner::ProgramCodeOwner,
         records::ModuleRecord,
         retention::{ProgramLease, Retentions},
+        revision::ProgramRevision,
         staging::{CandidateLease, StagedProgram},
     },
     native::binding::LinkedNativeFunction,
@@ -63,6 +69,7 @@ use kagari_contract::{
     exports::ProgramExports,
     ids::FunctionRef,
     layout::{EnumLayout, EnumVariantLayout, StructLayout},
+    statics::StaticContract,
     updates::UpdateEvidence,
 };
 
@@ -135,7 +142,7 @@ pub struct InstallationId(pub(crate) u64);
 
 /// A live installation identity; cloning it does not retain an executable version.
 #[derive(Debug, Clone)]
-pub struct Program {
+pub struct InstalledProgram {
     pub(crate) installation: Arc<Installation>,
 }
 
@@ -179,6 +186,7 @@ pub struct ExecutableModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
+    owner: Option<Arc<dyn ProgramCodeOwner>>,
     product_identity: VerifiedProductIdentity,
     source_package: Option<VerifiedSourcePackage>,
     update_evidence: Arc<UpdateEvidence>,
@@ -191,13 +199,9 @@ pub struct VerifiedProgram {
     definitions: DefinitionTable,
     definition_references: Arc<[DefinitionId]>,
     execution: Arc<[ExecutionModule]>,
-    version: Arc<VersionToken>,
+    version: ProgramRevision,
     dependencies: ReloadDependencySnapshot,
 }
-
-/// Exact preparation identity, deliberately independent of payload and execution leases.
-#[derive(Debug)]
-struct VersionToken;
 
 impl VerifiedProgram {
     /// Import scoped editable records, verify once, and retain immutable evidence.
@@ -292,6 +296,7 @@ impl VerifiedProgram {
             .collect::<Vec<HashSet<FunctionRef>>>()
             .into();
         Self {
+            owner: None,
             product_identity: program.product_identity(),
             source_package: None,
             update_evidence: Arc::new(program.program().update_evidence.clone()),
@@ -301,7 +306,7 @@ impl VerifiedProgram {
             root: program.program().root,
             exports: Arc::new(program.program().exports.clone()),
             export_targets: Arc::new(program.export_targets().clone()),
-            version: Arc::new(VersionToken),
+            version: ProgramRevision::new(),
             definitions,
             definition_references,
             modules,
@@ -367,7 +372,24 @@ impl VerifiedProgram {
     /// Identity of the immutable verified program, shared by clones and loads.
     /// Equal bytecode or a matching compatibility hash does not imply this identity.
     pub fn same_version(&self, other: &Self) -> bool {
-        self.root == other.root && Arc::ptr_eq(&self.version, &other.version)
+        self.root == other.root && self.version == other.version
+    }
+
+    /// Exact preparation identity without retaining this product's payload.
+    pub fn revision(&self) -> ProgramRevision {
+        self.version.clone()
+    }
+
+    /// Attach a lifetime owner to this installed wrapper without changing checked
+    /// code identity. The owner provides no evidence, metadata or call authority.
+    pub fn with_owner(mut self, owner: Arc<dyn ProgramCodeOwner>) -> Self {
+        self.owner = Some(owner);
+        self
+    }
+
+    /// Clone the optional preparation owner, independently of Runtime authority.
+    pub fn owner(&self) -> Option<Arc<dyn ProgramCodeOwner>> {
+        self.owner.clone()
     }
 
     pub fn definitions(&self) -> &DefinitionTable {
@@ -377,6 +399,7 @@ impl VerifiedProgram {
 
 #[derive(Debug)]
 struct ProgramDescriptor {
+    definitions: Arc<DefinitionAdmission>,
     source: ProgramSourceSnapshot,
     installation: InstallationId,
     code: VerifiedProgram,
@@ -398,12 +421,14 @@ pub struct LinkedModule {
     pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
     host_types: HashMap<DefinitionId, TypeId>,
+    static_contracts: Vec<StaticContract>,
     pub(crate) host_paths: Vec<HostPathDescriptorId>,
 }
 
 /// Runtime-linked capabilities and immutable native nominal authority for a publication.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct LinkedProgramBindings {
+    pub definitions: Arc<DefinitionAdmission>,
     pub members: Vec<LinkedHostBindings>,
     pub shared_traits: HashSet<DefinitionId>,
 }
@@ -424,6 +449,10 @@ impl Deref for ExecutableModule {
 }
 
 impl ExecutableModule {
+    pub(crate) fn identity_admission(&self) -> &Arc<DefinitionAdmission> {
+        &self.program.definitions
+    }
+
     /// Copy immutable source metadata without retaining this executable descriptor.
     pub fn source_snapshot(&self) -> ProgramSourceSnapshot {
         self.program.source.clone()
@@ -449,11 +478,15 @@ impl ExecutableModule {
     }
 
     pub(crate) fn is_shared_native_trait(&self, declaration: DefinitionId) -> bool {
-        self.program.layouts.is_shared_native_trait(declaration)
+        self.identity_admission()
+            .lexical_id(declaration)
+            .is_some_and(|id| self.program.layouts.is_shared_native_trait(id))
     }
 
     pub(crate) fn host_type(&self, id: DefinitionId) -> Option<TypeId> {
-        self.host_types.get(&id).copied()
+        self.host_types
+            .get(&self.identity_admission().lexical_id(id)?)
+            .copied()
     }
 
     /// Copy editable records and their retained identity scope, without the seal.
@@ -470,12 +503,17 @@ impl ExecutableModule {
     }
 
     pub(crate) fn definition(&self, id: DefinitionId) -> Result<DefinitionView<'_>, RuntimeError> {
+        let id = self
+            .identity_admission()
+            .lexical_id(id)
+            .ok_or_else(|| RuntimeError::module_validation("unadmitted declaration"))?;
         self.definitions()
             .resolve(id)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))
     }
 
     pub(crate) fn definition_name(&self, id: DefinitionId) -> Option<&str> {
+        let id = self.identity_admission().lexical_id(id)?;
         self.definitions()
             .resolve(id)
             .ok()?
@@ -769,6 +807,7 @@ impl ModuleStore {
         admission: Option<ReloadAdmission>,
     ) -> Result<StagedProgram, RuntimeError> {
         let LinkedProgramBindings {
+            definitions,
             members: host_bindings,
             shared_traits,
         } = bindings;
@@ -780,7 +819,7 @@ impl ModuleStore {
         let (retained_demands, expected_base) = match admission {
             Some(admission) => (admission.demands, Some(admission.baseline)),
             None => (
-                RetainedDemands::initial(&program)
+                RetainedDemands::initial(&program, &CancellationToken::default())
                     .map_err(|error| RuntimeError::module_validation(error.to_string()))?,
                 None,
             ),
@@ -802,6 +841,7 @@ impl ModuleStore {
                 .as_ref()
                 .map(|previous| previous.program.dispatch.as_ref()),
             &program,
+            definitions.clone(),
         )?);
         let source = ProgramSourceSnapshot::prepare(
             installation.registry_owner,
@@ -850,6 +890,13 @@ impl ModuleStore {
                     paths,
                 } = host_bindings;
                 native_links.push(native);
+                let static_contracts = bytecode
+                    .module_slots
+                    .iter()
+                    .map(|descriptor| {
+                        definitions.runtime(&descriptor.contract, &CancellationToken::default())
+                    })
+                    .collect::<Result<_, _>>()?;
                 Ok(LinkedModule {
                     id,
                     name: display,
@@ -857,11 +904,13 @@ impl ModuleStore {
                     bytecode,
                     registry_owner: installation.registry_owner,
                     host_types: types,
+                    static_contracts,
                     host_paths: paths,
                 })
             })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
         let program = Arc::new(ProgramDescriptor {
+            definitions,
             source,
             installation: installation.id,
             retained_demands,

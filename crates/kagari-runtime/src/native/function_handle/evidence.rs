@@ -154,7 +154,6 @@ impl EntryEvidence {
             types.len() == arguments.len()
                 && types.iter().zip(arguments).all(|(ty, argument)| {
                     ty.is_concrete()
-                        && argument.ty() == ty
                         && argument
                             .view(root)
                             .compatible(TypeView::new(ty, owner, None))
@@ -270,15 +269,18 @@ impl EntryEvidence {
     pub(super) fn bind(&self) -> NativeResult<EntryBinding> {
         Ok(EntryBinding {
             route: self.owner.bind_call_route(self.key.target)?,
-            signature: Signature {
-                params: self
-                    .signature
-                    .params
-                    .iter()
-                    .map(|argument| argument.ty().clone())
-                    .collect(),
-                result: self.signature.result.ty().clone(),
-            },
+            signature: self.owner.identity_admission().product(
+                &Signature {
+                    params: self
+                        .signature
+                        .params
+                        .iter()
+                        .map(|argument| argument.ty().clone())
+                        .collect(),
+                    result: self.signature.result.ty().clone(),
+                },
+                &Default::default(),
+            )?,
             shared: self
                 .shared
                 .as_ref()

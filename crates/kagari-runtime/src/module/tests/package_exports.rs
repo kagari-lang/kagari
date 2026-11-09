@@ -4,7 +4,8 @@ use crate::{
     Runtime,
     error::RuntimeErrorKind,
     module::{
-        ExecutableModule, ModuleEpochRetention, Program, VerifiedProgram, state::StaticState,
+        ExecutableModule, InstalledProgram, ModuleEpochRetention, VerifiedProgram,
+        state::StaticState,
     },
     native::function_handle::Function,
     reload::ReloadValidationError,
@@ -95,7 +96,11 @@ fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
         .load_verified_program("exports", original.clone())
         .unwrap();
     let foreign = second.select_program(&foreign_program).unwrap();
-    assert_ne!(loaded.definitions().id(), foreign.definitions().id());
+    assert_eq!(loaded.definitions().id(), foreign.definitions().id());
+    assert_ne!(
+        loaded.identity_admission().target().id(),
+        foreign.identity_admission().target().id()
+    );
     assert!(
         loaded
             .verified_program()
@@ -215,7 +220,7 @@ fn relative_binding_code(source: &str) -> VerifiedProgram {
     VerifiedProgram::new(metadata, &DefinitionContext::new().unwrap()).unwrap()
 }
 
-fn relative_binding_fixture() -> (Runtime, Program) {
+fn relative_binding_fixture() -> (Runtime, InstalledProgram) {
     let mut runtime = Runtime::default();
     let program = runtime
         .load_verified_program("relative", relative_binding_code(RELATIVE_BINDINGS))

@@ -4,7 +4,7 @@ use kagari::{
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::ArtifactCompatibility;
@@ -220,7 +220,7 @@ fn execute(engine: &KagariEngine, inputs: &ProgramInputs) -> Value {
         .emit_artifact(&checked, ArtifactOptions::default())
         .unwrap();
     let context = ExecutionContext::default();
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         artifact,
         &ArtifactCompatibility::default(),
         &context.cancellation,

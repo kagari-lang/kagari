@@ -13,15 +13,17 @@ use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Default)]
 struct ReceiverMethods {
-    slots: Vec<Option<usize>>,
     members: HashMap<DefinitionId, usize>,
 }
+
+type SlotIndex = HashMap<NominalTy, HashMap<Arc<TypeIdentity>, Vec<Option<usize>>>>;
 
 #[derive(Debug)]
 pub(crate) struct OperationGroup {
     id: OperationGroupId,
     entries: Vec<BoundOperation>,
     index: HashMap<NominalTy, HashMap<Arc<TypeIdentity>, ReceiverMethods>>,
+    slots: SlotIndex,
 }
 
 impl OperationGroup {
@@ -37,6 +39,7 @@ impl OperationGroup {
     pub(crate) fn new(entries: Vec<BoundOperation>, id: OperationGroupId) -> Self {
         let mut index: HashMap<NominalTy, HashMap<Arc<TypeIdentity>, ReceiverMethods>> =
             HashMap::new();
+        let mut slots = SlotIndex::new();
         for (position, operation) in entries.iter().enumerate() {
             let methods = index
                 .entry(operation.requirement.interface.clone())
@@ -44,16 +47,24 @@ impl OperationGroup {
                 .entry(operation.receiver_identity.clone())
                 .or_default();
             let slot = operation.slot as usize;
-            methods
-                .slots
-                .resize(methods.slots.len().max(slot + 1), None);
-            methods.slots[slot].get_or_insert(position);
+            let receiver_slots = slots
+                .entry(operation.interface_key.clone())
+                .or_default()
+                .entry(operation.receiver_identity.clone())
+                .or_default();
+            receiver_slots.resize(receiver_slots.len().max(slot + 1), None);
+            receiver_slots[slot].get_or_insert(position);
             methods
                 .members
                 .entry(operation.requirement.member)
                 .or_insert(position);
         }
-        Self { id, entries, index }
+        Self {
+            id,
+            entries,
+            index,
+            slots,
+        }
     }
 
     pub(crate) fn operation_ids(&self) -> impl Iterator<Item = OperationId> + '_ {
@@ -90,8 +101,9 @@ impl OperationGroup {
         slot: u32,
     ) -> Option<OperationId> {
         let position = self
-            .methods(receiver, interface)?
             .slots
+            .get(interface)?
+            .get(receiver)?
             .get(slot as usize)?
             .as_ref()?;
         self.entries.get(*position).map(|_| OperationId {

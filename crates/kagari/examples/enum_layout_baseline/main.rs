@@ -5,7 +5,7 @@ mod model;
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_runtime::{
     diagnostics::allocations::{self, Allocator, Counts},
@@ -78,7 +78,7 @@ fn main() {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     println!(
         "prepare_us={} engine_setup_us={engine_setup_us} Value_bytes={} count={count} samples={samples} automatic_gc={automatic}",
         start.elapsed().as_micros(),

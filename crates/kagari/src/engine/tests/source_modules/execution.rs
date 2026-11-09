@@ -8,7 +8,7 @@ use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{module::ModuleEpochRetention, session::TraceValue};
 
-use crate::program::PreparedProgram;
+use crate::program::Program;
 use std::collections::HashSet;
 
 #[test]
@@ -53,8 +53,7 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
     for artifact in [artifact, decoded] {
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
@@ -112,12 +111,8 @@ fn dependency_bindings_are_checked_before_execution() {
     assert!(
         missing
             .load_program(
-                &PreparedProgram::from_artifact(
-                    artifact.clone(),
-                    &Default::default(),
-                    &Default::default()
-                )
-                .unwrap(),
+                &Program::from_artifact(artifact.clone(), &Default::default(), &Default::default())
+                    .unwrap(),
                 Default::default()
             )
             .is_err()
@@ -125,7 +120,7 @@ fn dependency_bindings_are_checked_before_execution() {
     assert_eq!(missing.runtime().modules().loaded_count(), 0);
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -175,8 +170,7 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
             } else {
                 artifact.clone()
             };
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap()
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
         };
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
@@ -184,7 +178,9 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
             .load_program(&prepare(&artifacts[0]), Default::default())
             .unwrap();
         let error = runtime
-            .reload_program(&active, &prepare(&artifacts[1]), Default::default())
+            .program(&active)
+            .and_then(|base| base.prepare_replacement(&prepare(&artifacts[1]), &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&active, &candidate, Default::default()))
             .unwrap_err();
         assert_eq!(error.code(), "KG_RELOAD_PUBLIC_EXPORT_MISMATCH");
         assert_eq!(
@@ -198,7 +194,9 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
         );
         // Rejection leaves the baseline active, so a valid reload can still publish.
         runtime
-            .reload_program(&active, &prepare(&artifacts[0]), Default::default())
+            .program(&active)
+            .and_then(|base| base.prepare_replacement(&prepare(&artifacts[0]), &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&active, &candidate, Default::default()))
             .unwrap();
     }
 }
@@ -252,7 +250,9 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         .map(|module| module.key())
         .collect();
     runtime
-        .reload_program(&old, &second.clone(), Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&second.clone(), &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let new = old.clone();
     assert!(
@@ -409,16 +409,12 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         corrupted.program = bad;
         let encoded = corrupted.to_bytes(artifact.definitions()).unwrap();
         let decoded = BytecodeArtifact::from_bytes(&encoded).unwrap();
-        assert!(
-            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .is_err()
-        );
+        assert!(Program::from_artifact(decoded, &Default::default(), &Default::default()).is_err());
         assert_eq!(runtime.runtime().modules().loaded_count(), 0);
     }
     let installed = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();

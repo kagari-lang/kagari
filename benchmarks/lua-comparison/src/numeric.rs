@@ -1,6 +1,6 @@
 //! Matched finite arithmetic/bit/conversion workloads across every numeric type.
 use crate::Options;
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use mlua::{Function, Lua};
@@ -70,9 +70,8 @@ pub(super) fn run(options: &Options) {
         start.elapsed().as_nanos()
     );
     let start = Instant::now();
-    let prepared =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-            .expect("numeric verification");
+    let prepared = Program::from_artifact(artifact, &Default::default(), &Default::default())
+        .expect("numeric verification");
     eprintln!("numeric artifact_prepare_ns={}", start.elapsed().as_nanos());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());

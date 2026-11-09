@@ -3,6 +3,7 @@ use crate::{
     error::RuntimeError,
     module::{
         Installation, VerifiedProgram,
+        admission::DefinitionAdmission,
         dispatch::{
             PublicationDispatch, PublicationToken,
             identity::{DeclarationIndex, PublicationDefinitions},
@@ -69,12 +70,14 @@ impl PublicationDispatch {
         token: PublicationToken,
         previous: Option<&Self>,
         program: &VerifiedProgram,
+        admission: Arc<DefinitionAdmission>,
     ) -> Result<Self, RuntimeError> {
         let (index, scope) = DeclarationIndex::prepare(
             installation,
             token,
             previous.map(|old| &old.index),
             program,
+            admission,
         )?;
         let tables = DispatchTables::prepare(program, &scope)?;
         Ok(Self {

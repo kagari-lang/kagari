@@ -10,7 +10,7 @@ use crate::{
 use kagari_runtime::{
     error::RuntimeError,
     host_scope::scoped::HostScope,
-    module::{ExecutableModule, Program, entry::ProgramEntry},
+    module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
     native::{
         binding::NativeResult,
         conversion::{FromKagari, arguments::IntoKagariArguments, context::ConversionContext},
@@ -27,7 +27,7 @@ impl Vm {
     /// uses the interpreter's ordinary checked entry, session and trap cleanup.
     pub fn execute_scoped<'entry>(
         scope: &HostScope<'_, '_>,
-        program: &Program,
+        program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'entry>>,
         arguments: &[Value],
         options: ExecutionOptions,

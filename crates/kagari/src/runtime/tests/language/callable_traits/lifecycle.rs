@@ -1,4 +1,4 @@
-use crate::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 
@@ -25,7 +25,7 @@ pub fn healthy()->i32{42}
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();

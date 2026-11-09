@@ -97,7 +97,7 @@ impl Runtime {
             }
             visited.push(key);
             let mut environment = EnvironmentRecord::new(
-                self.definition_context(),
+                owner.definitions(),
                 template.generic_params.clone(),
                 arguments,
             )?;
@@ -188,6 +188,11 @@ impl Runtime {
                     receiver_identity: receiver_identity.clone(),
                     application: None,
                     associated_interface: interface.clone(),
+                    interface_key: owner.identity_admission().runtime_in(
+                        &interface,
+                        &self.definition_context().snapshot(),
+                        &Default::default(),
+                    )?,
                     generic: Some(BoundGenericMethod {
                         receiver_table: binding.clone(),
                         receiver_environment: Some(environment.clone()),

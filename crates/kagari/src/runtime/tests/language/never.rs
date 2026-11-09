@@ -1,8 +1,10 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -40,21 +42,22 @@ fn execute_entries(source: &str, entries: &[(ProgramEntry<'_>, i32)]) {
         };
         let mut runtime = engine.runtime(context.clone());
         let prepared =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
         for &(entry, expected) in entries {
             let result = if jit {
                 let mut backend = CraneliftBackend::for_host().unwrap();
-                let native = runtime
-                    .prepare_native(
+                let native = {
+                    let native_code = NativeCompiler::default().prepare(
                         &prepared,
-                        &loaded,
                         entry,
                         &mut backend,
                         &context.cancellation,
-                    )
-                    .unwrap();
+                    );
+                    native_code
+                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                }
+                .unwrap();
                 runtime.execute_prepared(&loaded, entry, &[], &context, &native)
             } else {
                 runtime.execute(&loaded, entry, &[], &context)

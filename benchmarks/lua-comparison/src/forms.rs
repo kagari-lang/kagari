@@ -3,7 +3,7 @@
 use crate::diagnostics;
 
 use crate::{Options, profile};
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_runtime::{
     native::{
@@ -184,9 +184,8 @@ pub(super) fn run(options: &Options) {
         start.elapsed().as_nanos()
     );
     let start = Instant::now();
-    let prepared =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-            .expect("forms verification");
+    let prepared = Program::from_artifact(artifact, &Default::default(), &Default::default())
+        .expect("forms verification");
     println!(
         "artifact_prepare,forms_module,kagari_vm,{N},1,0,{},0",
         start.elapsed().as_nanos()

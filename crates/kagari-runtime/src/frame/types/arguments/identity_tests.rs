@@ -36,6 +36,7 @@ fn binder(definitions: &DefinitionContext, module: &str) -> GenericParam {
 fn argument(kind: BuiltinType) -> TypeArgument {
     TypeArgument {
         data: Arc::new(TypeArgumentData {
+            registry: None,
             ty: Ty::Builtin(kind),
             definitions: DefinitionContext::new().unwrap().snapshot(),
             origin: None,
@@ -51,18 +52,24 @@ fn argument(kind: BuiltinType) -> TypeArgument {
 fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
     let definitions = DefinitionContext::new().unwrap();
     let parent = Arc::new(
-        TypeBindings::new(
-            &definitions,
-            vec![binder(&definitions, "parent.kgr")],
-            vec![argument(BuiltinType::I32)],
-        )
+        {
+            let parameters = vec![binder(&definitions, "parent.kgr")];
+            TypeBindings::new(
+                &definitions.snapshot(),
+                parameters,
+                vec![argument(BuiltinType::I32)],
+            )
+        }
         .unwrap(),
     );
-    let mut child = TypeBindings::new(
-        &definitions,
-        vec![binder(&definitions, "child.kgr")],
-        vec![argument(BuiltinType::String)],
-    )
+    let mut child = {
+        let parameters = vec![binder(&definitions, "child.kgr")];
+        TypeBindings::new(
+            &definitions.snapshot(),
+            parameters,
+            vec![argument(BuiltinType::String)],
+        )
+    }
     .unwrap();
     child.include(Some(parent.clone())).unwrap();
     let body = GenericBody {
@@ -95,26 +102,35 @@ fn scoped_frame_binders_preserve_parent_scope_and_survive_context_owner_drop() {
 fn environments_reject_duplicate_binders_and_foreign_context_parents() {
     let definitions = DefinitionContext::new().unwrap();
     let parent = Arc::new(
-        TypeBindings::new(
-            &definitions,
-            vec![binder(&definitions, "owner.kgr")],
-            vec![argument(BuiltinType::I32)],
-        )
+        {
+            let parameters = vec![binder(&definitions, "owner.kgr")];
+            TypeBindings::new(
+                &definitions.snapshot(),
+                parameters,
+                vec![argument(BuiltinType::I32)],
+            )
+        }
         .unwrap(),
     );
-    let mut duplicate = TypeBindings::new(
-        &definitions,
-        vec![binder(&definitions, "owner.kgr")],
-        vec![argument(BuiltinType::String)],
-    )
+    let mut duplicate = {
+        let parameters = vec![binder(&definitions, "owner.kgr")];
+        TypeBindings::new(
+            &definitions.snapshot(),
+            parameters,
+            vec![argument(BuiltinType::String)],
+        )
+    }
     .unwrap();
     assert!(duplicate.include(Some(parent.clone())).is_err());
     let foreign = DefinitionContext::new().unwrap();
-    let mut child = TypeBindings::new(
-        &foreign,
-        vec![binder(&foreign, "other.kgr")],
-        vec![argument(BuiltinType::String)],
-    )
+    let mut child = {
+        let parameters = vec![binder(&foreign, "other.kgr")];
+        TypeBindings::new(
+            &foreign.snapshot(),
+            parameters,
+            vec![argument(BuiltinType::String)],
+        )
+    }
     .unwrap();
     assert!(child.include(Some(parent)).is_err());
 }
@@ -136,7 +152,7 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
         .unwrap();
     let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
     let mut parent = EnvironmentRecord::new(
-        runtime.definition_context(),
+        &runtime.definition_context().snapshot(),
         vec![parameter.clone()],
         vec![argument],
     )
@@ -144,7 +160,8 @@ fn nominal_type_origins_keep_bindings_without_retaining_execution_parents() {
     parent.add_receiver(&runtime.gc, group).unwrap();
     let parent = runtime.alloc_environment(parent).unwrap();
     let parent_id = parent.id;
-    let mut child = EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+    let mut child =
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     child.include(Some(parent.clone())).unwrap();
     let child = runtime.alloc_environment(child).unwrap();
     let child_id = child.id;

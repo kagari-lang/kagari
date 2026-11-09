@@ -44,7 +44,11 @@ impl Runtime {
             .interface_tables
             .get(table_index)
             .ok_or_else(invalid)?;
-        if linked.arguments.iter().all(Ty::is_concrete) && linked.arguments != concrete_arguments {
+        if linked.arguments.iter().all(Ty::is_concrete)
+            && !implementation
+                .identity_admission()
+                .equivalent(&linked.arguments, &concrete_arguments)
+        {
             return Err(invalid());
         }
         let template = implementation
@@ -79,14 +83,20 @@ impl Runtime {
         if let Some(description) = self.gc.interface_description(&key) {
             return Ok(InterfaceValueSnapshot::new(description, data));
         }
-        let table = template
-            .instantiate(&concrete_arguments, &[], implementation.definitions())
+        let closed_definitions = self.definition_context().snapshot();
+        let applied_template = implementation.identity_admission().runtime_in(
+            template,
+            &closed_definitions,
+            &Default::default(),
+        )?;
+        let table = applied_template
+            .instantiate(&concrete_arguments, &[], &closed_definitions)
             .ok_or_else(invalid)?;
         let environment = if template.generic_params.is_empty() {
             None
         } else {
             let mut environment = EnvironmentRecord::new(
-                self.definition_context(),
+                implementation.definitions(),
                 template.generic_params.clone(),
                 arguments.to_vec(),
             )?;
@@ -122,10 +132,23 @@ impl Runtime {
             None
         };
         let view_interface = view
-            .map(|view| substitution.apply_nominal(&view.interface, &Default::default()))
+            .map(|view| {
+                let interface = substitution
+                    .apply_nominal(&view.interface, &Default::default())
+                    .map_err(|_| invalid())?;
+                implementation.identity_admission().runtime_in(
+                    &interface,
+                    &closed_definitions,
+                    &Default::default(),
+                )
+            })
             .transpose()
             .map_err(|_| invalid())?;
         let interface_type = view_interface.as_ref().unwrap_or(interface_type);
+        let interface_declaration = implementation
+            .identity_admission()
+            .lexical_id(interface_type.declaration)
+            .ok_or_else(invalid)?;
         let module = implementation
             .definition(interface_type.declaration)?
             .module();
@@ -137,7 +160,7 @@ impl Runtime {
                     &member.bytecode.identity,
                     &member.bytecode.public_items,
                     &member.bytecode.trait_contracts,
-                    &interface_type.declaration,
+                    &interface_declaration,
                     member.definitions(),
                 )
                 .cloned()
@@ -163,7 +186,7 @@ impl Runtime {
             let method_id = implementation
                 .definitions()
                 .lookup_child(
-                    interface_type.declaration,
+                    interface_declaration,
                     DefinitionKind::Method,
                     &method.name,
                     0,
@@ -241,9 +264,13 @@ impl Runtime {
                 .iter()
                 .map(|parent| {
                     Ok(InterfaceParentBinding {
-                        interface: substitution
-                            .apply_nominal(&parent.interface, &Default::default())
-                            .map_err(|_| invalid())?,
+                        interface: implementation.identity_admission().runtime_in(
+                            &substitution
+                                .apply_nominal(&parent.interface, &Default::default())
+                                .map_err(|_| invalid())?,
+                            &closed_definitions,
+                            &Default::default(),
+                        )?,
                         binding: calls::interface_binding(
                             implementation,
                             &parent.implementation,

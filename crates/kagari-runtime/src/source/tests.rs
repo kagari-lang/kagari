@@ -1,7 +1,9 @@
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    module::{ExecutableModule, VerifiedProgram, dispatch::CallRouteKind},
+    module::{
+        ExecutableModule, VerifiedProgram, admission::DefinitionAdmission, dispatch::CallRouteKind,
+    },
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -128,14 +130,17 @@ fn source_only_inventory_imports_without_reverification_and_honors_cancellation(
             .all(|(a, b)| Arc::ptr_eq(a, b))
     );
     let context = DefinitionContext::new().unwrap();
-    let imported = attached.normalized(&context, &cancel).unwrap();
-    assert!(attached.same_version(&imported));
-    let imported_package = imported.source_package().unwrap();
+    let admission = DefinitionAdmission::prepare(&attached, &context, &cancel).unwrap();
+    let imported_package = attached.source_package().unwrap();
     imported_package
         .records()
         .visit_definition_ids(
             &mut |id| {
-                assert_eq!(id.table(), imported.definitions().id());
+                let mapped = admission.runtime_id(*id).unwrap();
+                let original = attached.definitions().resolve(*id).unwrap();
+                let local = admission.target().resolve(mapped).unwrap();
+                assert_eq!(original.to_path(), local.to_path());
+                assert_eq!(admission.product_id(mapped), Some(*id));
                 Ok(())
             },
             &cancel,
@@ -150,14 +155,14 @@ fn source_only_inventory_imports_without_reverification_and_honors_cancellation(
             )
             .is_err()
     );
-    let rebound = imported
+    let rebound = attached
         .clone()
         .with_source_package(package.clone(), &cancel)
         .unwrap();
     assert!(rebound.same_version(&attached));
     let mut runtime = Runtime::default();
     let program = runtime
-        .load_verified_program("inventory", imported)
+        .load_verified_program("inventory", attached.clone())
         .unwrap();
     let snapshot = runtime.source_snapshot(&program).unwrap();
     assert_eq!(
@@ -182,16 +187,13 @@ fn source_only_inventory_imports_without_reverification_and_honors_cancellation(
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
-        attached
-            .normalized(&context, &cancelled)
+        DefinitionAdmission::prepare(&attached, &context, &cancelled)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
-        rebound
-            .clone()
-            .normalized(&context, &cancelled)
+        DefinitionAdmission::prepare(&rebound, runtime.definition_context(), &cancelled)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::Cancelled

@@ -1,5 +1,5 @@
 //! Shared native-wait fixture for unit and standalone consumer contracts.
-use super::{EngineConfig, KagariEngine, KagariEngineBuilder, PreparedProgram, Runtime};
+use super::{EngineConfig, KagariEngine, KagariEngineBuilder, Program, Runtime};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -23,7 +23,7 @@ use kagari_contract::{
     },
 };
 use kagari_runtime::{
-    module::Program,
+    module::InstalledProgram,
     native::{
         adapter::Async,
         builder::ModuleBuilder,
@@ -111,7 +111,7 @@ fn synthetic_program(
     _: &KagariEngine,
     catalog: &DeclarationCatalog,
     declaration: DefinitionMetadata<ModuleDecl>,
-) -> PreparedProgram {
+) -> Program {
     let definitions = DefinitionContext::new().unwrap();
     let future = catalog.future_type().unwrap();
     let owner = future
@@ -334,7 +334,7 @@ fn synthetic_program(
     .unwrap();
     let decoded =
         KbcArtifact::from_bytes(&artifact.to_bytes(&definitions.snapshot()).unwrap()).unwrap();
-    PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
+    Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
 }
 
 pub(super) struct Fixture {
@@ -343,8 +343,8 @@ pub(super) struct Fixture {
     #[cfg(feature = "source")]
     pub(super) engine: KagariEngine,
     pub(super) runtime: Runtime,
-    pub(super) module: Program,
-    pub(super) program: PreparedProgram,
+    pub(super) module: InstalledProgram,
+    pub(super) program: Program,
     pub(super) starts: Arc<AtomicUsize>,
     pub(super) cancels: Arc<AtomicUsize>,
     pub(super) sent: Arc<Mutex<Vec<Completion<i32>>>>,
@@ -365,7 +365,7 @@ impl Fixture {
             &KagariEngine,
             &DeclarationCatalog,
             DefinitionMetadata<ModuleDecl>,
-        ) -> PreparedProgram,
+        ) -> Program,
     ) -> Self {
         let mut engine = KagariEngine::builder().unwrap();
         engine.config(config);

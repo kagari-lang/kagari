@@ -1,5 +1,5 @@
 //! Count requested bytes through runtime teardown; do not use these runs for timing.
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
     diagnostics::{
         allocations::{self, Counts},
@@ -17,7 +17,7 @@ struct Snapshot {
 
 pub(super) fn run(
     engine: &KagariEngine,
-    program: &PreparedProgram,
+    program: &Program,
     context: &ExecutionContext,
     population: i32,
 ) {
@@ -117,7 +117,7 @@ pub(super) fn run(
     field_loops(engine, program, context);
 }
 
-fn field_loops(engine: &KagariEngine, program: &PreparedProgram, context: &ExecutionContext) {
+fn field_loops(engine: &KagariEngine, program: &Program, context: &ExecutionContext) {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(program, Default::default()).unwrap();
     let point: ScriptValue = runtime

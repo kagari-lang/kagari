@@ -1,4 +1,4 @@
-use crate::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
     host::HostCallContext,
     module::entry::ProgramEntry,
@@ -24,8 +24,7 @@ fn shifts_reject_negative_and_width_counts() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
@@ -84,7 +83,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
 
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -130,8 +129,7 @@ fn ordinary_narrow_remainder_and_compound_arithmetic_still_trap() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let program_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let program = runtime
             .load_program(&program_program, Default::default())
             .unwrap();

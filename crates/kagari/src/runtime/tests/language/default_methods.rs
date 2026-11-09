@@ -1,6 +1,4 @@
-use crate::{
-    BytecodeArtifact, context::ExecutionContext, engine::EngineConfig, program::PreparedProgram,
-};
+use crate::{BytecodeArtifact, context::ExecutionContext, engine::EngineConfig, program::Program};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, ConstructionTarget},
     program::{ModuleRef, identity, verify_program},
@@ -122,7 +120,7 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(
+            &Program::from_artifact(
                 BytecodeArtifact::from_bytes(
                     &artifact.records().to_bytes(artifact.definitions()).unwrap(),
                 )
@@ -506,7 +504,7 @@ fn main() -> i32 {
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

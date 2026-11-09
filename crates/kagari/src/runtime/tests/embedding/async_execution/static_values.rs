@@ -14,7 +14,7 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
         include_str!("../../../../../tests/fixtures/embedding/async/persistent-values.kgr");
     let original_version = "fn version() -> i32 {\n    10\n}";
     assert_eq!(source.matches(original_version).count(), 1);
-    let f = Fixture::with_prepared_program(
+    let mut f = Fixture::with_prepared_program(
         Default::default(),
         |_| {},
         |engine, _, _| prepare_static_program(engine, source, decoded),
@@ -50,7 +50,12 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
         "storing does not start async work"
     );
     f.runtime
-        .reload_program(&f.module, &replacement, Default::default())
+        .program(&f.module)
+        .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+        .and_then(|candidate| {
+            f.runtime
+                .replace_program(&f.module, &candidate, Default::default())
+        })
         .unwrap();
     let _ = f.invoke("set_state", &[Value::I32(5)]);
     let future = f.invoke("await_future", &[]);

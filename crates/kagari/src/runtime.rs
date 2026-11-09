@@ -8,20 +8,17 @@ mod scheduler;
 mod scoped;
 mod source;
 mod typed;
-#[cfg(any(feature = "source", feature = "native"))]
-mod update;
-#[cfg(any(feature = "source", feature = "native"))]
-use crate::runtime::update::Publications;
 use crate::{
     LoadResult, ReloadResult, RunResult,
     context::ExecutionContext,
     error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    program::Program,
 };
 
+use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
     Runtime as CoreRuntime,
-    module::{Program, entry::ProgramEntry},
+    module::{InstalledProgram, entry::ProgramEntry},
     value::Value,
 };
 use kagari_vm::{
@@ -36,8 +33,6 @@ use kagari_vm::{
 pub struct Runtime {
     vm: Vm,
     default_context: ExecutionContext,
-    #[cfg(any(feature = "source", feature = "native"))]
-    publications: Publications,
 }
 
 impl Runtime {
@@ -45,8 +40,6 @@ impl Runtime {
         Self {
             vm: Vm::new(runtime),
             default_context,
-            #[cfg(any(feature = "source", feature = "native"))]
-            publications: Publications::default(),
         }
     }
 
@@ -68,11 +61,19 @@ impl Runtime {
         &self.default_context
     }
 
+    /// Acquire the immutable shared product of the current SDK installation.
+    /// Low-level publications without a matching SDK owner reject instead of
+    /// reconstructing inputs or falling back to a stale preparation association.
+    pub fn program(&self, installed: &InstalledProgram) -> RunResult<Program> {
+        let current = self.runtime().select_program(installed)?;
+        Program::from_installed_code(current.verified_program())
+    }
+
     pub fn load_program(
         &mut self,
-        program: &PreparedProgram,
+        program: &Program,
         options: LoadOptions,
-    ) -> LoadResult<Program> {
+    ) -> LoadResult<InstalledProgram> {
         let program_name = options.program_name.unwrap_or_else(|| {
             program.bytecode().modules()[program.bytecode().root().index()]
                 .source_name
@@ -81,47 +82,53 @@ impl Runtime {
         let candidate = self
             .vm
             .runtime_mut()
-            .stage_load_verified_program(program_name, program.bytecode().clone())
+            .stage_load_verified_program(program_name, program.clone().into_verified())
             .map_err(EmbeddingError::load)?;
-        #[cfg(any(feature = "source", feature = "native"))]
-        let association = self
-            .publications
-            .stage(candidate.publication_token(), program.retained_inputs())?;
         let loaded = self
             .vm
             .runtime_mut()
             .publish_staged_load(candidate)
             .map_err(EmbeddingError::load)?;
-        #[cfg(any(feature = "source", feature = "native"))]
-        association.published();
         Ok(loaded)
     }
 
-    pub fn reload_program(
-        &self,
-        previous: &Program,
-        program: &PreparedProgram,
+    /// Publish a candidate checked against this installation's exact current
+    /// shared base. No compiler/query cache or source preparation is accessed.
+    /// Cancellation or any admission failure leaves current code/state unchanged.
+    pub fn replace_program(
+        &mut self,
+        previous: &InstalledProgram,
+        program: &Program,
         options: ReloadOptions,
     ) -> ReloadResult<()> {
+        options
+            .cancellation
+            .check()
+            .map_err(|_| EmbeddingError::Cancelled)?;
+        let base = self.program(previous)?;
+        if !program.expects_base(&base) {
+            return Err(EmbeddingError::runtime(
+                RuntimeFailureKind::StaleModuleOrHostRoot,
+                "replacement does not expect the installation's current Program base",
+            ));
+        }
         let guard = self.runtime().begin_publication(previous)?;
         let candidate = guard
-            .stage_reload_verified_program(options.program_name, program.bytecode().clone())
+            .stage_reload_verified_program(options.program_name, program.clone().into_verified())
             .map_err(EmbeddingError::reload_validation)?;
-        #[cfg(any(feature = "source", feature = "native"))]
-        let association = self
-            .publications
-            .stage(candidate.publication_token(), program.retained_inputs())?;
+        options
+            .cancellation
+            .check()
+            .map_err(|_| EmbeddingError::Cancelled)?;
         guard
             .publish(candidate)
             .map_err(EmbeddingError::reload_validation)?;
-        #[cfg(any(feature = "source", feature = "native"))]
-        association.published();
         Ok(())
     }
 
     pub fn execute<'a>(
         &self,
-        program: &Program,
+        program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'a>>,
         args: &[Value],
         context: &ExecutionContext,
@@ -149,7 +156,7 @@ impl Runtime {
 
     pub fn execute_prepared<'a>(
         &self,
-        program: &Program,
+        program: &InstalledProgram,
         entry: impl Into<ProgramEntry<'a>>,
         args: &[Value],
         context: &ExecutionContext,
@@ -194,6 +201,7 @@ pub struct LoadOptions {
 #[derive(Debug, Clone, Default)]
 pub struct ReloadOptions {
     pub program_name: Option<String>,
+    pub cancellation: CancellationToken,
 }
 
 #[cfg(all(test, feature = "source", feature = "native"))]

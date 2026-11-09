@@ -12,7 +12,7 @@ use crate::{
         source::{analysis::SourceAnalysis, compilation::Compilation, inputs::CheckedInputs},
     },
     error::{CompilationPhase, EmbeddingError},
-    program::PreparedProgram,
+    program::Program,
 };
 
 use blake3::Hasher;
@@ -382,9 +382,9 @@ impl KagariEngine {
         &self,
         checked: &CheckedModule,
         options: PreparationOptions,
-    ) -> CompileResult<PreparedProgram> {
+    ) -> CompileResult<Program> {
         let compilation = Compilation::lower(checked, &options.lowering)?;
-        let prepared = PreparedProgram::from_compilation(compilation, &options)?;
+        let prepared = Program::from_compilation(compilation, &options, None)?;
         options
             .lowering
             .cancel
@@ -398,7 +398,7 @@ impl KagariEngine {
         &self,
         source: SourceFile,
         options: PreparationOptions,
-    ) -> CompileResult<PreparedProgram> {
+    ) -> CompileResult<Program> {
         let checked = self
             .analyze_source(source, &options.lowering.cancel)?
             .check(&options.lowering.cancel)?;

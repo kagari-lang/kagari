@@ -15,7 +15,7 @@ use crate::{
     error::RuntimeError,
     host::HostRegistryId,
     module::{
-        ExecutableModule, InstallationId, ModuleKey, Program,
+        ExecutableModule, InstallationId, InstalledProgram, ModuleKey,
         dispatch::{
             identity::{
                 DeclarationIndex, PublicationDefinitions, PublicationMapping, StableDeclarationId,
@@ -246,7 +246,10 @@ impl StagedReload {
 
 impl Runtime {
     /// Capture current association identity without returning an executable lease.
-    pub fn publication_token(&self, program: &Program) -> Result<PublicationToken, RuntimeError> {
+    pub fn publication_token(
+        &self,
+        program: &InstalledProgram,
+    ) -> Result<PublicationToken, RuntimeError> {
         self.select_program(program)
             .map(|owner| owner.publication_token())
     }

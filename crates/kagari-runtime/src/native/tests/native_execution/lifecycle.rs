@@ -22,16 +22,9 @@ fn scoped_program(name: &str) -> DefinitionMetadata<BytecodeProgram> {
 }
 
 #[test]
-fn referenced_normalization_releases_original_and_intermediate_graphs() {
+fn shared_code_survives_its_preparer_and_each_independent_installation() {
     let context = DefinitionContext::new().unwrap();
     let source = VerifiedProgram::new(scoped_program("Record"), &context).unwrap();
-    let same_context = source.normalized(&context, &Default::default()).unwrap();
-    assert!(source.same_version(&same_context));
-    assert!(Arc::ptr_eq(
-        &source.modules()[0],
-        &same_context.modules()[0]
-    ));
-    drop(same_context);
     let source_id = source.modules()[0].structures[0].declaration;
     let path = source.definitions().resolve(source_id).unwrap().to_path();
     let original = source
@@ -43,11 +36,16 @@ fn referenced_normalization_releases_original_and_intermediate_graphs() {
     let a_program = first.load_verified_program("a", source.clone()).unwrap();
     let a = first.select_program(&a_program).unwrap();
     let a_id = a.bytecode.structures[0].declaration;
-    assert_ne!(source_id, a_id);
+    assert_eq!(source_id, a_id);
     assert!(source.same_version(a.verified_program()));
     let later = first
         .definition_context()
-        .intern_child(a_id, DefinitionKind::Field, "later", 0)
+        .intern_child(
+            a.identity_admission().runtime_id(a_id).unwrap(),
+            DefinitionKind::Field,
+            "later",
+            0,
+        )
         .unwrap();
     assert!(a.definitions().resolve(later).is_err());
     let intermediate = a
@@ -57,20 +55,20 @@ fn referenced_normalization_releases_original_and_intermediate_graphs() {
         .map(Arc::downgrade)
         .collect::<Vec<_>>();
     drop((source, context));
-    assert!(original.iter().all(|weak| weak.upgrade().is_none()));
+    assert!(original.iter().all(|weak| weak.upgrade().is_some()));
     let mut second = runtime();
     let b_program = second
         .load_verified_program("b", a.verified_program().clone())
         .unwrap();
     let b = second.select_program(&b_program).unwrap();
     let b_id = b.bytecode.structures[0].declaration;
-    assert_ne!(a_id, b_id);
+    assert_eq!(a_id, b_id);
+    assert!(Arc::ptr_eq(&a.bytecode, &b.bytecode));
     assert_eq!(b.definitions().resolve(b_id).unwrap().to_path(), path);
-    assert!(b.definitions().resolve(a_id).is_err());
     assert!(a.verified_program().same_version(b.verified_program()));
     drop((a, first));
-    assert!(intermediate.iter().all(|weak| weak.upgrade().is_none()));
-    assert!(original.iter().all(|weak| weak.upgrade().is_none()));
+    assert!(intermediate.iter().all(|weak| weak.upgrade().is_some()));
+    assert!(original.iter().all(|weak| weak.upgrade().is_some()));
     // SAFETY: the fixture implements the verified two-instruction Unit function.
     let installed =
         unsafe { second.install_native_function(&b, product(execute, Arc::default())) }.unwrap();
@@ -80,7 +78,4 @@ fn referenced_normalization_releases_original_and_intermediate_graphs() {
     );
     drop((installed, b, second));
     assert!(original.iter().all(|weak| weak.upgrade().is_none()));
-    println!(
-        "RL03_TOKEN original_after_source_drop=0 original_after_a_drop=0 intermediate_after_a_drop=0 original_after_b_drop=0"
-    );
 }

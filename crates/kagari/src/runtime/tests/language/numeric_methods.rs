@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -35,7 +35,7 @@ fn context() -> ExecutionContext {
     }
 }
 
-fn compile(source: &str) -> PreparedProgram {
+fn compile(source: &str) -> Program {
     // Only serialized executable records cross into the consumer's fresh engine.
     let compiler = engine();
     let artifact = compiler
@@ -46,7 +46,7 @@ fn compile(source: &str) -> PreparedProgram {
         .unwrap_or_else(|error| panic!("{error:?}\n{source}"));
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
     let decoded = BytecodeArtifact::from_bytes(&bytes).unwrap();
-    PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
+    Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
 }
 
 fn execute_checks(checks: Vec<String>) {

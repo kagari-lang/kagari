@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
     test_support::cancellation as support,
 };
 use kagari_common::cancellation::CancellationToken;
@@ -39,8 +39,7 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact.clone(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact.clone(), &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -136,7 +135,7 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
     drop(session);
     let mut other = engine.runtime(context);
     let other_loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let other_loaded = other
         .load_program(&other_loaded_program, Default::default())
         .unwrap();

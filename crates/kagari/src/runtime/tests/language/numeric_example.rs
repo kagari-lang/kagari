@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
@@ -57,8 +57,7 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
         let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
         let decoded = BytecodeArtifact::from_bytes(&bytes).unwrap();
         let encoded =
-            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
         [("source", direct), ("encoded", encoded)]
     };
     for (route, program) in programs {

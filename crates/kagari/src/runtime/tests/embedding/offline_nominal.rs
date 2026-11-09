@@ -1,7 +1,9 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -227,19 +229,18 @@ fn assert_source_index_path(field_prefix: bool) {
             .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
             .unwrap();
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {

@@ -3,7 +3,7 @@ use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, builder::KagariEngineBuilder},
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::declarations::DeclarationId;
@@ -115,7 +115,7 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -307,7 +307,7 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -495,7 +495,7 @@ fn content_paths_reuse_unchanged_docs_and_keep_old_snapshot_targets() {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = changed.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

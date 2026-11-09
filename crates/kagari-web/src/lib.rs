@@ -11,11 +11,11 @@ use crate::{
 };
 
 use kagari::{
-    BytecodeArtifact, engine::KagariEngine, error::EmbeddingError, program::PreparedProgram,
+    BytecodeArtifact, engine::KagariEngine, error::EmbeddingError, program::Program,
     runtime::Runtime,
 };
 use kagari_runtime::{
-    module::{Program, entry::ProgramEntry},
+    module::{InstalledProgram, entry::ProgramEntry},
     session::owned::OwnedExecution,
 };
 #[cfg(feature = "source")]
@@ -42,7 +42,7 @@ const MAX_SLICE: u32 = 100_000;
 pub struct BrowserSession {
     engine: KagariEngine,
     runtime: Runtime,
-    module: Option<Program>,
+    module: Option<InstalledProgram>,
     active: Option<OwnedExecution>,
     output: Arc<Mutex<Output>>,
 }
@@ -124,7 +124,7 @@ impl BrowserSession {
             Ok(artifact) => artifact,
             Err(error) => return self.reject("WEB_ARTIFACT_DECODE", &error),
         };
-        match PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()) {
+        match Program::from_artifact(artifact, &Default::default(), &Default::default()) {
             Ok(program) => self.load(program),
             Err(error) => self.reject("WEB_ARTIFACT_VALIDATION", error),
         }
@@ -223,7 +223,7 @@ impl BrowserSession {
 }
 
 impl BrowserSession {
-    fn load(&mut self, program: PreparedProgram) -> String {
+    fn load(&mut self, program: Program) -> String {
         let mut runtime = self.engine.runtime(Default::default());
         match runtime.load_program(&program, Default::default()) {
             Ok(module) => {

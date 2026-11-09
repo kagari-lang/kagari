@@ -3,7 +3,7 @@
 //! one interface construction, and 1,000 calls to m0 through that interface.
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_source::source::SourceFile;
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::value::Value;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -163,7 +163,7 @@ fn main() {
             "the loop must retain one dynamic interface call site"
         );
         let prepared =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+            Program::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());

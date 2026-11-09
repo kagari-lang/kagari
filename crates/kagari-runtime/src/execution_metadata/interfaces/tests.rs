@@ -10,7 +10,7 @@ use crate::{
         applications::MethodApplication,
     },
     frame::types::{EnvironmentRecord, construction::ConstructionScope},
-    module::{ExecutableModule, Program},
+    module::{ExecutableModule, InstalledProgram},
     value::Value,
     value_semantics::identity_equal,
 };
@@ -21,7 +21,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{callable::Signature, ty::Ty};
 use std::sync::Arc;
 
-fn load_source(source: &str) -> (Runtime, Program, ExecutableModule) {
+fn load_source(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("interfaces.kgr", source.into(), SourceLayer::Base)
@@ -45,7 +45,7 @@ fn load_source(source: &str) -> (Runtime, Program, ExecutableModule) {
     (runtime, loaded_program, loaded)
 }
 
-fn fixture() -> (Runtime, Program, ExecutableModule, usize, Value) {
+fn fixture() -> (Runtime, InstalledProgram, ExecutableModule, usize, Value) {
     let (runtime, loaded_program, loaded) = load_source(
         r#"
         trait Read { fn read(self) -> i32; }
@@ -507,7 +507,8 @@ fn interface_metadata_root_and_prepared_method_do_not_own_records_after_teardown
     // An empty scope adds no substitutions; its checked ID observes record disposal.
     let environment = runtime
         .alloc_environment(
-            EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
+            EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![])
+                .unwrap(),
         )
         .unwrap();
     let environment_id = environment.id;

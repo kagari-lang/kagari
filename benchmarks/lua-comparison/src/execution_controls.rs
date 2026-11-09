@@ -4,7 +4,7 @@ use kagari::{
     context::ExecutionContext,
     engine::KagariEngine,
     error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    program::Program,
     runtime::Runtime,
 };
 use kagari_runtime::{module::ExecutableModule, session::owned::OwnedExecution, value::Value};
@@ -32,7 +32,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new(engine: &KagariEngine, program: &PreparedProgram) -> Self {
+    fn new(engine: &KagariEngine, program: &Program) -> Self {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let program = runtime.load_program(program, Default::default()).unwrap();
@@ -140,7 +140,7 @@ pub(super) fn run(options: &Options) {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let fixture = Fixture::new(&engine, &program);
     for (population, order) in CASES {
         for cancel in [false, true] {
@@ -180,7 +180,7 @@ pub(super) fn run(options: &Options) {
 #[cfg(feature = "diagnostics")]
 fn count(
     engine: &KagariEngine,
-    program: &PreparedProgram,
+    program: &Program,
     population: usize,
     order: &[usize],
     cancel: bool,

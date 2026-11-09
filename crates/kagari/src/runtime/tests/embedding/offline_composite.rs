@@ -1,7 +1,9 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
-    program::PreparedProgram,
+    program::Program,
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::KbcArtifact;
@@ -129,22 +131,21 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         let mut runtime = engine.runtime(context.clone());
         trace.lock().unwrap().clear();
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, LoadOptions::default())
             .unwrap();
         assert!(trace.lock().unwrap().is_empty());
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -285,22 +286,23 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             let mut runtime = engine.runtime(context.clone());
             *count.lock().unwrap() = 0;
             let loaded_program =
-                PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                    .unwrap();
+                Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
             let loaded = runtime
                 .load_program(&loaded_program, LoadOptions::default())
                 .unwrap();
             let report = if jit {
                 let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-                let prepared = runtime
-                    .prepare_native(
+                let prepared = {
+                    let native_code = NativeCompiler::default().prepare(
                         &loaded_program,
-                        &loaded,
                         ProgramEntry::Main,
                         &mut backend,
                         &context.cancellation,
-                    )
-                    .unwrap();
+                    );
+                    native_code
+                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                }
+                .unwrap();
                 runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             } else {
                 runtime.execute(&loaded, ProgramEntry::Main, &[], &context)

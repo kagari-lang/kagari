@@ -16,7 +16,7 @@ use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
     frame::{ExecutionFrame, transfer::ReturnValue},
-    module::{Program, entry::ProgramEntry, execution::ExecutionInstruction},
+    module::{InstalledProgram, entry::ProgramEntry, execution::ExecutionInstruction},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
@@ -82,7 +82,7 @@ impl ExecutionObserver for InstructionCounts {
 
 fn execute(
     runtime: &Runtime,
-    module: &Program,
+    module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     expected: i32,
@@ -103,7 +103,7 @@ fn execute(
 
 pub(super) fn run(
     runtime: &Runtime,
-    module: &Program,
+    module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     name: &str,
@@ -148,7 +148,7 @@ pub(super) fn run(
 
 pub(super) fn count(
     runtime: &Runtime,
-    module: &Program,
+    module: &InstalledProgram,
     context: &ExecutionContext,
     entry: ProgramEntry<'_>,
     expected: i32,

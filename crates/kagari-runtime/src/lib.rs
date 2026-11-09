@@ -22,8 +22,8 @@ use crate::{
     host_scope::HostResourceScope,
     metadata::{TypeId, TypeRegistry},
     module::{
-        ExecutableModule, Installation, ModuleEpochRetention, ModuleKey, ModuleStore, Program,
-        VerifiedProgram, dispatch::PublicationToken, staging::StagedProgram,
+        ExecutableModule, Installation, InstalledProgram, ModuleEpochRetention, ModuleKey,
+        ModuleStore, VerifiedProgram, dispatch::PublicationToken, staging::StagedProgram,
     },
     native::{
         callable::PreparedClosure, completion::CompletionRegistry,
@@ -95,7 +95,7 @@ struct PreparedReload {
     baseline: ExecutableModule,
     name: String,
     program: VerifiedProgram,
-    bindings: Vec<module::LinkedHostBindings>,
+    bindings: module::LinkedProgramBindings,
 }
 
 /// Fully linked initial installation that is not yet visible as a live Program.
@@ -121,7 +121,7 @@ impl StagedLoad {
 /// Installed candidate whose entry has not been activated.
 #[derive(Debug)]
 pub struct StagedReload {
-    target: Program,
+    target: InstalledProgram,
     initialization_error: RefCell<Option<RuntimeError>>,
     baseline: ExecutableModule,
     program: StagedProgram,

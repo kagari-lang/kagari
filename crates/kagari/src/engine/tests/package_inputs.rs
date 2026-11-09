@@ -4,7 +4,7 @@ use crate::{
     BytecodeArtifact,
     engine::{KagariEngine, packages::PackageBuildSet, source::CheckedModule},
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_package::{
@@ -80,10 +80,10 @@ fn virtual_inputs(base: i32) -> VirtualSources {
     .unwrap()
 }
 
-fn prepare(engine: &KagariEngine, checked: &CheckedModule) -> PreparedProgram {
+fn prepare(engine: &KagariEngine, checked: &CheckedModule) -> Program {
     let artifact = engine.emit_artifact(checked, Default::default()).unwrap();
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-    PreparedProgram::from_artifact(
+    Program::from_artifact(
         BytecodeArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -257,7 +257,9 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
     let before = runtime.runtime().select_program(&loaded).unwrap().key();
     assert_eq!(
         runtime
-            .reload_program(&loaded, &constant_program, Default::default())
+            .program(&loaded)
+            .and_then(|base| base.prepare_replacement(&constant_program, &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .unwrap_err()
             .code(),
         "KG_RELOAD_DECLARATION_CONTRACT_MISMATCH"
@@ -273,7 +275,9 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         42
     );
     runtime
-        .reload_program(&loaded, &new_program, Default::default())
+        .program(&loaded)
+        .and_then(|base| base.prepare_replacement(&new_program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     let reloaded = loaded.clone();
     runtime.runtime().collect_garbage().unwrap();
@@ -322,7 +326,9 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         .unwrap();
     let generic_program = prepare(&engine, &generic);
     runtime
-        .reload_program(&reloaded, &generic_program, Default::default())
+        .program(&reloaded)
+        .and_then(|base| base.prepare_replacement(&generic_program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&reloaded, &candidate, Default::default()))
         .unwrap();
     let generic_loaded = reloaded.clone();
     assert_eq!(

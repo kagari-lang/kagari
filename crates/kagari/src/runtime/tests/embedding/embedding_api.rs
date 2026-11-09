@@ -3,7 +3,7 @@ use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
     error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    program::Program,
     runtime::{LoadOptions, ReloadOptions},
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -87,13 +87,19 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
 
     let previous = runtime.runtime().select_program(&loaded).unwrap();
     runtime
-        .reload_program(
-            &loaded,
-            &second,
-            ReloadOptions {
-                program_name: Some("game.main".to_owned()),
-            },
-        )
+        .program(&loaded)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| {
+            runtime.replace_program(
+                &loaded,
+                &candidate,
+                ReloadOptions {
+                    program_name: Some("game.main".to_owned()),
+
+                    ..Default::default()
+                },
+            )
+        })
         .expect("compatible module should reload");
     let reloaded = runtime.runtime().select_program(&loaded).unwrap();
     assert_eq!(reloaded.id, previous.id);
@@ -261,12 +267,8 @@ fn installed_host_and_reflection_helpers_are_available() {
         .unwrap();
     let print_module = runtime
         .load_program(
-            &PreparedProgram::from_artifact(
-                print_artifact,
-                &Default::default(),
-                &Default::default(),
-            )
-            .unwrap(),
+            &Program::from_artifact(print_artifact, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 program_name: Some("print".to_owned()),
             },
@@ -274,12 +276,8 @@ fn installed_host_and_reflection_helpers_are_available() {
         .expect("print module should load");
     let type_of_module = runtime
         .load_program(
-            &PreparedProgram::from_artifact(
-                type_of_artifact,
-                &Default::default(),
-                &Default::default(),
-            )
-            .unwrap(),
+            &Program::from_artifact(type_of_artifact, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 program_name: Some("type_of".to_owned()),
             },

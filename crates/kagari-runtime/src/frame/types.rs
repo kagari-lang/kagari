@@ -17,7 +17,7 @@ use crate::{
     },
     gc::GcHeap,
 };
-use kagari_common::identity::map::DefinitionContext;
+use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
     ty::{GenericParam, NominalTy},
@@ -42,7 +42,7 @@ impl EnvironmentRecord {
     }
 
     pub(crate) fn new(
-        definitions: &DefinitionContext,
+        definitions: &DefinitionTable,
         parameters: Vec<GenericParam>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {

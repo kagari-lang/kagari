@@ -1,6 +1,8 @@
 use super::schema::NominalSchema;
 use super::*;
-use crate::{context::JitPolicy, program::PreparedProgram};
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
+use crate::{context::JitPolicy, program::Program};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{
@@ -106,7 +108,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             unbound_engine
                 .runtime(context.clone())
                 .load_program(
-                    &PreparedProgram::from_artifact(
+                    &Program::from_artifact(
                         artifact.clone(),
                         &Default::default(),
                         &Default::default()
@@ -118,21 +120,20 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         );
         assert!(trace.lock().unwrap().is_empty());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -352,21 +353,20 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             .unwrap();
         assert_eq!(runtime.runtime().host().path_descriptors().count(), 1);
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &loaded_program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -541,26 +541,25 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     .runtime_mut()
                     .register_host_root(HostObjectId(8), ty, HostSchemaEpoch::new(0))
                     .unwrap();
-                let loaded_program = PreparedProgram::from_artifact(
-                    artifact,
-                    &Default::default(),
-                    &Default::default(),
-                )
-                .unwrap();
+                let loaded_program =
+                    Program::from_artifact(artifact, &Default::default(), &Default::default())
+                        .unwrap();
                 let loaded = runtime
                     .load_program(&loaded_program, Default::default())
                     .unwrap();
                 let result = if jit {
                     let mut backend = CraneliftBackend::for_host().unwrap();
-                    let prepared = runtime
-                        .prepare_native(
+                    let prepared = {
+                        let native_code = NativeCompiler::default().prepare(
                             &loaded_program,
-                            &loaded,
                             ProgramEntry::Main,
                             &mut backend,
                             &context.cancellation,
-                        )
-                        .unwrap();
+                        );
+                        native_code
+                            .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                    }
+                    .unwrap();
                     runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
                 } else {
                     runtime.execute(&loaded, ProgramEntry::Main, &[], &context)

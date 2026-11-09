@@ -3,7 +3,7 @@ use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine, builder::KagariEngineBuilder},
     error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    program::Program,
     runtime::Runtime,
 };
 use kagari_runtime::{
@@ -338,6 +338,7 @@ fn sdk_owned_native_wait_contract() {
 #[cfg(feature = "native")]
 mod native {
     use super::{Fixture, slice};
+    use kagari::program::native::NativeCompiler;
     use kagari_abi::native::{BackendId, BackendTarget};
     use kagari_codegen::{
         BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
@@ -375,17 +376,11 @@ mod native {
 
     #[test]
     fn sdk_native_preparation_declines_resume_before_entry() {
-        let f = Fixture::new();
+        let mut f = Fixture::new();
         let mut backend = Backend { calls: 0 };
-        let prepared = f
-            .runtime
-            .prepare_native(
-                &f.program,
-                &f.module,
-                "run",
-                &mut backend,
-                &Default::default(),
-            )
+        let prepared = NativeCompiler::default()
+            .prepare(&f.program, "run", &mut backend, &Default::default())
+            .and_then(|native_code| f.runtime.install_native(&f.module, &native_code))
             .unwrap();
         let PreparedNativeEntry::Unsupported { diagnostics, .. } = &prepared else {
             panic!("resume body requires interpreter");

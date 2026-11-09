@@ -78,7 +78,7 @@ impl Runtime {
             .bind_constructions_in(caller, caller_environment, &contract.constructions)?
             .transported(self, selected)?;
         let mut record = EnvironmentRecord::new(
-            self.definition_context(),
+            selected.owner().definitions(),
             body.parameters.clone(),
             arguments,
         )?;

@@ -5,7 +5,7 @@ use crate::{
     host::HostRegistryId,
     module::{ExecutableModule, InstallationId, ModuleKey, dispatch::identity::PublicationMapping},
 };
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_types::ty::{NominalTy, Ty, substitution::TypeSubstitution};
 use std::{borrow::Cow, collections::HashSet, ptr};
 
@@ -16,10 +16,11 @@ pub(crate) struct TypeView<'a> {
     pub(crate) environment: Option<&'a TypeBindings>,
     application: Option<&'a Application<'a>>,
     prepared: Option<&'a Ty>,
+    closed_scope: Option<&'a DefinitionTable>,
 }
 
 struct Application<'a> {
-    declaration: &'a DefinitionId,
+    declaration: DefinitionId,
     arguments: Vec<TypeView<'a>>,
 }
 
@@ -33,7 +34,7 @@ impl TypeIdentity {
     /// Normalize a lookup key only; lexical value/layout scopes are not rewritten.
     pub(crate) fn transported(&self, mapping: &PublicationMapping) -> Result<Self, RuntimeError> {
         Ok(Self {
-            ty: mapping.remap(&self.ty, &Default::default())?.into_records(),
+            ty: mapping.remap_closed(&self.ty, &Default::default())?,
             owners: self.owners.clone(),
         })
     }
@@ -63,6 +64,7 @@ impl<'a> TypeView<'a> {
             environment,
             application: None,
             prepared: None,
+            closed_scope: None,
         }
     }
 
@@ -88,6 +90,94 @@ impl<'a> TypeView<'a> {
             prepared: self.prepared.and_then(|ty| type_parameter(ty, index)),
             ..self
         })
+    }
+
+    pub(crate) fn with_closed_scope(self, definitions: &'a DefinitionTable) -> Self {
+        Self {
+            closed_scope: Some(definitions),
+            ..self
+        }
+    }
+
+    fn closed_definitions(self) -> &'a DefinitionTable {
+        let mut table = self.owner.identity_admission().target();
+        if let Some(scope) = self.closed_scope
+            && scope.id() == table.id()
+            && scope.len() > table.len()
+        {
+            table = scope;
+        }
+        if let Some(environment) = self.environment {
+            table = environment.closed_definitions(table);
+        }
+        if let Some(application) = self.application {
+            for argument in &application.arguments {
+                let candidate = argument.closed_definitions();
+                if candidate.id() == table.id() && candidate.len() > table.len() {
+                    table = candidate;
+                }
+            }
+        }
+        table
+    }
+
+    fn canonical(self, ty: Cow<'a, Ty>) -> Option<Cow<'a, Ty>> {
+        let admission = self.owner.identity_admission();
+        if admission.source().id() == admission.target().id()
+            || matches!(ty.as_ref(), Ty::Builtin(_))
+        {
+            return Some(ty);
+        }
+        admission
+            .runtime_in(ty.as_ref(), self.closed_definitions(), &Default::default())
+            .ok()
+            .map(Cow::Owned)
+    }
+
+    fn children(self, other: Self, mut test: impl FnMut(&'a Ty, &'a Ty) -> bool) -> bool {
+        let pair = match (self.ty, other.ty) {
+            (Ty::Struct(a), Ty::Struct(b))
+            | (Ty::Enum(a), Ty::Enum(b))
+            | (Ty::Trait(a), Ty::Trait(b))
+            | (Ty::NativeObject(a), Ty::NativeObject(b)) => Some((a, b)),
+            _ => None,
+        };
+        let Some((a, b)) = pair else {
+            return children_match(self.ty, other.ty, test);
+        };
+        if a.arguments.len() != b.arguments.len()
+            || a.associated_types.len() != b.associated_types.len()
+            || !a
+                .arguments
+                .iter()
+                .zip(&b.arguments)
+                .all(|(a, b)| test(a, b))
+        {
+            return false;
+        }
+        let ordered = |view: Self, nominal: &'a NominalTy| {
+            let mut outputs = nominal
+                .associated_types
+                .iter()
+                .map(|(id, ty)| {
+                    let id = view
+                        .owner
+                        .identity_admission()
+                        .runtime_id(*id)
+                        .ok()
+                        .or_else(|| view.closed_definitions().resolve(*id).ok().map(|_| *id))?;
+                    Some((id, ty))
+                })
+                .collect::<Option<Vec<_>>>()?;
+            outputs.sort_by_key(|(id, _)| *id);
+            Some(outputs)
+        };
+        let (Some(a), Some(b)) = (ordered(self, a), ordered(other, b)) else {
+            return false;
+        };
+        a.into_iter()
+            .zip(b)
+            .all(|((a_id, a), (b_id, b))| a_id == b_id && test(a, b))
     }
 
     pub(crate) fn reference_target(self) -> Option<Self> {
@@ -124,7 +214,7 @@ impl<'a> TypeView<'a> {
             match self.ty {
                 Ty::Parameter { owner, position } => {
                     self = if let Some(application) = self.application
-                        && application.declaration == owner
+                        && application.declaration == *owner
                     {
                         *application.arguments.get(*position)?
                     } else {
@@ -164,7 +254,7 @@ impl<'a> TypeView<'a> {
             return Some(Cow::Borrowed(ty));
         }
         if view.ty.is_concrete() {
-            return Some(Cow::Borrowed(view.ty));
+            return view.canonical(Cow::Borrowed(view.ty));
         }
         if let Some(application) = view.application {
             let arguments = application
@@ -172,12 +262,17 @@ impl<'a> TypeView<'a> {
                 .iter()
                 .map(|ty| ty.closed().map(Cow::into_owned))
                 .collect::<Option<Vec<_>>>()?;
-            let ty = TypeSubstitution::for_owner(application.declaration, &arguments)
+            let ty = TypeSubstitution::for_owner(&application.declaration, &arguments)
                 .apply(view.ty, &Default::default())
                 .ok()?;
-            return (ty.is_concrete() && ty.within_wire_limits()).then_some(Cow::Owned(ty));
+            return (ty.is_concrete() && ty.within_wire_limits())
+                .then_some(ty)
+                .and_then(|ty| view.canonical(Cow::Owned(ty)));
         }
-        view.environment?.resolve(view.ty).ok().map(Cow::Owned)
+        view.environment?
+            .resolve(view.ty)
+            .ok()
+            .and_then(|ty| view.canonical(Cow::Owned(ty)))
     }
 
     pub(crate) fn identity(self) -> Option<TypeIdentity> {
@@ -205,9 +300,7 @@ impl<'a> TypeView<'a> {
             let (registry, publication) = view.owner.program_identity();
             owners.push((registry, view.owner.installation_id(), publication));
         }
-        children_match(view.ty, view.ty, |a, _| {
-            view.child(a).collect_owners(owners)
-        })
+        view.children(view, |a, _| view.child(a).collect_owners(owners))
     }
 
     /// Only script nominal nodes carry installation authority; lexical parameters
@@ -222,9 +315,7 @@ impl<'a> TypeView<'a> {
         {
             return false;
         }
-        children_match(view.ty, view.ty, |a, _| {
-            view.child(a).belongs_to_installation(owner)
-        })
+        view.children(view, |a, _| view.child(a).belongs_to_installation(owner))
     }
 
     pub(crate) fn compatible(self, other: Self) -> bool {
@@ -274,15 +365,16 @@ impl<'a> TypeView<'a> {
                 return false;
             }
         }
-        children_match(left.ty, right.ty, |a, b| {
-            left.child(a).compare(right.child(b), visited)
-        })
+        left.children(right, |a, b| left.child(a).compare(right.child(b), visited))
     }
 
     fn application(self) -> Option<Application<'a>> {
         let nominal = nominal(self.ty)?;
         Some(Application {
-            declaration: &nominal.declaration,
+            declaration: self
+                .owner
+                .identity_admission()
+                .lexical_id(nominal.declaration)?,
             arguments: nominal.arguments.iter().map(|ty| self.child(ty)).collect(),
         })
     }
@@ -304,6 +396,7 @@ impl<'a> TypeView<'a> {
                     environment: None,
                     application: Some(&left),
                     prepared: None,
+                    closed_scope: None,
                 }
                 .compare(
                     TypeView {
@@ -312,6 +405,7 @@ impl<'a> TypeView<'a> {
                         environment: None,
                         application: Some(&right),
                         prepared: None,
+                        closed_scope: None,
                     },
                     visited,
                 )
@@ -324,7 +418,17 @@ impl<'a> TypeView<'a> {
                 ) else {
                     return false;
                 };
-                a.layout() == b.layout()
+                a.module()
+                    .identity_admission()
+                    .runtime_in(a.layout(), self.closed_definitions(), &Default::default())
+                    .ok()
+                    .zip(
+                        b.module()
+                            .identity_admission()
+                            .runtime_in(b.layout(), other.closed_definitions(), &Default::default())
+                            .ok(),
+                    )
+                    .is_some_and(|(a, b)| a == b)
                     && a.template().fields.iter().zip(&b.template().fields).all(
                         |(a_field, b_field)| {
                             compare(&a_field.ty, a.module(), &b_field.ty, b.module())
@@ -342,8 +446,47 @@ impl<'a> TypeView<'a> {
                 let (b_owner, b_id) = b;
                 let a = &a_owner.bytecode.enumerations[a_id.index()];
                 let b = &b_owner.bytecode.enumerations[b_id.index()];
-                a.apply(&ty.arguments, &Default::default())
-                    == b.apply(&ty.arguments, &Default::default())
+                let a_arguments = if a_owner
+                    .identity_admission()
+                    .equivalent(&a.arguments, &ty.arguments)
+                {
+                    &a.arguments
+                } else {
+                    &ty.arguments
+                };
+                let b_arguments = if b_owner
+                    .identity_admission()
+                    .equivalent(&b.arguments, &ty.arguments)
+                {
+                    &b.arguments
+                } else {
+                    &ty.arguments
+                };
+                a.apply(a_arguments, &Default::default())
+                    .and_then(|layout| {
+                        a_owner
+                            .identity_admission()
+                            .runtime_in(
+                                layout.as_ref(),
+                                self.closed_definitions(),
+                                &Default::default(),
+                            )
+                            .ok()
+                    })
+                    .zip(
+                        b.apply(b_arguments, &Default::default())
+                            .and_then(|layout| {
+                                b_owner
+                                    .identity_admission()
+                                    .runtime_in(
+                                        layout.as_ref(),
+                                        other.closed_definitions(),
+                                        &Default::default(),
+                                    )
+                                    .ok()
+                            }),
+                    )
+                    .is_some_and(|(a, b)| a == b)
                     && a.variants.iter().zip(&b.variants).all(|(a, b)| {
                         a.payload
                             .iter()
@@ -389,6 +532,7 @@ impl<'a> TypeView<'a> {
                     environment: None,
                     application: Some(&application),
                     prepared: None,
+                    closed_scope: None,
                 }
                 .check_heap_type(visited)
             };
@@ -422,9 +566,7 @@ impl<'a> TypeView<'a> {
                 _ => return false,
             }
         }
-        children_match(view.ty, view.ty, |a, _| {
-            view.child(a).check_heap_type(visited)
-        })
+        view.children(view, |a, _| view.child(a).check_heap_type(visited))
     }
 }
 

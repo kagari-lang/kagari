@@ -3,7 +3,7 @@ use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig, StagedLoad, StagedReload,
     error::RuntimeErrorKind,
-    module::{Module, ModuleEpochRetention, Program, VerifiedProgram},
+    module::{InstalledProgram, Module, ModuleEpochRetention, VerifiedProgram},
 };
 use kagari_bytecode::{
     module::BytecodeModule,
@@ -31,7 +31,7 @@ fn program() -> DefinitionMetadata<BytecodeProgram> {
     .unwrap()
 }
 
-fn stage(runtime: &mut Runtime, baseline: &Program) -> StagedReload {
+fn stage(runtime: &mut Runtime, baseline: &InstalledProgram) -> StagedReload {
     runtime
         .stage_reload_program(baseline, None, program())
         .unwrap()
@@ -369,7 +369,7 @@ fn safepoints_reject_borrowed_module_storage_without_panicking(#[case] automatic
 #[test]
 fn same_label_installations_have_independent_current_metadata_and_caches() {
     fn assert_send_sync<T: Send + Sync>() {}
-    assert_send_sync::<Program>();
+    assert_send_sync::<InstalledProgram>();
     assert_send_sync::<Module>();
 
     let mut runtime = Runtime::default();

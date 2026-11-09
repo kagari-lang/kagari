@@ -1,10 +1,13 @@
 //! The same portable artifact is consumed with source, native, or neither feature.
 #[cfg(feature = "native")]
 use kagari::context::JitPolicy;
+#[cfg(feature = "native")]
+use kagari::program::native::NativeCompiler;
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    error::EmbeddingError,
+    program::Program,
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
@@ -12,7 +15,9 @@ use kagari_bytecode::{
     program::{identity, verify_program},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-use kagari_runtime::{module::entry::ProgramEntry, native::objects::Object};
+use kagari_runtime::{
+    error::RuntimeErrorKind, module::entry::ProgramEntry, native::objects::Object,
+};
 use kagari_types::ty::Ty;
 use std::sync::{
     Arc,
@@ -84,8 +89,7 @@ fn artifact() -> DefinitionMetadata<KbcArtifact> {
 #[test]
 fn portable_artifact_executes_without_source_compilation() {
     let program =
-        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let context = ExecutionContext::default();
@@ -170,8 +174,7 @@ fn portable_artifact_executes_without_source_compilation() {
 #[test]
 fn source_free_shared_operator_contract_executes() {
     let program =
-        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let context = ExecutionContext::default();
@@ -199,8 +202,7 @@ fn source_free_shared_operator_contract_executes() {
 #[test]
 fn source_free_native_bindings_execute_and_release_scopes() {
     let program =
-        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
@@ -227,7 +229,9 @@ fn source_free_native_bindings_execute_and_release_scopes() {
         // Release the version's constant roots before checking for leaked native
         // scopes/results; the replacement cache has not been materialized.
         runtime
-            .reload_program(&loaded, &program, Default::default())
+            .program(&loaded)
+            .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .unwrap();
         runtime.runtime().collect_garbage().unwrap();
         assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
@@ -237,8 +241,7 @@ fn source_free_native_bindings_execute_and_release_scopes() {
 #[test]
 fn source_free_native_enums_retain_nested_payloads() {
     let program =
-        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(Default::default());
@@ -262,8 +265,7 @@ fn source_free_native_enums_retain_nested_payloads() {
 #[test]
 fn source_free_try_carriers_execute_with_selected_residual_calls() {
     let prepared =
-        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(Default::default());
@@ -350,8 +352,7 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
         .unwrap();
     let malformed =
         DefinitionMetadata::checked(context.snapshot(), malformed, &Default::default()).unwrap();
-    let result =
-        PreparedProgram::from_artifact(malformed, &Default::default(), &Default::default());
+    let result = Program::from_artifact(malformed, &Default::default(), &Default::default());
     #[cfg(feature = "native")]
     assert!(matches!(
         result,
@@ -488,8 +489,7 @@ mod native {
     #[test]
     fn native_artifact_preparation_and_execution_need_no_frontend() {
         let program =
-            PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
         assert!(program.has_native_input());
         let context = ExecutionContext {
             jit_policy: JitPolicy::Enabled,
@@ -497,14 +497,14 @@ mod native {
         };
         let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let prepared = runtime
-            .prepare_native(
+        let prepared = NativeCompiler::default()
+            .prepare(
                 &program,
-                &loaded,
                 ProgramEntry::Main,
                 &mut Backend,
                 &Default::default(),
             )
+            .and_then(|native_code| runtime.install_native(&loaded, &native_code))
             .unwrap();
         let report = runtime
             .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
@@ -526,8 +526,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     use kagari_codegen_cranelift::CraneliftBackend;
     use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
     let program =
-        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext {
         jit_policy: JitPolicy::Enabled,
         ..Default::default()
@@ -535,14 +534,14 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
 
     let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let prepared = runtime
-        .prepare_native(
+    let prepared = NativeCompiler::default()
+        .prepare(
             &program,
-            &loaded,
             ProgramEntry::Main,
             &mut CraneliftBackend::for_host().unwrap(),
             &Default::default(),
         )
+        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
     let report = runtime
@@ -556,14 +555,14 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
         Value::I32(42)
     );
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
-    let prepared = runtime
-        .prepare_native(
+    let prepared = NativeCompiler::default()
+        .prepare(
             &program,
-            &loaded,
             "required_methods",
             &mut CraneliftBackend::for_host().unwrap(),
             &Default::default(),
         )
+        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
     let report = runtime
@@ -585,8 +584,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
 #[test]
 fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
     let program =
-        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let drops = Arc::new(AtomicUsize::new(0));
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
@@ -652,17 +650,24 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
     let artifact =
         DefinitionMetadata::checked(context.snapshot(), artifact, &Default::default()).unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine(Default::default(), Default::default()).runtime(Default::default());
-    assert!(runtime.load_program(&program, Default::default()).is_err());
+    let error = runtime
+        .load_program(&program, Default::default())
+        .unwrap_err();
+    assert!(
+        matches!(&error, EmbeddingError::Load { error }
+            if error.kind() == RuntimeErrorKind::ModuleValidation
+                && error.message().contains("native declaration differs from its installed contract")),
+        "{error:?}"
+    );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
 
 #[test]
 fn source_free_converted_residual_keeps_its_original_failure_origin() {
     let prepared =
-        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = engine(config, Default::default()).runtime(Default::default());

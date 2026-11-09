@@ -167,7 +167,7 @@ fn native_lifecycle(
                 runtime
                     .alloc_environment(
                         EnvironmentRecord::new(
-                            runtime.definition_context(),
+                            &runtime.definition_context().snapshot(),
                             body.parameters.clone(),
                             arguments,
                         )

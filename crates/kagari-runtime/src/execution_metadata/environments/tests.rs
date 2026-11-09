@@ -9,7 +9,7 @@ use rstest::rstest;
 use std::sync::Arc;
 
 fn empty(runtime: &Runtime) -> EnvironmentRecord {
-    EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap()
+    EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap()
 }
 
 fn extend(
@@ -30,7 +30,11 @@ fn extend(
 fn foreign_stale_out_of_bounds_and_exhausted_ids_cannot_alias() {
     let definitions = DefinitionContext::new().unwrap();
     let record = || PublishedEnvironment {
-        record: EnvironmentRecord::new(&definitions, vec![], vec![]).unwrap(),
+        record: {
+            let parameters = vec![];
+            EnvironmentRecord::new(&definitions.snapshot(), parameters, vec![])
+        }
+        .unwrap(),
         dependencies: vec![],
     };
     let mut store = EnvironmentStore::new(1);

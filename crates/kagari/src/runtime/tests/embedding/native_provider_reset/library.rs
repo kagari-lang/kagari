@@ -1,4 +1,4 @@
-use crate::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
@@ -21,7 +21,7 @@ fn foundation_algorithms_are_available_from_normal_engine_construction() {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(program, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(program, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -63,7 +63,7 @@ fn explicit_empty_application_modules_keep_the_foundation() {
         }
     "#),  Default::default()).unwrap();
     let program =
-        PreparedProgram::from_artifact(program, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(program, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

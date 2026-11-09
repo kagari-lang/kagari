@@ -2,7 +2,7 @@
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Program,
     runtime::Runtime,
 };
 use kagari_derive::KagariValue;
@@ -94,7 +94,7 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
                 Default::default(),
             )
             .unwrap();
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
     };
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
@@ -106,7 +106,9 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
         .bind_rust_type::<Stats>(&old.root())
         .unwrap();
     runtime
-        .reload_program(&old, &prepare(100), Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&prepare(100), &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     let mut stats = Stats { hp: 40 };
@@ -200,7 +202,7 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
         )
         .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(ExecutionContext::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let player_type = runtime

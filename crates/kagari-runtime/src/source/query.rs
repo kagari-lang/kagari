@@ -6,7 +6,7 @@ use crate::{
     frame::ExecutionFrame,
     gc::roots::RootedValue,
     module::{
-        ExecutableModule, Program,
+        ExecutableModule, InstalledProgram,
         dispatch::{CallRoute, CallRouteKind},
     },
     source::{
@@ -64,7 +64,7 @@ impl Runtime {
     /// Capture the current publication once without retaining executable code.
     pub fn source_snapshot(
         &self,
-        program: &Program,
+        program: &InstalledProgram,
     ) -> Result<ProgramSourceSnapshot, RuntimeError> {
         Ok(self.select_program(program)?.source_snapshot())
     }
@@ -74,7 +74,7 @@ impl Runtime {
     /// not themselves authority to call or update any declaration.
     pub fn resolve_source_declaration(
         &self,
-        program: &Program,
+        program: &InstalledProgram,
         declaration: &SourceDeclaration,
     ) -> Result<AuthoredDeclaration, RuntimeError> {
         let snapshot = self.source_snapshot(program)?;

@@ -2,7 +2,7 @@
 use crate::{
     BytecodeArtifact,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
@@ -35,7 +35,7 @@ fn ordinary_execution(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     assert_eq!(
@@ -50,7 +50,9 @@ fn ordinary_execution(
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     // Retire materialized module constants before checking execution-root cleanup.
     runtime
-        .reload_program(&loaded, &program, Default::default())
+        .program(&loaded)
+        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     runtime.runtime().collect_garbage().unwrap();
     assert_eq!(runtime.runtime().gc().allocated_objects(), 0);

@@ -32,7 +32,7 @@ impl StorageType {
         Self::checked(Self {
             ty: argument.ty().clone(),
             owner: owner.clone(),
-            scope: argument.has_origin().then_some(argument),
+            scope: Some(argument),
         })
     }
 

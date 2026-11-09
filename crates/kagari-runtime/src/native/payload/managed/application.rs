@@ -46,7 +46,7 @@ impl AppliedSchema {
             .map(|index| argument.parameter(runtime, owner, index))
             .collect::<NativeResult<Vec<_>>>()?;
         let environment = Arc::new(TypeBindings::new(
-            runtime.definition_context(),
+            &runtime.definition_context().snapshot(),
             declared.generic_params.clone(),
             arguments,
         )?);

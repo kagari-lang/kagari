@@ -4,7 +4,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::{ExecutionFrame, FrameDispatch, FrameEntry, arguments::FrameArguments},
     module::{
-        ExecutableModule, Program,
+        ExecutableModule, InstalledProgram,
         execution::{OperandSlot, layout::Location},
     },
     resource::RuntimeLimits,
@@ -44,14 +44,14 @@ impl ExecutionObserver for ReentrantObserver {
     }
 }
 
-pub(super) fn loaded(runtime: &mut Runtime) -> (Program, ExecutableModule) {
+pub(super) fn loaded(runtime: &mut Runtime) -> (InstalledProgram, ExecutableModule) {
     loaded_with_instructions(runtime, vec![BytecodeInstruction::Return(None)])
 }
 
 fn loaded_with_instructions(
     runtime: &mut Runtime,
     instructions: Vec<BytecodeInstruction>,
-) -> (Program, ExecutableModule) {
+) -> (InstalledProgram, ExecutableModule) {
     let function = {
         let fixture_instructions = instructions;
         let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = FunctionMetadata {
@@ -87,7 +87,7 @@ fn loaded_with_instructions(
 fn loaded_function(
     runtime: &mut Runtime,
     function: BytecodeFunction,
-) -> (Program, ExecutableModule) {
+) -> (InstalledProgram, ExecutableModule) {
     let context = DefinitionContext::new().unwrap();
     let program = runtime
         .load_program(

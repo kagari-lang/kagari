@@ -24,7 +24,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     jit_abi::jit_poll_execution,
-    module::{ExecutableModule, Program, entry::ProgramEntry},
+    module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
     native::module::NativeModule,
     resource::RuntimeLimits,
     value::Value,
@@ -56,7 +56,7 @@ fn compile(source: &str, optimize: bool) -> DefinitionMetadata<BytecodeProgram> 
         .unwrap()
 }
 
-fn setup(bytecode: DefinitionMetadata<BytecodeProgram>) -> (Vm, Program) {
+fn setup(bytecode: DefinitionMetadata<BytecodeProgram>) -> (Vm, InstalledProgram) {
     let mut runtime = Runtime::new(RuntimeConfig {
         limits: RuntimeLimits {
             ..Default::default()

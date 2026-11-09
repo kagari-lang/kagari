@@ -15,6 +15,7 @@ use crate::{
         compatibility::{TypeIdentity, TypeView},
     },
     gc::GcHeap,
+    host::HostRegistryId,
     module::{EnumVariantRef, ExecutableModule, layout_admission::NominalAdmission},
     value::Value,
     value_check,
@@ -32,6 +33,7 @@ pub struct TypeArgument {
 
 #[derive(Debug)]
 struct TypeArgumentData {
+    registry: Option<HostRegistryId>,
     ty: Ty,
     definitions: DefinitionTable,
     origin: Option<Arc<TypeOrigin>>,
@@ -70,6 +72,7 @@ impl TypeArgument {
             ),
             None => TypeView::prepared(&self.data.ty, &self.data.ty, owner, None),
         }
+        .with_closed_scope(&self.data.definitions)
     }
 
     /// Exact immutable type/provenance identity, prepared once per supplied argument.
@@ -180,7 +183,15 @@ impl TypeArgument {
     }
 
     pub(crate) fn validate(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
-        let table = runtime.definition_context().snapshot();
+        if self
+            .data
+            .registry
+            .is_some_and(|registry| registry != runtime.host.owner())
+        {
+            return Err(RuntimeError::module_validation(
+                "foreign type argument registry",
+            ));
+        }
         if let Some(origin) = &self.data.origin
             && !origin.scope.owner.belongs_to(runtime.host.owner())
         {
@@ -188,21 +199,8 @@ impl TypeArgument {
                 "foreign type argument scope",
             ));
         }
-        // Construction validates immutable type facts. The append-only runtime
-        // scope can reuse that evidence; foreign scopes still check every ID.
-        if table.id() != self.data.definitions.id() {
-            self.data
-                .ty
-                .visit_definition_ids(
-                    &mut |id| {
-                        self.data.definitions.resolve(*id)?;
-                        table.resolve(*id)?;
-                        Ok(())
-                    },
-                    &Default::default(),
-                )
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        }
+        // Construction checks the immutable accepted closed prefix. Its local
+        // registry provenance is sufficient; later writer growth grants nothing.
         Ok(())
     }
 
@@ -374,10 +372,10 @@ impl Runtime {
                 arguments.push(argument.clone());
                 continue;
             }
-            let ty = match &environment {
-                Some(environment) => environment.resolve(expression)?,
-                None => expression.clone(),
-            };
+            let ty = TypeView::new(expression, owner, environment.as_deref())
+                .closed()
+                .ok_or_else(invalid)?
+                .into_owned();
             if !ty.is_concrete() || !types_in_scope([&ty], &[], &Default::default(), &definitions) {
                 return Err(invalid());
             }
@@ -400,8 +398,18 @@ impl Runtime {
             } else {
                 None
             };
+            let mut registry = None;
+            ty.visit_definition_ids(
+                &mut |_| {
+                    registry = Some(self.host.owner());
+                    Ok(())
+                },
+                &Default::default(),
+            )
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
             let argument = TypeArgument {
                 data: Arc::new(TypeArgumentData {
+                    registry,
                     ty,
                     definitions: definitions.clone(),
                     origin,

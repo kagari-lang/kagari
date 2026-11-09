@@ -6,7 +6,7 @@ use crate::{
     Runtime,
     error::RuntimeErrorKind,
     frame::{execution_frames::loaded, types::EnvironmentRecord},
-    module::{Program, execution::layout::Location},
+    module::{InstalledProgram, execution::layout::Location},
     native::{
         application::NativeApplication,
         binding::{Codec, LinkedNativeFunction, NativeBinding},
@@ -25,7 +25,7 @@ use kagari_contract::ids::FunctionRef;
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
 use std::mem::size_of;
 
-fn module() -> (Runtime, Program, ExecutableModule) {
+fn module() -> (Runtime, InstalledProgram, ExecutableModule) {
     let mut runtime = Runtime::default();
     let module_program = runtime
         .load_program(
@@ -652,7 +652,8 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
     let empty = || {
         runtime
             .alloc_environment(
-                EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
+                EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![])
+                    .unwrap(),
             )
             .unwrap()
     };

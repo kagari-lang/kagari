@@ -17,7 +17,7 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     gc::{GcHeapConfig, roots::RootedValue},
-    module::{Program, entry::ProgramEntry},
+    module::{InstalledProgram, entry::ProgramEntry},
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
@@ -300,7 +300,7 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
     );
 }
 
-fn source_free_vm(source: &str, module: &NativeModule) -> (Vm, Program) {
+fn source_free_vm(source: &str, module: &NativeModule) -> (Vm, InstalledProgram) {
     let program = compile_program(source, Some(module));
     let program = round_trip_program(program);
     let mut runtime = Runtime::new(RuntimeConfig {

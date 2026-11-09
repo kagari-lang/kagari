@@ -66,7 +66,6 @@ impl ApplicationEvidence {
                     let interface = Ty::Trait(contract.interface.clone());
                     if contract.receiver.is_some()
                         || contract.method_slot as usize != member.slot
-                        || &interface != member.interface.ty()
                         || !interface.is_concrete()
                         || contract.arguments.len() != arguments.len()
                         || !member
@@ -79,7 +78,6 @@ impl ApplicationEvidence {
                             .zip(arguments)
                             .all(|(ty, argument)| {
                                 ty.is_concrete()
-                                    && ty == argument.ty()
                                     && argument
                                         .view(&member.owner)
                                         .compatible(TypeView::new(ty, &owner, None))
@@ -129,7 +127,7 @@ impl ApplicationEvidence {
         let operations =
             runtime.bind_operations_in(&self.owner, None, &self.contract.operations)?;
         let mut environment =
-            EnvironmentRecord::new(runtime.definition_context(), parameters, arguments.clone())?;
+            EnvironmentRecord::new(self.owner.definitions(), parameters, arguments.clone())?;
         let constructions =
             runtime.bind_constructions_in(&self.owner, None, &self.contract.constructions)?;
         environment.set_constructions(constructions.clone());

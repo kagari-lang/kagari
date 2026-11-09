@@ -59,13 +59,13 @@ impl ModuleStoreInner {
         if record.bindings.len() != record.module.bytecode.module_slots.len() {
             return None;
         }
-        let expected = &record.module.bytecode.module_slots.get(slot)?.contract;
+        let expected = record.module.static_contracts.get(slot)?;
         let cell = self.cells.get(record.bindings.get(slot)?)?;
         let descriptor = cell.owner.bytecode.module_slots.get(cell.slot)?;
         if cell.lineage != record.static_lineage
             || cell.lineage != record.module.installation_id()
             || cell.owner.installation_id() != cell.lineage
-            || &descriptor.contract != expected
+            || cell.owner.static_contracts.get(cell.slot)? != expected
         {
             return None;
         }
@@ -174,12 +174,12 @@ impl ModuleStore {
             let record = store
                 .resolve(&member)
                 .ok_or_else(|| RuntimeError::module_validation("reload baseline retired"))?;
-            for (slot, descriptor) in member.bytecode.module_slots.iter().enumerate() {
-                if descriptor.contract.supplier == member.bytecode.identity {
+            for (slot, contract) in member.static_contracts.iter().enumerate() {
+                if contract.supplier == member.bytecode.identity {
                     store.bound_cell(record, slot).ok_or_else(|| {
                         RuntimeError::module_validation("invalid baseline static binding")
                     })?;
-                    existing.insert(descriptor.contract.declaration, record.bindings[slot]);
+                    existing.insert(contract.declaration, record.bindings[slot]);
                 }
             }
         }
@@ -190,21 +190,21 @@ impl ModuleStore {
                 .resolve(&member)
                 .ok_or_else(|| RuntimeError::module_validation("reload candidate retired"))?;
             let mut bindings = record.bindings.clone();
-            for (slot, descriptor) in member.bytecode.module_slots.iter().enumerate() {
+            for (slot, contract) in member.static_contracts.iter().enumerate() {
                 store.bound_cell(record, slot).ok_or_else(|| {
                     RuntimeError::module_validation("invalid candidate static binding")
                 })?;
-                if let Some(id) = existing.get(&descriptor.contract.declaration) {
+                if let Some(id) = existing.get(&contract.declaration) {
                     let cell = &store.cells[id];
-                    let previous = &cell.owner.bytecode.module_slots[cell.slot].contract;
-                    if previous != &descriptor.contract
+                    let previous = &cell.owner.static_contracts[cell.slot];
+                    if previous != contract
                         || !compatibility::compatible(&previous.ty, &cell.owner, &member)
                     {
                         return Err(RuntimeError::module_validation(
                             "incompatible persistent static storage contract",
                         ));
                     }
-                    remaining.remove(&descriptor.contract.declaration);
+                    remaining.remove(&contract.declaration);
                     bindings[slot] = *id;
                 }
             }

@@ -1,4 +1,5 @@
 //! Matched Lua/Kagari execution with setup separated and every checksum verified.
+use kagari::program::native::NativeCompiler;
 #[cfg(feature = "diagnostics")]
 mod diagnostic_forms;
 #[cfg(feature = "diagnostics")]
@@ -14,12 +15,12 @@ use std::{env, hint::black_box, time::Instant};
 use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Program,
     runtime::Runtime,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{
-    module::{Program, entry::ProgramEntry},
+    module::{InstalledProgram, entry::ProgramEntry},
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -150,7 +151,7 @@ impl Record<'_> {
 
 struct ExecutionRoutes {
     runtime: Runtime,
-    module: Program,
+    module: InstalledProgram,
     context: ExecutionContext,
     native_context: ExecutionContext,
     lua_entry: Function,
@@ -271,7 +272,7 @@ fn run(workload: &Workload, options: &Options) {
             .expect("Kagari compilation")
     });
     let program = record.setup("artifact_prepare", "kagari_vm", || {
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+        Program::from_artifact(artifact, &Default::default(), &Default::default())
             .expect("artifact verification")
     });
     let context = ExecutionContext::default();
@@ -310,14 +311,14 @@ fn run(workload: &Workload, options: &Options) {
             CraneliftBackend::for_host().unwrap()
         });
         let start = Instant::now();
-        let native = runtime
-            .prepare_native(
+        let native = NativeCompiler::default()
+            .prepare(
                 &program,
-                &module,
                 ProgramEntry::Main,
                 &mut backend,
                 &Default::default(),
             )
+            .and_then(|native_code| runtime.install_native(&module, &native_code))
             .expect("native preparation");
         let elapsed = start.elapsed().as_nanos();
         let phase = match &native {

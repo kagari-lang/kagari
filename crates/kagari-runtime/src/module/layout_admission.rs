@@ -338,7 +338,7 @@ mod tests {
         };
         let bindings = Arc::new(
             TypeBindings::new(
-                runtime.definition_context(),
+                &runtime.definition_context().snapshot(),
                 vec![parameter.clone()],
                 vec![foreign],
             )

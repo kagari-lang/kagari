@@ -9,7 +9,7 @@ use kagari::{
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
     gc::roots::RootSet,
-    module::Program,
+    module::InstalledProgram,
     native::{
         adapter::Async,
         binding::NativeResult,
@@ -60,7 +60,7 @@ const SOURCE: &str = include_str!("fixtures/embedding/async/public-facade.kgr");
 
 struct Fixture {
     runtime: Runtime,
-    module: Program,
+    module: InstalledProgram,
     starts: Arc<AtomicUsize>,
     touches: Arc<AtomicUsize>,
     cancels: Arc<AtomicUsize>,

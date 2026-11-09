@@ -14,7 +14,7 @@ use crate::{
             operations::{OperationBindings, OperationSegment},
         },
     },
-    module::{ExecutableModule, Program, linked_execution::calls::LinkedCall},
+    module::{ExecutableModule, InstalledProgram, linked_execution::calls::LinkedCall},
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -44,7 +44,7 @@ use std::sync::Arc;
 fn load_source(
     source: &str,
     module: Option<&NativeModule>,
-) -> (Runtime, Program, ExecutableModule) {
+) -> (Runtime, InstalledProgram, ExecutableModule) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("group.kgr", source.into(), SourceLayer::Base)
@@ -252,7 +252,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
     }
 }
 
-fn generic_fixture() -> (Runtime, Program, ExecutableModule, usize) {
+fn generic_fixture() -> (Runtime, InstalledProgram, ExecutableModule, usize) {
     let (runtime, loaded_program, loaded) = load_source(
         r#"
         struct Marker {}
@@ -833,7 +833,8 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         // A caller-owned environment roots the selected old provider independently
         // of the optional program index. Retiring the index must not break it.
         let mut record =
-            EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+            EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![])
+                .unwrap();
         record.extend_operations(first.clone());
         let environment = runtime.alloc_environment(record).unwrap();
         let root = runtime
@@ -846,7 +847,12 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         for _ in 0..160 {
             let scope = runtime
                 .alloc_environment(
-                    EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap(),
+                    EnvironmentRecord::new(
+                        &runtime.definition_context().snapshot(),
+                        vec![],
+                        vec![],
+                    )
+                    .unwrap(),
                 )
                 .unwrap();
             let call = runtime

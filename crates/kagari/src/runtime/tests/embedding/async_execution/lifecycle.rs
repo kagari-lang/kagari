@@ -4,7 +4,7 @@ use crate::{
     BytecodeArtifact,
     engine::EngineConfig,
     error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_runtime::{
     error::RuntimeErrorKind,
@@ -23,7 +23,7 @@ use std::{
 const SOURCE: &str =
     include_str!("../../../../../tests/fixtures/embedding/async/pinned-reload.kgr");
 
-fn prepare(f: &Fixture, source: &str) -> PreparedProgram {
+fn prepare(f: &Fixture, source: &str) -> Program {
     let artifact = f
         .engine
         .compile_to_artifact(
@@ -34,7 +34,7 @@ fn prepare(f: &Fixture, source: &str) -> PreparedProgram {
     let artifact =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-    PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }
 
 fn task_boundary(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
@@ -216,7 +216,12 @@ fn lifecycle_reload_contract() {
         &SOURCE.replace(original_version, "pub fn version() -> i32 {\n    100\n}"),
     );
     f.runtime
-        .reload_program(&f.module, &replacement, Default::default())
+        .program(&f.module)
+        .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+        .and_then(|candidate| {
+            f.runtime
+                .replace_program(&f.module, &candidate, Default::default())
+        })
         .unwrap();
     assert_ne!(
         f.runtime.runtime().select_program(&f.module).unwrap().key(),

@@ -1,7 +1,9 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
-    program::PreparedProgram,
+    program::Program,
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::KbcArtifact;
@@ -153,7 +155,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         assert!(
             incompatible
                 .load_program(
-                    &PreparedProgram::from_artifact(
+                    &Program::from_artifact(
                         artifact.clone(),
                         &Default::default(),
                         &Default::default()
@@ -168,7 +170,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         assert!(
             missing
                 .load_program(
-                    &PreparedProgram::from_artifact(
+                    &Program::from_artifact(
                         artifact.clone(),
                         &Default::default(),
                         &Default::default()
@@ -180,8 +182,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         );
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
             .load_program(&loaded_program, LoadOptions::default())
             .unwrap();
@@ -190,15 +191,17 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
         for _ in 0..2 {
             let report = if let Some(backend) = &mut backend {
-                let prepared = runtime
-                    .prepare_native(
+                let prepared = {
+                    let native_code = NativeCompiler::default().prepare(
                         &loaded_program,
-                        &loaded,
                         ProgramEntry::Main,
                         backend,
                         &context.cancellation,
-                    )
-                    .unwrap();
+                    );
+                    native_code
+                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                }
+                .unwrap();
                 runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             } else {
                 runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -250,19 +253,15 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     assert!(
         missing
             .load_program(
-                &PreparedProgram::from_artifact(
-                    artifact.clone(),
-                    &Default::default(),
-                    &Default::default()
-                )
-                .unwrap(),
+                &Program::from_artifact(artifact.clone(), &Default::default(), &Default::default())
+                    .unwrap(),
                 LoadOptions::default(),
             )
             .is_err()
     );
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, LoadOptions::default())
         .unwrap();

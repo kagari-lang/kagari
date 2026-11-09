@@ -8,7 +8,7 @@ use crate::{
     error::RuntimeErrorKind,
     gc::roots::RootedValue,
     host::{HostCallContext, HostPathDescriptorId},
-    module::Program,
+    module::InstalledProgram,
     native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
     reload::ReloadValidationError,
     session::{DeterministicInputs, ExecutionPhase},
@@ -28,7 +28,7 @@ use std::sync::{
 };
 use support::native::{invoke::invoke, program::free_function_program};
 
-fn load(runtime: &mut Runtime, name: &str) -> Program {
+fn load(runtime: &mut Runtime, name: &str) -> InstalledProgram {
     let context = DefinitionContext::new().unwrap();
     runtime
         .load_program(

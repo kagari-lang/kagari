@@ -2,7 +2,9 @@ use super::*;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
-    module::{LinkedModule, ModuleEpochRetention, Program, ProgramDescriptor, VerifiedProgram},
+    module::{
+        InstalledProgram, LinkedModule, ModuleEpochRetention, ProgramDescriptor, VerifiedProgram,
+    },
     native::{
         binding::{BindingEntry, Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -28,7 +30,7 @@ use std::{slice, thread};
 
 fn fixture() -> (
     Runtime,
-    Program,
+    InstalledProgram,
     ExecutableModule,
     DefinitionMetadata<BytecodeProgram>,
 ) {
@@ -116,6 +118,7 @@ fn detached_copy(loaded: &ExecutableModule) -> ExecutableModule {
     ExecutableModule {
         slot: loaded.slot,
         program: Arc::new(ProgramDescriptor {
+            definitions: loaded.program.definitions.clone(),
             source: loaded.program.source.clone(),
             installation: loaded.program.installation,
             dispatch: loaded.program.dispatch.clone(),
@@ -136,6 +139,7 @@ fn detached_copy(loaded: &ExecutableModule) -> ExecutableModule {
                     bytecode: module.bytecode.clone(),
                     registry_owner: module.registry_owner,
                     host_types: module.host_types.clone(),
+                    static_contracts: module.static_contracts.clone(),
                     host_paths: module.host_paths.clone(),
                 })
                 .collect(),

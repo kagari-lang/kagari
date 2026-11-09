@@ -223,7 +223,9 @@ fn allocating_numeric_results_survive_collection_and_traps_release_execution_roo
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
     assert!(!runtime.runtime().is_quarantined());
     runtime
-        .reload_program(&loaded, &program, Default::default())
+        .program(&loaded)
+        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
 }

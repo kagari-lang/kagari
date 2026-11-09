@@ -2,7 +2,7 @@
 use kagari::{
     context::ExecutionContext,
     engine::{KagariEngine, source::PreparationOptions},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_source::source::SourceFile;
 use std::{collections::HashSet, env, fmt::Write, sync::Arc, time::Instant};
@@ -87,7 +87,7 @@ struct Measurement {
     root_backings: usize,
 }
 
-fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, options: &Options) -> Measurement {
+fn lifecycle(engine: &KagariEngine, program: &Program, options: &Options) -> Measurement {
     let context = ExecutionContext::default();
     let mut runtimes = Vec::with_capacity(options.runtimes);
     let mut installed = Vec::with_capacity(options.runtimes);

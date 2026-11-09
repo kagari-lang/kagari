@@ -6,14 +6,14 @@ use crate::{
         KagariEngine,
         source::{ArtifactOptions, compilation::Compilation},
     },
-    program::PreparedProgram,
+    program::Program,
     runtime::Runtime,
 };
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     Runtime as CoreRuntime, RuntimeConfig,
-    module::{ExecutableModule, Program},
+    module::{ExecutableModule, InstalledProgram},
     native::module::NativeModule,
     value::Value,
 };
@@ -26,7 +26,7 @@ pub(super) fn prepare_static_program(
     engine: &KagariEngine,
     source: &str,
     decoded: bool,
-) -> PreparedProgram {
+) -> Program {
     let checked = engine
         .compile_source(SourceFile::new("static-values.kgr", source))
         .unwrap();
@@ -35,7 +35,7 @@ pub(super) fn prepare_static_program(
     }
     let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-    PreparedProgram::from_artifact(
+    Program::from_artifact(
         BytecodeArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -43,7 +43,7 @@ pub(super) fn prepare_static_program(
     .unwrap()
 }
 
-fn static_call(runtime: &Runtime, module: &Program, entry: &str) -> Value {
+fn static_call(runtime: &Runtime, module: &InstalledProgram, entry: &str) -> Value {
     runtime
         .execute(module, entry, &[], &Default::default())
         .unwrap()
@@ -82,18 +82,24 @@ pub fn write() { STATE = 128578u32; }
     static_call(&runtime, &old, "write");
     assert_eq!(
         runtime
-            .reload_program(&old, &changed_initializer, Default::default())
+            .program(&old)
+            .and_then(|base| base.prepare_replacement(&changed_initializer, &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap_err()
             .code(),
         "KG_RELOAD_UPDATE_EVIDENCE"
     );
     runtime
-        .reload_program(&old, &second, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     assert!(
         runtime
-            .reload_program(&current, &incompatible, Default::default())
+            .program(&current)
+            .and_then(|base| base.prepare_replacement(&incompatible, &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&current, &candidate, Default::default()))
             .is_err()
     );
     for module in [&old, &current] {
@@ -126,13 +132,17 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     assert_eq!(static_call(&runtime, &old, "check"), Value::Bool(true));
     assert_eq!(
         runtime
-            .reload_program(&old, &changed_initializer, Default::default())
+            .program(&old)
+            .and_then(|base| base.prepare_replacement(&changed_initializer, &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap_err()
             .code(),
         "KG_RELOAD_UPDATE_EVIDENCE"
     );
     runtime
-        .reload_program(&old, &second, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     static_call(&runtime, &current, "replace");
@@ -165,7 +175,9 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
     assert_eq!(static_call(&runtime, &old, "saved"), Value::I32(22));
     assert_eq!(static_call(&runtime, &old, "function"), Value::I32(10));
     runtime
-        .reload_program(&old, &second, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     static_call(&runtime, &current, "set_state");
@@ -205,7 +217,9 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
     for (updated, expected) in [(bodies, 2323), (helpers, 2424)] {
         let candidate = prepare_static_program(&engine, updated, decoded);
         runtime
-            .reload_program(&old, &candidate, Default::default())
+            .program(&old)
+            .and_then(|base| base.prepare_replacement(&candidate, &Default::default()))
+            .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap();
         for entry in ["map_lookup", "set_lookup"] {
             static_call(&runtime, &old, "reset_markers");
@@ -233,7 +247,9 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         include_str!("../../../../tests/fixtures/embedding/reload/static-hash-change-v4.kgr");
     let candidate = prepare_static_program(&engine, changed_hash, decoded);
     runtime
-        .reload_program(&old, &candidate, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&candidate, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     for entry in ["map_lookup", "set_lookup"] {
         static_call(&runtime, &old, "reset_markers");

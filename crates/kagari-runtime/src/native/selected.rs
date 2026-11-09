@@ -50,7 +50,7 @@ impl LinkedCallable {
                 &required.arguments,
             )?;
             let mut binders = EnvironmentRecord::new(
-                runtime.definition_context(),
+                operation.owner.definitions(),
                 generic.parameters.clone(),
                 arguments,
             )?;
@@ -66,7 +66,7 @@ impl LinkedCallable {
                 None
             } else {
                 let mut environment = EnvironmentRecord::new(
-                    runtime.definition_context(),
+                    operation.owner.definitions(),
                     generic.entry_parameters.clone(),
                     runtime.type_arguments(
                         &operation.owner,

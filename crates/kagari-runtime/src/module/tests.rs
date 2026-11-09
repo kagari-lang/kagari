@@ -49,13 +49,10 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
         .iter()
         .map(Arc::downgrade)
         .collect::<Vec<_>>();
-    let same_context = code.normalized(&context, &Default::default()).unwrap();
-    assert!(Arc::ptr_eq(&code.modules, &same_context.modules));
-    assert!(code.same_version(&same_context));
     let mut other_root = code.clone();
     other_root.root = ModuleRef::new(code.root.index() + 1);
     assert!(!code.same_version(&other_root));
-    drop((same_context, other_root));
+    drop(other_root);
     let mut runtime = Runtime::default();
     let old_program = runtime.load_verified_program("token", code).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
@@ -72,6 +69,7 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
     runtime.publish_staged_reload(next).unwrap();
 
     let current = runtime.select_program(&old_program).unwrap();
+    assert_ne!(token, current.verified_program().revision());
     runtime.collect_garbage().unwrap();
     assert!(runtime.modules().loaded(old.key()).is_none());
     assert!(runtime.validate_executable_module(&old).is_err());
@@ -86,7 +84,7 @@ fn version_token_preserves_root_identity_without_retaining_execution() {
     assert!(current_graph.iter().all(|weak| weak.upgrade().is_none()));
     assert!(descriptor.upgrade().is_none());
     assert!(execution.upgrade().is_none());
-    assert_eq!(Arc::strong_count(&token), 1);
+    drop(token);
 }
 
 #[test]
@@ -155,17 +153,22 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         .unwrap();
     let second = second_runtime.select_program(&second_program).unwrap();
 
-    // Scoped definition IDs are runtime-local; immutable executable preparation
-    // and the source revision remain shared across the identity adoption.
+    // Products retain their original immutable identity scope and code. Local
+    // admission records and execution state belong to their respective Runtime.
+    assert!(Arc::ptr_eq(&first.bytecode, &second.bytecode));
     assert!(Arc::ptr_eq(
         &first.program.code.execution,
         &second.program.code.execution
     ));
-    assert!(Arc::ptr_eq(
-        &first.program.code.version,
-        &second.program.code.version
-    ));
-    assert_ne!(first.definitions().id(), second.definitions().id());
+    assert_eq!(
+        first.program.code.revision(),
+        second.program.code.revision()
+    );
+    assert_eq!(first.definitions().id(), second.definitions().id());
+    assert_ne!(
+        first.identity_admission().target().id(),
+        second.identity_admission().target().id()
+    );
     assert!(first_runtime.validate_executable_module(&first).is_ok());
     assert!(second_runtime.validate_executable_module(&second).is_ok());
     assert!(first_runtime.validate_executable_module(&second).is_err());
@@ -304,19 +307,24 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
             .capture_current()
             .ok()
             .map(|baseline| validate_verified_reload_candidate(&baseline, &code).unwrap());
-        store
-            .stage_verified_program(
+        {
+            let code = code;
+            let definitions =
+                DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+            store.stage_verified_program(
                 installation.clone(),
                 "game.player",
                 ModuleEpoch(epoch),
                 code,
                 LinkedProgramBindings {
+                    definitions,
                     members: vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
                     shared_traits: Default::default(),
                 },
                 admission,
             )
-            .unwrap()
+        }
+        .unwrap()
     };
     let baseline = stage(1).publish(&store).unwrap();
     let abandoned = stage(2);
@@ -395,22 +403,26 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
         .unwrap();
     let store = runtime.modules();
     let stage = |epoch| {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
         store.stage_verified_program(
             installation.clone(),
             "candidate",
             ModuleEpoch(epoch),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
@@ -441,87 +453,102 @@ fn assigns_stable_module_ids_across_epochs() {
             BytecodeModule::default().identity,
         )
         .unwrap();
-    let first = store
-        .stage_verified_program(
+    let first = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.player",
             ModuleEpoch(1),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             None,
         )
-        .unwrap()
-        .publish(&store)
+    }
+    .unwrap()
+    .publish(&store)
+    .unwrap();
+    let second = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
         .unwrap();
-    let second = store
-        .stage_verified_program(
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.player",
             ModuleEpoch(2),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             Some(validate_verified_reload_candidate(&first, first.verified_program()).unwrap()),
         )
-        .unwrap()
-        .publish(&store)
-        .unwrap();
+    }
+    .unwrap()
+    .publish(&store)
+    .unwrap();
     let other_installation = store
         .reserve_installation(
             HostRegistryId::default(),
             BytecodeModule::default().identity,
         )
         .unwrap();
-    let other = store
-        .stage_verified_program(
+    let other = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             other_installation,
             "game.world",
             ModuleEpoch(1),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             None,
         )
-        .unwrap()
-        .publish(&store)
-        .unwrap();
+    }
+    .unwrap()
+    .publish(&store)
+    .unwrap();
 
     assert_eq!(first.id, second.id);
     assert_ne!(first.id, other.id);
@@ -544,31 +571,36 @@ fn snapshot_during_mutable_instance_borrow_does_not_panic() {
             BytecodeModule::default().identity,
         )
         .unwrap();
-    let module = store
-        .stage_verified_program(
+    let module = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.snapshot",
             ModuleEpoch(1),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             None,
         )
-        .unwrap()
-        .publish(&store)
-        .unwrap();
+    }
+    .unwrap()
+    .publish(&store)
+    .unwrap();
     let held = store.inner.borrow_mut();
     assert!(store.instance_snapshot(module.key()).is_none());
     drop(held);
@@ -585,56 +617,66 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
             BytecodeModule::default().identity,
         )
         .unwrap();
-    let first = store
-        .stage_verified_program(
+    let first = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
+        .unwrap();
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.player",
             ModuleEpoch(1),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             None,
         )
-        .unwrap()
-        .publish(&store)
+    }
+    .unwrap()
+    .publish(&store)
+    .unwrap();
+    let second = {
+        let code = VerifiedProgram::new(
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+            &context,
+        )
         .unwrap();
-    let second = store
-        .stage_verified_program(
+        let definitions =
+            DefinitionAdmission::prepare(&code, &context, &Default::default()).unwrap();
+        store.stage_verified_program(
             installation.clone(),
             "game.player",
             ModuleEpoch(2),
-            VerifiedProgram::new(
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-                &context,
-            )
-            .unwrap(),
+            code,
             LinkedProgramBindings {
+                definitions,
                 members: vec![LinkedHostBindings::default()],
                 shared_traits: Default::default(),
             },
             Some(validate_verified_reload_candidate(&first, first.verified_program()).unwrap()),
         )
-        .unwrap()
-        .publish(&store)
-        .unwrap();
+    }
+    .unwrap()
+    .publish(&store)
+    .unwrap();
 
     assert!(store.is_program_root(second.key()));
     assert!(!store.is_program_root(first.key()));

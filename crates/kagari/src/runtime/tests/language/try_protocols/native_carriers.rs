@@ -1,7 +1,7 @@
 use crate::{
     BytecodeArtifact,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
@@ -35,8 +35,7 @@ fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
         )
         .unwrap();
         let prepared =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let mut runtime = engine().runtime(Default::default());
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
         assert_eq!(

@@ -57,6 +57,7 @@ impl ExecutableModule {
         &self,
         nominal: &NominalTy,
     ) -> Option<(ExecutableModule, StructId)> {
+        let declaration = self.identity_admission().lexical_id(nominal.declaration)?;
         self.members().find_map(|owner| {
             let id = owner
                 .bytecode
@@ -64,7 +65,11 @@ impl ExecutableModule {
                 .iter()
                 .enumerate()
                 .filter(|(_, layout)| {
-                    layout.declaration == nominal.declaration && layout.accepts(&nominal.arguments)
+                    layout.declaration == declaration
+                        && (layout.accepts(&nominal.arguments)
+                            || owner
+                                .identity_admission()
+                                .equivalent(&layout.arguments, &nominal.arguments))
                 })
                 .max_by_key(|(_, layout)| !layout.arguments.iter().all(Ty::is_concrete))?
                 .0;
@@ -76,6 +81,7 @@ impl ExecutableModule {
         &self,
         nominal: &NominalTy,
     ) -> Option<(ExecutableModule, EnumId)> {
+        let declaration = self.identity_admission().lexical_id(nominal.declaration)?;
         self.members().find_map(|owner| {
             let id = owner
                 .bytecode
@@ -83,7 +89,11 @@ impl ExecutableModule {
                 .iter()
                 .enumerate()
                 .filter(|(_, layout)| {
-                    layout.declaration == nominal.declaration && layout.accepts(&nominal.arguments)
+                    layout.declaration == declaration
+                        && (layout.accepts(&nominal.arguments)
+                            || owner
+                                .identity_admission()
+                                .equivalent(&layout.arguments, &nominal.arguments))
                 })
                 .max_by_key(|(_, layout)| !layout.arguments.iter().all(Ty::is_concrete))?
                 .0;
@@ -96,10 +106,13 @@ impl ExecutableModule {
             return None;
         }
         let template = self.bytecode.structures.get(id.index())?;
-        if !template.accepts(arguments) {
+        let same_arguments = self
+            .identity_admission()
+            .equivalent(&template.arguments, arguments);
+        if !same_arguments && !template.accepts(arguments) {
             return None;
         }
-        let applied = if template.arguments == arguments {
+        let applied = if same_arguments {
             None
         } else {
             Some(Arc::new(
@@ -131,11 +144,14 @@ impl ExecutableModule {
             return None;
         }
         let template = self.bytecode.enumerations.get(id.index())?;
-        if !template.accepts(arguments) {
+        let same_arguments = self
+            .identity_admission()
+            .equivalent(&template.arguments, arguments);
+        if !same_arguments && !template.accepts(arguments) {
             return None;
         }
         template.variants.get(variant as usize)?;
-        let applied = if template.arguments == arguments {
+        let applied = if same_arguments {
             None
         } else {
             Some(Arc::new(

@@ -106,7 +106,7 @@ impl Runtime {
             return Err(invalid());
         }
         let environment = Arc::new(TypeBindings::new(
-            self.definition_context(),
+            member.definitions(),
             declared.generic_params.clone(),
             arguments.to_vec(),
         )?);

@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -92,7 +92,7 @@ fn context() -> ExecutionContext {
     }
 }
 
-fn programs(source: &str) -> [(&'static str, PreparedProgram); 2] {
+fn programs(source: &str) -> [(&'static str, Program); 2] {
     let compiler = engine();
     let checked = compiler
         .compile_source(SourceFile::new("float-methods.kgr", source))
@@ -105,7 +105,7 @@ fn programs(source: &str) -> [(&'static str, PreparedProgram); 2] {
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let encoded =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     [("source", direct), ("encoded", encoded)]
 }
 
@@ -117,7 +117,7 @@ fn execute_checks(checks: Vec<String>) {
     }
 }
 
-fn assert_checks(program: &PreparedProgram, route: &str, source: &str, checks: &NumericChecks) {
+fn assert_checks(program: &Program, route: &str, source: &str, checks: &NumericChecks) {
     let consumer = engine();
     let context = context();
     let mut runtime = consumer.runtime(context.clone());

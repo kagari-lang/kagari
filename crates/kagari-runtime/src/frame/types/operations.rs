@@ -27,6 +27,7 @@ pub(crate) struct TransportedOperation {
     receiver: Arc<TypeIdentity>,
     requirement: NativeCallableRequirement,
     interface: NominalTy,
+    interface_key: NominalTy,
     slot: u32,
     generic: bool,
 }
@@ -86,14 +87,13 @@ impl OperationBindings {
             let key = TransportedOperation {
                 id,
                 receiver: Arc::new(operation.receiver_identity.transported(&mapping)?),
-                requirement: mapping
-                    .remap(&operation.requirement, &Default::default())?
-                    .into_records(),
+                requirement: mapping.remap_applied(&operation.requirement, &Default::default())?,
                 interface: mapping
-                    .remap(&operation.associated_interface, &Default::default())?
-                    .into_records(),
+                    .remap_applied(&operation.associated_interface, &Default::default())?,
                 slot: operation.slot,
                 generic: operation.generic.is_some(),
+                interface_key: mapping
+                    .remap_closed(&operation.interface_key, &Default::default())?,
             };
             Arc::make_mut(result.segments.get_or_insert_default())
                 .push(OperationSegment::Transported(Arc::new(key)));
@@ -193,7 +193,7 @@ impl OperationBindings {
                 let operation = heap.bound_operation(*id)?;
                 (operation.slot == slot
                     && operation.receiver_identity.as_ref() == receiver
-                    && operation.associated_interface.satisfies(interface))
+                    && operation.interface_key.satisfies(interface))
                 .then_some(*id)
             }
             OperationSegment::Receiver(id) => {
@@ -201,7 +201,7 @@ impl OperationBindings {
             }
             OperationSegment::Transported(key) => (key.slot == slot
                 && key.receiver.same_contract(receiver)
-                && key.interface.satisfies(interface))
+                && key.interface_key.satisfies(interface))
             .then_some(key.id),
         })
     }

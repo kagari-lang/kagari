@@ -7,7 +7,7 @@ use kagari_runtime::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::GcHeapConfig,
-    module::Program,
+    module::InstalledProgram,
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
@@ -100,7 +100,7 @@ fn runtime() -> Runtime {
     runtime
 }
 
-fn fixture() -> (Runtime, Program) {
+fn fixture() -> (Runtime, InstalledProgram) {
     let mut runtime = runtime();
     let owner = runtime.load_program("objects", program(SOURCE)).unwrap();
     (runtime, owner)

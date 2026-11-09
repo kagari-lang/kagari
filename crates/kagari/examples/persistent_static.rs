@@ -2,7 +2,7 @@
 //! Run: cargo run -p kagari --example persistent_static --no-default-features --features source
 
 use kagari::{engine::KagariEngine, runtime::Runtime};
-use kagari_runtime::module::Program;
+use kagari_runtime::module::InstalledProgram;
 use kagari_source::source::SourceFile;
 
 const V1: &str = r#"
@@ -23,7 +23,7 @@ pub fn ready() -> i32 { READY }
 pub fn late() -> i32 { LATE }
 "#;
 
-fn call(runtime: &Runtime, module: &Program, entry: &str) -> i32 {
+fn call(runtime: &Runtime, module: &InstalledProgram, entry: &str) -> i32 {
     runtime
         .execute_typed(module, entry, (), &Default::default())
         .unwrap()
@@ -66,7 +66,9 @@ fn main() {
         )
         .unwrap();
     runtime
-        .reload_program(&old, &second, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
 

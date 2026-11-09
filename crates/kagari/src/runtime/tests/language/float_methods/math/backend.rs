@@ -1,3 +1,5 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     runtime::tests::language::float_methods::{engine, programs},
@@ -22,14 +24,14 @@ fn math_body_is_rejected_before_native_entry_then_runs_in_interpreter_fallback()
     let mut runtime = consumer.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let mut backend = CraneliftBackend::for_host().unwrap();
-    let prepared = runtime
-        .prepare_native(
+    let prepared = NativeCompiler::default()
+        .prepare(
             &program,
-            &loaded,
             ProgramEntry::Main,
             &mut backend,
             &context.cancellation,
         )
+        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
         .unwrap();
     let PreparedNativeEntry::Unsupported { diagnostics, .. } = &prepared else {
         panic!("expected pre-entry rejection of the float math body, got {prepared:?}");

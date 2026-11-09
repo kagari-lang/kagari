@@ -1,6 +1,7 @@
 //! Explicit selection of a public path or the separately verified root entry.
 
-use crate::module::ExecutableModule;
+use crate::module::{ExecutableModule, VerifiedProgram};
+use kagari_bytecode::program::exports::ExportTarget;
 use kagari_contract::ids::FunctionRef;
 
 /// Select a callable from the installed Program's verified export evidence.
@@ -34,9 +35,16 @@ impl<'a> ProgramEntry<'a> {
     /// Missing/private public paths or an absent root entry return `None`.
     /// The execution boundary must still validate runtime ownership and retention.
     pub fn resolve(self, owner: &ExecutableModule) -> Option<(ExecutableModule, FunctionRef)> {
+        let target = self.resolve_program(owner.verified_program())?;
+        Some((owner.member(target.module)?, target.function))
+    }
+
+    /// Resolve checked slots without a Runtime or an installation. This grants no
+    /// execution authority; installation validates the supplying product separately.
+    pub fn resolve_program(self, program: &VerifiedProgram) -> Option<ExportTarget> {
         match self {
-            Self::Export(path) => owner.exported_function(path),
-            Self::Main => owner.entry_function(),
+            Self::Export(path) => program.exported_function(path),
+            Self::Main => program.entry_function(),
         }
     }
 }

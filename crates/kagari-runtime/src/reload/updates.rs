@@ -64,8 +64,12 @@ impl RetainedDemands {
         &self.headers
     }
 
-    pub(crate) fn initial(program: &VerifiedProgram) -> Result<Arc<Self>, ReloadValidationError> {
-        let cancel = CancellationToken::default();
+    /// Build bounded initial history from independently verified code. No Runtime,
+    /// selected frame or local installation identity participates in these facts.
+    pub fn initial(
+        program: &VerifiedProgram,
+        cancel: &CancellationToken,
+    ) -> Result<Arc<Self>, ReloadValidationError> {
         let mut correspondence = DeclarationCorrespondence::new().map_err(identity_error)?;
         let headers = headers(program);
         let evidence = correspondence
@@ -73,7 +77,7 @@ impl RetainedDemands {
                 program.update_evidence(),
                 headers.iter().cloned(),
                 program.definitions(),
-                &cancel,
+                cancel,
             )
             .map_err(identity_error)?;
         let imported_headers = correspondence
@@ -81,13 +85,13 @@ impl RetainedDemands {
                 &headers,
                 headers.iter().cloned(),
                 program.definitions(),
-                &cancel,
+                cancel,
             )
             .map_err(identity_error)?;
         let definitions = imported_headers.definitions();
         let result = (|| {
-            let mut budget = Budget::new(Default::default(), &cancel)?;
-            charge(evidence.records(), definitions, &cancel, &mut budget)?;
+            let mut budget = Budget::new(Default::default(), cancel)?;
+            charge(evidence.records(), definitions, cancel, &mut budget)?;
             let demands = publication_demands(evidence.records(), &mut budget)?;
             let demands = union_demands(
                 &DemandEnvelope::default(),
@@ -95,7 +99,7 @@ impl RetainedDemands {
                 definitions,
                 &mut budget,
             )?;
-            finish(demands, imported_headers.records(), definitions, &cancel)
+            finish(demands, imported_headers.records(), definitions, cancel)
         })();
         result.map_err(|error| admission_error(error, definitions))
     }
@@ -107,8 +111,23 @@ pub(crate) fn prepare(
     previous: &ExecutableModule,
     candidate: &VerifiedProgram,
 ) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
+    prepare_history(
+        previous.verified_program(),
+        previous.retained_demands(),
+        candidate,
+        &CancellationToken::default(),
+    )
+}
+
+pub(crate) fn prepare_history(
+    previous: &VerifiedProgram,
+    history: &RetainedDemands,
+    candidate: &VerifiedProgram,
+    cancel: &CancellationToken,
+) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
     prepare_records(
         previous,
+        history,
         Candidate {
             evidence: candidate.update_evidence(),
             coverage: candidate.update_coverage(),
@@ -120,6 +139,7 @@ pub(crate) fn prepare(
             )
             .map_err(identity_error)?,
         },
+        cancel,
     )
 }
 
@@ -133,7 +153,8 @@ pub(super) fn validate_bytecode(
         candidate.definitions(),
     );
     prepare_records(
-        previous,
+        previous.verified_program(),
+        previous.retained_demands(),
         Candidate {
             evidence: &candidate.program().update_evidence,
             coverage: &coverage,
@@ -144,6 +165,7 @@ pub(super) fn validate_bytecode(
             proof_names: proof_names(&candidate.program().modules, candidate.definitions())
                 .map_err(identity_error)?,
         },
+        &CancellationToken::default(),
     )
     .map(|_| ())
 }
@@ -225,15 +247,15 @@ fn proof_names<'a>(
 }
 
 fn prepare_records(
-    previous: &ExecutableModule,
+    old_program: &VerifiedProgram,
+    retained: &RetainedDemands,
     candidate: Candidate<'_>,
+    cancel: &CancellationToken,
 ) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
-    let cancel = CancellationToken::default();
     let mut correspondence = DeclarationCorrespondence::new().map_err(identity_error)?;
-    let old_program = previous.verified_program();
     let old_headers = headers(old_program);
     let new_headers = candidate.headers;
-    let mut budget = Budget::new(Default::default(), &cancel)
+    let mut budget = Budget::new(Default::default(), cancel)
         .map_err(|error| ReloadValidationError::UpdateEvidence(error.to_string()))?;
     let previous_evidence = import_verified_evidence(
         &mut correspondence,
@@ -243,13 +265,12 @@ fn prepare_records(
         &mut budget,
     )
     .map_err(|error| ReloadValidationError::UpdateEvidence(error.to_string()))?;
-    let retained = previous.retained_demands();
     let history = correspondence
         .import(
             retained.metadata.records(),
             retained.headers.iter().cloned(),
             retained.metadata.definitions(),
-            &cancel,
+            cancel,
         )
         .map_err(identity_error)?;
     let evidence = import_verified_evidence(
@@ -265,7 +286,7 @@ fn prepare_records(
             candidate.coverage,
             new_headers.iter().cloned(),
             candidate.definitions,
-            &cancel,
+            cancel,
         )
         .map_err(identity_error)?;
     correspondence
@@ -273,7 +294,7 @@ fn prepare_records(
             &candidate.proof_names,
             new_headers.iter().cloned(),
             candidate.definitions,
-            &cancel,
+            cancel,
         )
         .map_err(identity_error)?;
     let imported_headers = correspondence
@@ -281,7 +302,7 @@ fn prepare_records(
             &new_headers,
             new_headers.iter().cloned(),
             candidate.definitions,
-            &cancel,
+            cancel,
         )
         .map_err(identity_error)?;
     let definitions = imported_headers.definitions();
@@ -293,7 +314,7 @@ fn prepare_records(
         let natives = facts.natives();
         let catalog = facts
             .proofs
-            .catalog(definitions, &cancel)
+            .catalog(definitions, cancel)
             .map_err(UpdateError::from)?;
         check_coverage(
             &demands,
@@ -307,7 +328,7 @@ fn prepare_records(
             &catalog,
             &mut budget,
         )?;
-        finish(demands, imported_headers.records(), definitions, &cancel)
+        finish(demands, imported_headers.records(), definitions, cancel)
     })();
     result.map_err(|error| admission_error(error, definitions))
 }

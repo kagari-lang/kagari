@@ -1,10 +1,12 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::source::PreparationOptions,
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
     runtime::Runtime,
 };
 use kagari_bytecode::artifact::{ArtifactCompatibility, KbcArtifact};
@@ -22,7 +24,7 @@ use kagari_runtime::{
     frame::ExecutionFrame,
     gc::GcHeap,
     host::{HostCallContext, HostError},
-    module::{Program, entry::ProgramEntry},
+    module::{InstalledProgram, entry::ProgramEntry},
     native::{
         builder::ModuleBuilder, conversion::context::ConversionContext, module::NativeModule,
         types::Type,
@@ -302,7 +304,7 @@ fn compile(case: &Case<'_>, publication: bool) -> Option<RoutePrograms> {
     let encoded =
         KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-    let encoded = PreparedProgram::from_artifact(
+    let encoded = Program::from_artifact(
         encoded,
         &ArtifactCompatibility::default(),
         &Default::default(),
@@ -312,12 +314,12 @@ fn compile(case: &Case<'_>, publication: bool) -> Option<RoutePrograms> {
 }
 
 struct RoutePrograms {
-    source: PreparedProgram,
-    encoded: PreparedProgram,
+    source: Program,
+    encoded: Program,
 }
 
 impl RoutePrograms {
-    fn get(&self, route: Route) -> &PreparedProgram {
+    fn get(&self, route: Route) -> &Program {
         match route {
             Route::Source | Route::Jit => &self.source,
             Route::Artifact | Route::ArtifactJit => &self.encoded,
@@ -382,24 +384,15 @@ fn assert_outcome(
 
 fn execute_route(
     runtime: &Runtime,
-    program: &PreparedProgram,
-    loaded: &Program,
+    loaded: &InstalledProgram,
     case: &Case<'_>,
     route: Route,
-    backend: &mut CraneliftBackend,
+    prepared: Option<&PreparedNativeEntry>,
 ) -> Result<ExecutionReport, VmError> {
     let selected = runtime.runtime().select_program(loaded)?;
     match route {
         Route::Jit | Route::ArtifactJit => {
-            let prepared = runtime
-                .prepare_native(
-                    program,
-                    loaded,
-                    ProgramEntry::Main,
-                    backend,
-                    &Default::default(),
-                )
-                .unwrap();
+            let prepared = prepared.expect("native route is prepared before execution admission");
             if case.require_native {
                 assert!(
                     matches!(prepared, PreparedNativeEntry::Native(_)),
@@ -411,7 +404,7 @@ fn execute_route(
             // matrix. Native preparation uses the public SDK's trusted handoff.
             let outcome = runtime
                 .vm
-                .execute_prepared(&selected, ProgramEntry::Main, &prepared);
+                .execute_prepared(&selected, ProgramEntry::Main, prepared);
             if case.require_native
                 && let Ok(report) = &outcome
             {
@@ -426,12 +419,21 @@ fn execute_route(
     }
 }
 
-fn run(
-    case: &Case<'_>,
-    route: Route,
-    module: &PreparedProgram,
-    candidate_program: Option<&PreparedProgram>,
-) {
+fn prepare_native(
+    runtime: &mut Runtime,
+    compiler: &mut NativeCompiler,
+    program: &Program,
+    loaded: &InstalledProgram,
+    entry: ProgramEntry<'_>,
+    backend: &mut CraneliftBackend,
+) -> PreparedNativeEntry {
+    let code = compiler
+        .prepare(program, entry, backend, &Default::default())
+        .unwrap();
+    runtime.install_native(loaded, &code).unwrap()
+}
+
+fn run(case: &Case<'_>, route: Route, module: &Program, candidate_program: Option<&Program>) {
     let observe = observe_vector();
     let mut runtime = preparation::installation().runtime(RuntimeConfig {
         limits: RuntimeLimits {
@@ -497,7 +499,7 @@ fn run(
         builder.finish().unwrap().install(&mut runtime).unwrap();
     }
     let loaded = runtime
-        .load_verified_program(case.name, module.bytecode().clone())
+        .load_verified_program(case.name, module.clone().into_verified())
         .unwrap_or_else(|error| panic!("{} ({route:?}): {error}", case.name));
     let selected = runtime.select_program(&loaded).unwrap();
     let retained = case.vector.map(|(initial, _)| {
@@ -522,32 +524,28 @@ fn run(
         },
         ..Default::default()
     };
-    let vm = Runtime::new(runtime, context);
-    let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
-        let mut options = vm.runtime().execution_options();
-        options.cancellation = cancellation.clone();
-        vm.runtime().begin_execution(&selected, options).unwrap()
-    });
-    if case.cancel_at.is_some() {
-        vm.runtime().attach_execution_observer().unwrap();
-    }
+    let mut vm = Runtime::new(runtime, context);
+    let mut compiler = NativeCompiler::default();
     let mut backend = CraneliftBackend::for_host().unwrap();
-    for attempt in 0..case.repeat {
-        let outcome = execute_route(&vm, module, &loaded, case, route, &mut backend);
-        assert_outcome(vm.runtime(), case, route, attempt, outcome);
-    }
-    if let Some(reload) = &case.published_reload {
-        let candidate = reload.candidate;
-        let program = candidate_program.expect("published candidate must compile");
-        let old_native = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
+    let prepared = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
+        prepare_native(
+            &mut vm,
+            &mut compiler,
+            module,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+        )
+    });
+    let old_native = case.published_reload.as_ref().and_then(|reload| {
+        matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
             [
                 ProgramEntry::Main,
                 ProgramEntry::Export(reload.native_entry),
             ]
             .map(|entry| {
-                let prepared = vm
-                    .prepare_native(module, &loaded, entry, &mut backend, &Default::default())
-                    .unwrap();
+                let prepared =
+                    prepare_native(&mut vm, &mut compiler, module, &loaded, entry, &mut backend);
                 if matches!(entry, ProgramEntry::Export(_)) {
                     assert!(
                         matches!(prepared, PreparedNativeEntry::Native(_)),
@@ -557,7 +555,30 @@ fn run(
                 }
                 (entry, prepared)
             })
-        });
+        })
+    });
+    let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
+        let mut options = vm.runtime().execution_options();
+        options.cancellation = cancellation.clone();
+        vm.runtime().begin_execution(&selected, options).unwrap()
+    });
+    if case.cancel_at.is_some() {
+        vm.runtime().attach_execution_observer().unwrap();
+    }
+    for attempt in 0..case.repeat {
+        let outcome = execute_route(&vm, &loaded, case, route, prepared.as_ref());
+        assert_outcome(vm.runtime(), case, route, attempt, outcome);
+    }
+    assert_eq!(
+        vm.runtime().resources().counters().current_call_depth,
+        0,
+        "{} ({route:?}): call resources must be released before session cleanup",
+        case.name
+    );
+    drop(session);
+    if let Some(reload) = &case.published_reload {
+        let candidate = reload.candidate;
+        let program = candidate_program.expect("published candidate must compile");
         // Queue the exact old body before publication; no synchronous activation
         // remains while the host publishes. Its ordinary calls still select current.
         let old_execution = vm
@@ -573,10 +594,22 @@ fn run(
             .runtime()
             .stage_reload_verified_program(&loaded, None, program.bytecode().clone())
             .unwrap();
-        vm.reload_program(&loaded, program, Default::default())
+        vm.program(&loaded)
+            .and_then(|base| base.prepare_replacement(program, &Default::default()))
+            .and_then(|candidate| vm.replace_program(&loaded, &candidate, Default::default()))
             .unwrap();
         let current = loaded.clone();
         let current_selected = vm.runtime().select_program(&current).unwrap();
+        let current_native = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
+            prepare_native(
+                &mut vm,
+                &mut compiler,
+                program,
+                &current,
+                ProgramEntry::Main,
+                &mut backend,
+            )
+        });
         assert_ne!(current_selected.key(), selected.key());
         assert!(vm.runtime().execution_root().is_none());
         let DriveResult::Complete(result) = vm
@@ -655,7 +688,7 @@ fn run(
             candidate,
             route,
             0,
-            execute_route(&vm, program, &current, candidate, route, &mut backend),
+            execute_route(&vm, &current, candidate, route, current_native.as_ref()),
         );
         let before = vm.runtime().modules().loaded_count();
         let stale_members = stale.module().members().count();
@@ -676,7 +709,7 @@ fn run(
             candidate,
             route,
             1,
-            execute_route(&vm, program, &current, candidate, route, &mut backend),
+            execute_route(&vm, &current, candidate, route, current_native.as_ref()),
         );
     }
     assert_eq!(
@@ -685,7 +718,6 @@ fn run(
         "{} ({route:?}): call resources must be released after success or failure",
         case.name
     );
-    drop(session);
     if let Some((_, expected)) = case.vector {
         assert_eq!(
             vm.runtime().gc().active_roots(),

@@ -2,9 +2,9 @@ use crate::{
     PreparedReload, Runtime, StagedLoad, StagedReload,
     error::{RuntimeError, RuntimeErrorKind},
     module::{
-        ExecutableModule, Installation, LinkedHostBindings, LinkedProgramBindings,
-        ModuleEpochRetention, Program, VerifiedProgram, retention::ProgramLease,
-        staging::StagedProgram,
+        ExecutableModule, Installation, InstalledProgram, LinkedHostBindings,
+        LinkedProgramBindings, ModuleEpochRetention, VerifiedProgram,
+        admission::DefinitionAdmission, retention::ProgramLease, staging::StagedProgram,
     },
     publication::PublicationGuard,
     reload::{
@@ -46,17 +46,46 @@ impl Runtime {
         &self,
         module: &BytecodeModule,
         program: &VerifiedProgram,
+        admission: &DefinitionAdmission,
     ) -> Result<LinkedHostBindings, RuntimeError> {
-        self.native_entries.validate_installed_contracts(module)?;
-        let mut bindings = self
-            .host
-            .link_module(module, &self.types, program.definitions())?;
+        self.native_entries
+            .validate_installed_contracts(module, admission)?;
+        let mut bindings = self.host.link_module(module, &self.types, admission)?;
         bindings.native = module
             .native_imports
             .iter()
-            .map(|import| self.native_entries.link(import, program))
+            .map(|import| self.native_entries.link(import, program, admission))
             .collect::<Result<_, _>>()?;
         Ok(bindings)
+    }
+
+    fn link_program(
+        &self,
+        program: &VerifiedProgram,
+    ) -> Result<LinkedProgramBindings, RuntimeError> {
+        let definitions = DefinitionAdmission::prepare(
+            program,
+            self.definition_context(),
+            &self.execution_options().cancellation,
+        )?;
+        let members = program
+            .modules()
+            .iter()
+            .map(|module| self.link_native_module(module, program, &definitions))
+            .collect::<Result<_, _>>()?;
+        // Provider authority comes from installed registrations, never merely
+        // from declarations or requirements carried by the product.
+        let shared_traits = self
+            .native_entries
+            .owned_traits
+            .iter()
+            .filter_map(|id| definitions.product_id(*id))
+            .collect();
+        Ok(LinkedProgramBindings {
+            definitions,
+            members,
+            shared_traits,
+        })
     }
 
     fn stage_linked_program(
@@ -65,21 +94,15 @@ impl Runtime {
         name: String,
         epoch: ModuleEpoch,
         program: VerifiedProgram,
-        bindings: Vec<LinkedHostBindings>,
+        bindings: LinkedProgramBindings,
         admission: Option<ReloadAdmission>,
     ) -> Result<StagedProgram, RuntimeError> {
-        // Capture declaration-level provider authority in this publication. The
-        // catalog also contains script requirements, even under provided modules.
-        let shared_traits = self.native_entries.owned_traits.clone();
         let staged = self.modules.stage_verified_program(
             installation,
             name,
             epoch,
             program,
-            LinkedProgramBindings {
-                members: bindings,
-                shared_traits,
-            },
+            bindings,
             admission,
         )?;
         // Exact program provenance now exists, but the candidate is not published.
@@ -130,7 +153,7 @@ impl Runtime {
         &mut self,
         name: impl Into<String>,
         bytecode: DefinitionMetadata<BytecodeProgram>,
-    ) -> Result<Program, RuntimeError> {
+    ) -> Result<InstalledProgram, RuntimeError> {
         let verified = VerifiedProgram::new(bytecode, self.definition_context())?;
         self.load_verified_program(name, verified)
     }
@@ -141,7 +164,7 @@ impl Runtime {
         &mut self,
         name: impl Into<String>,
         program: VerifiedProgram,
-    ) -> Result<Program, RuntimeError> {
+    ) -> Result<InstalledProgram, RuntimeError> {
         let candidate = self.stage_load_verified_program(name, program)?;
         self.publish_staged_load(candidate)
     }
@@ -158,17 +181,9 @@ impl Runtime {
         program: VerifiedProgram,
     ) -> Result<StagedLoad, RuntimeError> {
         self.check_initial_publication()?;
-        let program = program.normalized(
-            self.definition_context(),
-            &self.execution_options().cancellation,
-        )?;
         let name = name.into();
 
-        let bindings = program
-            .modules()
-            .iter()
-            .map(|module| self.link_native_module(module, &program))
-            .collect::<Result<Vec<_>, _>>()?;
+        let bindings = self.link_program(&program)?;
         let installation = self.modules.reserve_installation(
             self.host.owner(),
             program.modules()[program.root().index()].identity.clone(),
@@ -188,7 +203,10 @@ impl Runtime {
     /// active publication guards. The store validates the candidate lease and empty
     /// installation baseline under its commit guards. No callbacks or fallible work
     /// follow visibility; the returned Program has the candidate's original token.
-    pub fn publish_staged_load(&mut self, candidate: StagedLoad) -> Result<Program, RuntimeError> {
+    pub fn publish_staged_load(
+        &mut self,
+        candidate: StagedLoad,
+    ) -> Result<InstalledProgram, RuntimeError> {
         self.check_initial_publication()?;
         let StagedLoad {
             installation,
@@ -199,7 +217,7 @@ impl Runtime {
         self.validate_executable_module(program.module())?;
         self.validate_publication_bindings(program.module())?;
         program.publish(&self.modules)?;
-        Ok(Program { installation })
+        Ok(InstalledProgram { installation })
     }
 
     fn validate_publication_bindings(
@@ -207,7 +225,11 @@ impl Runtime {
         program: &ExecutableModule,
     ) -> Result<(), RuntimeError> {
         for member in program.members() {
-            let current = self.link_native_module(&member.bytecode, member.verified_program())?;
+            let current = self.link_native_module(
+                &member.bytecode,
+                member.verified_program(),
+                member.identity_admission(),
+            )?;
             if current.paths != member.host_paths {
                 return Err(RuntimeError::module_validation(
                     "host bindings changed after candidate staging",
@@ -219,7 +241,7 @@ impl Runtime {
 
     pub fn stage_reload_program(
         &self,
-        target: &Program,
+        target: &InstalledProgram,
         program_name: Option<String>,
         bytecode: DefinitionMetadata<BytecodeProgram>,
     ) -> Result<StagedReload, ReloadValidationError> {
@@ -244,7 +266,7 @@ impl Runtime {
 
     pub fn stage_reload_artifact(
         &self,
-        target: &Program,
+        target: &InstalledProgram,
         program_name: Option<String>,
         artifact: DefinitionMetadata<KbcArtifact>,
         compatibility: &ArtifactCompatibility,
@@ -282,7 +304,7 @@ impl Runtime {
     /// Host bindings, candidate state, permissions and publication remain runtime-local.
     pub fn stage_reload_verified_program(
         &self,
-        target: &Program,
+        target: &InstalledProgram,
         program_name: Option<String>,
         program: VerifiedProgram,
     ) -> Result<StagedReload, ReloadValidationError> {
@@ -292,7 +314,7 @@ impl Runtime {
 
     pub(super) fn prepare_reload(
         &self,
-        target: &Program,
+        target: &InstalledProgram,
         program_name: Option<String>,
         program: VerifiedProgram,
     ) -> Result<PreparedReload, ReloadValidationError> {
@@ -300,18 +322,9 @@ impl Runtime {
             .select_program(target)
             .map_err(ReloadValidationError::Runtime)?;
         let name = program_name.unwrap_or_else(|| baseline.name.clone());
-        let program = program
-            .normalized(
-                self.definition_context(),
-                &self.execution_options().cancellation,
-            )
-            .map_err(ReloadValidationError::Runtime)?;
         let admission = validate_verified_reload_candidate(&baseline, &program)?;
-        let bindings = program
-            .modules()
-            .iter()
-            .map(|module| self.link_native_module(module, &program))
-            .collect::<Result<Vec<_>, _>>()
+        let bindings = self
+            .link_program(&program)
             .map_err(ReloadValidationError::Runtime)?;
         Ok(PreparedReload {
             installation: target.installation.clone(),
@@ -343,9 +356,9 @@ impl Runtime {
             .map_err(ReloadValidationError::Runtime)?;
         // Only admission may have changed; do not rebuild immutable checked evidence.
         validate_reload_target(&baseline, Some(&latest))?;
-        for (module, prepared) in program.modules().iter().zip(&bindings) {
+        for (module, prepared) in program.modules().iter().zip(&bindings.members) {
             let current = self
-                .link_native_module(module, &program)
+                .link_native_module(module, &program, &bindings.definitions)
                 .map_err(ReloadValidationError::Runtime)?;
             if current.paths != prepared.paths {
                 return Err(ReloadValidationError::Runtime(
@@ -365,7 +378,7 @@ impl Runtime {
             .modules
             .reserve_epoch(installation.id)
             .map_err(ReloadValidationError::Runtime)?;
-        let target = Program {
+        let target = InstalledProgram {
             installation: installation.clone(),
         };
         let program = self

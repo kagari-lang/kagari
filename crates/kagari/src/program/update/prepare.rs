@@ -10,6 +10,7 @@ use crate::{
         },
     },
     error::{EmbeddingError, RuntimeFailureKind},
+    program::Program,
     update::{Edit, FunctionUpdateTarget, Update},
 };
 use kagari_bytecode::{
@@ -25,10 +26,7 @@ use kagari_contract::{
     source::{AuthoredDeclaration, AuthoredKind, MAX_SOURCE_BYTES},
 };
 use kagari_hir::{source_inspection::collect_authored_sources, update_source::SourceBodyKind};
-use kagari_runtime::{
-    Runtime,
-    module::{ExecutableModule, Program},
-};
+use kagari_runtime::module::VerifiedProgram;
 use kagari_source::{identity::FileId, source::SourceFile};
 use kagari_syntax::{lexer::lex_with_cancellation, token::TokenKind};
 use std::{
@@ -87,24 +85,20 @@ struct AddedDocument<'a> {
 }
 
 pub(super) fn check_candidate(
-    runtime: &Runtime,
     program: &Program,
-    current: &ExecutableModule,
     inputs: &CompilationInputs,
     update: &Update,
 ) -> CompileResult<CheckedModule> {
     let captured = inputs.checked();
+    let current = program.bytecode();
     if captured.compiler_contract() != KAGARI_COMPILER_FINGERPRINT
-        || captured.root()
-            != &current.verified_program().modules()[current.verified_program().root().index()]
-                .identity
+        || captured.root() != &current.modules()[current.root().index()].identity
     {
         return Err(source_error(
             "MissingCompilationContext: capsule compiler/root does not match publication",
         ));
     }
-    let snapshot = current.source_snapshot();
-    let package = snapshot
+    let package = current
         .source_package()
         .ok_or_else(|| source_error("MissingCompilationContext: exact source package is absent"))?;
     let mut documents = BTreeMap::<FileId, DocumentEdits<'_>>::new();
@@ -119,9 +113,9 @@ pub(super) fn check_candidate(
         match edit {
             Edit::Function { target, definition } => {
                 let record = match target {
-                    FunctionUpdateTarget::Declaration(declaration) => runtime
-                        .resolve_source_declaration(program, declaration)
-                        .map_err(|error| source_error(error.to_string()))?,
+                    FunctionUpdateTarget::Declaration(declaration) => {
+                        program.resolve_edit_target(declaration)?
+                    }
                     FunctionUpdateTarget::Path(path) => public_function(current, package, path)?,
                 };
                 if !matches!(
@@ -264,7 +258,7 @@ fn authored_document<'a>(
 }
 
 fn public_function(
-    current: &ExecutableModule,
+    current: &VerifiedProgram,
     package: &VerifiedSourcePackage,
     path: &str,
 ) -> CompileResult<AuthoredDeclaration> {

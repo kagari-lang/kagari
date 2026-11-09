@@ -10,7 +10,7 @@ mod provider;
 use crate::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
     test_support::cancellation::CancelAt,
 };
 use contracts::alter_bindings;
@@ -56,7 +56,7 @@ fn artifact(source: &str) -> DefinitionMetadata<KbcArtifact> {
 fn execute(source: &str) {
     let artifact = artifact(source);
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         KbcArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -162,7 +162,7 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
             &Default::default(),
         )
         .unwrap();
-        let program = PreparedProgram::from_artifact(
+        let program = Program::from_artifact(
             DefinitionMetadata::checked(context.snapshot(), forged, &Default::default()).unwrap(),
             &Default::default(),
             &Default::default(),
@@ -310,7 +310,7 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
         &Default::default(),
     )
     .unwrap();
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         DefinitionMetadata::checked(context.snapshot(), forged, &Default::default()).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -327,7 +327,7 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
         "fn main() -> i32 { val values = native::from_fn(3u64, |i| { if i == 1u64 { 1 / 0 } else { 20 } }); values[0u64] }",
     );
     let program =
-        PreparedProgram::from_artifact(original, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(original, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine(EngineConfig::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -348,7 +348,7 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
 
 #[test]
 fn cancellation_boundaries_unwind_nested_provider_callbacks() {
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         artifact("fn main() -> i32 { val values = native::from_fn(2u64, |i| { native::from_fn(1u64, |j| { [21] }) }); values[0u64][0u64][0u64] + values[1u64][0u64][0u64] }"),
         &Default::default(), &Default::default(),
     ).unwrap();

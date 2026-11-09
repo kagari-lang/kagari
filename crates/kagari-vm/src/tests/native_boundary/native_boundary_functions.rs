@@ -20,7 +20,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     gc::GcHeapConfig,
-    module::Program,
+    module::InstalledProgram,
     native::{
         binding::NativeResult, builder::ModuleBuilder, conversion::KagariType,
         declarations::FunctionDecl, function_handle::Function, module::NativeModule,
@@ -36,18 +36,21 @@ use std::sync::{
 
 type ScalarCallback = Function<(i32,), i32>;
 
-pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, Program) {
+pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, InstalledProgram) {
     fixture_program(compile_program(source, module), module)
 }
 
-fn fixture_without_foundation(source: &str, module: Option<&NativeModule>) -> (Vm, Program) {
+fn fixture_without_foundation(
+    source: &str,
+    module: Option<&NativeModule>,
+) -> (Vm, InstalledProgram) {
     fixture_program(compile_without_foundation(source, module), module)
 }
 
 fn fixture_program(
     program: DefinitionMetadata<BytecodeProgram>,
     module: Option<&NativeModule>,
-) -> (Vm, Program) {
+) -> (Vm, InstalledProgram) {
     let program = round_trip_program(program);
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {

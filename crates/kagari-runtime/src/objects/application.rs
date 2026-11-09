@@ -121,7 +121,7 @@ impl Runtime {
         supplied.extend(operations);
         let operations = supplied;
         let mut binders = EnvironmentRecord::new(
-            self.definition_context(),
+            view.proof_implementation().definitions(),
             view.type_parameters().to_vec(),
             arguments.values().to_vec(),
         )?;
@@ -172,7 +172,7 @@ impl Runtime {
             None
         } else {
             let mut environment = EnvironmentRecord::new(
-                self.definition_context(),
+                view.proof_implementation().definitions(),
                 view.entry_parameters().to_vec(),
                 self.type_arguments(
                     view.proof_implementation(),

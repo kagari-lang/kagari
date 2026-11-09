@@ -8,7 +8,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     gc::mutations::PreparedCollectionCommit,
-    module::{Program, entry::ProgramEntry},
+    module::{InstalledProgram, entry::ProgramEntry},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -104,7 +104,7 @@ fn compile_with_modules<'a>(
         .unwrap()
 }
 
-fn compile(text: &str, module: Option<&NativeModule>) -> (Vm, Program) {
+fn compile(text: &str, module: Option<&NativeModule>) -> (Vm, InstalledProgram) {
     let program = compile_program(text, module);
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
@@ -117,7 +117,7 @@ fn compile(text: &str, module: Option<&NativeModule>) -> (Vm, Program) {
 
 // Constant caches belong to a published/pinned program, independently of host
 // value roots. Finish version-specific checks and drop bindings before retiring it.
-fn publish_unused_version(vm: &Vm, active: &Program) {
+fn publish_unused_version(vm: &Vm, active: &InstalledProgram) {
     let selected = vm.runtime().select_program(active).unwrap();
     let candidate = vm
         .runtime()

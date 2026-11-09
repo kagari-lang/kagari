@@ -1,12 +1,12 @@
 //! Publication assertions compiled against each consuming test harness's runtime.
 use kagari_runtime::{
     Runtime,
-    module::{Program, VerifiedProgram, state::StaticState},
+    module::{InstalledProgram, VerifiedProgram, state::StaticState},
 };
 
 pub fn publish_without_execution(
     runtime: &mut Runtime,
-    loaded_program: &Program,
+    loaded_program: &InstalledProgram,
     candidate: VerifiedProgram,
 ) {
     let loaded = runtime.select_program(loaded_program).unwrap();

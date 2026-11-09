@@ -55,7 +55,7 @@ fn rooted_application_keeps_its_environment_edges_until_last_lease() {
     let runtime = Runtime::default();
     let group = runtime.gc.alloc_operation_group(vec![]).unwrap();
     let mut environment =
-        EnvironmentRecord::new(runtime.definition_context(), vec![], vec![]).unwrap();
+        EnvironmentRecord::new(&runtime.definition_context().snapshot(), vec![], vec![]).unwrap();
     environment.add_receiver(&runtime.gc, group).unwrap();
     let environment = runtime.alloc_environment(environment).unwrap();
     let environment_id = environment.id;

@@ -1,7 +1,7 @@
 //! Build a single-entry deployment bundle from checked portable compiler input.
 use crate::{
     aot::{AotError, BUILD_CONTRACT, check_cancel, read_bounded},
-    program::PreparedProgram,
+    program::Program,
 };
 use blake3::hash;
 use kagari_abi::{
@@ -44,7 +44,7 @@ impl AotBuild {
         cancel: &CancellationToken,
     ) -> Result<Self, AotError> {
         check_cancel(cancel)?;
-        let program = PreparedProgram::from_artifact(artifact.clone(), &Default::default(), cancel)
+        let program = Program::from_artifact(artifact.clone(), &Default::default(), cancel)
             .map_err(|e| AotError(e.to_string()))?;
         let target = match entry {
             ProgramEntry::Main => program.bytecode().entry_function(),

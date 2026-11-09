@@ -3,6 +3,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     module::{
         Installation, VerifiedProgram,
+        admission::DefinitionAdmission,
         dispatch::{PublicationToken, invalid},
     },
     reload::updates::headers,
@@ -106,6 +107,7 @@ impl RemapDefinitions for References {
 /// shared DefinitionTable alone cannot distinguish reordered semantic impl owners.
 #[derive(Debug)]
 pub struct PublicationDefinitions {
+    admission: Arc<DefinitionAdmission>,
     pub(super) token: PublicationToken,
     published: AtomicBool,
     original: DefinitionTable,
@@ -201,6 +203,62 @@ pub struct PublicationMapping {
 }
 
 impl PublicationMapping {
+    /// Transport lexical keys in applied metadata while preserving closed
+    /// supplied arguments in their checked installation scope. Such a mixed
+    /// record is not a portable product or a new single-scope verification seal.
+    pub(crate) fn remap_applied<T: RemapDefinitions>(
+        &self,
+        records: &T,
+        cancel: &CancellationToken,
+    ) -> Result<T, RuntimeError> {
+        records
+            .remap_definitions(&mut DefinitionMapper::new(
+                &mut |id| {
+                    if self.source.stable.contains_key(id) {
+                        self.map(*id)
+                            .map_err(|_| DefinitionMappingError::InvalidContract)
+                    } else {
+                        self.target.admission.target().resolve(*id)?;
+                        Ok(*id)
+                    }
+                },
+                &self.target.original,
+                cancel,
+            ))
+            .map_err(mapping_error)
+    }
+
+    /// Closed descriptor keys use the admitted Runtime scope; binder transport
+    /// still follows checked semantic correspondence in the original products.
+    pub(crate) fn remap_closed<T: RemapDefinitions>(
+        &self,
+        records: &T,
+        cancel: &CancellationToken,
+    ) -> Result<T, RuntimeError> {
+        records
+            .remap_definitions(&mut DefinitionMapper::new(
+                &mut |id| {
+                    if let Some(original) = self.source.admission.product_id(*id) {
+                        let selected = self
+                            .map(original)
+                            .map_err(|_| DefinitionMappingError::InvalidContract)?;
+                        self.target
+                            .admission
+                            .runtime_id(selected)
+                            .map_err(|_| DefinitionMappingError::InvalidContract)
+                    } else {
+                        // Supplied closed arguments retain their own provenance.
+                        // Only source-owned declaration keys need binder transport.
+                        self.target.admission.target().resolve(*id)?;
+                        Ok(*id)
+                    }
+                },
+                self.target.admission.target(),
+                cancel,
+            ))
+            .map_err(mapping_error)
+    }
+
     pub(super) fn new(
         source: Arc<PublicationDefinitions>,
         target: Arc<PublicationDefinitions>,
@@ -279,6 +337,7 @@ impl DeclarationIndex {
         token: PublicationToken,
         previous: Option<&Self>,
         program: &VerifiedProgram,
+        admission: Arc<DefinitionAdmission>,
     ) -> Result<(Self, Arc<PublicationDefinitions>), RuntimeError> {
         let cancel = CancellationToken::default();
         let mut correspondence = DeclarationCorrespondence::new().map_err(mapping_error)?;
@@ -374,6 +433,7 @@ impl DeclarationIndex {
             headers,
         };
         let scope = PublicationDefinitions {
+            admission,
             token,
             published: AtomicBool::new(false),
             original: program.definitions().clone(),

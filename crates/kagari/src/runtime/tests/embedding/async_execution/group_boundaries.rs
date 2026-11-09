@@ -8,7 +8,7 @@ use crate::{
     context::ExecutionContext,
     engine::EngineConfig,
     error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_runtime::{
     Runtime,
@@ -420,9 +420,14 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     f.runtime
-        .reload_program(&f.module, &program, Default::default())
+        .program(&f.module)
+        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+        .and_then(|candidate| {
+            f.runtime
+                .replace_program(&f.module, &candidate, Default::default())
+        })
         .unwrap();
     f.program = program;
     let mut retained = f

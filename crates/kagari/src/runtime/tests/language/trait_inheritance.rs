@@ -1,9 +1,11 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -44,19 +46,18 @@ fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
         };
         let mut runtime = KagariEngine::default().runtime(context.clone());
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -113,8 +114,7 @@ fn interpreter_execution(
         };
         let mut runtime = KagariEngine::default().runtime(context.clone());
         let program_program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let program = runtime
             .load_program(&program_program, Default::default())
             .unwrap();
@@ -149,7 +149,7 @@ fn encoded_execution(
     let context = ExecutionContext::default();
     let mut runtime = KagariEngine::default().runtime(context.clone());
     let program_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let program = runtime
         .load_program(&program_program, Default::default())
         .unwrap();
@@ -180,7 +180,7 @@ fn direct_execution(
     let context = ExecutionContext::default();
     let mut runtime = KagariEngine::default().runtime(context.clone());
     let program_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let program = runtime
         .load_program(&program_program, Default::default())
         .unwrap();

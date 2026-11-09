@@ -4,14 +4,14 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     host::HostRegistryId,
     module::{
-        ExecutableModule, Installation, InstallationId, Module, ModuleKey, ModuleSnapshot,
-        ModuleStore, Program,
+        ExecutableModule, Installation, InstallationId, InstalledProgram, Module, ModuleKey,
+        ModuleSnapshot, ModuleStore,
     },
 };
 use kagari_common::identity::ModuleIdentity;
 use std::sync::{Arc, Mutex, atomic::Ordering};
 
-impl Program {
+impl InstalledProgram {
     /// Construct the root namespace identity, even after the installation is closed.
     /// Lookup and binding through that identity still require a live installation.
     pub fn root(&self) -> Module {
@@ -210,7 +210,10 @@ impl ModuleStore {
 impl Runtime {
     /// Capture the current root of this Runtime's live installation once.
     /// The returned exact publication is not itself an executable retention lease.
-    pub fn select_program(&self, program: &Program) -> Result<ExecutableModule, RuntimeError> {
+    pub fn select_program(
+        &self,
+        program: &InstalledProgram,
+    ) -> Result<ExecutableModule, RuntimeError> {
         self.modules
             .validate_installation(&program.installation, self.host.owner())?;
         let root = program.capture_current()?;

@@ -1,3 +1,5 @@
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -6,11 +8,10 @@ use crate::{
         source::{ArtifactOptions, PreparationOptions},
     },
     error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
+use kagari_runtime::{error::RuntimeErrorKind, module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
@@ -31,8 +32,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                 &artifact.records().to_bytes(artifact.definitions()).unwrap(),
             )
             .unwrap();
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap()
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
         } else {
             engine
                 .compile_to_program(
@@ -50,14 +50,14 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let prepared = runtime
-            .prepare_native(
+        let prepared = NativeCompiler::default()
+            .prepare(
                 &program,
-                &loaded,
                 ProgramEntry::Main,
                 &mut CraneliftBackend::for_host().unwrap(),
                 &context.cancellation,
             )
+            .and_then(|native_code| runtime.install_native(&loaded, &native_code))
             .unwrap();
         let PreparedNativeEntry::Native(installed) = &prepared else {
             panic!("scalar entry should compile to native code");
@@ -131,21 +131,21 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext {
         jit_policy: JitPolicy::Enabled,
         ..Default::default()
     };
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let prepared = runtime
-        .prepare_native(
+    let prepared = NativeCompiler::default()
+        .prepare(
             &program,
-            &loaded,
             ProgramEntry::Main,
             &mut CraneliftBackend::for_host().unwrap(),
             &context.cancellation,
         )
+        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
 
@@ -179,7 +179,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
                 Default::default(),
             )
             .unwrap();
-        PreparedProgram::from_artifact(
+        Program::from_artifact(
             BytecodeArtifact::from_bytes(
                 &artifact.records().to_bytes(artifact.definitions()).unwrap(),
             )
@@ -217,14 +217,14 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         .load_program(&old_program, Default::default())
         .unwrap();
     let mut backend = CraneliftBackend::for_host().unwrap();
-    let old_native = runtime
-        .prepare_native(
+    let old_native = NativeCompiler::default()
+        .prepare(
             &old_program,
-            &old,
             ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
+        .and_then(|native_code| runtime.install_native(&old, &native_code))
         .unwrap();
     let PreparedNativeEntry::Native(installed_old) = &old_native else {
         panic!("scalar entry should compile to native code");
@@ -233,25 +233,24 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     let independent = runtime
         .load_program(&old_program, Default::default())
         .unwrap();
-    let independent_native = runtime
-        .prepare_native(
+    let independent_native = NativeCompiler::default()
+        .prepare(
             &old_program,
-            &independent,
             ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
+        .and_then(|native_code| runtime.install_native(&independent, &native_code))
         .unwrap();
     let selected_old = runtime.runtime().select_program(&old).unwrap();
     let outer = runtime
         .runtime()
         .begin_execution(&selected_old, context.runtime_options())
         .unwrap();
-    assert!(
-        runtime
-            .reload_program(&old, &candidate, Default::default())
-            .is_err()
-    );
+    assert!(matches!(
+        runtime.runtime().begin_publication(&old),
+        Err(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation
+    ));
     assert_eq!(
         runtime.runtime().select_program(&old).unwrap().key(),
         selected_old.key()
@@ -276,17 +275,19 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     drop(report.return_value);
     drop(outer);
     runtime
-        .reload_program(&old, &candidate, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&candidate, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
-    let current_native = runtime
-        .prepare_native(
+    let current_native = NativeCompiler::default()
+        .prepare(
             &candidate,
-            &current,
             ProgramEntry::Main,
             &mut backend,
             &Default::default(),
         )
+        .and_then(|native_code| runtime.install_native(&current, &native_code))
         .unwrap();
     drop(backend);
     drop(old_program);

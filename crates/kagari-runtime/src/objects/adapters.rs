@@ -58,11 +58,8 @@ impl Runtime {
             environment.as_ref().map(|env| env.types.clone()),
             &adapter.call.arguments,
         )?;
-        let mut applied = EnvironmentRecord::new(
-            self.definition_context(),
-            body.parameters.clone(),
-            arguments,
-        )?;
+        let mut applied =
+            EnvironmentRecord::new(owner.definitions(), body.parameters.clone(), arguments)?;
         applied.set_constructions(self.bind_constructions_in(
             caller,
             environment.clone(),
@@ -144,6 +141,11 @@ impl Runtime {
             application: Some(application),
             generic: None,
             associated_interface: requirement.interface.clone(),
+            interface_key: owner.identity_admission().runtime_in(
+                &requirement.interface,
+                &self.definition_context().snapshot(),
+                &Default::default(),
+            )?,
             requirement,
             slot: 0,
             primitive: None,

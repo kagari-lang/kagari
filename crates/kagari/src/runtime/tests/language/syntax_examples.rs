@@ -1,6 +1,4 @@
-use crate::{
-    BytecodeArtifact, context::ExecutionContext, error::EmbeddingError, program::PreparedProgram,
-};
+use crate::{BytecodeArtifact, context::ExecutionContext, error::EmbeddingError, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
 use rstest::rstest;
@@ -127,8 +125,7 @@ fn nested_inline_modules_resolve_qualified_members() {
     drop(engine);
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
@@ -193,8 +190,7 @@ pub fn after_trap() -> i32 { 42 }
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
@@ -230,8 +226,7 @@ fn closure_trap_releases_execution_resources() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();
@@ -269,8 +264,7 @@ pub fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             Default::default(),
         )
         .unwrap();

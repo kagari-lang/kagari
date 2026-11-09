@@ -97,7 +97,7 @@ mod tests {
     use crate::{
         Runtime,
         error::RuntimeErrorKind,
-        module::{ExecutableModule, Program},
+        module::{ExecutableModule, InstalledProgram},
         value::Value,
     };
     use kagari_bytecode::{
@@ -121,7 +121,7 @@ mod tests {
         .unwrap()
     }
 
-    fn load(runtime: &mut Runtime) -> (Program, ExecutableModule) {
+    fn load(runtime: &mut Runtime) -> (InstalledProgram, ExecutableModule) {
         let program = runtime.load_program("retention", program()).unwrap();
         let executable = runtime.select_program(&program).unwrap();
         (program, executable)

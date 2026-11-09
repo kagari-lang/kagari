@@ -3,7 +3,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::{
         arguments::FrameArguments,
-        types::TypeEnvironment,
+        types::{TypeEnvironment, compatibility::TypeView},
         values::{ExecutionValues, FrameSlots},
     },
     gc::CollectionMutation,
@@ -451,16 +451,27 @@ impl ExecutionFrame {
         self.environment.clone()
     }
 
+    /// Close a lexical expression using this frame's retained type arguments.
+    /// Closed identity keys use the admitted installation scope; original
+    /// expressions and binder IDs remain in the supplying program's table.
     pub fn resolve_type<'a>(&self, ty: &'a Ty) -> Result<Cow<'a, Ty>, RuntimeError> {
-        if ty.is_concrete() {
+        if ty.is_concrete()
+            && (matches!(ty, Ty::Builtin(_))
+                || self.loaded().definitions().id()
+                    == self.loaded().identity_admission().target().id())
+        {
             return Ok(Cow::Borrowed(ty));
         }
-        match &self.environment {
-            Some(environment) => environment.types.resolve(ty).map(Cow::Owned),
-            None => Err(RuntimeError::module_validation(
-                "missing generic call environment",
-            )),
-        }
+        TypeView::new(
+            ty,
+            self.loaded(),
+            self.environment
+                .as_ref()
+                .map(|environment| environment.types.as_ref()),
+        )
+        .closed()
+        .map(|ty| Cow::Owned(ty.into_owned()))
+        .ok_or_else(|| RuntimeError::module_validation("missing or invalid type scope"))
     }
 
     pub fn begin_collection_mutation(

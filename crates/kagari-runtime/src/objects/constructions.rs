@@ -86,7 +86,14 @@ impl Runtime {
                         .map(|environment| environment.id),
                 }),
             };
-            let Ty::Trait(applied) = interface.ty() else {
+            // Lookup binders stay lexical, as do operation-provided associated
+            // facts. The TypeArgument above separately owns the closed key.
+            let resolve = |ty: &Ty| match &environment {
+                Some(environment) => environment.types.resolve(ty),
+                None => Ok(ty.clone()),
+            };
+            let Ty::Trait(applied) = resolve(&Ty::Trait(witness.requirement.interface.clone()))?
+            else {
                 return Err(invalid());
             };
             let mut outputs = BTreeMap::new();
@@ -103,8 +110,8 @@ impl Runtime {
             }
             let associated = AssociatedInterface {
                 lookup_scope: None,
-                receiver: receiver.ty().clone(),
-                interface: applied.clone(),
+                receiver: resolve(&witness.requirement.receiver)?,
+                interface: applied,
                 owner: owner.clone(),
                 outputs,
             };
@@ -134,7 +141,7 @@ impl Runtime {
         }
         let operations = self.bind_operations_in(owner, parent.clone(), operations)?;
         let constructions = self.bind_constructions_in(owner, parent.clone(), constructions)?;
-        let mut environment = EnvironmentRecord::new(self.definition_context(), vec![], vec![])?;
+        let mut environment = EnvironmentRecord::new(owner.definitions(), vec![], vec![])?;
         environment.include(parent)?;
         environment.set_constructions(constructions);
         environment.extend_operations(operations);

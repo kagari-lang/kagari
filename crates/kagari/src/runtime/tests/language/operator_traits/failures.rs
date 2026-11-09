@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
     test_support::cancellation as support,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -37,7 +37,7 @@ fn main()->i32 {Number{value:42}+1}
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();

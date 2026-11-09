@@ -1,5 +1,5 @@
 use crate::{
-    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program,
     test_support::cancellation as support,
 };
 use kagari_runtime::{
@@ -69,8 +69,7 @@ pub fn healthy() -> i32 { 42 }
 
         let mut runtime = engine.runtime(context.clone());
         let prepared =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert!(runtime.load_program(&prepared, Default::default()).is_err());
         effects.lock().unwrap().clear();
         let mut runtime = installed.runtime(context.clone());

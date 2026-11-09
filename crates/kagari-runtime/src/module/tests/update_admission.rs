@@ -1,7 +1,7 @@
 //! Local initializer and historical-demand contracts, independent of execution liveness.
 use crate::{
     Runtime,
-    module::{ExecutableModule, Program, VerifiedProgram, state::StaticState},
+    module::{ExecutableModule, InstalledProgram, VerifiedProgram, state::StaticState},
     reload::ReloadValidationError,
     test_support::{
         update_programs::{
@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 fn rejected_without_effects(
     runtime: &Runtime,
-    loaded_program: &Program,
+    loaded_program: &InstalledProgram,
     candidate: &str,
     expected_error: Option<&str>,
 ) {

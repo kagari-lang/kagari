@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_common::identity::map::DefinitionContext;
 use kagari_runtime::{
@@ -81,8 +81,7 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
 
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        PreparedProgram::from_artifact(artifact.clone(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact.clone(), &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
@@ -101,7 +100,7 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
     assert!(
         mismatched
             .load_program(
-                &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                &Program::from_artifact(artifact, &Default::default(), &Default::default())
                     .unwrap(),
                 Default::default()
             )
@@ -198,7 +197,7 @@ fn main() -> i32 {
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

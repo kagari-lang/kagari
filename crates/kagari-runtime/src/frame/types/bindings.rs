@@ -11,7 +11,7 @@ use crate::{
         },
     },
 };
-use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_contract::callable::generic::GenericBody;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
@@ -34,7 +34,7 @@ pub(crate) struct AssociatedInterface {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TypeBindings {
-    definitions: DefinitionContext,
+    definitions: DefinitionTable,
     parameters: Arc<[GenericParam]>,
     arguments: Arc<[TypeArgument]>,
     parent: Option<Arc<TypeBindings>>,
@@ -79,12 +79,8 @@ impl AssociatedInterface {
         }
         Ok(Self {
             lookup_scope: Some(selected.owner().publication_definitions()),
-            receiver: mapping
-                .remap(&self.receiver, &Default::default())?
-                .into_records(),
-            interface: mapping
-                .remap(&self.interface, &Default::default())?
-                .into_records(),
+            receiver: mapping.remap_applied(&self.receiver, &Default::default())?,
+            interface: mapping.remap_applied(&self.interface, &Default::default())?,
             owner: self.owner.clone(),
             outputs,
         })
@@ -108,6 +104,23 @@ impl EnvironmentRecord {
 }
 
 impl TypeBindings {
+    pub(crate) fn closed_definitions<'a>(
+        &'a self,
+        fallback: &'a DefinitionTable,
+    ) -> &'a DefinitionTable {
+        let mut table = fallback;
+        for argument in self.arguments.iter() {
+            let candidate = argument.definitions();
+            if candidate.id() == table.id() && candidate.len() > table.len() {
+                table = candidate;
+            }
+        }
+        match &self.parent {
+            Some(parent) => parent.closed_definitions(table),
+            None => table,
+        }
+    }
+
     fn transported(
         &self,
         runtime: &Runtime,
@@ -115,7 +128,7 @@ impl TypeBindings {
         mapping: &PublicationMapping,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
-            definitions: self.definitions.clone(),
+            definitions: selected.owner().definitions().clone(),
             parameters: mapping
                 .remap(&self.parameters.to_vec(), &Default::default())?
                 .into_records()
@@ -136,7 +149,7 @@ impl TypeBindings {
     }
 
     pub(crate) fn new(
-        definitions: &DefinitionContext,
+        definitions: &DefinitionTable,
         parameters: Vec<GenericParam>,
         arguments: Vec<TypeArgument>,
     ) -> Result<Self, RuntimeError> {
@@ -147,9 +160,8 @@ impl TypeBindings {
                 "generic call type arguments",
             ));
         }
-        let table = definitions.snapshot();
         for parameter in &parameters {
-            table
+            definitions
                 .resolve(parameter.owner)
                 .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         }
@@ -165,7 +177,7 @@ impl TypeBindings {
     pub(crate) fn include(&mut self, parent: Option<Arc<Self>>) -> Result<(), RuntimeError> {
         if let Some(parent) = parent {
             if self.parent.is_some()
-                || self.definitions.snapshot().id() != parent.definitions.snapshot().id()
+                || self.definitions.id() != parent.definitions.id()
                 || self.parameters.iter().any(|parameter| {
                     parent
                         .argument_id(parameter.owner, parameter.position)

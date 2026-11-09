@@ -96,9 +96,12 @@ impl Runtime {
                 let PublicItem::InherentTable(table) = item else {
                     continue;
                 };
+                let canonical = member
+                    .identity_admission()
+                    .runtime(table.as_ref(), &Default::default())?;
                 let Some(substitution) = match_receiver(
-                    &table.generic_params,
-                    &table.for_type,
+                    &canonical.generic_params,
+                    &canonical.for_type,
                     &receiver,
                     &Default::default(),
                 )
@@ -106,7 +109,8 @@ impl Runtime {
                 else {
                     continue;
                 };
-                let Some(method) = table.methods.iter().find(|method| method.name == "new") else {
+                let Some(method) = canonical.methods.iter().find(|method| method.name == "new")
+                else {
                     continue;
                 };
                 if !method.params.is_empty()

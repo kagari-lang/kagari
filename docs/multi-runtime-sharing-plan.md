@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: execution authorized on 2026-11-09, including a commit per completed
-phase. MS00 is locally accepted; MS01 is next and MS01-MS05 have not started. The user selected the
+phase. MS00 and MS01 are locally accepted; MS02-MS05 have not started. The user selected the
 [Runtime target architecture](runtime-refactor-design.md), requested this phase
 plan, then authorized its execution. Routine choices within the selected scope
 do not require another design-approval round. The progress ledger records actual
@@ -87,7 +87,7 @@ are historical, not a current large-project capacity estimate.
 | --- | --- | --- |
 | [PreparedProgram](../crates/kagari/src/program.rs) | Rc/RefCell preparation/cache state is neither Send nor Sync; immutable source inputs and retained MIR already use Arc across publication associations | Preserve existing input/MIR sharing, split product/cache ownership and measure remaining duplication rather than fixing an obsolete by-value MIR path |
 | [VerifiedProgram and ProgramDescriptor](../crates/kagari-runtime/src/module.rs) | Arc-backed execution preparation is shared; each installation owns its descriptor, layouts and linked modules | Retain existing instruction/frame preparation sharing; attribute remaining code-sized installation records |
-| [Identity normalization](../crates/kagari-runtime/src/module/normalization.rs) | A different definition scope with referenced IDs remaps modules/exports into new records while sharing execution and the version token | Separate immutable declaration facts from Runtime binding authority; avoid reconstructing complete images on each load |
+| [Identity normalization](../crates/kagari-runtime/src/module/admission.rs) | A different definition scope with referenced IDs remaps modules/exports into new records while sharing execution and the version token | Separate immutable declaration facts from Runtime binding authority; avoid reconstructing complete images on each load |
 | [Linked execution](../crates/kagari-runtime/src/module/linked_execution.rs) | Runtime-local per-function arrays and linked call/native/layout records | Separate reusable recipes from actual Runtime-local targets; do not share GC Values or authority merely because a record is immutable |
 | [Layout linking](../crates/kagari-runtime/src/module/linked_execution/layouts.rs) | Scans original instructions per installation to construct site/operand tables and admitted layouts | Prepare site/operand recipes once; retain checked instance/application admission where necessary |
 | [Native installation](../crates/kagari-runtime/src/native/installation.rs) | Prepared registration records/callbacks are shared; checked host maps and runtime state are copied | Attribute immutable registry facts versus local host identity/borrow records; different callback captures are not interchangeable |
@@ -104,12 +104,12 @@ context must not repeatedly reconstruct equivalent full normalized products eith
 
 ### Retained MIR sharing boundary
 
-The 2026-11-09 source recheck found that both current ProgramState and
-[RetainedPreparation](../crates/kagari/src/program/inputs.rs) store
-`Option<Arc<VerifiedMirProgram>>`. [retained_inputs](../crates/kagari/src/program.rs)
-and [publication associations](../crates/kagari/src/runtime/update.rs) clone that
-shared owner. The earlier by-value MIR description does not describe the current
-worktree and is not a remaining implementation task or a new saving to claim.
+The MS00 source recheck found that ProgramState and the former
+RetainedPreparation both stored `Option<Arc<VerifiedMirProgram>>`; retained input
+and publication associations cloned that shared owner. MS01 removes the separate
+association model and keeps MIR in the shared [Program owner](../crates/kagari/src/program.rs).
+The earlier by-value MIR description was already obsolete at MS00 and is not
+a remaining task or a new saving to claim.
 
 Preserve one immutable MIR backing per prepared product/configuration across
 compatible installations and preparation lookups. Source-input snapshots, normal
@@ -434,7 +434,8 @@ Task: replace the mixed preparation product and enable one detached update to be
 distributed without borrowing any recipient Runtime.
 
 Owners: SDK `program`/`engine::source`/source-update preparation;
-runtime VerifiedProgram normalization; compiler/bytecode/contract handoff.
+runtime VerifiedProgram inventory / installation identity admission;
+compiler/bytecode/contract handoff.
 
 - Implement the MS00 immutable Send + Sync product and local InstalledProgram
   naming coherently across SDK, Runtime, VM, CLI, web adapter, examples, benchmarks
@@ -478,6 +479,9 @@ compiler/contract/bytecode own portable checked recipes.
   checked generational keys. Shared recipes own identities and operand facts;
   local tables own final targets and admitted transfer/dispatch binding keys.
   Keep old bodies' constants, static-cell bindings and environment provenance.
+  Move MS01's temporary per-use interface-upcast type closure out of
+  `ExecutionFrame::resolve_type` into the linked function/environment's prepared
+  operand descriptors; remove the superseded backend path at this checkpoint.
 - Build normal tables for candidate code and direct-to-candidate tables for every
   retained source revision. Resolve declaration/application/binder correspondence
   during preparation/linking, including parameterized generic/witness recipes.
@@ -624,7 +628,7 @@ affected set plus directly impacted regressions and reuse unchanged passing resu
 | Contract | Existing owner | Main phases |
 | --- | --- | --- |
 | Shared backing, normalization and foreign installation rejection | [Runtime module tests](../crates/kagari-runtime/src/module/tests.rs), [engine sessions](../crates/kagari/src/engine/tests/engine_sessions.rs) | MS00/MS01/MS03 |
-| Immutable source/preparation inputs | [Program source preparation](../crates/kagari/src/program/tests/source_preparation.rs), [source updates](../crates/kagari/src/runtime/update/tests.rs) migrated to the detached owner | MS01/MS03 |
+| Immutable source/preparation inputs | [Program source preparation](../crates/kagari/src/program/tests/source_preparation.rs), [source updates](../crates/kagari/src/program/update/tests.rs) migrated to the detached owner | MS01/MS03 |
 | Current targets, aliases and impl binder correspondence | [Dispatch tests](../crates/kagari-runtime/src/module/dispatch/tests.rs), [generic reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs) | MS02/MS03 |
 | Publication guards, reentry and parked work | [Publication tests](../crates/kagari-runtime/src/session/execution_sessions/publication.rs), [async facade](../crates/kagari/tests/async_facade.rs) | MS02/MS03/MS04 |
 | Whole-stack refresh, cold/queued work, cancellation and GC | [VM tests](../crates/kagari-vm/src/tests.rs), [async lifecycle](../crates/kagari/src/runtime/tests/embedding/async_execution/lifecycle.rs), [Runtime transfer](../crates/kagari/src/runtime/tests/embedding/runtime_transfer.rs) | MS02/MS03/MS04 |
@@ -949,23 +953,22 @@ No production cutover, source-free migration or workspace-test pass is claimed.
 Complete workspace tests and exhaustive matrices remain CI-only. MS01 owns the
 source-free/shared-product and scoped-host samples affected by its implementation.
 
-MS00 is accepted locally: identity/API choices, finite comparable baseline, numeric
-gates and selected correctness evidence are frozen. The sole next phase is MS01;
-the shared product, detached preparation and new call tables are not implemented
-by this checkpoint.
+MS00 freezes identity/API choices, the finite baseline, numeric gates and selected
+correctness evidence. Its checkpoint did not implement the shared product,
+detached preparation or new call tables; later phase status appears below.
 
 
 ## Progress ledger
 
-Execution is active. MS00 is accepted locally with the frozen evidence above.
-Next: MS01's shared immutable product, checked identity admission and detached
-preparation cutover. Production ownership and dispatch cutover have not started.
+Execution is active. MS00 and MS01 are accepted locally with the evidence below.
+Next: MS02's shared preparation facts, final call bindings and parked-stack views.
+Current-selection ownership and public live-query cutover remain MS03 work.
 
 | Phase | Status | Acceptance evidence / carried errors |
 | --- | --- | --- |
 | MS00 | Complete locally | Frozen identity/API map, sharing/A/A baseline and gates; 25 selected tests and required local checks pass; full matrices remain CI-only |
-| MS01 | Not started; next | MS00 prerequisite accepted locally |
-| MS02 | Not started | Await MS01 |
+| MS01 | Complete locally | Shared immutable Program, detached preparation, local identity admission and native compiler split; selected integration/source-free cases and required local checks pass |
+| MS02 | Not started | Ready after MS01 local acceptance |
 | MS03 | Not started | Await MS02 |
 | MS04 | Not started | Await MS03 |
 | MS05 | Not started | Await MS04; final CI status remains separate |
@@ -976,3 +979,94 @@ diagnostic, cause, repair owner and whether a selected test was skipped by build
 failure. No phase is complete with required errors outstanding. Historical sharing
 or current-cell measurements do not satisfy MS00's fresh baseline. Capacity for a
 production-sized game remains unproven unless that workload is actually measured.
+
+### MS01 local acceptance — 2026-11-09
+
+The SDK product is `Program`, backed by immutable `Arc<ProgramState>`; the core
+live handle is `InstalledProgram`. Source updates and source-free replacement
+validation prepare a candidate against an exact immutable base outside Runtime.
+Candidates retain a weak base token, not a strong predecessor payload.
+`Runtime::replace_program` checks the exact base and cancellation before commit.
+`Runtime::program` retrieves the SDK owner attached to installed verified code;
+it does not reconstruct compiler inputs from runtime source metadata. Compiler
+history preparation reports cancellation through the SDK cancellation boundary.
+Obsolete Runtime source-update methods, locators and publication capsule maps
+are removed; direct consumers use the new preparation/publication API.
+
+Installed code retains the entire SDK product through `ProgramCodeOwner`.
+The product holds ownerless verified code, avoiding an ownership cycle. Existing
+static-cell type provenance (deferred R13) can retain the original inputs/MIR as
+well as executable code; last-Future completion alone is not a reclamation promise.
+The complete-package scenario checks that dropping both recipient Runtimes releases
+the original compilation-input owner even while the prepared candidate remains.
+
+`NativeCompiler` exclusively owns the mutable preparation cache, bounded to 4096
+revision/function/configuration/ABI decisions per compiler. Revision tokens retain
+no code or MIR payload. Immutable `NativeCode` retains finalized products;
+`Runtime::install_native` checks exact revision/root and local eligibility. Compiler
+drop releases cache references independently of installed entries. This is explicit
+preparation, not automatic JIT or expanded native continuation support.
+
+The whole-image normalizer is removed. `DefinitionAdmission` imports the complete
+referenced identity/ancestor inventory into a metadata-only local binding. One
+candidate-owned admission is reused across members, staging and publication
+revalidation. Native/host contracts are checked against actual local registrations;
+only registered providers grant shared native-trait authority. Different Runtimes
+share original instruction, source, contract and execution backings without a
+second executable seal or a reconstructed ID-remapped image.
+
+Generic binders retain immutable lexical tables; transported parents use the
+selected destination table. Closed type keys use an immutable accepted installation
+prefix while origins retain original expressions/providers/environments. Registry
+provenance rejects foreign nominal arguments; identity-free types retain their
+portable behavior. Later accepted argument prefixes do not widen an old lexical
+source prefix. Static links prepare canonical storage contracts once; reads retain
+direct lineage/contract checks without mapping. Persistent compatibility walks
+complete schemas and retains the introducing initializer/owner. Associated lookup
+facts stay lexical, while interface descriptions and operation-slot indexes use
+prepared closed keys. Applied transport preserves supplied closed arguments and
+does not issue a portable single-scope verification seal for mixed metadata.
+
+Selected validation and actual evidence:
+
+- `cargo test -p kagari-runtime --lib module::tests` ran 100 matching cases.
+  Initial failures identified static bindings keyed by source IDs and internal
+  queries assuming source/canonical IDs coincide; the seven failing cases passed
+  focused retests. Source-only inventory/cancellation and real native shared-code
+  lifetime added two selected cases. Ten further cases covered immutable type
+  origins/binders, corrupt static cleanup, current/exact source routes and nominal
+  admission. Unchanged passing cases were not rerun for a fresh all-green transcript.
+- SDK selection covered twelve source updates, ten native preparations, the real
+  Cranelift source/encoded/drop scenario, 22 generic reload cases, five typed-call
+  cases and two scoped-call cases. All selected cases passed across focused repair
+  rounds. Repairs preserved exact closure/Future bodies and current helper calls
+  through repeated publications. The directly affected bound-construction reload
+  case passed again after the final associated-output fix.
+- The existing complete-package scenario prepares one candidate on a worker thread
+  while a recipient can execute its old publication, then distributes that product
+  to two Runtimes with independent statics and immutable old source snapshots. The
+  strengthened scenario passed; this proves worker transfer, not a throughput claim.
+- `cargo run -p kagari --example regenerate_feature_artifact` independently emitted
+  the disposable fixture. `cargo test -p kagari --no-default-features --test
+  artifact_features --no-run` built the genuine source/native-disabled consumer.
+  Exact cases for portable execution, structurally valid installed-binding mismatch
+  rejection and forged-signature verification rejection passed. The installed
+  mismatch now asserts SDK Load, ModuleValidation, the installed-contract diagnostic
+  and root cleanup. The positive fixture exposed lexical associated-output lookup
+  keys being confused with closed keys; the final fix passed both artifact execution
+  and the affected source-enabled bound-construction regression.
+- `cargo check -p kagari --all-targets` passed. Required local acceptance passed:
+  `uv run --locked scripts/check_structure.py` (1866 files, zero findings/exceptions),
+  `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`
+  and `git diff --check`. Documentation links/fences/line endings are checked at
+  this checkpoint. Intermediate compile and selected-test failures are resolved;
+  no broken build is intentionally carried into MS02.
+
+Remaining work is in the existing MS02-MS05 sequence. Temporary full-code copies
+in contract comparison, repeated native dependency preparation, instance-sized pure
+link/layout facts and per-use upcast type closure are MS02 preparation owners.
+Current-call correspondence and the installation current-cell Mutex still exist
+until their designated cutovers. Sharing/performance gates remain MS05 work;
+functional witnesses are not allocation or speedup measurements. Full-workspace
+tests and exhaustive feature/backend/platform matrices remain unrun locally and
+belong to CI acceptance.

@@ -5,7 +5,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::{ExecutionFrame, ExecutionStack},
     host::HostCallContext,
-    module::{ExecutableModule, Program},
+    module::{ExecutableModule, InstalledProgram},
     native::{
         builder::ModuleBuilder, callable::PreparedClosure, declarations::FunctionDecl,
         sequence::SequencePayload,
@@ -41,7 +41,7 @@ use std::{
     task::{Context, Waker},
 };
 
-fn stage(runtime: &Runtime, target: &Program) -> StagedReload {
+fn stage(runtime: &Runtime, target: &InstalledProgram) -> StagedReload {
     runtime
         .stage_reload_verified_program(
             target,
@@ -55,7 +55,7 @@ fn stage(runtime: &Runtime, target: &Program) -> StagedReload {
         .unwrap()
 }
 
-fn rejected(runtime: &Runtime, target: &Program) {
+fn rejected(runtime: &Runtime, target: &InstalledProgram) {
     assert_eq!(
         runtime
             .begin_publication(target)
@@ -180,7 +180,7 @@ fn publication_guard_excludes_entry_and_releases_on_errors_and_unwind() {
     assert!(runtime.select_program(&target).is_err());
 }
 
-fn parked_program(runtime: &mut Runtime) -> Program {
+fn parked_program(runtime: &mut Runtime) -> InstalledProgram {
     let function = BytecodeFunction {
         id: FunctionRef::new(0),
         name: "parked".into(),
@@ -347,7 +347,7 @@ fn publication_rechecks_native_borrows_and_rejects_foreign_targets() {
 
 #[derive(Debug)]
 struct AdmissionObserver {
-    target: Program,
+    target: InstalledProgram,
     calls: Arc<AtomicUsize>,
     fail: bool,
 }

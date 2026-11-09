@@ -410,7 +410,7 @@ struct LoweringSettings {
     max_instructions: usize,
 }
 
-/// Send + Sync source preparation capsule, independent of PreparedProgram's caches.
+/// Immutable Send + Sync source inputs retained by the shared Program product.
 #[derive(Debug, Clone)]
 pub(crate) struct CompilationInputs {
     checked: Arc<CheckedInputs>,

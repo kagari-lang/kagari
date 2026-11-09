@@ -1,7 +1,7 @@
 use crate::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
@@ -135,7 +135,7 @@ fn concrete_native_results_construct_declared_interfaces_in_generic_calls(#[case
         KbcArtifact::from_bytes(&original.records().to_bytes(original.definitions()).unwrap())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -235,7 +235,7 @@ fn forged_native_result_conversions_are_rejected() {
 #[test]
 fn native_result_conversion_validates_the_rust_body_value() {
     let engine = engine();
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         artifact(
             &engine,
             "use example::results::wrong; fn main() -> i32 { wrong()[0u64] }",

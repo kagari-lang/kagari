@@ -4,7 +4,7 @@ use kagari::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
-    program::PreparedProgram,
+    program::Program,
     runtime::LoadOptions,
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
@@ -102,8 +102,7 @@ fn main() {
         DefinitionMetadata::checked(definitions.snapshot(), ambiguous, &Default::default())
             .unwrap();
     let program =
-        PreparedProgram::from_artifact(ambiguous, &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(ambiguous, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&program, LoadOptions::default())
         .unwrap();

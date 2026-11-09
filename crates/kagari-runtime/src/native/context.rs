@@ -311,7 +311,7 @@ impl<'call> CallContext<'call> {
 
     pub fn allocate_result(&self) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
-        let ty = self.result_type();
+        let ty = self.function.type_signature()?.result.ty();
         let storage = match ty {
             Ty::NativeObject(nominal) => self
                 .runtime
@@ -345,7 +345,7 @@ impl<'call> CallContext<'call> {
         slots: &[usize],
     ) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
-        let ty = self.result_type();
+        let ty = self.function.type_signature()?.result.ty();
         let Ty::NativeObject(nominal) = ty else {
             return Err(RuntimeError::module_validation(
                 "provided payload requires a registered native object result",

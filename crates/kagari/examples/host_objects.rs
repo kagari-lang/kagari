@@ -2,7 +2,7 @@
 //! This uses an explicitly finite source environment, not the default foundation's
 //! unknown protected callback closure, which can reject otherwise valid body updates.
 //! Run with `cargo run -p kagari --example host_objects`.
-use kagari::{engine::KagariEngine, program::PreparedProgram};
+use kagari::{engine::KagariEngine, program::Program};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
@@ -57,7 +57,7 @@ pub async fn evidence() -> i32 {
 }
 "#;
 
-fn prepare(hp: i32) -> PreparedProgram {
+fn prepare(hp: i32) -> Program {
     // Supply only this script and the complete Future storage provider it needs.
     // No provider is trimmed and no protected evidence is removed or overridden;
     // initial preparation and reload both use the normal artifact validator.
@@ -96,7 +96,7 @@ fn prepare(hp: i32) -> PreparedProgram {
     let bytecode = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
     let artifact =
         KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
-    PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }
 
 pub fn main() {
@@ -180,7 +180,9 @@ pub fn main() {
     runtime.runtime().collect_garbage().unwrap();
     let replacement = prepare(200);
     runtime
-        .reload_program(&loaded, &replacement, Default::default())
+        .program(&loaded)
+        .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     // The retained binding still means `score`, now with its current body.
     // Only a fresh lookup through the retained Module follows the retargeted alias.

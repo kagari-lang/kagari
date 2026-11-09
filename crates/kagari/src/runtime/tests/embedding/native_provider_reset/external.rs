@@ -3,7 +3,7 @@ use super::{artifact, engine, provider};
 use crate::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
     runtime::tests::embedding::generic_reload::prepare_static_program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
@@ -47,7 +47,9 @@ pub fn update() { STATE = 5; }
     };
     assert_eq!(call(&old, "read"), Value::I32(13));
     runtime
-        .reload_program(&old, &second, Default::default())
+        .program(&old)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     runtime
@@ -69,7 +71,7 @@ pub fn update() { STATE = 5; }
 
 #[test]
 fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown() {
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         artifact("fn main() -> native::Handler<i32> { native::hold(42, |value| value) }"),
         &Default::default(),
         &Default::default(),
@@ -111,7 +113,7 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
         "fn main() -> i32 { val values = native::from_fn(2u64, |i| { [21] }); values[0u64][0u64] + values[1u64][0u64] }",
     );
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-    let program = PreparedProgram::from_artifact(
+    let program = Program::from_artifact(
         KbcArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),
         &Default::default(),

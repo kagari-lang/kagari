@@ -159,6 +159,9 @@ fn resolve_member(
     let Ty::Trait(root) = source.ty() else {
         return Err(invalid());
     };
+    let root = source_owner
+        .identity_admission()
+        .product(root, &Default::default())?;
     if !contracts
         .get(&root.declaration)
         .is_some_and(|(_, public)| *public)
@@ -167,7 +170,7 @@ fn resolve_member(
     }
     let lookup = |id: &DefinitionId| contracts.get(id).map(|(contract, _)| *contract);
     let ancestry = interface_views(
-        root,
+        &root,
         &Ty::Trait(root.clone()),
         &Default::default(),
         definitions,

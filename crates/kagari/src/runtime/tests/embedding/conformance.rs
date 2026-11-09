@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
-    program::{PreparedProgram, ProgramPreparationError},
+    program::{Program, ProgramPreparationError},
     runtime::{LoadOptions, ReloadOptions},
 };
 use kagari_bytecode::artifact::{
@@ -119,7 +119,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
 
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let program = PreparedProgram::from_artifact(artifact, &compatibility, &context.cancellation)
+    let program = Program::from_artifact(artifact, &compatibility, &context.cancellation)
         .expect("artifact should satisfy exact preparation compatibility");
     let loaded = runtime
         .load_program(&program, LoadOptions::default())
@@ -143,9 +143,8 @@ fn preparation_rejects_incompatible_runtime_and_helper_abis() {
     incompatible.header.runtime_abi_version = "wrong-runtime-abi".to_owned();
     let incompatible =
         DefinitionMetadata::checked(definitions, incompatible, &Default::default()).unwrap();
-    let error =
-        PreparedProgram::from_artifact(incompatible, &Default::default(), &Default::default())
-            .expect_err("incompatible runtime ABI should be rejected during preparation");
+    let error = Program::from_artifact(incompatible, &Default::default(), &Default::default())
+        .expect_err("incompatible runtime ABI should be rejected during preparation");
     let ProgramPreparationError::Artifact(error) = error else {
         panic!("expected artifact validation error");
     };
@@ -159,9 +158,8 @@ fn preparation_rejects_incompatible_runtime_and_helper_abis() {
     incompatible.header.runtime_helper_abi_version = "wrong-helper-abi".to_owned();
     let incompatible =
         DefinitionMetadata::checked(definitions, incompatible, &Default::default()).unwrap();
-    let error =
-        PreparedProgram::from_artifact(incompatible, &Default::default(), &Default::default())
-            .expect_err("incompatible helper ABI should be rejected during preparation");
+    let error = Program::from_artifact(incompatible, &Default::default(), &Default::default())
+        .expect_err("incompatible helper ABI should be rejected during preparation");
     let ProgramPreparationError::Artifact(error) = error else {
         panic!("expected artifact validation error");
     };
@@ -190,8 +188,7 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &context.cancellation)
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &context.cancellation).unwrap(),
             LoadOptions {
                 program_name: Some("builtins".to_owned()),
             },
@@ -264,22 +261,32 @@ pub fn main() -> u64 {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(first, &Default::default(), &context.cancellation)
-                .unwrap(),
+            &Program::from_artifact(first, &Default::default(), &context.cancellation).unwrap(),
             LoadOptions {
                 program_name: Some("stdlib_reload".to_owned()),
             },
         )
         .expect("first standard artifact should load");
     runtime
-        .reload_program(
-            &loaded,
-            &PreparedProgram::from_artifact(second, &Default::default(), &context.cancellation)
-                .unwrap(),
-            ReloadOptions {
-                program_name: Some("stdlib_reload".to_owned()),
-            },
-        )
+        .program(&loaded)
+        .and_then(|base| {
+            base.prepare_replacement(
+                &Program::from_artifact(second, &Default::default(), &context.cancellation)
+                    .unwrap(),
+                &Default::default(),
+            )
+        })
+        .and_then(|candidate| {
+            runtime.replace_program(
+                &loaded,
+                &candidate,
+                ReloadOptions {
+                    program_name: Some("stdlib_reload".to_owned()),
+
+                    ..Default::default()
+                },
+            )
+        })
         .expect("compatible standard artifact should reload");
     let reloaded = runtime.runtime().select_program(&loaded).unwrap();
     let report = runtime
@@ -293,7 +300,7 @@ pub fn main() -> u64 {
         Value::U64(2)
     );
 
-    let error = PreparedProgram::from_artifact(invalid, &Default::default(), &context.cancellation)
+    let error = Program::from_artifact(invalid, &Default::default(), &context.cancellation)
         .expect_err("invalid standard artifact should fail before publication");
     let ProgramPreparationError::Artifact(error) = error else {
         panic!("expected artifact validation error");

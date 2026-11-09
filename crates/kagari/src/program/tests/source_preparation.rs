@@ -2,13 +2,16 @@ use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, source::PreparationOptions},
     error::EmbeddingError,
-    program::{PreparedProgram, ProgramPreparationError},
+    program::{Program, ProgramPreparationError},
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 
 #[test]
 fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
+    fn send_sync<T: Send + Sync>() {}
+
+    send_sync::<Program>();
     let program = {
         let engine = KagariEngine::default();
         engine
@@ -48,7 +51,7 @@ fn cancelled_preparation_rejects_source_checked_and_artifact_input() {
     let options = PreparationOptions::default();
     options.lowering.cancel.cancel();
     assert!(matches!(
-        PreparedProgram::from_artifact(artifact, &Default::default(), &options.lowering.cancel),
+        Program::from_artifact(artifact, &Default::default(), &options.lowering.cancel),
         Err(ProgramPreparationError::Cancelled)
     ));
     assert!(matches!(

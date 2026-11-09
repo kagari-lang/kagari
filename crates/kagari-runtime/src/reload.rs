@@ -12,17 +12,55 @@ mod exports;
 mod types;
 pub mod updates;
 
-use kagari_common::identity::{
-    map::DefinitionContext, mapping::DefinitionMappingError, table::DefinitionTable,
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{map::DefinitionContext, mapping::DefinitionMappingError, table::DefinitionTable},
 };
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     error::RuntimeError,
     module::{ExecutableModule, InstallationId, ModuleId, VerifiedProgram},
-    reload::updates::ReloadAdmission,
+    reload::updates::{ReloadAdmission, RetainedDemands},
 };
+
+/// Check a detached replacement and its cumulative history without a Runtime.
+/// Local publication still validates its actual base, history, host capabilities
+/// and executable coverage. Checked facts never carry installation authority.
+pub fn prepare_program_update(
+    previous: &VerifiedProgram,
+    history: &RetainedDemands,
+    candidate: &VerifiedProgram,
+    cancel: &CancellationToken,
+) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
+    let previous_root = &previous.modules()[previous.root().index()].identity;
+    let candidate_root = &candidate.modules()[candidate.root().index()].identity;
+    if previous_root != candidate_root {
+        return Err(ReloadValidationError::ModuleIdentityMismatch {
+            expected: previous_root.to_string(),
+            found: candidate_root.to_string(),
+        });
+    }
+    exports::runtime(previous, candidate)?;
+    let previous_modules = previous
+        .modules()
+        .iter()
+        .map(|module| module.as_ref().clone())
+        .collect::<Vec<_>>();
+    let candidate_modules = candidate
+        .modules()
+        .iter()
+        .map(|module| module.as_ref().clone())
+        .collect::<Vec<_>>();
+    contracts::validate(
+        &previous_modules,
+        &candidate_modules,
+        previous.definitions(),
+        candidate.definitions(),
+    )?;
+    updates::prepare_history(previous, history, candidate, cancel)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModuleEpoch(pub u64);

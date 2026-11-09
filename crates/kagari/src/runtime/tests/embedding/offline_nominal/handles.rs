@@ -1,8 +1,10 @@
 use super::{adopt_artifact, schema::NominalSchema};
+#[cfg(feature = "native")]
+use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
@@ -225,8 +227,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let artifact = round_trip(&artifact, encoded);
         let context = context(jit);
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert!(
             KagariEngine::default()
                 .runtime(context.clone())
@@ -249,15 +250,17 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let mut backend = jit.then(|| CraneliftBackend::for_host().unwrap());
         for expected in [42, 44] {
             let result = if let Some(backend) = &mut backend {
-                let prepared = runtime
-                    .prepare_native(
+                let prepared = {
+                    let native_code = NativeCompiler::default().prepare(
                         &program,
-                        &loaded,
                         ProgramEntry::Main,
                         backend,
                         &context.cancellation,
-                    )
-                    .unwrap();
+                    );
+                    native_code
+                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                }
+                .unwrap();
                 runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
             } else {
                 runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -355,7 +358,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             .runtime_mut()
             .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
             .unwrap();
-        let program = PreparedProgram::from_artifact(
+        let program = Program::from_artifact(
             round_trip(&artifact, encoded),
             &Default::default(),
             &Default::default(),
@@ -365,14 +368,14 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         assert!(trace.lock().unwrap().is_empty());
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
-            let prepared = runtime
-                .prepare_native(
+            let prepared = NativeCompiler::default()
+                .prepare(
                     &program,
-                    &loaded,
                     ProgramEntry::Main,
                     &mut backend,
                     &context.cancellation,
                 )
+                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -405,8 +408,7 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
         assert!(module.external_types.contains(schema));
     }
     let program =
-        PreparedProgram::from_artifact(artifact.clone(), &Default::default(), &Default::default())
-            .unwrap();
+        Program::from_artifact(artifact.clone(), &Default::default(), &Default::default()).unwrap();
     assert!(
         KagariEngine::default()
             .runtime(Default::default())

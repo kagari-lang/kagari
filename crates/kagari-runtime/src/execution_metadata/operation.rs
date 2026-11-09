@@ -21,6 +21,8 @@ pub(crate) struct BoundOperation {
     pub(crate) generic: Option<BoundGenericMethod>,
     pub(crate) requirement: NativeCallableRequirement,
     pub(crate) associated_interface: NominalTy,
+    /// Closed lookup key; lexical witness metadata above keeps its source scope.
+    pub(crate) interface_key: NominalTy,
     pub(crate) slot: u32,
     pub(crate) primitive: Option<RuntimePrimitive>,
     pub(crate) owner: ExecutableModule,

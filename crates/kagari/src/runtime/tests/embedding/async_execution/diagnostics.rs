@@ -1,7 +1,7 @@
 //! Detached failure origins survive shared waits, report retirement and stripped debug records.
 use super::{Fixture, Value};
 use crate::error::EmbeddingError;
-use crate::{BytecodeArtifact, program::PreparedProgram};
+use crate::{BytecodeArtifact, program::Program};
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
@@ -60,8 +60,7 @@ fn fixture(stripped: bool) -> Fixture {
                 &artifact.records().to_bytes(artifact.definitions()).unwrap(),
             )
             .unwrap();
-            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
-                .unwrap()
+            Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
         },
     )
 }

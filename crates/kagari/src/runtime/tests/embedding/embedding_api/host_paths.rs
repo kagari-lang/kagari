@@ -4,7 +4,7 @@ use crate::{
     context::ExecutionContext,
     engine::KagariEngine,
     error::EmbeddingError,
-    program::PreparedProgram,
+    program::Program,
     runtime::{LoadOptions, ReloadOptions, Runtime},
 };
 use kagari_abi::representation::ValueType;
@@ -393,8 +393,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
 
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(first, &Default::default(), &Default::default()).unwrap(),
             LoadOptions {
                 program_name: Some("reload_paths".to_owned()),
             },
@@ -405,14 +404,25 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let before_epoch = runtime.runtime().select_program(&loaded).unwrap().epoch;
 
     let error = runtime
-        .reload_program(
-            &loaded,
-            &PreparedProgram::from_artifact(candidate, &Default::default(), &Default::default())
-                .unwrap(),
-            ReloadOptions {
-                program_name: Some("reload_paths".to_owned()),
-            },
-        )
+        .program(&loaded)
+        .and_then(|base| {
+            base.prepare_replacement(
+                &Program::from_artifact(candidate, &Default::default(), &Default::default())
+                    .unwrap(),
+                &Default::default(),
+            )
+        })
+        .and_then(|candidate| {
+            runtime.replace_program(
+                &loaded,
+                &candidate,
+                ReloadOptions {
+                    program_name: Some("reload_paths".to_owned()),
+
+                    ..Default::default()
+                },
+            )
+        })
         .expect_err("changed typed path fingerprints should reject reload");
 
     let EmbeddingError::ReloadValidation { code, message } = error else {
@@ -471,8 +481,7 @@ fn installed_host_path_mutation_uses_declared_access() {
     );
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             LoadOptions {
                 program_name: Some("set_path".to_owned()),
             },
@@ -530,8 +539,7 @@ fn installed_host_path_reads_need_no_permission_flags() {
     );
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap(),
             LoadOptions {
                 program_name: Some("read_secure_path".to_owned()),
             },

@@ -1,4 +1,4 @@
-use crate::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
     gc::roots::RootedValue,
     module::entry::ProgramEntry,
@@ -87,8 +87,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             .compile_to_artifact(SourceFile::new("cancel.kgr", source), Default::default())
             .unwrap();
         let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         assert_eq!(

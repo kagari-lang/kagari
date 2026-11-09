@@ -9,7 +9,7 @@ mod sharing;
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    program::PreparedProgram,
+    program::Program,
 };
 use kagari_source::source::SourceFile;
 use std::{env, time::Instant};
@@ -51,7 +51,7 @@ fn sample(name: &str, operations: i32, mut action: impl FnMut() -> i32) {
 }
 
 #[cfg(not(feature = "diagnostics"))]
-fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, context: &ExecutionContext) {
+fn lifecycle(engine: &KagariEngine, program: &Program, context: &ExecutionContext) {
     for name in [
         "points",
         "nodes",
@@ -115,7 +115,7 @@ fn main() {
     let compiled = start.elapsed().as_nanos();
     let start = Instant::now();
     let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     println!(
         "setup,compile_ns={compiled},prepare_ns={}",
         start.elapsed().as_nanos()
