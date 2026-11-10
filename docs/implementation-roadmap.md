@@ -1517,6 +1517,19 @@ downcasting; source/MIR preparation stays outside Runtime. Keep independent stdl
 and the existing `kagari-gc`, whose Runtime integration is still pending. This is
 the recommended ownership direction, not an implemented deletion or activated phase.
 
+The [compact frame/storage refinement](runtime-refactor-design.md#compact-frame-and-stack-storage)
+uses Lua 5.4.9, pinned Wasmi v0.51.1 and Rust 1.99.1 as mechanism references.
+Execution owns reusable banks and compact ordinary frames; proposed records
+spell out an exact BodyRef, replaceable execution links, one StackMark, compact
+ReturnTarget and an execution-owned extra-state pool. GC consumes their root view;
+shared function facts and uncommon state do not inflate every ordinary frame.
+Count frame, Window/replacement control storage, banks, capacity, extensions and
+dependencies together;
+retain exact old-body/current-inner-call semantics. The recorded 392-byte frame is
+a current x64 layout observation, not a target or speed claim. Implementation must
+freeze memory/call-time gates and validate the complete entry/return/parking path.
+This refines the existing Runtime design; it activates no separate migration.
+
 The accepted [stack-exhaustion model](runtime-refactor-design.md#stack-exhaustion-and-native-reentry)
 replaces the proposed per-script-call depth quota/counter with VM frame/slot space
 checks and a growth slow path. Native stack protection belongs to nested host

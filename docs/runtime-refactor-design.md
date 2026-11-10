@@ -360,6 +360,223 @@ For a managed result, publish the caller's root before releasing callee/local
 protection, through the existing non-collecting return handoff invariant. A failed
 conversion or return does not undo completed callback effects.
 
+### Compact frame and stack storage
+
+Design refinement recorded on 2026-11-10, within this Runtime/Host refactor.
+This is part of the execution-storage model, not a separate optimization queue.
+Current x86_64-pc-windows-msvc default-feature Runtime built with Rust 1.99.1
+(58cf8f9c3) has `size_of::<ExecutionFrame>() == 392` and
+`size_of::<Value>() == 16`. Each physical scalar cell also uses eight payload
+bytes plus one initialization byte. These are compiler layout observations,
+excluding Window records, spare capacity and transitive allocations; they are
+not call-latency measurements. Reproduce the public sizes with a small consumer
+using `std::mem::size_of` against the current runtime library. Do not substitute
+an older cached rlib or compare unlike targets/features.
+
+The scalar/managed split and scalar lifetime coloring are sound foundations.
+The main mismatch is ordinary calls carrying the full multi-purpose frame plus
+a separate generational Window with overlapping program/environment/layout
+references. Managed slots do not currently participate in scalar coloring. A
+compact redesign must address total frame/control storage and entry/return work,
+not just compress `initialized` while keeping the same ownership machinery.
+
+Primary mechanisms consulted on 2026-11-10:
+
+| Reference/version | Mechanism to adopt | Different assumptions |
+| --- | --- | --- |
+| [Lua 5.4.9 CallInfo](https://github.com/lua/lua/blob/v5.4.9/lstate.h) and [call/return](https://github.com/lua/lua/blob/v5.4.9/ldo.c) | Small call records over a reusable value stack; mutually exclusive script/C and continuation states share storage. | Kagari keeps checked typed layouts, precise managed roots, Rust cleanup and selected old bodies. Do not copy Lua's raw-pointer/longjmp rules or assume independent Kagari states are mutually exclusive. |
+| [Wasmi v0.51.1 CallFrame](https://github.com/wasmi-labs/wasmi/blob/v0.51.1/crates/wasmi/src/engine/executor/stack/calls.rs) and [ValueStack](https://github.com/wasmi-labs/wasmi/blob/v0.51.1/crates/wasmi/src/engine/executor/stack/values.rs) | Separate compact control records from contiguous value storage; frame offsets and prepared result destinations support push/pop and capacity reuse. | This pinned implementation is a mechanism reference, not the latest Wasmi model. Its cell representation, recursion quota and unsafe stack-pointer rules do not establish Kagari's GC, handle or reentry contracts. |
+| [Rust 1.99.1 coroutine saved locals](https://github.com/rust-lang/rust/blob/1.99.1/compiler/rustc_mir_transform/src/coroutine/layout.rs) and [layout](https://github.com/rust-lang/rust/blob/1.99.1/compiler/rustc_abi/src/layout/coroutine.rs) | Compiler-owned liveness/storage-conflict facts determine saved state and which nonconflicting fields can overlap. | Rust lowers stackless state machines and has different borrowing/drop rules. Kagari must preserve interpreted caller stacks, exact old environments and independently verified source-free facts. |
+
+The proposed first implementation keeps exact code ownership inline in the small
+frame and reuses the existing scalar/managed distinction. It does not require a
+new per-call body wrapper or an execution-wide cache retaining every previously
+called version. Rust-style data sketches follow; names are responsibilities, not
+new public APIs or final Rust declarations. Widths and byte targets remain subject
+to checked executable/stack limits and layout measurement.
+
+```text
+Execution {
+    frames: Vec<Frame>,
+    values: ValueStack,
+    local_roots: LocalRoots,
+    extras: FrameExtraPool,
+    state: RunState,                // readiness, wait/result and retirement owner
+}
+
+ValueStack {
+    scalars: Vec<u64>,
+    initialized: Vec<bool>,         // first baseline; proof-based reduction is separate
+    managed: Vec<Value>,
+}
+
+Frame {
+    body: BodyRef,                 // exact admitted body, never implicit current
+    environment: Option<TypeEnvironment>,
+    links: Option<Arc<FunctionLinks>>,
+    pc: CodeOffset,
+    phase: FramePhase,              // availability at observable boundaries
+    base: StackMark,               // both callee bases and pre-call rollback positions
+    return_to: ReturnTarget,
+    extra: Option<ExtraIndex>,
+}
+
+BodyRef {
+    revision: Arc<InstalledRevision>,
+    member: ModuleIndex,
+    target: CallableTarget,
+}
+
+StackMark {
+    scalar_top: usize,
+    managed_top: usize,
+    local_root_top: usize,
+}
+
+FramePhase = Pending | Executing | Complete
+ReturnTarget = Caller(OperandSlot) | ScopeResult | Discard
+
+FrameExtra {
+    native: Option<NativeState>,
+    initializer: Option<InitializerState>,
+    invocation: Option<InvocationEvidence>,
+    mutations: Vec<PendingMutation>,
+    observation: Option<ObservationState>,
+}
+```
+
+`InstalledRevision` is the supplying installation's existing exact descriptor role,
+which owns a shared executable Program and checked local binding/layout facts.
+`BodyRef` stores its owner and placement directly; construction is an owner clone
+and checked indices, not another allocation for each invocation. Reuse that owner
+to obtain function facts and frame requirements instead of copying slot counts,
+layout Arcs and target metadata into both Frame and Window. A bare stable function
+ID is insufficient because it would lose the selected old body's lifetime.
+
+`environment` initially uses the checked existing environment representation.
+Nongeneric frames have none. A smaller environment handle is a later representation
+choice only if its owner, scope, generation and traced dependencies remain explicit;
+this proposal does not silently add an environment table or truncate its identity.
+`links` is the replaceable active execution view for that exact source body; it
+does not select a different body for the frame. Keep it for efficient prepared
+execution. Parking clears it for every frame; resume refreshes all frames against
+committed call tables without changing their body, environment, PC or values.
+Transitive type/layout metadata may still retain supplying versions under R13;
+count that retention rather than claiming the compact frame solves that split.
+
+FramePhase preserves pending/executing/completed availability at observable
+boundaries, including Native reentry and frame inspection. The closed interpreter
+region may keep its current cursor/action in local state and publish it before an
+external boundary. A pause that must distinguish observed PC from a pending resume
+action retains that action in its execution/observation state. Do not simply erase
+existing PC/phase distinctions to reduce size; basic frame access must not require
+allocating observer state when observation is disabled.
+
+One StackMark suffices because the first implementation appends callee storage
+after the caller's live suffix. Function layout gives each bank's required count.
+Outgoing-area overlap and move elimination can follow verified call preparation;
+do not store redundant base/end/count/checkpoint copies by default. Bank offsets
+start as checked usize. Use narrower offsets only after the stack/executable ceiling
+proves representability; do not narrow Runtime/heap owner-generation identities.
+
+ReturnTarget carries only the checked destination kind and compact operand locator.
+The frozen callable/call-site facts and admitted environments provide representation
+and any result adaptation; the frame need not carry a full Location. ScopeResult
+hands the result to the driver/owned execution. Discard still performs required
+result validation and effects. Unit has no result payload cell.
+
+FrameExtraPool belongs to the execution and reuses vacated entries. A frame acquires
+an entry only when it actually needs extra state. Native, initializer, invocation,
+mutation and observation state may coexist, so this record does not assert they
+form one mutually exclusive enum. Its local index is valid only within its owning
+execution and live frame; it is not an externally retained frame/heap handle.
+Trace any managed or metadata dependencies in live entries. Remove/reset the entry
+on frame completion/unwind, retaining capacity but no old values/code dependencies.
+No new per-frame Box, persistent invocation identity for an immediate method call,
+or universal state-machine framework is implied. Retained callable computations
+keep their own existing escape lifetime rather than borrowing this pool.
+
+The collector enumerates live frames, protected managed cells, local roots, live
+extensions and execution wait/result state through the Runtime execution owner.
+Arc ownership alone does not publish GC roots. Once this traversal owns frame value
+and metadata protection, remove ordinary-call Window registration and its duplicate
+program/environment/layout owners. A projection of argument slots is a scoped view
+of the execution; release it before growth, collecting callbacks or reentry. Actual
+external loan/owner/generation validation remains at the corresponding boundary.
+
+An owned Future/Task parks this Execution storage without copying the whole stack.
+Its completion/cancellation drains its own frames and roots; another execution's
+out-of-order completion cannot shift this execution's bank offsets. Synchronous
+host reentry uses a saved frame depth and StackMark over the same execution, then
+retires only its suffix. Native thread-stack protection remains separate.
+
+For a warmed script call the data operations are: read final binding; ensure
+frame/bank capacity; capture StackMark; initialize/transfer admitted parameters;
+publish the frame's dependency/root view; push Frame; continue dispatch. Return
+validates/adapts while the callee remains protected, publishes to the caller or
+scope, completes extra-state cleanup, restores the root/bank checkpoints and pops
+the frame. Capacity growth, actual environment construction, extension acquisition
+and suspension stay explicit branches rather than unconditional call allocations.
+
+Ownership and hot-path decisions:
+
+- Execution owns the frame and bank buffers. An ordinary nested call reserves a
+  suffix and return restores its saved positions. It creates no independent
+  generational Window, allocation-order entry or per-call root lease. Empty/scalar
+  calls with warmed capacity require no allocator request. Growth and independent
+  execution retirement stay at their actual storage boundaries.
+- Each live frame has one authoritative exact-body/environment dependency path.
+  GC consumes a root view of active and parked executions, including their live
+  managed slots and metadata. Remove duplicate per-window owners when that root
+  path replaces them; do not keep IDs without supplying lifetime/authority.
+  Reuse existing linked/admitted body and application facts where suitable.
+  Packing a frame must not introduce a freshly allocated descriptor or another
+  per-call identity-resolution cache.
+- Keep ordinary PC/base/return operations in the frame. Additional Native,
+  initializer, mutation and enabled debugger state use execution-owned reusable
+  side storage or a proven discriminated representation. Independent states may
+  coexist. A large enum whose largest variant still bloats every frame, or a
+  Box allocation on every call, does not satisfy the design. Hot instructions
+  must not traverse a generic extension dispatcher to read their basic fields.
+- Shared immutable function layouts supply types, physical locations and call
+  requirements. Keep eight-byte scalar cells as the first execution baseline;
+  mixed-width packing/bitsets need separate evidence after total frame ownership
+  is fixed. Unit has no payload cell. Retain scalar coloring and extend storage
+  reuse to managed values only when availability, representation and root lifetime
+  agree. Do not reinterpret a stale managed cell as another live object.
+- Remove scalar clearing only where verifier-proven write-before-read and the
+  actual inspection/side-entry contract permit it. Managed clearing/root visibility
+  must remain correct at every collecting callback or safepoint. Reducing or
+  removing the initialization bank requires those facts at the source-free
+  executable boundary; Rust coroutine analysis is a reference, not imported proof.
+- A parked computation retains its Execution storage and selected body/environment.
+  Another computation completes in its own storage without draining or relocating
+  unrelated stacks. First support ownership transfer/parking of those buffers;
+  do not make every await copy and compact the entire stack. Compiler-driven
+  suspension-field compaction is a later use of existing liveness facts, not a
+  prerequisite for the small ordinary frame. Reentry uses scoped suffix ownership
+  and the separate Native stack protection described below.
+
+For `caller -> add(a, b) -> caller`, the current path admits a full ExecutionFrame
+and Window, publishes overlapping dependency metadata, and initializes the new
+banks. The target prepares the argument/result locations, ensures capacity,
+publishes arguments in the callee suffix, pushes the small record, executes, then
+publishes the result before restoring the caller checkpoint. In `f(g(), h())`,
+g's completed managed result remains rooted while h runs. Traps unwind only the
+owned suffix and preserve completed mutations. A suspended old body still makes
+ordinary calls through current prepared bindings; packing does not change reload
+selection or invalidate the whole-stack view refresh contract.
+
+Acceptance counts total fixed frame/control bytes, used bank bytes, spare capacity,
+extension/root storage and retained dependencies. Reporting only `size_of<Frame>`
+after moving its fields into per-frame boxes is not a reduction. Compare empty,
+scalar, managed/generic and Native calls, depth/growth/reentry, parked-stack memory
+and non-LIFO completion. Reuse the existing source-free, GC/return-handoff, loan,
+trap/cancellation and reload cases. Report setup separately from warmed execution;
+require no warmed empty/scalar call allocations and measure any added indirection.
+Freeze numerical frame-memory/call-time gates at implementation activation, before
+changes. No unmeasured 32/64-byte frame target or predicted speedup is accepted here.
+
 ### Stack exhaustion and Native reentry
 
 Decision accepted on 2026-11-09: ordinary script recursion is bounded by VM stack
