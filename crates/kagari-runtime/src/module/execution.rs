@@ -8,6 +8,7 @@ pub(crate) mod calls;
 pub(crate) mod fields;
 pub(crate) mod frames;
 pub(crate) mod indices;
+pub mod instruction;
 pub(crate) mod interfaces;
 pub(crate) mod layout;
 pub mod managed;
@@ -20,6 +21,7 @@ use crate::{
         fields::PreparedFieldOperation,
         frames::CalleeLayout,
         indices::{IndexAccess, PreparedIndexOperation},
+        instruction::ExecutionInstruction,
         interfaces::PreparedUpcast,
         layout::{FrameLayout, Location},
         managed::{ManagedOperation, PreparedManagedOperation},
@@ -28,19 +30,11 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Slot},
+    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, Slot},
     module::{BytecodeModule, CallableTarget},
     suspension::AwaitLiveness,
 };
-use kagari_types::{
-    integer::IntegerOp,
-    payload::{
-        comparison::{Comparison, ComparisonDomain},
-        operation::{FloatOperation, FloatType, ShiftKind},
-    },
-    scalar::IntegerType,
-    ty::Ty,
-};
+use kagari_types::ty::Ty;
 use std::collections::BTreeMap;
 
 /// A bounded physical operand in a prepared function's value window.
@@ -78,60 +72,6 @@ impl ScalarSlot {
         self.0 as usize
     }
 }
-
-macro_rules! define_execution {
-    (binary { $(($bp:pat, $brr:ident, $brk:ident, $bt:ty, $be:path),)* }
-     shift { $(($sk:ident, $srr:ident, $srk:ident, $se:path),)* }
-     compare { $(($cd:ident, $crr:ident, $crk:ident, $jrr:ident, $jrk:ident, $ct:ty, $ce:path),)* }
-     simple_compare { $(($sd:ident, $qrr:ident, $qjrr:ident, $qe:path),)* }
-     unary { $(($u:ident, $ur:ident, $ue:path),)* }
-     convert { $(($cv:ident, $cs:ty, $ctarget:ty),)* }) => {
-        /// Closed prepared operations with admitted physical operands.
-        #[derive(Debug, Clone, Copy)]
-        pub enum ExecutionInstruction {
-            Constant { dst: ScalarSlot, value: u64 },
-            Move { dst: ScalarSlot, src: ScalarSlot },
-            $(
-                $brr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot },
-                $brk { dst: ScalarSlot, lhs: ScalarSlot, rhs: $bt },
-            )*
-            $(
-                $srr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, count_domain: IntegerType },
-                $srk { dst: ScalarSlot, lhs: ScalarSlot, rhs: u64, count_domain: IntegerType },
-            )*
-            $(
-                $crr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, condition: Comparison },
-                $crk { dst: ScalarSlot, lhs: ScalarSlot, rhs: $ct, condition: Comparison },
-                $jrr { lhs: ScalarSlot, rhs: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
-                $jrk { lhs: ScalarSlot, rhs: $ct, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
-            )*
-            $(
-                $qrr { dst: ScalarSlot, lhs: ScalarSlot, rhs: ScalarSlot, condition: Comparison },
-                $qjrr { lhs: ScalarSlot, rhs: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget, condition: Comparison },
-            )*
-            $($ur { dst: ScalarSlot, src: ScalarSlot },)*
-            $($cv { dst: ScalarSlot, src: ScalarSlot, source: $cs, target: $ctarget },)*
-            BoolToInteger { dst: ScalarSlot, src: ScalarSlot, target: IntegerType },
-            IntegerBinaryKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, op: IntegerOp, domain: IntegerType },
-            IntegerBinaryKK { dst: ScalarSlot, lhs: u64, rhs: u64, op: IntegerOp, domain: IntegerType },
-            FloatBinaryKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, op: FloatOperation, domain: FloatType },
-            FloatBinaryKK { dst: ScalarSlot, lhs: u64, rhs: u64, op: FloatOperation, domain: FloatType },
-            ShiftKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, kind: ShiftKind, count_domain: IntegerType },
-            ShiftKK { dst: ScalarSlot, lhs: u64, rhs: u64, kind: ShiftKind, count_domain: IntegerType },
-            CompareStoreKR { dst: ScalarSlot, lhs: u64, rhs: ScalarSlot, domain: ComparisonDomain, condition: Comparison },
-            CompareStoreKK { dst: ScalarSlot, lhs: u64, rhs: u64, domain: ComparisonDomain, condition: Comparison },
-            CompareBranchKR { lhs: u64, rhs: ScalarSlot, domain: ComparisonDomain, condition: Comparison, then_target: JumpTarget, else_target: JumpTarget },
-            Jump(JumpTarget),
-            Branch { cond: ScalarSlot, then_target: JumpTarget, else_target: JumpTarget },
-            Managed(PreparedManagedOperation),
-            Return { value: Option<ScalarSlot>, representation: ValueType },
-            /// Release the cursor before canonical operations requiring a boundary.
-            Boundary,
-        }
-    };
-}
-
-scalar_catalog!(define_execution);
 
 #[derive(Debug)]
 pub(crate) struct ExecutionModule {

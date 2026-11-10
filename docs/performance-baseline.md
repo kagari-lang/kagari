@@ -7378,3 +7378,78 @@ revisions' other language failures are not repaired or timed by this comparison.
 No new memory/GC-pause, actual-native, hot-reload lifecycle or full CI acceptance is
 claimed. Retained changes are documentation only, with content/link/diff checks;
 no production implementation or further optimization is included.
+
+## Explicit scalar source generation (Windows, 2026-11-10)
+
+Compare the ordinary interpreter at `de8c8804` against the same base plus the
+explicit scalar-generation working-tree change. The baseline had only the two
+pending design-document edits, with no Rust changes. The candidate replaces the
+three catalog macro consumers with committed-source regions, moves the enum and
+loop to their actual owners, and omits identity casts/redundant bindings exposed
+by Clippy on the expanded source. Numeric helpers, variant order, polling, frame
+layout and canonical bytecode remain unchanged. The profiling-only benchmark
+import follows the moved enum; measured harness, fixtures and driver are unchanged.
+The [scalar guide](architecture/runtime/scalar-execution.md) owns the mechanism.
+This image comparison precedes the later named ScalarFailure/thiserror follow-up;
+that error-representation change has no separate performance measurement here.
+
+Environment: Windows 11 Pro 10.0.26300, i9-12900K, 24 logical CPUs,
+66,843,692 KiB visible RAM; rustc 1.99.1 (58cf8f9c3, LLVM 23.1.1), Cargo 1.99.1,
+`x86_64-pc-windows-msvc`. Workspace release defaults, opt-level 3, default Cargo
+target/parallelism; SDK source/native and mlua lua54,vendored features. JIT is
+disabled for preparation and execution. Both images use ordinary GC policy, no
+instrumentation, and no compiler/environment overrides. CPU affinity/frequency
+and desktop background activity are uncontrolled.
+
+Reuse the existing original-seven driver: seven alternating baseline/candidate
+pairs, three warmups and eleven samples per process. Fresh engine/Runtime state
+per process; setup/checksum validation is outside execution timing. No tests,
+builds or other measurements overlap the paired run. Builds reuse available Cargo
+caches and finish before execution: baseline cached build 0.560 s, candidate
+incremental release build 28.486 s. These are setup observations, not a compile-time
+comparison. All 14 processes pass their independent checksums. The unchanged
+strict paired validator accepts 2,156 execution samples (both engines) within
+2,940 total raw rows and all seven existing 1.05 regression gates.
+
+Times are microseconds per complete workload, except entry, normalized to one
+host invocation from its 1,000-call batch. Sizes are unchanged: 50,000 arithmetic
+iterations, 30,000 branches, 10,000 helper calls, Fibonacci(20), 2,000 array elements
+and 1,000 map keys. Before/after columns are medians of seven process medians;
+ratios are medians of seven paired ratios and need not equal their quotient.
+Ranges are observed pair ranges, not confidence intervals.
+
+| Workload | Before us | After us | After/before | Pair min-max | Unchanged Lua ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| arithmetic | 459.500 | 463.100 | 1.01435 | 0.96366-1.05518 | 0.87236 |
+| branches | 864.300 | 858.000 | 0.99237 | 0.98937-1.01215 | 0.98039 |
+| calls | 3889.200 | 3822.100 | 0.99062 | 0.96927-1.00529 | 0.94197 |
+| entry | 1.7747 | 1.7825 | 0.99751 | 0.96820-1.04715 | 1.04611 |
+| fibonacci | 9135.600 | 9058.300 | 0.99482 | 0.97991-1.03068 | 0.97391 |
+| arrays | 6228.100 | 6118.800 | 0.98245 | 0.95873-0.99969 | 0.93054 |
+| maps | 4961.500 | 4896.000 | 0.98918 | 0.95836-1.02151 | 0.93962 |
+
+Kagari paired medians change -1.75% to +1.44%. This establishes no material
+regression under the existing gate for this series, not a speedup or instruction-
+level equivalence proof. Unchanged Lua arithmetic shifts by about -12.76%, and
+several other Lua rows shift too; image/layout/environment effects prevent causal
+claims about small changes. Do not normalize Kagari by Lua. One arithmetic pair
+exceeds 1.05 while its seven-pair median passes; preserve the complete series.
+No new memory/GC pause, floating-point timing matrix, actual-native, hot-reload
+performance or full CI result is established.
+
+Reproduction from the unmodified base, followed by applying this source migration:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --freeze-baseline target/scalar-generation/before.exe
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable target/scalar-generation/before.exe
+uv run python scripts/check_benchmark.py target/lua-comparison/PAIRED_RUN/results.json
+```
+
+The workload SHA-256 is
+`7915c88998ddbdf8a2b2a8c3a1173ee87380f44b888b07f6fe16c4bbf24d5718`;
+Cargo.lock is `b7e97eeadc9e6d58b129b207206e0f1e1d984984802804a56b7cf742fdfa98cd`.
+Baseline image SHA-256 is
+`c860c5ce590bcab9e050d72d4cce7761b382a00cba4cbe9755a5c4afde3645be`;
+candidate is `e53f95037d8dedfd5012e9a6f769c6830e18d29d078fa96fd6435ddcc55684a8`.
+Raw evidence and frozen images under ignored target are disposable; the tracked
+record retains method, results and limits.

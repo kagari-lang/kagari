@@ -895,6 +895,10 @@ boundaries, default-template token provenance and practical authoring.
 
 ### Numeric scalar library ownership
 
+Runtime's [prepared scalar execution](architecture/runtime/scalar-execution.md)
+uses explicitly generated, committed Rust regions for instruction definitions,
+preparation and dispatch, with a readable handwritten control-flow skeleton.
+
 [`foundation/numeric`](../crates/kagari-stdlib/src/foundation/numeric.rs) owns scalar
 numeric declarations, documentation and bindings. `integer.rs` selects existing
 `IntegerMethodContract` facts and the runtime's shared width-aware integer kernels;

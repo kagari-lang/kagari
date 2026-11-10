@@ -81,6 +81,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check scalar source generation
+        run: |
+          uv run python -m unittest discover -s scripts/tests -p test_scalar_generation.py
+          uv run python scripts/generate_scalar_execution.py --check
+
       - name: Lint
         run: cargo clippy --workspace --all-targets -- -D warnings
 

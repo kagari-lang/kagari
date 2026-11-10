@@ -1,0 +1,755 @@
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I8, op: IntegerOp::CheckedAdd }"
+rr = "I8AddRR"
+rk = "I8AddRK"
+immediate_type = "i8"
+helper = "payload::integer_value::<0, 8, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I8, op: IntegerOp::CheckedSub }"
+rr = "I8SubRR"
+rk = "I8SubRK"
+immediate_type = "i8"
+helper = "payload::integer_value::<1, 8, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I8, op: IntegerOp::CheckedMul }"
+rr = "I8MulRR"
+rk = "I8MulRK"
+immediate_type = "i8"
+helper = "payload::integer_value::<2, 8, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I8, op: IntegerOp::CheckedDiv }"
+rr = "I8DivRR"
+rk = "I8DivRK"
+immediate_type = "i8"
+helper = "payload::integer_value::<3, 8, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I8, op: IntegerOp::CheckedRem }"
+rr = "I8RemRR"
+rk = "I8RemRK"
+immediate_type = "i8"
+helper = "payload::integer_value::<4, 8, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I8, op: IntegerOp::BitAnd }"
+rr = "I8BitAndRR"
+rk = "I8BitAndRK"
+immediate_type = "i8"
+helper = "payload::integer_value::<5, 8, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I8, op: IntegerOp::BitOr }"
+rr = "I8BitOrRR"
+rk = "I8BitOrRK"
+immediate_type = "i8"
+helper = "payload::integer_value::<6, 8, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I8, op: IntegerOp::BitXor }"
+rr = "I8BitXorRR"
+rk = "I8BitXorRK"
+immediate_type = "i8"
+helper = "payload::integer_value::<7, 8, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I16, op: IntegerOp::CheckedAdd }"
+rr = "I16AddRR"
+rk = "I16AddRK"
+immediate_type = "i16"
+helper = "payload::integer_value::<0, 16, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I16, op: IntegerOp::CheckedSub }"
+rr = "I16SubRR"
+rk = "I16SubRK"
+immediate_type = "i16"
+helper = "payload::integer_value::<1, 16, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I16, op: IntegerOp::CheckedMul }"
+rr = "I16MulRR"
+rk = "I16MulRK"
+immediate_type = "i16"
+helper = "payload::integer_value::<2, 16, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I16, op: IntegerOp::CheckedDiv }"
+rr = "I16DivRR"
+rk = "I16DivRK"
+immediate_type = "i16"
+helper = "payload::integer_value::<3, 16, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I16, op: IntegerOp::CheckedRem }"
+rr = "I16RemRR"
+rk = "I16RemRK"
+immediate_type = "i16"
+helper = "payload::integer_value::<4, 16, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I16, op: IntegerOp::BitAnd }"
+rr = "I16BitAndRR"
+rk = "I16BitAndRK"
+immediate_type = "i16"
+helper = "payload::integer_value::<5, 16, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I16, op: IntegerOp::BitOr }"
+rr = "I16BitOrRR"
+rk = "I16BitOrRK"
+immediate_type = "i16"
+helper = "payload::integer_value::<6, 16, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I16, op: IntegerOp::BitXor }"
+rr = "I16BitXorRR"
+rk = "I16BitXorRK"
+immediate_type = "i16"
+helper = "payload::integer_value::<7, 16, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I32, op: IntegerOp::CheckedAdd }"
+rr = "I32AddRR"
+rk = "I32AddRK"
+immediate_type = "i32"
+helper = "payload::integer_value::<0, 32, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I32, op: IntegerOp::CheckedSub }"
+rr = "I32SubRR"
+rk = "I32SubRK"
+immediate_type = "i32"
+helper = "payload::integer_value::<1, 32, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I32, op: IntegerOp::CheckedMul }"
+rr = "I32MulRR"
+rk = "I32MulRK"
+immediate_type = "i32"
+helper = "payload::integer_value::<2, 32, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I32, op: IntegerOp::CheckedDiv }"
+rr = "I32DivRR"
+rk = "I32DivRK"
+immediate_type = "i32"
+helper = "payload::integer_value::<3, 32, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I32, op: IntegerOp::CheckedRem }"
+rr = "I32RemRR"
+rk = "I32RemRK"
+immediate_type = "i32"
+helper = "payload::integer_value::<4, 32, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I32, op: IntegerOp::BitAnd }"
+rr = "I32BitAndRR"
+rk = "I32BitAndRK"
+immediate_type = "i32"
+helper = "payload::integer_value::<5, 32, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I32, op: IntegerOp::BitOr }"
+rr = "I32BitOrRR"
+rk = "I32BitOrRK"
+immediate_type = "i32"
+helper = "payload::integer_value::<6, 32, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I32, op: IntegerOp::BitXor }"
+rr = "I32BitXorRR"
+rk = "I32BitXorRK"
+immediate_type = "i32"
+helper = "payload::integer_value::<7, 32, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I64, op: IntegerOp::CheckedAdd }"
+rr = "I64AddRR"
+rk = "I64AddRK"
+immediate_type = "i64"
+helper = "payload::integer_value::<0, 64, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I64, op: IntegerOp::CheckedSub }"
+rr = "I64SubRR"
+rk = "I64SubRK"
+immediate_type = "i64"
+helper = "payload::integer_value::<1, 64, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I64, op: IntegerOp::CheckedMul }"
+rr = "I64MulRR"
+rk = "I64MulRK"
+immediate_type = "i64"
+helper = "payload::integer_value::<2, 64, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I64, op: IntegerOp::CheckedDiv }"
+rr = "I64DivRR"
+rk = "I64DivRK"
+immediate_type = "i64"
+helper = "payload::integer_value::<3, 64, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I64, op: IntegerOp::CheckedRem }"
+rr = "I64RemRR"
+rk = "I64RemRK"
+immediate_type = "i64"
+helper = "payload::integer_value::<4, 64, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I64, op: IntegerOp::BitAnd }"
+rr = "I64BitAndRR"
+rk = "I64BitAndRK"
+immediate_type = "i64"
+helper = "payload::integer_value::<5, 64, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I64, op: IntegerOp::BitOr }"
+rr = "I64BitOrRR"
+rk = "I64BitOrRK"
+immediate_type = "i64"
+helper = "payload::integer_value::<6, 64, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::I64, op: IntegerOp::BitXor }"
+rr = "I64BitXorRR"
+rk = "I64BitXorRK"
+immediate_type = "i64"
+helper = "payload::integer_value::<7, 64, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U8, op: IntegerOp::CheckedAdd }"
+rr = "U8AddRR"
+rk = "U8AddRK"
+immediate_type = "u8"
+helper = "payload::integer_value::<0, 8, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U8, op: IntegerOp::CheckedSub }"
+rr = "U8SubRR"
+rk = "U8SubRK"
+immediate_type = "u8"
+helper = "payload::integer_value::<1, 8, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U8, op: IntegerOp::CheckedMul }"
+rr = "U8MulRR"
+rk = "U8MulRK"
+immediate_type = "u8"
+helper = "payload::integer_value::<2, 8, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U8, op: IntegerOp::CheckedDiv }"
+rr = "U8DivRR"
+rk = "U8DivRK"
+immediate_type = "u8"
+helper = "payload::integer_value::<3, 8, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U8, op: IntegerOp::CheckedRem }"
+rr = "U8RemRR"
+rk = "U8RemRK"
+immediate_type = "u8"
+helper = "payload::integer_value::<4, 8, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U8, op: IntegerOp::BitAnd }"
+rr = "U8BitAndRR"
+rk = "U8BitAndRK"
+immediate_type = "u8"
+helper = "payload::integer_value::<5, 8, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U8, op: IntegerOp::BitOr }"
+rr = "U8BitOrRR"
+rk = "U8BitOrRK"
+immediate_type = "u8"
+helper = "payload::integer_value::<6, 8, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U8, op: IntegerOp::BitXor }"
+rr = "U8BitXorRR"
+rk = "U8BitXorRK"
+immediate_type = "u8"
+helper = "payload::integer_value::<7, 8, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U16, op: IntegerOp::CheckedAdd }"
+rr = "U16AddRR"
+rk = "U16AddRK"
+immediate_type = "u16"
+helper = "payload::integer_value::<0, 16, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U16, op: IntegerOp::CheckedSub }"
+rr = "U16SubRR"
+rk = "U16SubRK"
+immediate_type = "u16"
+helper = "payload::integer_value::<1, 16, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U16, op: IntegerOp::CheckedMul }"
+rr = "U16MulRR"
+rk = "U16MulRK"
+immediate_type = "u16"
+helper = "payload::integer_value::<2, 16, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U16, op: IntegerOp::CheckedDiv }"
+rr = "U16DivRR"
+rk = "U16DivRK"
+immediate_type = "u16"
+helper = "payload::integer_value::<3, 16, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U16, op: IntegerOp::CheckedRem }"
+rr = "U16RemRR"
+rk = "U16RemRK"
+immediate_type = "u16"
+helper = "payload::integer_value::<4, 16, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U16, op: IntegerOp::BitAnd }"
+rr = "U16BitAndRR"
+rk = "U16BitAndRK"
+immediate_type = "u16"
+helper = "payload::integer_value::<5, 16, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U16, op: IntegerOp::BitOr }"
+rr = "U16BitOrRR"
+rk = "U16BitOrRK"
+immediate_type = "u16"
+helper = "payload::integer_value::<6, 16, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U16, op: IntegerOp::BitXor }"
+rr = "U16BitXorRR"
+rk = "U16BitXorRK"
+immediate_type = "u16"
+helper = "payload::integer_value::<7, 16, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U32, op: IntegerOp::CheckedAdd }"
+rr = "U32AddRR"
+rk = "U32AddRK"
+immediate_type = "u32"
+helper = "payload::integer_value::<0, 32, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U32, op: IntegerOp::CheckedSub }"
+rr = "U32SubRR"
+rk = "U32SubRK"
+immediate_type = "u32"
+helper = "payload::integer_value::<1, 32, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U32, op: IntegerOp::CheckedMul }"
+rr = "U32MulRR"
+rk = "U32MulRK"
+immediate_type = "u32"
+helper = "payload::integer_value::<2, 32, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U32, op: IntegerOp::CheckedDiv }"
+rr = "U32DivRR"
+rk = "U32DivRK"
+immediate_type = "u32"
+helper = "payload::integer_value::<3, 32, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U32, op: IntegerOp::CheckedRem }"
+rr = "U32RemRR"
+rk = "U32RemRK"
+immediate_type = "u32"
+helper = "payload::integer_value::<4, 32, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U32, op: IntegerOp::BitAnd }"
+rr = "U32BitAndRR"
+rk = "U32BitAndRK"
+immediate_type = "u32"
+helper = "payload::integer_value::<5, 32, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U32, op: IntegerOp::BitOr }"
+rr = "U32BitOrRR"
+rk = "U32BitOrRK"
+immediate_type = "u32"
+helper = "payload::integer_value::<6, 32, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U32, op: IntegerOp::BitXor }"
+rr = "U32BitXorRR"
+rk = "U32BitXorRK"
+immediate_type = "u32"
+helper = "payload::integer_value::<7, 32, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U64, op: IntegerOp::CheckedAdd }"
+rr = "U64AddRR"
+rk = "U64AddRK"
+immediate_type = "u64"
+helper = "payload::integer_value::<0, 64, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U64, op: IntegerOp::CheckedSub }"
+rr = "U64SubRR"
+rk = "U64SubRK"
+immediate_type = "u64"
+helper = "payload::integer_value::<1, 64, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U64, op: IntegerOp::CheckedMul }"
+rr = "U64MulRR"
+rk = "U64MulRK"
+immediate_type = "u64"
+helper = "payload::integer_value::<2, 64, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U64, op: IntegerOp::CheckedDiv }"
+rr = "U64DivRR"
+rk = "U64DivRK"
+immediate_type = "u64"
+helper = "payload::integer_value::<3, 64, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U64, op: IntegerOp::CheckedRem }"
+rr = "U64RemRR"
+rk = "U64RemRK"
+immediate_type = "u64"
+helper = "payload::integer_value::<4, 64, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U64, op: IntegerOp::BitAnd }"
+rr = "U64BitAndRR"
+rk = "U64BitAndRK"
+immediate_type = "u64"
+helper = "payload::integer_value::<5, 64, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U64, op: IntegerOp::BitOr }"
+rr = "U64BitOrRR"
+rk = "U64BitOrRK"
+immediate_type = "u64"
+helper = "payload::integer_value::<6, 64, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Integer { domain: IntegerType::U64, op: IntegerOp::BitXor }"
+rr = "U64BitXorRR"
+rk = "U64BitXorRK"
+immediate_type = "u64"
+helper = "payload::integer_value::<7, 64, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F32, op: FloatOperation::Add }"
+rr = "F32AddRR"
+rk = "F32AddRK"
+immediate_type = "u32"
+helper = "payload::float_binary::<0, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F32, op: FloatOperation::Sub }"
+rr = "F32SubRR"
+rk = "F32SubRK"
+immediate_type = "u32"
+helper = "payload::float_binary::<1, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F32, op: FloatOperation::Mul }"
+rr = "F32MulRR"
+rk = "F32MulRK"
+immediate_type = "u32"
+helper = "payload::float_binary::<2, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F32, op: FloatOperation::Div }"
+rr = "F32DivRR"
+rk = "F32DivRK"
+immediate_type = "u32"
+helper = "payload::float_binary::<3, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F32, op: FloatOperation::Rem }"
+rr = "F32RemRR"
+rk = "F32RemRK"
+immediate_type = "u32"
+helper = "payload::float_binary::<4, true>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F64, op: FloatOperation::Add }"
+rr = "F64AddRR"
+rk = "F64AddRK"
+immediate_type = "u64"
+helper = "payload::float_binary::<0, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F64, op: FloatOperation::Sub }"
+rr = "F64SubRR"
+rk = "F64SubRK"
+immediate_type = "u64"
+helper = "payload::float_binary::<1, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F64, op: FloatOperation::Mul }"
+rr = "F64MulRR"
+rk = "F64MulRK"
+immediate_type = "u64"
+helper = "payload::float_binary::<2, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F64, op: FloatOperation::Div }"
+rr = "F64DivRR"
+rk = "F64DivRK"
+immediate_type = "u64"
+helper = "payload::float_binary::<3, false>"
+
+[[binary]]
+source_pattern = "ScalarOperation::Float { domain: FloatType::F64, op: FloatOperation::Rem }"
+rr = "F64RemRR"
+rk = "F64RemRK"
+immediate_type = "u64"
+helper = "payload::float_binary::<4, false>"
+
+[[shift]]
+kind = "I8Shl"
+rr = "I8ShlRR"
+rk = "I8ShlRK"
+helper = "payload::shift_value::<0, 8, true>"
+
+[[shift]]
+kind = "I8Shr"
+rr = "I8ShrRR"
+rk = "I8ShrRK"
+helper = "payload::shift_value::<1, 8, true>"
+
+[[shift]]
+kind = "I16Shl"
+rr = "I16ShlRR"
+rk = "I16ShlRK"
+helper = "payload::shift_value::<0, 16, true>"
+
+[[shift]]
+kind = "I16Shr"
+rr = "I16ShrRR"
+rk = "I16ShrRK"
+helper = "payload::shift_value::<1, 16, true>"
+
+[[shift]]
+kind = "I32Shl"
+rr = "I32ShlRR"
+rk = "I32ShlRK"
+helper = "payload::shift_value::<0, 32, true>"
+
+[[shift]]
+kind = "I32Shr"
+rr = "I32ShrRR"
+rk = "I32ShrRK"
+helper = "payload::shift_value::<1, 32, true>"
+
+[[shift]]
+kind = "I64Shl"
+rr = "I64ShlRR"
+rk = "I64ShlRK"
+helper = "payload::shift_value::<0, 64, true>"
+
+[[shift]]
+kind = "I64Shr"
+rr = "I64ShrRR"
+rk = "I64ShrRK"
+helper = "payload::shift_value::<1, 64, true>"
+
+[[shift]]
+kind = "U8Shl"
+rr = "U8ShlRR"
+rk = "U8ShlRK"
+helper = "payload::shift_value::<0, 8, false>"
+
+[[shift]]
+kind = "U8Shr"
+rr = "U8ShrRR"
+rk = "U8ShrRK"
+helper = "payload::shift_value::<1, 8, false>"
+
+[[shift]]
+kind = "U16Shl"
+rr = "U16ShlRR"
+rk = "U16ShlRK"
+helper = "payload::shift_value::<0, 16, false>"
+
+[[shift]]
+kind = "U16Shr"
+rr = "U16ShrRR"
+rk = "U16ShrRK"
+helper = "payload::shift_value::<1, 16, false>"
+
+[[shift]]
+kind = "U32Shl"
+rr = "U32ShlRR"
+rk = "U32ShlRK"
+helper = "payload::shift_value::<0, 32, false>"
+
+[[shift]]
+kind = "U32Shr"
+rr = "U32ShrRR"
+rk = "U32ShrRK"
+helper = "payload::shift_value::<1, 32, false>"
+
+[[shift]]
+kind = "U64Shl"
+rr = "U64ShlRR"
+rk = "U64ShlRK"
+helper = "payload::shift_value::<0, 64, false>"
+
+[[shift]]
+kind = "U64Shr"
+rr = "U64ShrRR"
+rk = "U64ShrRK"
+helper = "payload::shift_value::<1, 64, false>"
+
+[[compare]]
+domain = "I32"
+rr = "I32CompareRR"
+rk = "I32CompareRK"
+branch_rr = "I32CompareBranchRR"
+branch_rk = "I32CompareBranchRK"
+immediate_type = "i32"
+helper = "comparison::i32_compare"
+
+[[compare]]
+domain = "I64"
+rr = "I64CompareRR"
+rk = "I64CompareRK"
+branch_rr = "I64CompareBranchRR"
+branch_rk = "I64CompareBranchRK"
+immediate_type = "i64"
+helper = "comparison::i64_compare"
+
+[[compare]]
+domain = "U64"
+rr = "U64CompareRR"
+rk = "U64CompareRK"
+branch_rr = "U64CompareBranchRR"
+branch_rk = "U64CompareBranchRK"
+immediate_type = "u64"
+helper = "comparison::u64_compare"
+
+[[compare]]
+domain = "F32"
+rr = "F32CompareRR"
+rk = "F32CompareRK"
+branch_rr = "F32CompareBranchRR"
+branch_rk = "F32CompareBranchRK"
+immediate_type = "u32"
+helper = "comparison::f32_compare"
+
+[[compare]]
+domain = "F64"
+rr = "F64CompareRR"
+rk = "F64CompareRK"
+branch_rr = "F64CompareBranchRR"
+branch_rk = "F64CompareBranchRK"
+immediate_type = "u64"
+helper = "comparison::f64_compare"
+
+[[simple_compare]]
+domain = "Char"
+rr = "CharCompareRR"
+branch_rr = "CharCompareBranchRR"
+helper = "comparison::char_compare"
+
+[[simple_compare]]
+domain = "Scalar"
+rr = "ScalarCompareRR"
+branch_rr = "ScalarCompareBranchRR"
+helper = "comparison::scalar_compare"
+
+[[unary]]
+operation = "I8BitNot"
+variant = "I8BitNotR"
+helper = "payload::integer_value::<8, 8, true>"
+
+[[unary]]
+operation = "I16BitNot"
+variant = "I16BitNotR"
+helper = "payload::integer_value::<8, 16, true>"
+
+[[unary]]
+operation = "I32BitNot"
+variant = "I32BitNotR"
+helper = "payload::integer_value::<8, 32, true>"
+
+[[unary]]
+operation = "I64BitNot"
+variant = "I64BitNotR"
+helper = "payload::integer_value::<8, 64, true>"
+
+[[unary]]
+operation = "U8BitNot"
+variant = "U8BitNotR"
+helper = "payload::integer_value::<8, 8, false>"
+
+[[unary]]
+operation = "U16BitNot"
+variant = "U16BitNotR"
+helper = "payload::integer_value::<8, 16, false>"
+
+[[unary]]
+operation = "U32BitNot"
+variant = "U32BitNotR"
+helper = "payload::integer_value::<8, 32, false>"
+
+[[unary]]
+operation = "U64BitNot"
+variant = "U64BitNotR"
+helper = "payload::integer_value::<8, 64, false>"
+
+[[unary]]
+operation = "I32Neg"
+variant = "I32NegR"
+helper = "payload::negate_integer::<32>"
+
+[[unary]]
+operation = "I64Neg"
+variant = "I64NegR"
+helper = "payload::negate_integer::<64>"
+
+[[unary]]
+operation = "F32Neg"
+variant = "F32NegR"
+helper = "payload::negate_float::<true>"
+
+[[unary]]
+operation = "F64Neg"
+variant = "F64NegR"
+helper = "payload::negate_float::<false>"
+
+[[unary]]
+operation = "BoolNot"
+variant = "BoolNotR"
+helper = "payload::boolean_not"
+
+[[convert]]
+operation = "IntegerConvert"
+source_type = "IntegerType"
+target_type = "IntegerType"
+
+[[convert]]
+operation = "IntegerToFloat"
+source_type = "IntegerType"
+target_type = "FloatType"
+
+[[convert]]
+operation = "FloatToInteger"
+source_type = "FloatType"
+target_type = "IntegerType"
+
+[[convert]]
+operation = "FloatConvert"
+source_type = "FloatType"
+target_type = "FloatType"

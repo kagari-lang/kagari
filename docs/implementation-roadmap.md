@@ -1545,6 +1545,41 @@ add a generic check-policy framework. Current source paths and historical cost
 attribution identify candidates, not individual speedup claims. Deferred execution
 features remain explicit integration work rather than waived acceptance checks.
 
+The 2026-11-10 explicit scalar generation task is locally accepted; the
+[scalar execution guide](architecture/runtime/scalar-execution.md) owns current
+catalog/generator/region responsibilities. The three consumers and their imports
+are migrated together, old catalog/consumer macros are removed, and CI checks
+read-only drift. Preparation and dispatch retain specialized instructions. Local
+numeric, cursor, owned-drive, source-free Native and debug/reentry evidence passes;
+workspace all-target Clippy passes after removing identity casts/redundant bindings
+exposed by ordinary source and updating the benchmark profile import. Four generator
+tests and 20 selected Rust tests cover numeric domains/traps, cursor transitions,
+owned-drive/slicing, debug reentry, source-free Native execution and the physical
+instruction budget; the final numeric rerun passes. Structure, fmt, generation
+consistency and diff checks pass. The
+[seven-pair performance comparison](performance-baseline.md#explicit-scalar-source-generation-windows-2026-11-10)
+passes all seven existing regression gates, with paired median changes from -1.75%
+to +1.44%. Three exact generated-region LOC exceptions have owner evidence; no
+blanket exclusion is added. Full-workspace tests/exhaustive matrices remain CI-only
+and unrun locally. No VM consolidation, GC integration or scalar speedup is claimed.
+
+The subsequent named ScalarFailure refinement replaces repeated internal error
+strings with unit variants, one static diagnostic mapping and thiserror Display/
+Error support. Numeric helper trap reasons and the cold RuntimeError/quarantine
+boundary retain their existing behavior. Four generator tests, generation
+consistency, workspace Clippy and 14 focused numeric/cursor reruns pass. The
+execution loop shrinks from 3951 to 2967 effective LOC and its exact exception
+ceiling is reduced to 2980. The prior performance image comparison
+does not include this follow-up; no additional speedup is claimed.
+
+The [bytecode specialization experiment](runtime-refactor-design.md#deferred-bytecode-specialization-experiment)
+is recorded for later testing: compare canonical typed bytecode with preparation
+against compiler-emitted specialized bytecode, holding final hot layout/dispatch
+constant. Separate compilation, shared preparation, installation, first/warm calls
+and memory; test duplicate-storage elimination separately. The source-generation
+measurements do not answer this question. No compiler/bytecode change is activated,
+and the experiment does not block Runtime consolidation or GC/Host work.
+
 MS00-MS05 are locally accepted with per-phase commits. Immutable Program products,
 detached preparation, final current/retained call bindings and Runtime-owned exclusive
 publication are implemented. The [Runtime map](architecture/runtime.md),

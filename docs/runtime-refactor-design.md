@@ -273,6 +273,57 @@ Refresh the empty/control/Lua measurements at the implementation baseline. The
 [lock-removal comparison](performance-baseline.md#runtime-owned-publication-and-lock-removal-windows-2026-11-09)
 does not replace an updated empty-call attribution or establish Lua parity.
 
+### Explicit generation of readable scalar execution
+
+The 2026-11-10 generation task is implemented as one bounded change before VM
+consolidation. The three scalar catalog macro consumers are replaced together by
+ordinary Rust enum/preparation/dispatch regions, maintained by an explicit catalog
+and generator. The small cold-error propagation macro remains; the interpreter
+loop itself is ordinary Rust. No instruction set, polling, call model or GC change
+is part of this source-organization migration.
+
+The [scalar execution guide](architecture/runtime/scalar-execution.md) owns current
+file responsibilities, regeneration/check commands, single-dispatch invariants and
+exact bounded LOC exceptions. The [roadmap](implementation-roadmap.md#runtime-execution-model-review)
+owns integration status. Existing numeric semantics remain at
+their payload owners; generation consistency is not a semantic execution oracle.
+The [paired comparison](performance-baseline.md#explicit-scalar-source-generation-windows-2026-11-10)
+passes the existing regression gates; no speedup is claimed. This bounded migration
+is locally accepted and adds no new pending implementation phase to this design.
+
+### Deferred bytecode specialization experiment
+
+Recorded at the user's request on 2026-11-10; queued for later measurement, with
+no bytecode/compiler migration activated. Compare the current typed canonical
+bytecode -> prepared ExecutionInstruction path against compiler-emitted specialized
+bytecode, for example I32AddRR/I32AddRK. Current preparation consumes checked type
+facts; it does not infer types from values or re-specialize each executed operation.
+Its immutable results can be shared across Runtime installations.
+
+The hypothesis is that equal final instruction layout/dispatch yields similar
+steady-state execution cost. Moving specialization may reduce preparation work;
+it does not inherently eliminate physical-slot mapping, provider/call linking or
+the separate prepared array. Test elimination of duplicate instruction storage as
+a distinct extension rather than attributing its gains to specialization placement.
+More opcode variants do not by themselves prove larger encoded artifacts.
+
+Before prototyping, freeze the compared input, numeric/effect semantics, final hot
+representation and dispatch mechanism. Measure source compilation/artifact size,
+verification/shared preparation, per-Runtime installation, first invocation and
+warmed execution separately. Account for canonical code, prepared arrays and
+metadata in memory results; distinguish once-per-product cost from per-installation
+and per-call cost, including shared-Program amortization. Use representative scalar
+arithmetic/constant shapes, branches and call controls with independent checksums
+and the existing numeric/trap/source-free oracles, not a new exhaustive test matrix.
+
+Preserve width/overflow/IEEE behavior, evaluation/commit order, executable
+verification and reload code ownership. Record machine/toolchain/profile, cache
+state and paired-run variability; compare preparation and execution separately.
+The explicit source-generation benchmark above changed neither bytecode model nor
+specialization stage and cannot establish this experiment's result. This work is
+not a prerequisite for the queued Runtime consolidation/Host/GC refactor; do not
+combine those changes into the measured prototype.
+
 ### Prepare facts, then execute a bound call
 
 | Boundary | Work and validity |

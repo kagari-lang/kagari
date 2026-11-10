@@ -16,7 +16,7 @@ use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
     frame::{ExecutionFrame, transfer::ReturnValue},
-    module::{InstalledProgram, entry::ProgramEntry, execution::ExecutionInstruction},
+    module::{InstalledProgram, entry::ProgramEntry, execution::instruction::ExecutionInstruction},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };

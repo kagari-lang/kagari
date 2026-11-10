@@ -1,6 +1,3 @@
-#[macro_use]
-mod scalar_catalog;
-
 mod authority;
 mod clock;
 mod loading;

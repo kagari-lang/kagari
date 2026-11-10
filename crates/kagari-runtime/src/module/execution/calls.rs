@@ -3,7 +3,7 @@
 use crate::diagnostics::{self, Event};
 
 use crate::module::execution::{
-    ExecutionInstruction, ExecutionModule, layout::Location, managed::ManagedOperation,
+    ExecutionModule, instruction::ExecutionInstruction, layout::Location, managed::ManagedOperation,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{

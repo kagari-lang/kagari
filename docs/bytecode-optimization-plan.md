@@ -1957,8 +1957,11 @@ BO10 owns the complete replacement and removal of its temporary adapters.
 
 ### BO10 implementation notes (in progress)
 
-The private catalog lives in `kagari-runtime/src/scalar_catalog.rs`, shared lexically
-by the enum/preparation and cursor macros. `module/execution/scalar.rs` owns input
+The original private catalog lived in `kagari-runtime/src/scalar_catalog.rs`, shared
+lexically by enum/preparation and cursor macros. The later
+[explicit generation migration](architecture/runtime/scalar-execution.md) replaces
+that source organization while preserving these numeric execution contracts.
+`module/execution/scalar.rs` owns input
 selection; `kagari-types/src/payload/operation.rs` and `operation/select.rs` own
 dynamic semantic identities/admission. This replaces the proposed separate opcode
 and handler modules without duplicating semantic implementations. All previous
@@ -2051,7 +2054,7 @@ IntegerBinaryKR { dst, lhs_bits: u64, rhs_slot, operation_and_domain }
 IntegerBinaryKK { dst, lhs_bits: u64, rhs_bits: u64, operation_and_domain }
 ```
 
-`scalar_catalog.rs` should enumerate these families instead of multiplying every
+The scalar instruction catalog enumerates these families instead of multiplying every
 semantic identity by every shape. `module/execution/scalar.rs` owns verified
 selection and inline admission; `frame/cursor/scalars.rs` owns slot reads, commits
 and dispatch. `kagari-types::payload` and its existing numeric owners retain one

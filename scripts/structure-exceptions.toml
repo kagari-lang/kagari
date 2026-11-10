@@ -3,3 +3,24 @@
 # Add [[exceptions]] tables when a specific design is justified in review.
 # Re-export whitelist: empty. No file location is implicitly approved.
 # Each future reexport-whitelist entry must name one exact declaration.
+
+[[exceptions]]
+path = "crates/kagari-runtime/src/module/execution/instruction.rs"
+rule = "effective-loc"
+max_loc = 1280
+reason = "One ordered execution enum; generated variants cannot live in separate ordinary modules."
+evidence = "docs/architecture/runtime/scalar-execution.md"
+
+[[exceptions]]
+path = "crates/kagari-runtime/src/module/execution/scalar.rs"
+rule = "effective-loc"
+max_loc = 2800
+reason = "One preparation match and shared fallback preserve single-stage operation/operand selection."
+evidence = "docs/architecture/runtime/scalar-execution.md"
+
+[[exceptions]]
+path = "crates/kagari-runtime/src/frame/cursor/scalars/execute.rs"
+rule = "effective-loc"
+max_loc = 2980
+reason = "One scalar dispatch loop preserves direct specialized arms and common PC/error publication."
+evidence = "docs/architecture/runtime/scalar-execution.md"

@@ -6,6 +6,8 @@ reload migration. The [architecture overview](../architecture.md),
 [activation specification](../spec/module-activation.md) own the contracts.
 Read the [call walkthrough](runtime/calls.md) for entry/return costs and the
 [reload walkthrough](runtime/reload.md) for preparation, publication and retention.
+The [scalar execution guide](runtime/scalar-execution.md) maps the readable
+instruction loop, explicit source generation and bounded structural exceptions.
 Measurements and their limits belong in the [performance record](../performance-baseline.md).
 
 ## Physical ownership
