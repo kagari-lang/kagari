@@ -241,7 +241,7 @@ fn local_pending_rejection_reports_canonical_target_without_preparation() {
             Err(error) => error,
         };
         assert!(
-            error.message().contains("transfer::entries::local"),
+            error.to_string().contains("transfer::entries::local"),
             "{error}"
         );
         assert_eq!(factories.get(), 0);
@@ -314,7 +314,7 @@ fn default_wrapper_preserves_local_or_transferable_category_and_authored_signatu
             };
             assert!(
                 error
-                    .message()
+                    .to_string()
                     .contains("transfer::entries::__default_3_Run_run"),
                 "{error}"
             );
@@ -364,7 +364,7 @@ fn transferable_default_still_rejects_foreign_token_owners() {
         let error = transferred.into_modules().expect_err("foreign token owner");
         assert!(
             error
-                .message()
+                .to_string()
                 .contains("foreign native default requirement owner"),
             "{error}"
         );

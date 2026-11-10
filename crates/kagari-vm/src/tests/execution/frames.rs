@@ -104,7 +104,7 @@ fn rejects_unverified_bytecode_before_publication() {
         .expect_err("runtime must reject unverified bytecode before publication");
 
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-    assert!(error.message().contains("function table length mismatch"));
+    assert!(error.to_string().contains("function table length mismatch"));
     assert_eq!(runtime.modules().loaded_count(), 0);
 }
 
@@ -169,7 +169,7 @@ fn rejects_unsupported_bytecode_before_publication() {
             )
             .expect_err("unsupported calls must fail bytecode verification");
         assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-        assert!(error.message().contains("invalid operation"));
+        assert!(error.to_string().contains("invalid operation"));
         assert_eq!(runtime.modules().loaded_count(), 0);
     }
 }

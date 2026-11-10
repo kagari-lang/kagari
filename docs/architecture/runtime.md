@@ -50,6 +50,64 @@ Sources: [SDK Program](../../crates/kagari/src/program.rs),
 [Installation](../../crates/kagari-runtime/src/module/installation.rs),
 [ResourceState](../../crates/kagari-runtime/src/resource.rs).
 
+## Error reasons and diagnostic context
+
+[RuntimeError](../../crates/kagari-runtime/src/error.rs) owns one typed
+[ErrorReason](../../crates/kagari-runtime/src/error/reason.rs) and optional boxed
+context. Its category and stable KG_* code are derived from the reason. There is
+no independently assignable `(kind, message)` constructor or cached formatted
+message. Display produces text when a diagnostic consumer requests it.
+
+```rust
+use kagari_runtime::error::{RuntimeError, context::ErrorLocation, reason::ErrorReason};
+use kagari_types::scalar::error::ScalarError;
+
+let error = RuntimeError::from(ScalarError::ShiftOutOfRange)
+    .at(ErrorLocation::Field("count".into()));
+assert_eq!(error.reason(), &ErrorReason::Scalar(ScalarError::ShiftOutOfRange));
+assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
+assert_eq!(error.to_string(), "field count: integer shift out of range");
+```
+
+Numeric leaves, fixed Runtime traps, cancellation, stale handles, index failures
+and quarantine invariants retain typed reasons. Existing loading/declaration/borrow/
+resource diagnostics still carry owned details within their named families; their
+finer owner-specific error migration is queued in the
+[refactor design](../runtime-refactor-design.md#typed-errors-and-diagnostic-ownership).
+HostError retains the current custom text/trace contract and implements Error;
+Native/library providers can supply trap or index diagnostics through their explicit
+provider variants. Runtime does not acquire Vec/String implementation policies.
+
+Field, variant and element coordinates own their labels/data. Positions attach
+from inner to outer and display in reverse order. Core builtin bridges append a
+RuntimePrimitive coordinate to the original error. Reflective read/write wrapping
+preserves the original RuntimeError as a typed source, including its positions and
+execution provenance. VM builtin admission normalizes directly to its RuntimeError
+route; obsolete BuiltinError/ReflectionError variants are removed from VmError.
+The internal Runtime helper wrappers and SDK diagnostic mapping still exist; this
+is not the queued VM/crate consolidation.
+
+Trace capture stays at the failing program point, independently of eventual text
+formatting. The first populated trace/task origin survives annotation and transport;
+async provenance and bounded/incomplete trace rules are unchanged. Diagnostics own
+no script values or program leases. Retained-task accounting includes owned reason
+payloads, nested source errors, context boxes and position backing/labels; shared
+trace metadata remains excluded. A context-free scalar failure allocates neither
+a message nor a context box. Rich failure context is allocated on failure only.
+
+A 2026-11-10 standalone layout probe used the same Windows i9-12900K machine and
+rustc 1.99.1 toolchain recorded in the
+[scalar guide](runtime/scalar-execution.md), default Runtime features, workspace dev
+opt-level 1 library products, warm default target cache and default Cargo parallelism.
+The probe itself used `rustc --edition 2024 -O` and size_of, with no timed workload.
+The previous kind/String/trace/task-origin field model occupies 72 bytes under this
+toolchain; ErrorReason is 40 bytes and RuntimeError is 48 bytes. Corresponding
+Result<u64, E> shallow sizes are 72 and 48 bytes. The old value is a reconstruction
+of the previous fields, not an old execution image. Rich context/source allocations
+are additional owned storage and are counted separately; this is not a total error
+memory or speedup claim. Rust layouts are not a stable ABI. Reproduce with size_of
+for these types and the former field record; no ignored probe file is required.
+
 ## From a program product to execution
 
 1. Source services check/lower a package, or artifact preparation independently

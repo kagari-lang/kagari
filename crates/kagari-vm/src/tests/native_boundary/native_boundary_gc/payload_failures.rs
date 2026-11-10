@@ -102,7 +102,7 @@ fn tracing_panic_quarantines_without_sweeping_a_partial_graph() {
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert!(
         error
-            .message()
+            .to_string()
             .contains("garbage collection callback panicked")
     );
     assert!(vm.runtime().is_quarantined());
@@ -141,7 +141,7 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert!(
         error
-            .message()
+            .to_string()
             .contains("native payload destruction panicked")
     );
     assert!(vm.runtime().is_quarantined());
@@ -192,7 +192,7 @@ fn clearing_reloaded_static_cells_disposes_payloads_once_even_when_destructors_p
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
     assert!(
         error
-            .message()
+            .to_string()
             .contains("native payload destruction panicked")
     );
     assert!(vm.runtime().is_quarantined());

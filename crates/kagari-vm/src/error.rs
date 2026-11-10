@@ -3,13 +3,13 @@ use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     backend::BackendInvocationError,
     builtin::BuiltinError,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     error_trace::ErrorTrace,
     frame::cursor::kernel::RegionError,
     host::HostError,
-    reflection::ReflectionError,
     resource::ResourceState,
 };
+
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -24,8 +24,6 @@ pub enum VmError {
     InvalidIndex(u64),
     InvalidBranchCondition,
     HostError(HostError),
-    BuiltinError(BuiltinError),
-    ReflectionError(ReflectionError),
     RuntimeError(RuntimeError),
     BytecodeVerification(BytecodeVerificationError),
     JitInvocation(BackendInvocationError),
@@ -37,11 +35,7 @@ pub enum VmError {
 
 impl From<BuiltinError> for VmError {
     fn from(error: BuiltinError) -> Self {
-        if error.kind() == RuntimeErrorKind::ScriptTrap {
-            Self::BuiltinError(error)
-        } else {
-            Self::RuntimeError(error.into_runtime_error())
-        }
+        Self::RuntimeError(error.into_runtime_error())
     }
 }
 
@@ -114,13 +108,39 @@ impl VmError {
         self
     }
 
-    pub(crate) fn invariant_reason(&self) -> Option<&'static str> {
+    pub(crate) fn invariant_reason(&self) -> Option<EngineFault> {
         match self {
-            Self::InvalidFunctionRef(_) => Some("verified function reference is missing"),
-            Self::InvalidBranchCondition => Some("verified branch condition is not bool"),
-            Self::UnsupportedCallTarget(_) => Some("verified call target is unsupported"),
-            Self::UnsupportedInstruction(reason) => Some(reason),
+            Self::InvalidFunctionRef(_) => Some(EngineFault::VerifiedFunctionReferenceIsMissing),
+            Self::InvalidBranchCondition => Some(EngineFault::VerifiedBranchConditionIsNotBool),
+            Self::UnsupportedCallTarget(_) => Some(EngineFault::VerifiedCallTargetIsUnsupported),
+            Self::UnsupportedInstruction(reason) => Some(EngineFault::HostInvariant(reason)),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_runtime::error::reason::ErrorReason;
+    use kagari_types::scalar::error::ScalarError;
+
+    #[test]
+    fn builtin_errors_enter_the_vm_with_their_original_trace_and_reason() {
+        let trace = Arc::new(ErrorTrace {
+            incomplete: true,
+            ..Default::default()
+        });
+        let error = VmError::from(BuiltinError::from(
+            RuntimeError::from(ScalarError::InvalidOperandDomain).with_trace(trace.clone()),
+        ));
+        assert!(Arc::ptr_eq(error.trace().unwrap(), &trace));
+        let VmError::RuntimeError(error) = error.cause() else {
+            panic!("one Runtime error route")
+        };
+        assert_eq!(
+            error.reason(),
+            &ErrorReason::Scalar(ScalarError::InvalidOperandDomain)
+        );
     }
 }

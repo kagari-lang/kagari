@@ -1,10 +1,11 @@
 use super::*;
-use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig, StagedLoad, StagedReload,
-    error::RuntimeErrorKind,
+    error::{RuntimeErrorKind, fault::EngineFault},
     module::{InstalledProgram, Module, ModuleEpochRetention, VerifiedProgram},
+    test_support::native::program::ProgramFixture,
 };
+
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
@@ -521,7 +522,7 @@ fn shutdown_fault_retires_handles_even_when_close_returns_an_error() {
     let target = runtime.load_program("candidate", program()).unwrap();
     let namespace = target.root();
     let candidate = stage(&mut runtime, &target);
-    runtime.quarantine_execution_invariant("shutdown fault test");
+    runtime.quarantine_execution_invariant(EngineFault::ShutdownFaultTest);
     assert_eq!(
         runtime.close().unwrap_err().kind(),
         RuntimeErrorKind::EngineFault

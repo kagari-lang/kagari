@@ -1,10 +1,9 @@
 //! Prepared calls share physical argument admission, dependencies and publication.
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
-
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     execution_metadata::call_contracts::InterfaceCallSite,
     frame::{
         ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
@@ -12,6 +11,7 @@ use crate::{
     },
     module::{execution::calls::PreparedCallTarget, linked_execution::calls::LinkedCall},
 };
+
 use kagari_bytecode::module::CallableTarget;
 use std::slice;
 
@@ -34,11 +34,15 @@ impl ExecutionStack<'_> {
             let caller = frames
                 .last()
                 .filter(|_| frames.len() > self.base)
-                .ok_or_else(|| runtime.resources().quarantine("missing execution frame"))?;
+                .ok_or_else(|| {
+                    runtime
+                        .resources()
+                        .quarantine(EngineFault::MissingExecutionFrame)
+                })?;
             let CallableTarget::Script(function) = caller.target else {
                 return Err(runtime
                     .resources()
-                    .quarantine("script call requires a script caller"));
+                    .quarantine(EngineFault::ScriptCallRequiresAScriptCaller));
             };
             (
                 caller.loaded.clone(),
@@ -51,7 +55,11 @@ impl ExecutionStack<'_> {
         let call = owner.execution().functions[function.index()]
             .calls
             .get(index)
-            .ok_or_else(|| runtime.resources().quarantine("missing prepared call"))?;
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::MissingPreparedCall)
+            })?;
         let (route, shared) = match &call.target {
             PreparedCallTarget::Static { .. } => {
                 let Some(LinkedCall::Direct(route)) =
@@ -59,7 +67,7 @@ impl ExecutionStack<'_> {
                 else {
                     return Err(runtime
                         .resources()
-                        .quarantine("missing linked direct route"));
+                        .quarantine(EngineFault::MissingLinkedDirectRoute));
                 };
                 (route, None)
             }
@@ -69,7 +77,7 @@ impl ExecutionStack<'_> {
                 else {
                     return Err(runtime
                         .resources()
-                        .quarantine("missing linked shared contract"));
+                        .quarantine(EngineFault::MissingLinkedSharedContract));
                 };
                 (route, Some(contract.as_ref()))
             }

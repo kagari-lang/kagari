@@ -1,5 +1,5 @@
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     execution_state::ExecutionState,
     frame::values::ExecutionValues,
     publication::PublicationState,
@@ -8,6 +8,7 @@ use crate::{
         store::{SessionId, SessionStore},
     },
 };
+
 #[cfg(test)]
 use std::sync::{Arc, Weak};
 use std::{
@@ -252,7 +253,7 @@ impl ResourceState {
         self.execution.is_quarantined()
     }
 
-    pub(crate) fn quarantine(&self, reason: &'static str) -> RuntimeError {
+    pub(crate) fn quarantine(&self, reason: EngineFault) -> RuntimeError {
         self.execution.quarantine(reason)
     }
 
@@ -313,7 +314,7 @@ impl ResourceState {
         if let Some(depth) = counters.current_call_depth.checked_sub(1) {
             counters.current_call_depth = depth;
         } else {
-            self.quarantine("call depth underflow during frame cleanup");
+            self.quarantine(EngineFault::CallDepthUnderflowDuringFrameCleanup);
         }
     }
 
@@ -351,11 +352,11 @@ impl ResourceState {
         let base_units = counters
             .current_heap_units
             .checked_sub(before.logical_units)
-            .ok_or_else(|| self.quarantine("heap charge exceeds committed occupancy"))?;
+            .ok_or_else(|| self.quarantine(EngineFault::HeapChargeExceedsCommittedOccupancy))?;
         let base_bytes = counters
             .current_retained_bytes
             .checked_sub(before.retained_bytes as u128)
-            .ok_or_else(|| self.quarantine("heap charge exceeds committed backing"))?;
+            .ok_or_else(|| self.quarantine(EngineFault::HeapChargeExceedsCommittedBacking))?;
         base_units
             .checked_add(max_units)
             .ok_or_else(|| self.limit("heap units"))?;
@@ -379,14 +380,14 @@ impl ResourceState {
             .current_heap_units
             .checked_sub(charge.logical_units)
         else {
-            self.quarantine("heap charge underflow during cleanup");
+            self.quarantine(EngineFault::HeapChargeUnderflowDuringCleanup);
             return;
         };
         let Some(bytes) = counters
             .current_retained_bytes
             .checked_sub(charge.retained_bytes as u128)
         else {
-            self.quarantine("backing charge underflow during cleanup");
+            self.quarantine(EngineFault::BackingChargeUnderflowDuringCleanup);
             return;
         };
         counters.current_heap_units = units;

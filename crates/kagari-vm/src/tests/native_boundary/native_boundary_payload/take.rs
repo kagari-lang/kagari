@@ -126,7 +126,7 @@ fn failed_take_preserves_payload_when_registration_does_not_grant_extraction() {
         object
             .take(&cx)
             .unwrap_err()
-            .message()
+            .to_string()
             .contains("extraction")
     );
     assert_eq!(alias.read(&cx, |value| Ok(value.value)).unwrap(), 7);

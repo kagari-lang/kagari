@@ -1,8 +1,9 @@
 //! Bounded owned completion transport. Publication never borrows or enters a VM.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault},
     native::binding::NativeResult,
 };
+
 use std::{
     any::Any,
     fmt,
@@ -46,9 +47,8 @@ struct Registry {
 impl Registry {
     fn check(&self) -> NativeResult<()> {
         if self.faulted.load(Ordering::Acquire) {
-            Err(RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                "native completion registry is faulted",
+            Err(RuntimeError::from(
+                EngineFault::NativeCompletionRegistryIsFaulted,
             ))
         } else {
             Ok(())
@@ -368,10 +368,7 @@ impl<T: Send + 'static> Operation<T> {
                 value.downcast::<T>().map(|value| *value).map_err(|value| {
                     self.registry.faulted.store(true, Ordering::Release);
                     drop(value);
-                    RuntimeError::new(
-                        RuntimeErrorKind::EngineFault,
-                        "native completion payload type",
-                    )
+                    RuntimeError::from(EngineFault::NativeCompletionPayloadType)
                 })
             })
         });

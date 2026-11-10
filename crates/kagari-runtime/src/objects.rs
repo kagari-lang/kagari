@@ -1,7 +1,7 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
     closure::{ClosureTarget, ClosureValueSnapshot},
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     execution_metadata::{MetadataEdge, interfaces::InterfaceSnapshotId},
     frame::{
         arguments::FrameArguments,
@@ -13,9 +13,9 @@ use crate::{
     gc::{HeapObjectId, interfaces::InterfaceValueSnapshot},
     module::{self, ExecutableModule},
     objects::invocation::MethodInvocation,
-    value,
-    value::{EnumTag, Value},
+    value::{self, EnumTag, Value},
 };
+
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{ids::FunctionRef, operations::IterOp};
@@ -157,10 +157,7 @@ impl Runtime {
                 .as_ref()
                 .map(|environment| environment.types.as_ref()),
         ) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid interface receiver",
-            ));
+            return Err(RuntimeError::from(TrapReason::InvalidInterfaceReceiver));
         }
         Ok(())
     }
@@ -181,8 +178,7 @@ impl Runtime {
         id: InterfaceSnapshotId,
         target: &NominalTy,
     ) -> Result<InterfaceSnapshotId, RuntimeError> {
-        let invalid =
-            || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
+        let invalid = || RuntimeError::from(TrapReason::InvalidInterfaceUpcast);
         let snapshot = self.gc.interface_metadata(id).ok_or_else(invalid)?;
         let slot = snapshot
             .description
@@ -418,10 +414,7 @@ impl Runtime {
         ty: ValueType,
     ) -> Result<value::Value, RuntimeError> {
         let Value::Cell(id) = cell else {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "expected capture cell",
-            ));
+            return Err(RuntimeError::from(TrapReason::ExpectedCaptureCell));
         };
         self.gc.cell_get(*id, ty)
     }
@@ -433,10 +426,7 @@ impl Runtime {
         value: value::Value,
     ) -> Result<(), RuntimeError> {
         let Value::Cell(id) = cell else {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "expected capture cell",
-            ));
+            return Err(RuntimeError::from(TrapReason::ExpectedCaptureCell));
         };
         self.gc.cell_set(*id, ty, value)
     }
@@ -448,14 +438,11 @@ impl Runtime {
         value: &value::Value,
     ) -> Result<Ref<'_, ClosureValueSnapshot>, RuntimeError> {
         let Value::Closure(id) = value else {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "expected closure",
-            ));
+            return Err(RuntimeError::from(TrapReason::ExpectedClosure));
         };
-        self.gc.closure_snapshot(*id).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid closure handle")
-        })
+        self.gc
+            .closure_snapshot(*id)
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidClosureHandle))
     }
 
     /// Resolve a method ID in the interface value's retained execution generation.
@@ -485,9 +472,9 @@ impl Runtime {
             .definitions()
             .resolve(method)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        let root = self.root_value(*value).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
-        })?;
+        let root = self
+            .root_value(*value)
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidInterfaceHandle))?;
         let slot = snapshot.description.methods.iter().position(|binding| {
             binding
                 .as_ref()
@@ -550,8 +537,7 @@ impl Runtime {
         source: &NominalTy,
         target: &NominalTy,
     ) -> Result<value::Value, RuntimeError> {
-        let invalid =
-            || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
+        let invalid = || RuntimeError::from(TrapReason::InvalidInterfaceUpcast);
         let Value::Interface(id) = value else {
             return Err(invalid());
         };
@@ -597,14 +583,11 @@ impl Runtime {
         constructions: ConstructionScope,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         if !matches!(value, Value::Interface(_)) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "expected interface value",
-            ));
+            return Err(RuntimeError::from(TrapReason::ExpectedInterfaceValue));
         }
-        let root = self.root_value(*value).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
-        })?;
+        let root = self
+            .root_value(*value)
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidInterfaceHandle))?;
         let id = self.select_interface_snapshot(value, interface)?;
         self.apply_interface_method(
             RootedInterfaceMethod::from_interface(self, root, id, slot)?,
@@ -620,14 +603,12 @@ impl Runtime {
         interface: &NominalTy,
     ) -> Result<InterfaceSnapshotId, RuntimeError> {
         let Value::Interface(id) = value else {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "expected interface value",
-            ));
+            return Err(RuntimeError::from(TrapReason::ExpectedInterfaceValue));
         };
-        let id = self.gc.interface_snapshot_id(*id).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
-        })?;
+        let id = self
+            .gc
+            .interface_snapshot_id(*id)
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidInterfaceHandle))?;
         let snapshot = self
             .gc
             .interface_metadata(id)

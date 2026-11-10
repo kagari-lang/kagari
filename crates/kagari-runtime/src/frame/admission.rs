@@ -1,10 +1,9 @@
 //! One transaction admits arguments, enters depth and publishes the selected frame.
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
-
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     execution_metadata::MetadataRoot,
     frame::{
         ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, NativeEntryState,
@@ -13,6 +12,7 @@ use crate::{
     },
     module::ExecutableModule,
 };
+
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 
 impl ExecutionStack<'_> {
@@ -75,7 +75,9 @@ impl ExecutionStack<'_> {
         let mut frames = resources
             .sessions
             .frames_mut(self.session.id)
-            .ok_or_else(|| resources.quarantine("frame stack is borrowed across execution"))?;
+            .ok_or_else(|| {
+                resources.quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
+            })?;
         if frames.try_reserve(1).is_err() {
             drop(frames);
             return Err(resources.limit("frame capacity"));
@@ -99,7 +101,7 @@ impl ExecutionStack<'_> {
             let callee = loaded
                 .execution()
                 .callee(target)
-                .ok_or_else(|| resources.quarantine("invalid prepared callee layout"))?;
+                .ok_or_else(|| resources.quarantine(EngineFault::InvalidPreparedCalleeLayout))?;
             let (native_entry, action) = match target {
                 CallableTarget::Script(function) => {
                     if args.len() != callee.parameter_count {
@@ -180,7 +182,9 @@ impl ExecutionStack<'_> {
             let slots = resources
                 .frame_values
                 .try_borrow_mut()
-                .map_err(|_| resources.quarantine("execution slots borrowed during frame entry"))?
+                .map_err(|_| {
+                    resources.quarantine(EngineFault::ExecutionSlotsBorrowedDuringFrameEntry)
+                })?
                 .allocate(
                     slot_count,
                     parameter_slots,

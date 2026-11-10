@@ -212,7 +212,7 @@ fn script_interface_admission_is_installation_scoped_across_conversion_and_reloa
     })
     .unwrap();
     let error = accept.call(&mut context, (handle.clone(),)).unwrap_err();
-    assert!(error.message().contains("interface view differs"));
+    assert!(error.to_string().contains("interface view differs"));
     drop(context);
 
     let staged = runtime

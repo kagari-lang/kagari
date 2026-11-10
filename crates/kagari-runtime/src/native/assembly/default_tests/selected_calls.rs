@@ -358,7 +358,7 @@ fn foreign_requirement_owners_are_rejected_before_default_execution() {
             .expect_err("foreign owner must not be silently replaced");
         assert!(
             error
-                .message()
+                .to_string()
                 .contains("foreign native default requirement owner"),
             "{error:?}"
         );

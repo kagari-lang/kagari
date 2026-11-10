@@ -2,7 +2,7 @@
 use crate::{error::VmError, executor::Executor};
 use kagari_runtime::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::IndexError, trap::TrapReason},
     module::ExecutableModule,
     native::{binding::NativeResult, context::ScriptCall},
     value::Value,
@@ -43,22 +43,11 @@ pub(crate) fn native_error(error: VmError) -> RuntimeError {
     match error {
         VmError::Traced { error, trace } => native_error(*error).with_trace(trace),
         VmError::RuntimeError(error) => error,
-        VmError::BuiltinError(error) => error.into_runtime_error(),
-        VmError::HostError(error) => {
-            let result = RuntimeError::host_call_failure(error.message());
-            match error.trace() {
-                Some(trace) => result.with_trace(trace.clone()),
-                None => result,
-            }
-        }
-        VmError::ReflectionError(error) => error.into_runtime_error(),
+        VmError::HostError(error) => RuntimeError::from_host(error),
         VmError::Trap(message) | VmError::TypeMismatch(message) => {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, message)
+            RuntimeError::from(TrapReason::Provider(message.into()))
         }
-        VmError::InvalidIndex(index) => RuntimeError::new(
-            RuntimeErrorKind::IndexOutOfBounds,
-            format!("invalid index: {index}"),
-        ),
+        VmError::InvalidIndex(index) => RuntimeError::from(IndexError::InvalidIndex { index }),
         error => RuntimeError::module_validation(format!("native callback execution: {error:?}")),
     }
 }

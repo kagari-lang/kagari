@@ -1,11 +1,12 @@
 //! Bounded Task waits and structured parent edges share one dependency graph.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     native::binding::NativeResult,
     resource::AsyncLimits,
     session::store::SessionId,
     task::TaskId,
 };
+
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -53,10 +54,7 @@ impl State {
         pending.push(to);
         while let Some(node) = pending.pop() {
             if node == from {
-                return Err(RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
-                    "Task wait cycle",
-                ));
+                return Err(RuntimeError::from(TrapReason::TaskWaitCycle));
             }
             if visited.contains(&node) {
                 continue;

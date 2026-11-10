@@ -2,13 +2,14 @@
 use super::{Fixture, Value, slice};
 use crate::engine::EngineConfig;
 use kagari_runtime::{
-    error::RuntimeErrorKind,
+    error::{RuntimeErrorKind, fault::EngineFault},
     task::{
         CancellationCause, SpawnError,
         control::{DispatchUnavailable, ReadyNotice, TaskScopeOwner},
         drive::TaskDriveResult,
     },
 };
+
 use std::{
     num::NonZeroUsize,
     slice as slices,
@@ -317,7 +318,7 @@ fn scoped_task_contract() {
         until_boundary(&replacement, queued_id),
         TaskDriveResult::Complete
     );
-    let _ = runtime.quarantine_execution_invariant("task contract fault");
+    let _ = runtime.quarantine_execution_invariant(EngineFault::TaskContractFault);
     assert_eq!(runtime.drain_cancelled_tasks().unwrap(), 1);
     let failure = runtime
         .take_task_report(&replacement, unfinished_id)

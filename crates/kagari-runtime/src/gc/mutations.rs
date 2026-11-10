@@ -1,16 +1,16 @@
 //! Guards prevent callbacks from modifying prepared mutation targets through aliases.
 
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::{CollectionMutation, GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
     native::{
+        hash_storage::{HashMapStorage, HashSetStorage},
         hashed::{MapPayload, SetPayload},
         sequence::{SequencePayload, SequenceStorage},
     },
     value::Value,
 };
 
-use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,8 +25,7 @@ impl GcHeap {
         operation: PreparedCollectionCommit,
         args: &[Value],
     ) -> Result<(), RuntimeError> {
-        let invalid =
-            || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid prepared collection");
+        let invalid = || RuntimeError::from(TrapReason::InvalidPreparedCollection);
         let [target, Value::GcHandle(buffer)] = args else {
             return Err(invalid());
         };
@@ -181,16 +180,13 @@ impl GcHeap {
             Value::Map(id) if self.object_kind(*id) == Some(GcObjectKind::Map) => *id,
             Value::Set(id) if self.object_kind(*id) == Some(GcObjectKind::Set) => *id,
             _ => {
-                return Err(RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
-                    "invalid mutation target",
-                ));
+                return Err(RuntimeError::from(TrapReason::InvalidMutationTarget));
             }
         };
         self.ensure_callback_mutable(id)?;
-        let root = self.root_value(*value).ok_or_else(|| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid mutation root")
-        })?;
+        let root = self
+            .root_value(*value)
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidMutationRoot))?;
         let lease = self
             .mutations
             .acquire(id)
@@ -203,9 +199,8 @@ impl GcHeap {
 
     pub(crate) fn ensure_callback_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         if self.mutations.is_active(id) {
-            Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "container mutation during a guarded callback",
+            Err(RuntimeError::from(
+                TrapReason::ContainerMutationDuringAGuardedCallback,
             ))
         } else {
             Ok(())

@@ -260,7 +260,7 @@ fn retained_namespace_bindings_follow_current_declarations_not_retargeted_aliase
     for path in ["implementation", "facade::nested::implementation"] {
         let error = runtime.module(&root, path).unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
-        assert!(error.message().contains("public path not found"));
+        assert!(error.to_string().contains("public path not found"));
     }
     let replacement = RELATIVE_BINDINGS.replace("{ 13 }", "{ 17 }").replace(
         "implementation::value as selected",
@@ -344,7 +344,7 @@ fn relative_object_aliases_share_exact_layout_and_reject_unsupported_leaves_with
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(
         error
-            .message()
+            .to_string()
             .contains("missing executable struct application")
     );
     for member in executable.members() {
@@ -791,7 +791,7 @@ fn relative_object_binding_rejections_preserve_state_and_heap(
         RuntimeErrorKind::TypedPathValidation,
         "{path}: {error}"
     );
-    assert!(error.message().contains(detail), "{path}: {error}");
+    assert!(error.to_string().contains(detail), "{path}: {error}");
     for member in executable.members() {
         assert!(
             runtime

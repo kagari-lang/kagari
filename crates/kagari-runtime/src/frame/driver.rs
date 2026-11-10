@@ -3,7 +3,7 @@
 use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     frame::{ExecutionFrame, ExecutionStack, NativeEntryState},
     value::Value,
 };
@@ -36,7 +36,7 @@ impl ExecutionFrame {
             NativeEntryState::Complete => Ok(ExecutionAction::NativeReturn),
             NativeEntryState::Running => Err(runtime
                 .resources()
-                .quarantine("native frame resumed before callback completion")),
+                .quarantine(EngineFault::NativeFrameResumedBeforeCallbackCompletion)),
         }
     }
 }
@@ -59,7 +59,11 @@ impl ExecutionStack<'_> {
         let frame = frames
             .last()
             .filter(|_| frames.len() > self.base)
-            .ok_or_else(|| runtime.resources().quarantine("missing execution frame"))?;
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::MissingExecutionFrame)
+            })?;
         frame.execution_action(runtime)
     }
 }

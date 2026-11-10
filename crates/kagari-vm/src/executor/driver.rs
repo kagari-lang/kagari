@@ -5,6 +5,7 @@ use crate::{
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_runtime::{
+    error::fault::EngineFault,
     frame::{
         ExecutionStack,
         cursor::kernel::RegionExit,
@@ -12,6 +13,7 @@ use kagari_runtime::{
     },
     session::ExecutionEvent,
 };
+
 use std::task::Poll;
 
 impl Executor<'_> {
@@ -83,7 +85,7 @@ impl Executor<'_> {
                 ExecutionAction::Await => {
                     return Err(VmError::RuntimeError(
                         self.runtime.quarantine_execution_invariant(
-                            "ready wait retained a pending activation",
+                            EngineFault::ReadyWaitRetainedAPendingActivation,
                         ),
                     ));
                 }

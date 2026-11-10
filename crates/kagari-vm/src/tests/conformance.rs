@@ -205,7 +205,7 @@ fn machine_boundaries_preserve_wide_indices_and_repeat_resource_errors() {
                 );
             } else {
                 assert!(
-                    matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::IndexOutOfBounds && error.message().contains(&index.to_string())),
+                    matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::IndexOutOfBounds && error.to_string().contains(&index.to_string())),
                     "{error:?}"
                 );
             }
@@ -243,7 +243,7 @@ fn machine_boundaries_preserve_wide_indices_and_repeat_resource_errors() {
             })
             .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
-        assert!(error.message().contains(&index.to_string()));
+        assert!(error.to_string().contains(&index.to_string()));
         let Value::Array(id) = value else {
             unreachable!()
         };

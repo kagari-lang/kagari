@@ -1,9 +1,11 @@
 //! Borrow code and scalar banks once while preserving each logical boundary.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault, reason::ErrorReason},
     frame::{cursor::ExecutionCursor, transfer::ReturnValue},
     module::execution::{ScalarSlot, managed::PreparedManagedOperation},
 };
+
+use kagari_types::scalar::error::ScalarError;
 
 pub(super) enum ScalarExit {
     Slice,
@@ -15,9 +17,9 @@ pub(super) enum ScalarExit {
 
 /// Defer owned diagnostics until the closed segment has stopped executing.
 #[derive(Debug, thiserror::Error)]
-#[error("{}", self.message())]
+#[error("{}", self.reason())]
 enum ScalarFailure {
-    Trap(&'static str),
+    Trap(ScalarError),
     InvalidOperandSlot,
     InvalidJumpTarget,
     InconsistentBanks,
@@ -26,14 +28,14 @@ enum ScalarFailure {
 }
 
 impl ScalarFailure {
-    fn message(&self) -> &'static str {
+    fn reason(&self) -> ErrorReason {
         match self {
-            Self::Trap(reason) => reason,
-            Self::InvalidOperandSlot => "invalid execution operand slot",
-            Self::InvalidJumpTarget => "invalid frame jump target",
-            Self::InconsistentBanks => "inconsistent scalar bank lengths",
-            Self::UnexpectedFunctionEnd => "verified function fell through",
-            Self::InvalidBranchCondition => "verified branch condition is not bool",
+            Self::Trap(reason) => (*reason).into(),
+            Self::InvalidOperandSlot => EngineFault::InvalidExecutionOperandSlot.into(),
+            Self::InvalidJumpTarget => EngineFault::InvalidFrameJumpTarget.into(),
+            Self::InconsistentBanks => EngineFault::InconsistentScalarBankLengths.into(),
+            Self::UnexpectedFunctionEnd => EngineFault::VerifiedFunctionFellThrough.into(),
+            Self::InvalidBranchCondition => EngineFault::VerifiedBranchConditionIsNotBool.into(),
         }
     }
 }
@@ -118,9 +120,9 @@ impl<'code> ExecutionCursor<'code> {
 
     #[cold]
     fn scalar_error(&self, failure: ScalarFailure) -> RuntimeError {
-        match failure {
-            ScalarFailure::Trap(reason) => RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason),
-            invariant => self.runtime.resources().quarantine(invariant.message()),
+        match failure.reason() {
+            ErrorReason::EngineFault(reason) => self.runtime.resources().quarantine(reason),
+            reason => RuntimeError::new(reason),
         }
     }
 }

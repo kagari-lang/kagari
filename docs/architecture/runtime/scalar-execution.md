@@ -37,10 +37,33 @@ Internal invariant failures use named ScalarFailure variants, with one static
 message mapping and thiserror Display/Error support. Repeated operand accesses
 construct InvalidOperandSlot rather than carrying a repeated string payload.
 The existing quarantine API consumes that static message directly; no intermediate
-String or formatting is added to instruction execution. Numeric helpers still
-return their existing static trap reasons, carried by ScalarFailure::Trap, and
-conversion to owned RuntimeError remains on the cold segment exit. Error kinds,
-diagnostics and PC/effect ordering remain unchanged. No speedup is claimed.
+String or formatting is added to instruction execution. Numeric helpers return
+[kagari-types ScalarError](../../../crates/kagari-types/src/scalar/error.rs), carried
+by ScalarFailure::Trap until conversion to RuntimeError on the cold segment exit.
+The RuntimeError reason retains ScalarError directly; no numeric reason is converted
+back to a string during transport. ScalarError retains ArithmeticError plus distinct operand-domain,
+integer-width, shift-count and Unicode-scalar failures. Its static message mapping
+and thiserror Display/Error implementation own numeric diagnostic text; callers
+must not classify failures by parsing text. Checked Value/Native numeric adapters
+convert the same leaves at their Runtime diagnostic boundary. Constant evaluation
+retains typed scalar/range failures until source diagnostic construction, and MIR
+folding can decline a failed fold without formatting a message. Error kinds,
+diagnostics and PC/effect ordering remain unchanged. The broader Runtime
+reason/context owner is documented in the
+[Runtime map](../runtime.md#error-reasons-and-diagnostic-context); finer cold
+validation-family migration remains queued in the refactor design.
+A standalone layout probe on 2026-11-10 used rustc 1.99.1
+(58cf8f9c3, LLVM 23.1.1), x86_64-pc-windows-msvc, Windows 11 Pro 10.0.26300,
+i9-12900K (24 logical CPUs), 66843692 KiB RAM. It linked the default-feature
+kagari-types library built by the focused test command (workspace dev profile,
+opt-level 1, warm default target cache/default Cargo parallelism); the probe used
+`rustc --edition 2024 -O` and `std::mem::size_of`, with no timed workload or compile
+cost comparison. Results were ScalarError 1 byte versus a static str reference
+16 bytes; both old/typed `Result<u64, E>` were 16 bytes and both
+`Result<i128, E>` were 32 bytes. Rust enum/niche layout is toolchain-specific,
+not an ABI promise or a whole-frame memory result. Reproduce by printing those
+six size_of types against the current types library; no saved probe is required.
+No execution speedup is claimed.
 
 The loop itself is ordinary Rust. It keeps one dispatch, local PC bookkeeping and
 common PC publication on success/error. It is not split through handler tables,

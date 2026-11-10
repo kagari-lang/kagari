@@ -1,7 +1,7 @@
 //! Exclusive task activations reuse the owned execution backend.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::CancellationReason},
     error_trace::ErrorTrace,
     gc::roots::RootedValue,
     native::binding::NativeResult,
@@ -9,6 +9,7 @@ use crate::{
     task::{CancellationCause, ScopeId, TaskId, control::TaskScopeOwner, store::TaskState},
     value::Value,
 };
+
 use std::{mem, sync::atomic::Ordering, task::Waker};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,9 +173,8 @@ impl Runtime {
         let execution = match state {
             TaskState::Queued(factory) => {
                 let result = if signal.cancellation.check().is_err() {
-                    Err(RuntimeError::new(
-                        RuntimeErrorKind::Cancelled,
-                        "task cancelled before start",
+                    Err(RuntimeError::from(
+                        CancellationReason::TaskCancelledBeforeStart,
                     ))
                 } else {
                     self.start_queued_factory(factory, options)
@@ -211,9 +211,7 @@ impl Runtime {
                     let error = self
                         .finish_owned_execution(&execution)
                         .err()
-                        .unwrap_or_else(|| {
-                            RuntimeError::new(RuntimeErrorKind::Cancelled, "task cancelled")
-                        });
+                        .unwrap_or_else(|| RuntimeError::from(CancellationReason::TaskCancelled));
                     self.publish_task_result(task, Err(error.with_trace(trace)))?;
                     return Ok(TaskAcquisition::Inactive(TaskDriveResult::Complete));
                 }

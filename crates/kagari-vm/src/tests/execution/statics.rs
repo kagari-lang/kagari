@@ -220,7 +220,7 @@ fn candidate_indirect_reads_and_writes_cannot_touch_shared_or_private_cells() {
             assert!(
                 matches!(error.cause(), VmError::RuntimeError(error)
                     if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation
-                        && error.message().contains("candidate cannot access static state")),
+                        && error.to_string().contains("candidate cannot access static state")),
                 "{error:?}"
             );
         }
@@ -875,7 +875,7 @@ fn runtime_error_is_not_new_cancellation(vm: &Vm, loaded: &ExecutableModule) {
         .read_module_slot(loaded, ModuleSlot::new(0))
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-    assert!(error.message().contains("initialization failed"));
+    assert!(error.to_string().contains("initialization failed"));
 }
 
 #[test]

@@ -1,11 +1,10 @@
 //! Script equality is independent of Rust's structural Value comparisons.
-use kagari_types::language::binding;
-
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::{GcHeap, GcObjectKind},
     value::{EnumTag, Value},
 };
+use kagari_types::language::binding;
 
 use std::{
     cmp::Ordering,
@@ -27,27 +26,20 @@ pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Run
         _ => None,
     };
     let (Some((a, a_kind)), Some((b, b_kind))) = (object(lhs), object(rhs)) else {
-        return Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "identity comparison requires object references",
+        return Err(RuntimeError::from(
+            TrapReason::IdentityComparisonRequiresObjectReferences,
         ));
     };
     if gc.object_kind(a) != Some(a_kind) || gc.object_kind(b) != Some(b_kind) {
-        return Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "invalid heap handle in identity comparison",
+        return Err(RuntimeError::from(
+            TrapReason::InvalidHeapHandleInIdentityComparison,
         ));
     }
     Ok(a == b)
 }
 
 pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
-    let invalid = || {
-        RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "invalid heap handle in equality",
-        )
-    };
+    let invalid = || RuntimeError::from(TrapReason::InvalidHeapHandleInEquality);
     if !gc.validate_value(lhs) || !gc.validate_value(rhs) {
         return Err(invalid());
     }
@@ -80,9 +72,8 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
             | Value::Ephemeral(_)
             | Value::RuntimeEphemeral(_),
         ) => {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "value category does not support general equality",
+            return Err(RuntimeError::from(
+                TrapReason::ValueCategoryDoesNotSupportGeneralEquality,
             ));
         }
         (Value::Unit, Value::Unit) => true,
@@ -232,22 +223,14 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
     }
     let mut result = Output::default();
     render(gc, value, debug, 0, &mut result).ok_or_else(|| {
-        RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "unsupported format value, invalid handle, or formatting limit exceeded",
-        )
+        RuntimeError::from(TrapReason::UnsupportedFormatValueInvalidHandleOrFormattingLimitExceeded)
     })?;
     Ok(result.text)
 }
 
 /// Builtin ordering leaves user dispatch to the checked call site.
 pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Ordering>, RuntimeError> {
-    let invalid = || {
-        RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "invalid builtin ordering operands",
-        )
-    };
+    let invalid = || RuntimeError::from(TrapReason::InvalidBuiltinOrderingOperands);
     if !gc.validate_value(a) || !gc.validate_value(b) {
         return Err(invalid());
     }

@@ -1,7 +1,7 @@
 //! Active method selections are traced by execution windows, not host root leases.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     execution_metadata::{
         MetadataRoot,
         applications::{ApplicationId, MethodComputation},
@@ -45,10 +45,7 @@ impl MethodInvocation {
             .and_then(Option::as_ref)
             .is_none()
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "interface method unavailable",
-            ));
+            return Err(RuntimeError::from(TrapReason::InterfaceMethodUnavailable));
         }
         runtime.validate_executable_module(&view.description.implementation)?;
         Ok(Self {

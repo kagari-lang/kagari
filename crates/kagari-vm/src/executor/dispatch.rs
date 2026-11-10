@@ -5,9 +5,10 @@ use kagari_bytecode::instruction::{
 };
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_runtime::{
-    frame::transfer::ReturnValue, host::HostPathDescriptorId, numeric, range::RangeValue,
-    value::Value,
+    error::fault::EngineFault, frame::transfer::ReturnValue, host::HostPathDescriptorId, numeric,
+    range::RangeValue, value::Value,
 };
+
 use kagari_types::ty::Ty;
 use std::{ops::Bound, slice};
 
@@ -310,7 +311,7 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::UpcastInterface { .. } => {
                 return Err(VmError::RuntimeError(
                     self.runtime.quarantine_execution_invariant(
-                        "prepared interface upcast reached canonical dispatch",
+                        EngineFault::PreparedInterfaceUpcastReachedCanonicalDispatch,
                     ),
                 ));
             }
@@ -517,8 +518,9 @@ impl<'a> Executor<'a> {
                 | CallTarget::ClosureRegister { .. }
         ) {
             return Err(VmError::RuntimeError(
-                self.runtime
-                    .quarantine_execution_invariant("prepared call reached canonical dispatch"),
+                self.runtime.quarantine_execution_invariant(
+                    EngineFault::PreparedCallReachedCanonicalDispatch,
+                ),
             ));
         }
         let arg_values = args

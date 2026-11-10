@@ -1,11 +1,12 @@
 //! Host-boundary publication admission, independent of parked execution storage.
 use crate::{
     Runtime, StagedReload,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     module::{InstalledProgram, VerifiedProgram},
     reload::ReloadValidationError,
     resource::ResourceState,
 };
+
 use std::{cell::Cell, sync::Arc};
 
 #[derive(Debug, Default)]
@@ -45,7 +46,7 @@ impl ResourceState {
             .synchronous
             .get()
             .checked_add(1)
-            .ok_or_else(|| self.quarantine("synchronous activation count overflow"))?;
+            .ok_or_else(|| self.quarantine(EngineFault::SynchronousActivationCountOverflow))?;
         self.publication.synchronous.set(next);
         Ok(SynchronousActivation { resources: self })
     }
@@ -58,7 +59,7 @@ impl Drop for SynchronousActivation<'_> {
             count.set(next);
         } else {
             self.resources
-                .quarantine("synchronous activation count underflow");
+                .quarantine(EngineFault::SynchronousActivationCountUnderflow);
         }
     }
 }

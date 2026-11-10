@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::RuntimeErrorKind;
 use crate::reload::{ReloadValidationError, validate_reload_candidate};
 use crate::test_support::native::program::ProgramFixture;
 use kagari_abi::representation::ValueType;

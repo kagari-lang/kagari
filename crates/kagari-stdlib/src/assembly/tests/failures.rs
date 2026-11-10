@@ -101,7 +101,7 @@ fn factory_error_or_panic_is_terminal_and_drops_completed_and_remaining_work() {
         );
         let error = modules_on_worker(cache.clone()).unwrap_err();
         assert!(
-            error.message().contains(if panic {
+            error.to_string().contains(if panic {
                 "preparation: initializer panicked"
             } else {
                 "factory rejected"
@@ -137,7 +137,7 @@ fn collection_error_or_panic_is_cached_without_replaying_authoring() {
         });
         let error = modules_on_worker(cache.clone()).unwrap_err();
         assert!(
-            error.message().contains(if panic {
+            error.to_string().contains(if panic {
                 "collection: initializer panicked"
             } else {
                 "recipe rejected"
@@ -165,7 +165,11 @@ fn recursive_collection_or_preparation_is_terminal_even_if_its_error_is_swallowe
                 } else {
                     cache.semantic().unwrap_err()
                 };
-                assert!(error.message().contains("recursive bundle initialization"));
+                assert!(
+                    error
+                        .to_string()
+                        .contains("recursive bundle initialization")
+                );
                 // Deliberately swallow it: the outer attempt must still fail closed.
             };
             if preparing {
@@ -181,10 +185,12 @@ fn recursive_collection_or_preparation_is_terminal_even_if_its_error_is_swallowe
         target.set(Arc::downgrade(&cache)).unwrap();
         let error = modules_on_worker(cache.clone()).unwrap_err();
         assert!(
-            error.message().contains("recursive bundle initialization"),
+            error
+                .to_string()
+                .contains("recursive bundle initialization"),
             "{error}"
         );
-        assert!(error.message().contains(if preparing {
+        assert!(error.to_string().contains(if preparing {
             "preparation:"
         } else {
             "collection:"

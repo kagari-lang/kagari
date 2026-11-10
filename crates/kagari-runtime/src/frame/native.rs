@@ -1,7 +1,7 @@
 //! Ordinary native functions finish synchronously using the caller's existing roots.
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     frame::{
         ExecutionStack, NativeEntryState,
         driver::{ExecutionAction, ReturnAction},
@@ -10,6 +10,7 @@ use crate::{
     module::linked_execution::LinkedNativeBody,
     native::context::{ArgumentSlots, ArgumentView, CallContext, ScriptInvoker},
 };
+
 use kagari_bytecode::module::CallableTarget;
 
 impl ExecutionStack<'_> {
@@ -96,12 +97,13 @@ impl ExecutionStack<'_> {
             if !matches!(frame.native_entry, NativeEntryState::Complete) {
                 return Err(runtime
                     .resources()
-                    .quarantine("native return before completion"));
+                    .quarantine(EngineFault::NativeReturnBeforeCompletion));
             }
-            frame
-                .slots
-                .get(&runtime.gc, 0)
-                .ok_or_else(|| runtime.resources().quarantine("invalid native return slot"))?
+            frame.slots.get(&runtime.gc, 0).ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::InvalidNativeReturnSlot)
+            })?
         };
         self.finish_return(runtime, ReturnValue::general(value))
     }
@@ -125,12 +127,12 @@ impl ExecutionStack<'_> {
             .ok_or_else(|| {
                 runtime
                     .resources()
-                    .quarantine("missing prepared native call")
+                    .quarantine(EngineFault::MissingPreparedNativeCall)
             })?;
         let LinkedNativeBody::Callback(callback) = &operation.body else {
             return Err(runtime
                 .resources()
-                .quarantine("sealed native body reached callback transition"));
+                .quarantine(EngineFault::SealedNativeBodyReachedCallbackTransition));
         };
         let mut context = CallContext {
             runtime,
@@ -152,7 +154,7 @@ impl ExecutionStack<'_> {
                 .ok_or_else(|| {
                     runtime
                         .resources()
-                        .quarantine("invalid native return destination")
+                        .quarantine(EngineFault::InvalidNativeReturnDestination)
                 })?;
         }
         frame.completed = frame.executing;

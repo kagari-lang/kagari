@@ -1,8 +1,9 @@
 //! Candidate leases invalidate access without owning or borrowing module storage.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::StaleHandleReason},
     module::{ExecutableModule, Installation, ModuleKey, ModuleStore},
 };
+
 use std::{
     collections::hash_map::Entry,
     mem,
@@ -127,9 +128,8 @@ impl StagedProgram {
             }
         });
         if current_key != self.expected_base {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "installation publication baseline changed or closed",
+            return Err(RuntimeError::from(
+                StaleHandleReason::InstallationPublicationBaselineChangedOrClosed,
             ));
         }
         // Everything below is non-failing; no destruction of the old descriptor

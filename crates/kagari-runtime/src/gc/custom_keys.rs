@@ -1,7 +1,7 @@
 //! Hash bucket preparation and atomic commits. Script comparisons run in VM
 //! frames between these operations, never inside a borrowed hash table.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     frame::values::FrameSlots,
     gc::{GcHeap, GcObjectKind, HeapObjectId, leases::BorrowedLease, roots::RootSet},
     native::hash_storage::HashMapStorage,
@@ -21,7 +21,7 @@ pub(crate) enum KeyLookupRoots<'a> {
 }
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid custom key operation")
+    RuntimeError::from(TrapReason::InvalidCustomKeyOperation)
 }
 
 impl GcHeap {
@@ -42,9 +42,8 @@ impl GcHeap {
     /// The selected key protocol is fixed at construction, including empty tables.
     pub fn ensure_key_mode(&self, collection: &Value, custom: bool) -> Result<(), RuntimeError> {
         if self.uses_builtin_keys(collection)? == custom {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "collection key protocol mismatch; custom keys require script protocol execution",
+            return Err(RuntimeError::from(
+                TrapReason::CollectionKeyProtocolMismatchCustomKeysRequireScriptProtocolExecution,
             ));
         }
         Ok(())
@@ -80,9 +79,8 @@ impl GcHeap {
     pub(crate) fn ensure_key_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.ensure_callback_mutable(id)?;
         if self.key_lookups.is_active(id) {
-            Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "container mutation during key comparison or hashing",
+            Err(RuntimeError::from(
+                TrapReason::ContainerMutationDuringKeyComparisonOrHashing,
             ))
         } else {
             Ok(())

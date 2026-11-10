@@ -329,7 +329,7 @@ mod tests {
         let error = runtime.load_program("external", input).unwrap_err();
         assert!(
             error
-                .message()
+                .to_string()
                 .contains("external type dependency lacks its exact installed contract"),
             "{error}"
         );

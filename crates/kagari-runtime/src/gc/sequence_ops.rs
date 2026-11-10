@@ -1,17 +1,15 @@
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::{GcHeap, HeapObjectId},
     native::sequence::{SequencePayload, SequenceStorage},
     value::Value,
 };
+
 use kagari_types::ty::Ty;
 use std::ops::Bound;
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::ScriptTrap,
-        "invalid array target or index",
-    )
+    RuntimeError::from(TrapReason::InvalidArrayTargetOrIndex)
 }
 
 impl GcHeap {

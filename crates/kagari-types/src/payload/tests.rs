@@ -1,5 +1,5 @@
 use super::*;
-use crate::payload::operation::ScalarOperation;
+use crate::{arithmetic::ArithmeticError, payload::operation::ScalarOperation};
 
 const INTEGERS: [BuiltinType; 8] = [
     BuiltinType::I8,
@@ -25,8 +25,14 @@ fn character_operations_preserve_scalar_domain_without_numeric_operations() {
         let operation = ScalarOperation::binary(op, BuiltinType::Char).unwrap();
         assert_eq!(operation.evaluate(0xd7ff, 0xe000), Ok(expected));
         for invalid in [0xd800, 0xdfff, 0x110000, 0x1_0000_0061, u64::MAX] {
-            assert!(operation.evaluate(invalid, 0).is_err());
-            assert!(operation.evaluate(0, invalid).is_err());
+            assert_eq!(
+                operation.evaluate(invalid, 0),
+                Err(ScalarError::InvalidUnicodeScalar)
+            );
+            assert_eq!(
+                operation.evaluate(0, invalid),
+                Err(ScalarError::InvalidUnicodeScalar)
+            );
         }
     }
     for op in [
@@ -59,6 +65,41 @@ fn prepared_integer_operations_keep_domains_and_failures() {
     for ty in INTEGERS {
         let (bits, signed) = ty.integer_layout().unwrap();
         let (min, max) = ty.integer_bounds().unwrap();
+        // Independent reasons catch erasure or misclassification in shared routing.
+        for (op, lhs, rhs, reason) in [
+            (
+                IntegerOp::CheckedAdd,
+                max,
+                1,
+                ArithmeticError::Overflow.into(),
+            ),
+            (
+                IntegerOp::CheckedDiv,
+                1,
+                0,
+                ArithmeticError::DivisionByZero.into(),
+            ),
+            (
+                IntegerOp::CheckedRem,
+                1,
+                0,
+                ArithmeticError::RemainderByZero.into(),
+            ),
+            (
+                IntegerOp::Shl,
+                1,
+                i128::from(bits),
+                ScalarError::ShiftOutOfRange,
+            ),
+        ] {
+            assert_eq!(
+                ScalarOperation::integer(op, ty, Some(ty))
+                    .unwrap()
+                    .evaluate(lhs as u64, rhs as u64),
+                Err(reason),
+                "{ty:?}/{op:?}"
+            );
+        }
         for op in ops {
             let operation = ScalarOperation::integer(
                 op,
@@ -98,7 +139,7 @@ fn prepared_integer_operations_keep_domains_and_failures() {
             }
         }
     }
-    let invalid = Err("invalid numeric operand type or range");
+    let invalid = Err(ScalarError::InvalidOperandDomain);
     assert_eq!(
         ScalarOperation::integer(
             IntegerOp::CheckedAdd,
@@ -120,6 +161,12 @@ fn prepared_integer_operations_keep_domains_and_failures() {
             .unwrap()
             .evaluate(128, 0),
         invalid
+    );
+    // Invalid operands are rejected before an otherwise applicable division trap.
+    assert_eq!(integer_value::<3, 8, true>(128, 0), invalid);
+    assert_eq!(
+        integer_value::<0, 8, true>(127, 1),
+        Err(ArithmeticError::Overflow.into())
     );
 }
 

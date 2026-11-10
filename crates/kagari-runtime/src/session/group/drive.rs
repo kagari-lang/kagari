@@ -1,7 +1,7 @@
 //! Select one branch per shared scheduler activation; policy never drives code.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault, reason::CancellationReason},
     gc::roots::RootedValue,
     native::{
         binding::NativeResult,
@@ -13,6 +13,7 @@ use crate::{
         store::SessionId,
     },
 };
+
 use std::slice;
 
 impl Runtime {
@@ -153,7 +154,7 @@ impl BranchActivation<'_> {
         {
             return Err(self
                 .runtime
-                .quarantine_execution_invariant("branch publication before retirement"));
+                .quarantine_execution_invariant(EngineFault::BranchPublicationBeforeRetirement));
         }
         self.execution.take();
         let record = self
@@ -220,9 +221,8 @@ impl BranchActivation<'_> {
 impl Drop for BranchActivation<'_> {
     fn drop(&mut self) {
         if self.execution.is_some() {
-            let _ = self.close(RuntimeError::new(
-                RuntimeErrorKind::Cancelled,
-                "branch activation abandoned",
+            let _ = self.close(RuntimeError::from(
+                CancellationReason::BranchActivationAbandoned,
             ));
         }
     }

@@ -381,7 +381,7 @@ fn default_concrete_result_proof_precedes_factory_and_codec_checks_follow_it() {
     let error = assembly
         .into_modules()
         .expect_err("incompatible concrete-result codec");
-    assert!(error.message().contains("codec"), "{error:?}");
+    assert!(error.to_string().contains("codec"), "{error:?}");
     counts.assert(1, 1);
     assert_eq!(
         snapshot.modules().len(),

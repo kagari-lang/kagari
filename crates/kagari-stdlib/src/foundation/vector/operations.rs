@@ -6,7 +6,7 @@ use crate::foundation::{
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::IndexError},
     gc::HeapObjectId,
     native::{
         binding::{NativeBinding, NativeResult},
@@ -20,6 +20,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+
 use kagari_types::{declaration::NativeDeclaration, ty::Ty};
 
 type Vector = ScriptVec<ScriptValue>;
@@ -101,10 +102,9 @@ pub(crate) fn insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         .ok()
         .filter(|position| *position <= length)
         .ok_or_else(|| {
-            RuntimeError::new(
-                RuntimeErrorKind::IndexOutOfBounds,
-                format!("Vec insert index {index} exceeds length {length}"),
-            )
+            RuntimeError::from(IndexError::Provider(format!(
+                "Vec insert index {index} exceeds length {length}"
+            )))
         })?;
     let value = cx.checked_argument(2)?;
     cx.heap().sequence_insert(id, position, value)?;

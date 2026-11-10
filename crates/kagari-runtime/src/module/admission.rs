@@ -1,8 +1,9 @@
 //! Installation-local identity adoption, without copying executable products.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::CancellationReason},
     module::VerifiedProgram,
 };
+
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -155,10 +156,9 @@ impl DefinitionAdmission {
 
 fn invalid(error: DefinitionMappingError) -> RuntimeError {
     match error {
-        DefinitionMappingError::Cancelled => RuntimeError::new(
-            RuntimeErrorKind::Cancelled,
-            "program identity admission cancelled",
-        ),
+        DefinitionMappingError::Cancelled => {
+            RuntimeError::from(CancellationReason::ProgramIdentityAdmissionCancelled)
+        }
         error => RuntimeError::module_validation(error.to_string()),
     }
 }

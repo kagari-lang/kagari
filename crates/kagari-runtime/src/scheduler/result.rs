@@ -1,12 +1,13 @@
 //! Per-invocation result transport. Polling observes owned output, never script state.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::CancellationReason},
     gc::roots::RootedValue,
     native::binding::NativeResult,
     scheduler::wake::WakeHub,
     session::ExecutionId,
 };
+
 use kagari_common::cancellation::CancellationToken;
 use std::{
     fmt,
@@ -152,9 +153,8 @@ where
             .unwrap_or_else(|e| e.into_inner())
             .abandoned
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::Cancelled,
-                "execution receiver dropped",
+            return Err(RuntimeError::from(
+                CancellationReason::ExecutionReceiverDropped,
             ));
         }
         self.prepared = Some(self.convert.take().expect("single result conversion")(

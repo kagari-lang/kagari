@@ -1,6 +1,6 @@
 //! Exclusive sequence storage leases restore completed edits on every exit path.
 use crate::{
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     gc::{GcHeap, HeapObjectId, leases::BorrowedLease, roots::RootSet, storage::HeapObject},
     native::{
         binding::NativeResult,
@@ -8,6 +8,7 @@ use crate::{
         sequence_edit::SequenceEdit,
     },
 };
+
 use std::mem;
 
 struct StorageLease<'heap> {
@@ -49,7 +50,7 @@ impl Drop for StorageLease<'_> {
         if restored.is_none() {
             self.heap
                 .resources
-                .quarantine("sequence lease restoration failed");
+                .quarantine(EngineFault::SequenceLeaseRestorationFailed);
         }
     }
 }

@@ -2,7 +2,7 @@
 //! Indices accept host positions or wide script integers; narrowing failure follows
 //! each operation's absence/bounds policy, after its receiver and mutation checks.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::IndexError, trap::TrapReason},
     gc::{GcHeap, HeapObjectId, storage::HeapObject},
     native::{
         sequence::{SequencePayload, SequenceStorage},
@@ -11,14 +11,12 @@ use crate::{
     resource::HeapCharge,
     value::Value,
 };
+
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{mem, ops::Bound, sync::Arc};
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::ScriptTrap,
-        "invalid sequence buffer or payload",
-    )
+    RuntimeError::from(TrapReason::InvalidSequenceBufferOrPayload)
 }
 
 impl GcHeap {
@@ -93,9 +91,8 @@ impl GcHeap {
             .buffer_len(id)
             .ok_or_else(|| RuntimeError::module_validation("array handle length"))?;
         if index.try_into().ok().is_none_or(|index| index >= length) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::IndexOutOfBounds,
-                "sequence set index is out of bounds",
+            return Err(RuntimeError::from(
+                IndexError::SequenceSetIndexIsOutOfBounds,
             ));
         }
         Ok(())
@@ -175,9 +172,8 @@ impl GcHeap {
         self.ensure_callback_mutable(target)?;
         let length = self.buffer_len(target).ok_or_else(invalid)?;
         if self.buffer_len(source) != Some(length) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "array copy requires equal lengths",
+            return Err(RuntimeError::from(
+                TrapReason::ArrayCopyRequiresEqualLengths,
             ));
         }
         let target_contract = self.buffer_contract(target).ok_or_else(invalid)?;
@@ -203,12 +199,7 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_callback_mutable(target)?;
-        let bounds = || {
-            RuntimeError::new(
-                RuntimeErrorKind::IndexOutOfBounds,
-                "array copy range is out of bounds",
-            )
-        };
+        let bounds = || RuntimeError::from(IndexError::ArrayCopyRangeIsOutOfBounds);
         let length = self.buffer_len(target).ok_or_else(bounds)?;
         let start = match start {
             Bound::Unbounded => 0,
@@ -244,12 +235,8 @@ impl GcHeap {
         self.ensure_callback_mutable(id)?;
         self.validate_buffer_value(id, &value)?;
         self.with_buffer_mut(id, 0, |values| {
-            let index = index.ok_or_else(|| {
-                RuntimeError::new(
-                    RuntimeErrorKind::IndexOutOfBounds,
-                    "sequence index is out of bounds",
-                )
-            })?;
+            let index =
+                index.ok_or_else(|| RuntimeError::from(IndexError::SequenceIndexIsOutOfBounds))?;
             values.set(index, value)
         })?
     }

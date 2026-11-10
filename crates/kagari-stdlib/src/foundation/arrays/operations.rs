@@ -1,6 +1,6 @@
 //! Fixed arrays expose bounded element access; constructors copy into library storage.
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::IndexError},
     gc::HeapObjectId,
     native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
     value::Value,
@@ -33,10 +33,9 @@ pub(crate) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let source = source(cx)?;
     let index = index_argument(cx, 1)?;
     let out_of_bounds = || {
-        RuntimeError::new(
-            RuntimeErrorKind::IndexOutOfBounds,
-            format!("array index {index} is out of bounds"),
-        )
+        RuntimeError::from(IndexError::Provider(format!(
+            "array index {index} is out of bounds"
+        )))
     };
 
     cx.heap()

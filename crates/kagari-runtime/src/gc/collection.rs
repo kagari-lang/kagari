@@ -1,7 +1,7 @@
 //! Collection orchestration over the heap's checked storage and root records.
 use crate::{
     clock::Instant,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     execution_metadata::{MetadataLive, MetadataTrace},
     gc::{
         GcCollection, GcHeap, HeapObjectId, collector, directory::DetachedCounts,
@@ -60,7 +60,7 @@ impl GcHeap {
             .collect_operation(|| self.collect_inner(modules, additional_roots))?
             .ok_or_else(|| {
                 self.resources
-                    .quarantine("invalid or borrowed storage in collection graph")
+                    .quarantine(EngineFault::InvalidOrBorrowedStorageInCollectionGraph)
             })
     }
 
@@ -263,37 +263,37 @@ impl GcHeap {
         if let Some(retired) = retired {
             retired.dispose(|| {
                 self.resources
-                    .quarantine("native payload destruction panicked");
+                    .quarantine(EngineFault::NativePayloadDestructionPanicked);
             });
         }
         for group in retired_groups {
             if catch_unwind(AssertUnwindSafe(|| drop(group))).is_err() {
                 self.resources
-                    .quarantine("operation group destruction panicked");
+                    .quarantine(EngineFault::OperationGroupDestructionPanicked);
             }
         }
         for application in retired_applications {
             if catch_unwind(AssertUnwindSafe(|| drop(application))).is_err() {
                 self.resources
-                    .quarantine("method application destruction panicked");
+                    .quarantine(EngineFault::MethodApplicationDestructionPanicked);
             }
         }
         for interface in retired_interfaces {
             if catch_unwind(AssertUnwindSafe(|| drop(interface))).is_err() {
                 self.resources
-                    .quarantine("interface metadata destruction panicked");
+                    .quarantine(EngineFault::InterfaceMetadataDestructionPanicked);
             }
         }
         for environment in retired_environments {
             if catch_unwind(AssertUnwindSafe(|| drop(environment))).is_err() {
                 self.resources
-                    .quarantine("environment metadata destruction panicked");
+                    .quarantine(EngineFault::EnvironmentMetadataDestructionPanicked);
             }
         }
         for module in retired_modules {
             if catch_unwind(AssertUnwindSafe(|| drop(module))).is_err() {
                 self.resources
-                    .quarantine("module metadata destruction panicked");
+                    .quarantine(EngineFault::ModuleMetadataDestructionPanicked);
             }
         }
         self.interfaces.borrow_mut().prune_descriptions();

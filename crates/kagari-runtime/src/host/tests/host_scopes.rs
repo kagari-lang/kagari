@@ -1,16 +1,16 @@
-use crate::test_support::native::program::ProgramFixture;
-mod scoped_loans;
-use crate::test_support as support;
-
 use crate::{
     Runtime, RuntimeConfig,
-    error::RuntimeErrorKind,
+    error::{RuntimeErrorKind, fault::EngineFault},
     host::{HostBorrowKind, HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     metadata::TypeId,
     native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
     session::TraceValue,
+    test_support::{self as support, native::program::ProgramFixture},
     value::Value,
 };
+
+mod scoped_loans;
+
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
@@ -398,7 +398,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
     assert_eq!(
         runtime
             .resources()
-            .quarantine("fixture engine fault")
+            .quarantine(EngineFault::HostInvariant("fixture engine fault"))
             .kind(),
         RuntimeErrorKind::EngineFault
     );

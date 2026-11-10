@@ -3,7 +3,7 @@
 use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     frame::{
         cursor::{ExecutionCursor, kernel::RegionError},
         values::operands::OperandWindow,
@@ -96,5 +96,5 @@ fn execute_primitive(
 fn invalid_operand(runtime: &Runtime) -> RuntimeError {
     runtime
         .resources()
-        .quarantine("invalid execution operand slot")
+        .quarantine(EngineFault::InvalidExecutionOperandSlot)
 }

@@ -1,6 +1,6 @@
 use crate::{
     RootedInterfaceMethod, Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     frame::{
         arguments::FrameArguments,
         types::TypeEnvironment,
@@ -21,6 +21,7 @@ use crate::{
     session::ExecutionSession,
     value::Value,
 };
+
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, Slot},
@@ -75,7 +76,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             .ok_or_else(|| {
                 session
                     .resources
-                    .quarantine("frame stack is borrowed across execution")
+                    .quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
             })?
             .len();
         let state = session.state();
@@ -83,7 +84,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         state.next_frame_scope.set(id.checked_add(1).ok_or_else(|| {
             session
                 .resources
-                .quarantine("frame scope identity exhausted")
+                .quarantine(EngineFault::FrameScopeIdentityExhausted)
         })?);
         state.frame_scopes.borrow_mut().push(id);
         drop(state);
@@ -116,13 +117,13 @@ impl<'runtime> ExecutionStack<'runtime> {
             return Err(self
                 .session
                 .resources
-                .quarantine("execution used a suspended session"));
+                .quarantine(EngineFault::ExecutionUsedASuspendedSession));
         }
         if self.session.state().frame_scopes.borrow().last() != Some(&self.id) {
             return Err(self
                 .session
                 .resources
-                .quarantine("execution used a suspended frame scope"));
+                .quarantine(EngineFault::ExecutionUsedASuspendedFrameScope));
         }
         Ok(())
     }
@@ -135,7 +136,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             .ok_or_else(|| {
                 self.session
                     .resources
-                    .quarantine("frame stack is mutably borrowed")
+                    .quarantine(EngineFault::FrameStackIsMutablyBorrowed)
             })
     }
 
@@ -143,7 +144,10 @@ impl<'runtime> ExecutionStack<'runtime> {
         self.validate_top()?;
         let frames = self.frames()?;
         if frames.len() <= self.base {
-            return Err(self.session.resources.quarantine("missing execution frame"));
+            return Err(self
+                .session
+                .resources
+                .quarantine(EngineFault::MissingExecutionFrame));
         }
         Ok(Ref::map(frames, |frames| {
             frames.last().expect("checked frame")
@@ -160,10 +164,13 @@ impl<'runtime> ExecutionStack<'runtime> {
             .ok_or_else(|| {
                 self.session
                     .resources
-                    .quarantine("frame stack is borrowed across execution")
+                    .quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
             })?;
         if frames.len() <= self.base {
-            return Err(self.session.resources.quarantine("missing execution frame"));
+            return Err(self
+                .session
+                .resources
+                .quarantine(EngineFault::MissingExecutionFrame));
         }
         Ok(RefMut::map(frames, |frames| {
             frames.last_mut().expect("checked frame")
@@ -188,7 +195,11 @@ impl<'runtime> ExecutionStack<'runtime> {
                 Some(caller) => caller.member(module),
                 None => self.session.root().member(module),
             }
-            .ok_or_else(|| self.session.resources.quarantine("invalid frame module"))?
+            .ok_or_else(|| {
+                self.session
+                    .resources
+                    .quarantine(EngineFault::InvalidFrameModule)
+            })?
         };
         let route = loaded.bind_call_route(CallableTarget::Script(function))?;
         let selected = runtime.select_call_route(&route)?;
@@ -285,13 +296,13 @@ impl<'runtime> ExecutionStack<'runtime> {
             .ok_or_else(|| {
                 self.session
                     .resources
-                    .quarantine("frame stack is borrowed across execution")
+                    .quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
             })?;
         if frames.len() <= self.base {
             return Err(self
                 .session
                 .resources
-                .quarantine("frame scope attempted to pop its caller"));
+                .quarantine(EngineFault::FrameScopeAttemptedToPopItsCaller));
         }
         if let Some(frame) = frames.pop() {
             frame.release_values(self.session.resources);
@@ -315,7 +326,7 @@ impl Drop for ExecutionStack<'_> {
         if position + 1 != scopes.len() {
             self.session
                 .resources
-                .quarantine("frame scopes dropped out of order");
+                .quarantine(EngineFault::FrameScopesDroppedOutOfOrder);
         }
         scopes.truncate(position);
         if self.parked {
@@ -324,7 +335,7 @@ impl Drop for ExecutionStack<'_> {
         let Some(mut frames) = self.session.resources.sessions.frames_mut(self.session.id) else {
             self.session
                 .resources
-                .quarantine("frame stack remained borrowed during cleanup");
+                .quarantine(EngineFault::FrameStackRemainedBorrowedDuringCleanup);
             return;
         };
         while frames.len() > self.base {
@@ -410,7 +421,7 @@ impl ExecutionFrame {
             .and_then(|values| values.release(self.slots))
             .is_none()
         {
-            resources.quarantine("execution slots remained borrowed during frame cleanup");
+            resources.quarantine(EngineFault::ExecutionSlotsRemainedBorrowedDuringFrameCleanup);
         }
         values
     }
@@ -438,11 +449,13 @@ impl ExecutionFrame {
         let storage = runtime.resources().frame_values.try_borrow().map_err(|_| {
             runtime
                 .resources()
-                .quarantine("frame storage borrowed during inspection")
+                .quarantine(EngineFault::FrameStorageBorrowedDuringInspection)
         })?;
-        let ranges = storage
-            .ranges(self.slots)
-            .ok_or_else(|| runtime.resources().quarantine("expired frame storage"))?;
+        let ranges = storage.ranges(self.slots).ok_or_else(|| {
+            runtime
+                .resources()
+                .quarantine(EngineFault::ExpiredFrameStorage)
+        })?;
         Ok((ranges.scalars.len(), ranges.managed.len()))
     }
 
@@ -456,9 +469,9 @@ impl ExecutionFrame {
         value: &Value,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
-        self.mutations.try_reserve(1).map_err(|_| {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "mutation guard allocation")
-        })?;
+        self.mutations
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::from(TrapReason::MutationGuardAllocation))?;
         self.mutations
             .push((*value, runtime.gc.begin_collection_mutation(value)?));
         Ok(())
@@ -470,10 +483,7 @@ impl ExecutionFrame {
             .last()
             .is_some_and(|(target, _)| target == value)
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "mutation guard mismatch",
-            ));
+            return Err(RuntimeError::from(TrapReason::MutationGuardMismatch));
         }
         self.mutations.pop();
         Ok(())
@@ -514,7 +524,7 @@ impl ExecutionFrame {
             .ok_or_else(|| {
                 runtime
                     .resources()
-                    .quarantine("invalid frame register type")
+                    .quarantine(EngineFault::InvalidFrameRegisterType)
             })
     }
 
@@ -542,7 +552,7 @@ impl ExecutionFrame {
             .ok_or_else(|| {
                 runtime
                     .resources()
-                    .quarantine("invalid native semantic origin")
+                    .quarantine(EngineFault::InvalidNativeSemanticOrigin)
             })?;
         self.executing = Some(point.instruction);
         self.native_origin = Some(offset);
@@ -574,7 +584,9 @@ impl ExecutionFrame {
             .function()
             .is_none_or(|function| offset >= function.instructions.len())
         {
-            return Err(runtime.resources().quarantine("invalid frame jump target"));
+            return Err(runtime
+                .resources()
+                .quarantine(EngineFault::InvalidFrameJumpTarget));
         }
         let admitted = self
             .executing
@@ -653,12 +665,18 @@ impl ExecutionFrame {
     pub fn read_slot(&self, runtime: &Runtime, register: Slot) -> Result<Value, RuntimeError> {
         self.validate_runtime(runtime)?;
         if register.index() >= self.slot_count {
-            return Err(runtime.resources().quarantine("invalid frame register"));
+            return Err(runtime
+                .resources()
+                .quarantine(EngineFault::InvalidFrameRegister));
         }
         self.validate_slot_access(register, true)?;
         self.slots
             .get(&runtime.gc, register.index())
-            .ok_or_else(|| runtime.resources().quarantine("invalid frame register"))
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::InvalidFrameRegister)
+            })
     }
 
     /// Write a logical slot without overwriting another slot's active lifetime.
@@ -670,12 +688,18 @@ impl ExecutionFrame {
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         if register.index() >= self.slot_count {
-            return Err(runtime.resources().quarantine("invalid frame register"));
+            return Err(runtime
+                .resources()
+                .quarantine(EngineFault::InvalidFrameRegister));
         }
         self.validate_slot_access(register, false)?;
         self.slots
             .set(&runtime.gc, register.index(), value)
-            .ok_or_else(|| runtime.resources().quarantine("invalid frame register"))?;
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::InvalidFrameRegister)
+            })?;
         if self
             .executing
             .and_then(|pc| self.function()?.instructions.get(pc))
@@ -693,7 +717,7 @@ impl Runtime {
     pub(crate) fn record_native_instruction(&self, offset: usize) -> Result<(), RuntimeError> {
         let session = self.resources().active_session().ok_or_else(|| {
             self.resources()
-                .quarantine("native program point without an execution session")
+                .quarantine(EngineFault::NativeProgramPointWithoutAnExecutionSession)
         })?;
         let mut frames = self
             .resources()
@@ -701,11 +725,11 @@ impl Runtime {
             .frames_mut(session.id)
             .ok_or_else(|| {
                 self.resources()
-                    .quarantine("native program point while frames are borrowed")
+                    .quarantine(EngineFault::NativeProgramPointWhileFramesAreBorrowed)
             })?;
         let frame = frames.last_mut().ok_or_else(|| {
             self.resources()
-                .quarantine("native program point without an execution frame")
+                .quarantine(EngineFault::NativeProgramPointWithoutAnExecutionFrame)
         })?;
         frame.set_native_instruction(self, offset)
     }

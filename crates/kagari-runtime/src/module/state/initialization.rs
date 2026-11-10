@@ -2,13 +2,14 @@
 //! so a cycle or dropped/terminated frame can poison immediately, including reentry.
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     module::{
         ExecutableModule,
         state::{StaticFailure, StaticRecipe, StaticState},
     },
     value::Value,
 };
+
 use kagari_bytecode::instruction::ModuleSlot;
 use kagari_common::span::Span;
 use std::{
@@ -58,7 +59,7 @@ impl StaticInitialization {
         let mut store = runtime.modules.inner.try_borrow_mut().map_err(|_| {
             runtime
                 .resources()
-                .quarantine("static store borrowed during initialization")
+                .quarantine(EngineFault::StaticStoreBorrowedDuringInitialization)
         })?;
         let record = store
             .resolve(&self.owner)
@@ -66,7 +67,7 @@ impl StaticInitialization {
         store.bound_cell(record, self.slot.index()).ok_or_else(|| {
             runtime
                 .resources()
-                .quarantine("invalid static initializer binding")
+                .quarantine(EngineFault::InvalidStaticInitializerBinding)
         })?;
         let id = record.bindings[self.slot.index()];
         let cell = store.cells.get_mut(&id).expect("checked cell");
@@ -105,7 +106,7 @@ impl StaticInitialization {
         let mut store = runtime.modules.inner.try_borrow_mut().map_err(|_| {
             runtime
                 .resources()
-                .quarantine("static store borrowed during initializer return")
+                .quarantine(EngineFault::StaticStoreBorrowedDuringInitializerReturn)
         })?;
         let record = store
             .resolve(&self.owner)
@@ -113,7 +114,7 @@ impl StaticInitialization {
         store.bound_cell(record, self.slot.index()).ok_or_else(|| {
             runtime
                 .resources()
-                .quarantine("invalid static return binding")
+                .quarantine(EngineFault::InvalidStaticReturnBinding)
         })?;
         let id = record.bindings[self.slot.index()];
         let cell = store.cells.get_mut(&id).expect("checked cell");
@@ -125,7 +126,7 @@ impl StaticInitialization {
         {
             return Err(runtime
                 .resources()
-                .quarantine("static return lost attempt authority"));
+                .quarantine(EngineFault::StaticReturnLostAttemptAuthority));
         }
         self.attempt
             .completion
@@ -225,7 +226,7 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         let store = self.modules.inner.try_borrow().map_err(|_| {
             self.resources()
-                .quarantine("static store borrowed during cycle detection")
+                .quarantine(EngineFault::StaticStoreBorrowedDuringCycleDetection)
         })?;
         let record = store
             .resolve(owner)

@@ -3,7 +3,7 @@ use super::{Fixture, Value};
 use crate::context::ExecutionContext;
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     frame::types::arguments::TypeArgument,
     native::{
         adapter::Async,
@@ -18,6 +18,7 @@ use kagari_runtime::{
     },
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
 };
+
 use std::{
     num::NonZeroUsize,
     slice,
@@ -66,7 +67,7 @@ impl IntoKagari for Reply {
             Boundary::ConversionFault => {
                 return Err(cx
                     .runtime()
-                    .quarantine_execution_invariant("invalid converter state"));
+                    .quarantine_execution_invariant(EngineFault::InvalidConverterState));
             }
             Boundary::BeforeConversion | Boundary::Success => {}
         }

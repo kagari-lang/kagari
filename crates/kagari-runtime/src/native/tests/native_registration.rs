@@ -44,7 +44,7 @@ fn inferred_binding_preserves_signedness() {
         .define_function(FunctionDecl::new("count").returns(Type::i64()))
         .unwrap();
     let error = module.bind(function, count).unwrap_err();
-    assert!(error.message().contains("codec"));
+    assert!(error.to_string().contains("codec"));
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn finalization_rejects_a_declaration_without_an_entry() {
     module
         .define_function(FunctionDecl::new("missing"))
         .unwrap();
-    assert!(module.finish().unwrap_err().message().contains("missing"));
+    assert!(module.finish().unwrap_err().to_string().contains("missing"));
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn sequence_conversion_rejects_opaque_storage_at_registration() {
         module
             .bind(len.clone(), sequence_len)
             .unwrap_err()
-            .message()
+            .to_string()
             .contains("codec")
     );
     module
@@ -160,7 +160,7 @@ fn missing_or_unknown_trait_member_is_rejected() {
             implementation.trait_impl(measure.apply([])?, |_| Ok(()))
         })
         .unwrap_err();
-    assert!(error.message().contains("missing method"));
+    assert!(error.to_string().contains("missing method"));
 }
 
 #[test]
@@ -557,7 +557,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
         declaration
             .finish()
             .unwrap_err()
-            .message()
+            .to_string()
             .contains("codec")
     );
 }

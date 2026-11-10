@@ -1,17 +1,17 @@
 //! Structured pairs own internal executions, never Task handles or host reports.
-mod admission;
-mod cleanup;
-mod drive;
-
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, reason::CancellationReason},
     error_trace::ErrorTrace,
     gc::roots::{RootSet, RootedValue},
     native::{binding::NativeResult, composition::ColdComposition},
     scheduler::WorkKey,
     session::{ExecutionId, owned::OwnedExecution, store::SessionId},
 };
+mod admission;
+mod cleanup;
+mod drive;
+
 use std::{
     collections::HashMap,
     task::{Poll, Waker},
@@ -147,10 +147,7 @@ impl Runtime {
             .as_ref()
             .is_none_or(|owner| owner.abandoned())
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::Cancelled,
-                "group parent abandoned",
-            ));
+            return Err(RuntimeError::from(CancellationReason::GroupParentAbandoned));
         }
         Ok(())
     }

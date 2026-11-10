@@ -1,7 +1,7 @@
 //! Weak preparation caches never keep an otherwise dead program version alive.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault},
     frame::types::arguments::TypeArgument,
     module::{ExecutableModule, Module, ModuleEpochRetention, StructLayoutRef},
     native::{
@@ -9,6 +9,7 @@ use crate::{
         objects::{ObjectType, TypeRecord, fields::FieldRecord},
     },
 };
+
 use kagari_bytecode::instruction::StructId;
 use kagari_common::identity::{DefinitionKind, DefinitionPath, table::DefinitionId};
 use kagari_contract::{
@@ -232,10 +233,7 @@ fn object_path_error(path: &str, detail: &str) -> RuntimeError {
 }
 
 fn invalid_export() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::EngineFault,
-        "invalid verified public object export",
-    )
+    RuntimeError::from(EngineFault::InvalidVerifiedPublicObjectExport)
 }
 
 #[cfg(test)]

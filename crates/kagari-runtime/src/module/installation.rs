@@ -1,13 +1,14 @@
 //! Identity-only handles; the supplying Runtime owns live selection and revocation.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::StaleHandleReason},
     host::HostRegistryId,
     module::{
         ExecutableModule, Installation, InstallationId, InstalledProgram, Module, ModuleKey,
         ModuleSnapshot, ModuleStore,
     },
 };
+
 use kagari_common::identity::ModuleIdentity;
 use std::{mem, sync::Arc};
 
@@ -86,9 +87,8 @@ impl ModuleStore {
                 .get(&installation.id)
                 .is_some_and(|registered| Arc::ptr_eq(registered, installation))
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "foreign or unregistered installation",
+            return Err(RuntimeError::from(
+                StaleHandleReason::ForeignOrUnregisteredInstallation,
             ));
         }
         Ok(())
@@ -107,9 +107,7 @@ impl ModuleStore {
             })?
             .get(&installation.id)
             .cloned()
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::StaleHandle, "installation is closed")
-            })?;
+            .ok_or_else(|| RuntimeError::from(StaleHandleReason::InstallationIsClosed))?;
         Ok(ExecutableModule {
             slot: program.root,
             program,
@@ -123,9 +121,7 @@ impl ModuleStore {
         let installation = self
             .installations
             .get(&module.installation_id())
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::StaleHandle, "unregistered installation")
-            })?;
+            .ok_or_else(|| RuntimeError::from(StaleHandleReason::UnregisteredInstallation))?;
         self.validate_installation(installation, module.registry_owner)?;
         if self
             .current
@@ -150,10 +146,7 @@ impl ModuleStore {
         {
             Ok(())
         } else {
-            Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "installation is closed",
-            ))
+            Err(RuntimeError::from(StaleHandleReason::InstallationIsClosed))
         }
     }
 
@@ -164,9 +157,7 @@ impl ModuleStore {
         let installation = self
             .installations
             .get(&module.installation_id())
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::StaleHandle, "unregistered installation")
-            })?;
+            .ok_or_else(|| RuntimeError::from(StaleHandleReason::UnregisteredInstallation))?;
         self.validate_installation(installation, module.registry_owner)?;
         self.capture_current(installation)
     }

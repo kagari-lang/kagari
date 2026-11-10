@@ -250,15 +250,13 @@ impl EmbeddingError {
             | VmError::MissingField(_)
             | VmError::InvalidIndex(_)
             | VmError::InvalidBranchCondition
-            | VmError::BuiltinError(_)
-            | VmError::ReflectionError(_)
             | VmError::Trap(_)
             | VmError::TypeMismatch(_) => RuntimeFailureKind::ScriptTrap,
         };
         Self::Runtime {
             kind,
             message: match error.cause() {
-                VmError::RuntimeError(e) => e.message().to_owned(),
+                VmError::RuntimeError(e) => e.to_string(),
                 other => format!("{other:?}"),
             },
             trace,

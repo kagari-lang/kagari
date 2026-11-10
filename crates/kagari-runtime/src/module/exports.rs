@@ -2,9 +2,10 @@
 
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::ErrorReason},
     module::{ExecutableModule, Module, ModuleSnapshot, VerifiedProgram},
 };
+
 use kagari_bytecode::program::exports::ExportTarget;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
@@ -158,10 +159,10 @@ fn public_path_error(path: &str, kind: PublicPathKind, error: PublicPathError) -
         PublicPathError::NotFound => "public path not found",
         PublicPathError::WrongTargetKind => "public path has wrong target kind",
         PublicPathError::InvalidGraph => {
-            return RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                format!("invalid verified public target: {path:?} (expected {expected})"),
-            );
+            return RuntimeError::new(ErrorReason::InvalidVerifiedPublicTarget {
+                path: path.to_owned(),
+                expected,
+            });
         }
     };
     RuntimeError::typed_path_validation(format!("{detail}: {path:?} (expected {expected})"))

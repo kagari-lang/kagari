@@ -1,14 +1,13 @@
 //! Runtime-owned observation. No observer storage is shared with an execution driver.
+use crate::{
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
+    session::{ExecutionEvent, ExecutionId, ExecutionObserver},
+};
 use std::{
     any::Any,
     cell::{Ref, RefMut},
     mem,
-};
-
-use crate::{
-    Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
-    session::{ExecutionEvent, ExecutionId, ExecutionObserver},
 };
 
 impl Runtime {
@@ -94,7 +93,7 @@ impl Runtime {
             .frames(session.id)
             .ok_or_else(|| {
                 self.resources()
-                    .quarantine("observer installation encountered a borrowed stack")
+                    .quarantine(EngineFault::ObserverInstallationEncounteredABorrowedStack)
             })?;
         if !frames.is_empty() && !resumed {
             return Err(RuntimeError::module_validation(
@@ -114,7 +113,7 @@ impl Runtime {
         drop(frames);
         let session = self.resources().active_session().ok_or_else(|| {
             self.resources()
-                .quarantine("observer initialization lost its session")
+                .quarantine(EngineFault::ObserverInitializationLostItsSession)
         })?;
         session.observer_attached.set(true);
         Ok(true)
@@ -131,15 +130,15 @@ impl Runtime {
         drop(session);
         let frames = self.resources().sessions.frames(id).ok_or_else(|| {
             self.resources()
-                .quarantine("observer encountered a borrowed execution stack")
+                .quarantine(EngineFault::ObserverEncounteredABorrowedExecutionStack)
         })?;
         let mut observer = self.observer.try_borrow_mut().map_err(|_| {
             self.resources()
-                .quarantine("execution observer borrowed across execution")
+                .quarantine(EngineFault::ExecutionObserverBorrowedAcrossExecution)
         })?;
         let observer = observer.as_mut().ok_or_else(|| {
             self.resources()
-                .quarantine("active execution observer is missing")
+                .quarantine(EngineFault::ActiveExecutionObserverIsMissing)
         })?;
         let result = observer.observe(self, event, &frames);
         if result
@@ -147,7 +146,7 @@ impl Runtime {
             .is_err_and(|error| error.kind() == RuntimeErrorKind::EngineFault)
         {
             self.resources()
-                .quarantine("execution observer encountered an engine fault");
+                .quarantine(EngineFault::ExecutionObserverEncounteredAnEngineFault);
         }
         result
     }

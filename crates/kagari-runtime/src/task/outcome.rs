@@ -1,7 +1,7 @@
 //! Terminal publication precedes notification and keeps cached values in the heap.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     error_trace::asynchronous::AsyncBoundary,
     gc::roots::RootedValue,
     native::binding::NativeResult,
@@ -11,6 +11,7 @@ use crate::{
     },
     value::Value,
 };
+
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     slice,
@@ -101,7 +102,8 @@ impl Runtime {
         let mut failure = None;
         for wake in dependencies.complete(task) {
             if catch_unwind(AssertUnwindSafe(|| wake.wake())).is_err() {
-                failure = Some(self.quarantine_execution_invariant("Task waiter wake failed"));
+                failure =
+                    Some(self.quarantine_execution_invariant(EngineFault::TaskWaiterWakeFailed));
             }
         }
         if let Some(scope) = signal.scope.upgrade() {

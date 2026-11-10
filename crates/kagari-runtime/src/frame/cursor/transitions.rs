@@ -1,6 +1,7 @@
 //! Allocating preparation runs only after closed-region borrows have ended.
 use crate::{
     Runtime,
+    error::fault::EngineFault,
     frame::{
         ExecutionStack,
         cursor::kernel::{PreparedTransition, RegionError, RegionExit},
@@ -40,7 +41,11 @@ impl ExecutionStack<'_> {
                 // cursor exit and this private transition.
                 let (base, tuple, value) = {
                     let frame = self.current()?;
-                    let invalid = || runtime.resources().quarantine("invalid tuple transition");
+                    let invalid = || {
+                        runtime
+                            .resources()
+                            .quarantine(EngineFault::InvalidTupleTransition)
+                    };
                     let operation = frame.prepared_index(operation).ok_or_else(invalid)?;
                     let IndexAccess::Write { value } = operation.access else {
                         return Err(invalid().into());
@@ -76,7 +81,10 @@ impl ExecutionStack<'_> {
                 let tuple = runtime.gc().alloc_tuple(elements)?;
                 let mut frame = self.current_mut()?;
                 if !runtime.gc().validate_value(&tuple) {
-                    return Err(runtime.resources().quarantine("invalid tuple value").into());
+                    return Err(runtime
+                        .resources()
+                        .quarantine(EngineFault::InvalidTupleValue)
+                        .into());
                 }
                 runtime
                     .resources()
@@ -85,10 +93,14 @@ impl ExecutionStack<'_> {
                     .map_err(|_| {
                         runtime
                             .resources()
-                            .quarantine("tuple operands borrowed during publication")
+                            .quarantine(EngineFault::TupleOperandsBorrowedDuringPublication)
                     })?
                     .set_location(frame.slots, base, tuple)
-                    .ok_or_else(|| runtime.resources().quarantine("invalid tuple destination"))?;
+                    .ok_or_else(|| {
+                        runtime
+                            .resources()
+                            .quarantine(EngineFault::InvalidTupleDestination)
+                    })?;
                 frame.completed = frame.executing;
                 Ok(RegionExit::Safepoint)
             }
@@ -101,7 +113,7 @@ impl ExecutionStack<'_> {
                     let links = frame.links.as_ref().ok_or_else(|| {
                         runtime
                             .resources()
-                            .quarantine("missing constant execution link")
+                            .quarantine(EngineFault::MissingConstantExecutionLink)
                     })?;
                     (frame.loaded.clone(), links.constants.clone())
                 };
@@ -110,7 +122,7 @@ impl ExecutionStack<'_> {
                 if !runtime.gc().validate_value(&value) {
                     return Err(runtime
                         .resources()
-                        .quarantine("invalid constant value")
+                        .quarantine(EngineFault::InvalidConstantValue)
                         .into());
                 }
                 runtime
@@ -118,15 +130,15 @@ impl ExecutionStack<'_> {
                     .frame_values
                     .try_borrow_mut()
                     .map_err(|_| {
-                        runtime
-                            .resources()
-                            .quarantine("execution slots borrowed during constant publication")
+                        runtime.resources().quarantine(
+                            EngineFault::ExecutionSlotsBorrowedDuringConstantPublication,
+                        )
                     })?
                     .set_location(frame.slots, dst, value)
                     .ok_or_else(|| {
                         runtime
                             .resources()
-                            .quarantine("invalid constant destination")
+                            .quarantine(EngineFault::InvalidConstantDestination)
                     })?;
                 frame.completed = frame.executing;
                 // Recompute allocation/collection state at the successor PC.

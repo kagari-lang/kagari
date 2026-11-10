@@ -2,7 +2,7 @@
 use crate::foundation::enumerations::value::{self as enums, EnumSymbols, option};
 use kagari_contract::operations::IterOp;
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::RuntimeError,
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         context::CallContext,
@@ -10,6 +10,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Terminal {
@@ -107,7 +108,7 @@ fn invalid() -> RuntimeError {
 pub(super) fn increment(value: u64) -> NativeResult<u64> {
     value
         .checked_add(1)
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer overflow"))
+        .ok_or_else(|| RuntimeError::from(ScalarError::from(ArithmeticError::Overflow)))
 }
 
 pub(crate) fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {

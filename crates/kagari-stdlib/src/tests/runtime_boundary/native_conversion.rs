@@ -562,7 +562,11 @@ fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
         .unwrap();
     let error = cx.decode::<Node>(&root).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-    assert!(error.message().contains("cycle in owned value conversion"));
+    assert!(
+        error
+            .to_string()
+            .contains("cycle in owned value conversion")
+    );
     assert_eq!(runtime.gc().active_roots(), 1);
     let view = cx.decode::<NodeView>(&root).unwrap();
     assert_eq!(view.0[2].0.value(runtime.gc()), Some(Value::Enum(node)));

@@ -324,6 +324,238 @@ specialization stage and cannot establish this experiment's result. This work is
 not a prerequisite for the queued Runtime consolidation/Host/GC refactor; do not
 combine those changes into the measured prototype.
 
+### Typed errors and diagnostic ownership
+
+Design review requested on 2026-11-10; EN01 numeric transport is locally accepted.
+EN02 Runtime reason/context ownership is locally accepted.
+Finer cold validation details and full VM/SDK consolidation remain queued.
+Use typed reasons as error identity and format human-readable text at diagnostic
+boundaries. This changes representation/ownership, not the number of execution
+checks, numeric policy or cancellation behavior. No new error crate, error registry,
+permission framework or generic catch-all execution layer is needed.
+
+#### Numeric implementation checkpoint (EN01)
+
+Task: Preserve typed scalar reasons through integer/payload/shared/comparison
+helpers and their direct constant-evaluation/interpreter/Value/Native consumers.
+The [scalar execution guide](architecture/runtime/scalar-execution.md) owns the
+implemented transport and diagnostic boundary. No artifact/ABI change or new
+execution check is introduced. Existing RuntimeError construction, trace attachment,
+quarantine and SDK categories remain in place for the next phase.
+
+The types owner is scalar::error::ScalarError; it reuses ArithmeticError. HIR's
+checked integer-fact constructor now returns IntegerRangeError, so constant
+arithmetic can carry both failure families without an intermediate string. Literal
+parsing keeps its existing source-diagnostic text; this is not a source parser error
+migration. MIR failed-fold handling already consumes Result without formatting.
+Generated execution arms require no text change because their Trap payload now
+accepts ScalarError. Backend/stdlib callers continue to use Runtime numeric adapters.
+
+Local acceptance: 30 selected Rust tests pass: 20 types/HIR/Runtime cases,
+three VM numeric cases and seven SDK integration cases. Selection covers typed
+reasons and Display/source, width-before-shift and domain-before-arithmetic failure
+order, checked constants/ranges/casts, Value/Native numeric adapters, direct and
+serialized/decoded bytecode, completed effects/failed destination commits, GC-root
+cleanup and matching interpreter/Cranelift source traces. Existing scenarios gain
+typed assertions; the two new owner cases cover width/shift precedence and the
+public diagnostic/source contract rather than duplicating upper-level smoke tests.
+Reproduction entrypoints:
+
+- `cargo test -p kagari-types -p kagari-hir -p kagari-runtime --lib -- payload::tests:: integer::tests:: scalar::error::tests:: typeck::const_eval::tests:: typeck::scalar::tests:: numeric::`
+- `cargo test -p kagari-vm --lib -- tests::numeric::integer_overflow_and_zero_divisors_trap_at_every_source_width tests::numeric::scalar_field_overflow_preserves_prior_effects_and_does_not_commit tests::numeric::all_integer_widths_cover_arithmetic_bits_comparisons_and_concrete_generics`
+- `cargo test -p kagari --lib runtime::tests::embedding::error_traces::native_overflow_reports_the_same_instruction_as_the_interpreter`
+- `cargo test -p kagari --lib -- runtime::tests::language::numeric_operations::failures:: runtime::tests::language::default_methods::shared_arithmetic::shared_numeric_traps_preserve_effects_and_release_roots runtime::tests::embedding::error_traces::interpreter_traps_capture_frames_and_original_source_locations runtime::tests::language::conversion_traits::native_aggregation::native_numeric_aggregation_checks_declared_width_and_releases_roots`
+
+Workspace all-target Clippy, structure (1875 files, zero violations, three existing
+exact generated-region exceptions), fmt, generation consistency and diff checks
+pass. Import/visibility review adds no re-export, new dependency, generated-code
+change or LOC exception. The [scalar guide](architecture/runtime/scalar-execution.md)
+records toolchain-specific error/Result sizes; existing scalar source generation
+timings do not measure this change. No known carried build/test errors remain in
+this selected scope. Full-workspace tests and exhaustive matrices remain CI-only
+and unrun locally. Runtime reason/context migration and execution/failure-formatting
+performance comparisons remain queued; no speedup or complete Runtime error
+unification is claimed.
+
+#### Runtime reason/context checkpoint (EN02)
+
+Task: Replace Runtime's independently assignable kind/message record with a typed
+ErrorReason and optional owned diagnostic context; migrate direct consumers while
+preserving codes, numeric/trap policy, effect order, first trace/task provenance,
+quarantine and cooperative cancellation. The
+[Runtime map](architecture/runtime.md#error-reasons-and-diagnostic-context) owns
+current records, API usage, formatting, source and retained-memory rules.
+
+The finite families are scalar/fixed traps, cancellation, stale handles, index
+failures and engine invariants. Cold module/metadata/path/borrow/resource failures
+retain owned detail data inside their named reason families; finer owner-specific
+leaf migration is deferred to the queued Runtime consolidation. No universal
+`(kind, message)` adapter or formatted-message cache remains. RuntimeError::new now
+accepts ErrorReason, From accepts the typed leaves, and Display replaces borrowed
+message access. This is an unpublished Rust API replacement, not an artifact/ABI
+version change. Provider variants preserve custom Native/library diagnostics and
+keep library-specific Vec/String policies outside Runtime error enums.
+
+Context is a cold optional Box containing owned coordinates, trace and task origin.
+Scalar transport creates neither a message String nor a context Box. Structured
+coordinates replace at_conversion's format/prefix chain. Reflective wrappers retain
+the original RuntimeError as a source, preserving prefix order and metadata. Task
+accounting follows actual owned reason/source/context storage, excluding shared
+trace metadata. Existing heap-charge/termination rules are unchanged.
+
+Boundary review found that VmError's ScriptTrap-only BuiltinError branch concealed
+the retained trace from VmError::trace and sent it to SDK Debug formatting. EN02
+therefore normalizes builtin admission directly to VmError::RuntimeError and removes
+the obsolete BuiltinError/unused ReflectionError VM variants. This is a necessary
+error-transport repair within this checkpoint; it does not merge crates, remove the
+Runtime helper wrappers or replace SDK compilation/artifact diagnostics. Remaining
+VM/SDK execution wrappers are still owned by the queued consolidation.
+
+Remaining cold binding reclassification, such as host path_scope_error and identity
+mapping adapters, still flattens detail text as before. Source-preserving typed
+reclassification there belongs to the finer validation-family follow-up; EN02 does
+not claim every diagnostic conversion in the repository has been eliminated.
+
+New owner tests cover typed reason/position access, preserved first trace/task
+origin, nested reflective formatting/source, builtin-to-VM trace admission and
+retained owned-label capacity with shared-trace exclusion. The existing DTO limit
+scenario now checks a typed Field coordinate alongside text and cleanup assertions.
+Existing task publication keeps its exact message-capacity charge oracle; VM/SDK
+samples cover quarantine, termination priority, GC teardown, source-free numeric
+traps, optimized/unoptimized error origins, async outputs and task lifecycle.
+
+Intermediate validation found one test-adapter omission: the trap-observer fixture
+still requested ModuleValidation, while its replacement constructor match handled
+only cancellation/traps. Restore its ModuleValidation case without removing that
+sample. The selected Serde target also found four remaining removed message() calls
+in feature-gated tests; migrate those consumers to Display. Both selected reruns
+pass. No production guard is disabled and no expected termination assertion is
+weakened. Routine constructor/import/type-inference integration failures are resolved;
+49 distinct selected tests now pass (8 Runtime, 1 stdlib, 21 VM, 17 SDK and
+2 DTO/Serde integration cases), including the repaired fixture and completed
+feature-gated target. The final reason/source/retained-storage owner rerun passes.
+Workspace all-target Clippy, structure, fmt, generation consistency, documentation
+links and diff checks pass. Import/visibility review adds no re-export, production
+glob, dependency or structural exception. Required public API consumers are updated;
+no known carried build/test error remains in the selected scope.
+
+Local command selection:
+
+- `cargo test -p kagari-runtime -p kagari-stdlib -p kagari-vm --lib -- error::tests:: builtin::tests:: execution_state::tests:: gc::task::tests:: resource::tests:: resource_termination:: native_boundary_gc::payload_failures:: tests::numeric::integer_overflow_and_zero_divisors_trap_at_every_source_width conversion_errors_and_panics_release_scratch_roots_and_restore_scope_depth`
+- `cargo test -p kagari --lib -- runtime::tests::embedding::error_traces:: runtime::tests::embedding::async_execution::conversion::async_output_publication_contract runtime::tests::embedding::async_execution::tasks::`
+- `cargo test -p kagari-runtime -p kagari-vm --lib -- error::tests:: trap_observer_cannot_replace_conversion_termination tests::conformance::machine_boundaries_preserve_wide_indices_and_repeat_resource_errors`
+- `cargo test -p kagari-runtime --features serde --test native_schema -- dto_limits_and_incomplete_initializers_release_unpublished_roots serde_uses_conversion_limits_and_reports_nested_error_paths`
+- `cargo test -p kagari --lib invalid_clamp_bounds_trap_after_arguments_and_release_roots_without_poisoning_runtime`
+- `cargo test -p kagari-vm --lib -- error::tests:: tests::prepared_execution::optimized_execution_preserves_results_traps_and_source_origins`
+
+Full-workspace tests/exhaustive feature/backend/platform matrices remain CI-only.
+This sample does not replace future complete integration or timing acceptance.
+Successful-call, failure-construction and formatting comparisons remain unmeasured.
+
+#### Reviewed defects and owners
+
+| Boundary | Current ownership and remaining issue | Disposition |
+| --- | --- | --- |
+| Numeric semantics | [ScalarError](../crates/kagari-types/src/scalar/error.rs) retains ArithmeticError and operand-domain/width/shift/Unicode reasons through [integer_operation](../crates/kagari-types/src/integer.rs), [payload.rs](../crates/kagari-types/src/payload.rs) and shared/comparison helpers. | Implemented in EN01. Semantic helpers do not parse or format messages. |
+| Interpreter | ScalarFailure names invariants and carries ScalarError until the cold exit. RegionError and VmError still wrap overlapping runtime/value failures. | Numeric transport is implemented in EN01. Consolidate remaining wrappers with their Runtime owner; keep compact operation failures out of a large uniform hot Result. |
+| Runtime diagnostics | [RuntimeError](../crates/kagari-runtime/src/error.rs) derives kind/code from ErrorReason and keeps optional owned context. | Implemented in EN02. Finer cold validation details remain at their existing owners. |
+| Native/builtin conversion | Builtin and field/variant/element adapters annotate the original RuntimeError; reflective wrapping keeps its typed source. HostError retains custom message/trace data. | Implemented in EN02. Full provider/helper separation remains queued with Runtime/stdlib ownership. |
+| VM/SDK | [VmError](../crates/kagari-vm/src/error.rs) admits builtins through its RuntimeError route. Host/trace/backend variants and SDK diagnostic mapping still remain. | Complete normalization with single-Runtime consolidation; keep compilation/artifact diagnostics distinct. |
+
+This inventory describes the migrated numeric boundary and remaining defects. It
+is representative, not a claim
+that every string-producing call site has been audited. Before implementing each
+owner, inventory its constructors/conversions and direct consumers so the replacement
+has a finite end. Do not leave a permanent generic `(kind, message)` escape hatch
+for internal failures to avoid that migration.
+
+#### Numeric leaf and error-boundary example
+
+The implemented [ScalarError](../crates/kagari-types/src/scalar/error.rs) is Copy
+and derives thiserror::Error with one static message mapping. Arithmetic wraps the
+existing ArithmeticError; the other variants identify invalid operand domains,
+integer widths, shift counts and Unicode scalars. Runtime context shapes below
+remain proposals.
+
+The quoted decode_integer_domain example now returns `Result<i128, ScalarError>` and
+produces `Err(ScalarError::InvalidOperandDomain)`. integer_operation propagates
+`ArithmeticError` through a typed conversion rather than `.map_err(...::message)`.
+The interpreter carries that leaf until the closed failure exit, where it creates
+the Runtime diagnostic and attaches the selected code/PC context. Constant folding
+and Native adapters consume the same semantic leaf; they choose their own outer
+diagnostic context without depending on Runtime from kagari-types.
+
+The enum contains compact reasons, not all operand values, source strings or a
+backtrace. Add diagnostic fields only where useful and owned; large optional data
+belongs to cold context. Derive Display/Error with thiserror where appropriate;
+do not call to_string/format merely to transport a failure between internal layers.
+Static messages are still necessary at one display owner. They were not heap
+allocations in the old helpers, so replacing them is not evidence of saved per-call
+allocations. Measure leaf/Result layout and generated machine code before claiming
+a performance improvement, especially for `Result<i128, E>` padding.
+
+#### One Runtime error, separate context
+
+The implemented public shape is a RuntimeError carrying a typed reason plus
+optional execution context. A reason may wrap its semantic owner's error (numeric, handle,
+borrow, loading/publication or interpreter invariant), but there is no separate
+freely assignable message/category pair. Existing KG_* codes remain the outward
+category contract; reason-specific inspection uses typed variants. Do not invent
+a second universal numeric-code registry for every local variant.
+
+Rich Runtime errors are constructed after leaving the closed operation segment.
+Keep large owned host/context payloads off the common enum layout, boxing only
+where measured sizes/lifetimes justify it; do not box each arithmetic failure or
+allocate a context object on successful operations. Formatting is requested by
+Display/log/SDK diagnostic serialization. A borrowed `message() -> &str` cannot
+generally describe lazily formatted structured fields; EN02 replaces that API
+with Display and typed access without a hidden formatted-message cache.
+
+Keep trace capture at its established first-error/PC boundary, not at eventual
+formatting time. Attach it once and transport it unchanged through callbacks,
+async boundaries and SDK calls; preserve bounded/incomplete trace behavior and
+task origin. Conversion context should retain field/index/argument facts, not a
+chain of preformatted prefixes. Detached diagnostics must retain the required
+code/type identity or owned labels rather than borrowing retired Program data.
+
+Application-generated Host error text remains valid owned diagnostic data. Reuse
+the current host error/source contract; do not introduce dynamic trait objects for
+all internal errors. Script business `Result::Err` remains an ordinary returned
+value and is not promoted into execution failure. Engine invariant, script trap,
+external validation and host failure remain distinct. In particular, changing a
+string to InvalidOperandDomain does not itself authorize reclassifying the current
+ScriptTrap as EngineFault or changing quarantine/termination priority.
+
+#### Bounded implementation sequence
+
+1. **Typed numeric path.** Replace integer/payload/shared/comparison string errors
+   together, reusing ArithmeticError, then update constant evaluation, interpreter,
+   Native adapters and backend bridges that consume them. Preserve existing error
+   classification, text, trap/commit order and source-free verification. No numeric
+   algorithm or validation removal belongs in this first change.
+2. **Runtime reason/context owners.** Migrate finite families of internal
+   constructors to typed reasons and structured conversion context. Update
+   quarantine/sticky termination, async retained-error memory accounting and public
+   typed access together; retained-byte attribution must follow actual owned storage. Replace obsolete constructors directly, not through indefinite
+   string adapters. Merge VM/Builtin/SDK execution wrappers as part of their
+   Runtime consolidation, retaining separate compilation/loading diagnostics where
+   their semantics require them.
+3. **Acceptance.** Reuse numeric boundary, failure-before-effect, trace, Host,
+   source-free and cleanup oracles. Assert reason/category and relevant contextual
+   fields; keep representative text-format checks at the diagnostic owner. Compare
+   successful scalar loops/calls, failure construction and formatting separately,
+   and inspect error/Result sizes. Existing source-generation timings do not
+   measure this error migration. Full-workspace tests remain CI-only.
+
+Reference mechanisms: Rust 1.99.1's
+[IntErrorKind](https://doc.rust-lang.org/std/num/enum.IntErrorKind.html) demonstrates
+copyable semantic error classification separate from rendered text. Wasmtime
+38.0.3's [Trap](https://docs.rs/wasmtime/38.0.3/wasmtime/enum.Trap.html) distinguishes
+typed VM traps, host errors and attached execution backtraces. Adopt typed leaves
+and cold context ownership, not Wasmtime's general anyhow container or WebAssembly
+trap/numeric policy. Kagari keeps its checked numeric, shared-object, reload and
+explicit Host boundary semantics.
+
 ### Prepare facts, then execute a bound call
 
 | Boundary | Work and validity |

@@ -1,6 +1,7 @@
 //! Prepared field operations share heap semantics across concrete and applied layouts.
 use crate::{
     Runtime,
+    error::fault::EngineFault,
     frame::{
         ExecutionFrame, ExecutionStack,
         cursor::kernel::{RegionError, RegionExit},
@@ -15,6 +16,7 @@ use crate::{
     },
     value::Value,
 };
+
 use kagari_bytecode::module::CallableTarget;
 use kagari_types::reference::ReferenceAccess;
 
@@ -111,7 +113,7 @@ impl ExecutionStack<'_> {
         let operation = frame.prepared_field(index).ok_or_else(|| {
             runtime
                 .resources()
-                .quarantine("invalid prepared field ordinal")
+                .quarantine(EngineFault::InvalidPreparedFieldOrdinal)
         })?;
         let access = operation.access;
         let read = |location: Location| {
@@ -122,10 +124,14 @@ impl ExecutionStack<'_> {
                 .map_err(|_| {
                     runtime
                         .resources()
-                        .quarantine("field operands borrowed across transition")
+                        .quarantine(EngineFault::FieldOperandsBorrowedAcrossTransition)
                 })?
                 .with_location(frame.slots, location, |value| *value)
-                .ok_or_else(|| runtime.resources().quarantine("invalid field operand"))
+                .ok_or_else(|| {
+                    runtime
+                        .resources()
+                        .quarantine(EngineFault::InvalidFieldOperand)
+                })
         };
         if operation.reference.is_none()
             && let Some(ty) = operation.scalar
@@ -139,13 +145,13 @@ impl ExecutionStack<'_> {
                         .map_err(|_| {
                             runtime
                                 .resources()
-                                .quarantine("field operands borrowed across transition")
+                                .quarantine(EngineFault::FieldOperandsBorrowedAcrossTransition)
                         })?
                         .scalar_location(frame.slots, value)
                         .ok_or_else(|| {
                             runtime
                                 .resources()
-                                .quarantine("invalid scalar field operand")
+                                .quarantine(EngineFault::InvalidScalarFieldOperand)
                         })?
                         .1,
                 )
@@ -175,11 +181,13 @@ impl ExecutionStack<'_> {
                         .map_err(|_| {
                             runtime
                                 .resources()
-                                .quarantine("field operands borrowed during publication")
+                                .quarantine(EngineFault::FieldOperandsBorrowedDuringPublication)
                         })?
                         .set_scalar_location(frame.slots, dst, dst.representation, bits)
                         .ok_or_else(|| {
-                            runtime.resources().quarantine("invalid field destination")
+                            runtime
+                                .resources()
+                                .quarantine(EngineFault::InvalidFieldDestination)
                         })?;
                 }
                 FieldAccess::Write { .. } => runtime.gc().set_struct_scalar(
@@ -220,11 +228,14 @@ impl ExecutionStack<'_> {
             let FieldAccess::Read { dst } = access else {
                 return Err(runtime
                     .resources()
-                    .quarantine("field access contract mismatch")
+                    .quarantine(EngineFault::FieldAccessContractMismatch)
                     .into());
             };
             if !runtime.gc().validate_value(&value) {
-                return Err(runtime.resources().quarantine("invalid field value").into());
+                return Err(runtime
+                    .resources()
+                    .quarantine(EngineFault::InvalidFieldValue)
+                    .into());
             }
             runtime
                 .resources()
@@ -233,10 +244,14 @@ impl ExecutionStack<'_> {
                 .map_err(|_| {
                     runtime
                         .resources()
-                        .quarantine("field operands borrowed during publication")
+                        .quarantine(EngineFault::FieldOperandsBorrowedDuringPublication)
                 })?
                 .set_location(frame.slots, dst, value)
-                .ok_or_else(|| runtime.resources().quarantine("invalid field destination"))?;
+                .ok_or_else(|| {
+                    runtime
+                        .resources()
+                        .quarantine(EngineFault::InvalidFieldDestination)
+                })?;
         }
         drop(result_root);
         frame.completed = frame.executing;

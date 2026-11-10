@@ -1,5 +1,11 @@
 //! Runtime-local constant values are edges of the installed module version.
-use crate::{Runtime, error::RuntimeError, module::ExecutableModule, value::Value};
+use crate::{
+    Runtime,
+    error::{RuntimeError, fault::EngineFault},
+    module::ExecutableModule,
+    value::Value,
+};
+
 use kagari_bytecode::instruction::{ConstantId, ConstantOperand};
 use std::sync::OnceLock;
 
@@ -62,7 +68,7 @@ impl ConstantPool {
         cell.set(value).map_err(|_| {
             runtime
                 .resources()
-                .quarantine("constant initialized during exclusive execution")
+                .quarantine(EngineFault::ConstantInitializedDuringExclusiveExecution)
         })?;
         Ok(value)
     }
@@ -79,7 +85,7 @@ impl Runtime {
         self.validate_executable_module(module)?;
         let records = self.modules.inner.try_borrow_mut().map_err(|_| {
             self.resources()
-                .quarantine("constant storage borrowed across execution")
+                .quarantine(EngineFault::ConstantStorageBorrowedAcrossExecution)
         })?;
         let record = records
             .resolve(module)

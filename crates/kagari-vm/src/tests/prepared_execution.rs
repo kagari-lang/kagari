@@ -240,8 +240,7 @@ fn optimized_execution_preserves_results_traps_and_source_origins(#[case] source
             }
             (Err(a), Err(b)) => {
                 let describe = |error: &VmError| match error.cause() {
-                    VmError::RuntimeError(error) => (error.kind(), error.message().to_owned()),
-                    VmError::BuiltinError(error) => (error.kind(), error.message().to_owned()),
+                    VmError::RuntimeError(error) => (error.kind(), error.to_string()),
                     error => panic!("unexpected error: {error:?}"),
                 };
                 assert_eq!(describe(&a), describe(&b), "{source}");

@@ -1,10 +1,11 @@
 //! Family admission for fixed builtin arrays and registered growable sequences.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::{GcHeap, GcObjectKind, HeapObjectId},
     native::storage_type::StorageType,
     value::Value,
 };
+
 use std::{ops::Bound, sync::Arc};
 
 impl GcHeap {
@@ -23,10 +24,7 @@ impl GcHeap {
         if self.object_kind(id) == Some(GcObjectKind::Array) && self.buffer_contract(id).is_some() {
             Ok(())
         } else {
-            Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "expected a builtin array object",
-            ))
+            Err(RuntimeError::from(TrapReason::ExpectedABuiltinArrayObject))
         }
     }
 

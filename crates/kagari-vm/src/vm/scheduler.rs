@@ -4,9 +4,10 @@ use crate::{
     vm::{Vm, owned::DriveResult},
 };
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::ErrorReason, trap::TrapReason},
     scheduler::{ScheduledWork, TurnBudget, wake::DriverRegistration},
 };
+
 use std::{
     num::NonZeroUsize,
     task::{Context, Poll},
@@ -107,14 +108,9 @@ pub(super) fn execution_failure(error: VmError) -> RuntimeError {
     let result = match error {
         VmError::Traced { error, .. } => execution_failure(*error),
         VmError::RuntimeError(error) => error,
-        VmError::BuiltinError(error) => error.into_runtime_error(),
-        VmError::ReflectionError(error) => error.into_runtime_error(),
-        VmError::HostError(error) => RuntimeError::host_call_failure(error.message()),
-        VmError::Trap(message) => RuntimeError::new(RuntimeErrorKind::ScriptTrap, message),
-        error => RuntimeError::new(
-            RuntimeErrorKind::EngineFault,
-            format!("owned backend failure: {error:?}"),
-        ),
+        VmError::HostError(error) => RuntimeError::from_host(error),
+        VmError::Trap(message) => RuntimeError::from(TrapReason::Provider(message.into())),
+        error => RuntimeError::new(ErrorReason::OwnedBackendFailure(format!("{error:?}"))),
     };
     match trace {
         Some(trace) => result.with_trace(trace),

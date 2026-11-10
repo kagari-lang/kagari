@@ -152,8 +152,8 @@ fn serde_owned_graph_rejects_cycles_through_nominal_sequences() {
     runtime.gc().sequence_push(children, value).unwrap();
     let error = cx.decode::<Serde<Graph>>(&root).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-    assert!(error.message().contains("cycle"));
-    assert!(error.message().contains("field children"));
+    assert!(error.to_string().contains("cycle"));
+    assert!(error.to_string().contains("field children"));
     assert_eq!(runtime.gc().active_roots(), 1);
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);

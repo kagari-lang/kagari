@@ -302,7 +302,7 @@ fn stored_hash_selections_select_current_with_frame_roots_and_checked_calls(#[ca
             .start_native_entry(&runtime, |_, _, _, _| Ok(Value::Unit))
             .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-        assert!(error.message().contains("selected call result"));
+        assert!(error.to_string().contains("selected call result"));
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 

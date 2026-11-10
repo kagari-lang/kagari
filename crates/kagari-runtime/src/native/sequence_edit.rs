@@ -1,7 +1,7 @@
 //! Exclusive direct edits. A lease roots traced elements across synchronous callbacks
 //! and restores the edited storage even when a callback fails or unwinds.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     native::{
         binding::NativeResult,
         scalar::NativeScalar,
@@ -9,6 +9,7 @@ use crate::{
     },
     value::Value,
 };
+
 use std::{
     cmp::Ordering,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -103,12 +104,7 @@ fn sort<T: Clone>(
     if let Some(error) = failure {
         return Err(error);
     }
-    result.map_err(|_| {
-        RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "sort comparator does not define a consistent order",
-        )
-    })
+    result.map_err(|_| RuntimeError::from(TrapReason::SortComparatorDoesNotDefineAConsistentOrder))
 }
 
 fn retain<T: Clone>(

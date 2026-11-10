@@ -1,6 +1,6 @@
 use super::string_iter::StringTraversal;
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::{GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
     module::ExecutableModule,
@@ -76,10 +76,7 @@ impl NativePayload for NativeIter {
 }
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::ScriptTrap,
-        "invalid or structurally modified iterator",
-    )
+    RuntimeError::from(TrapReason::InvalidOrStructurallyModifiedIterator)
 }
 
 impl GcHeap {

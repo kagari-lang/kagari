@@ -1,4 +1,8 @@
 //! Terminal publication updates one sealed Task payload without a native borrow.
+#[cfg(test)]
+use crate::error::fault::EngineFault;
+#[cfg(test)]
+use crate::error::trap::TrapReason;
 use crate::{
     error::RuntimeError,
     gc::{GcHeap, HeapObjectId},
@@ -90,7 +94,7 @@ impl GcHeap {
 mod tests {
     use super::*;
     use crate::{
-        Runtime, error::RuntimeErrorKind, native::storage::NativeStorage, task::store::Identity,
+        Runtime, native::storage::NativeStorage, task::store::Identity,
         test_support::layouts::allocation_owner,
     };
     use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -125,7 +129,8 @@ mod tests {
                     assert!(heap.ensure_execution_allowed().is_err());
                 }
                 "quarantined" => {
-                    heap.resources.quarantine("fixture fault");
+                    heap.resources
+                        .quarantine(EngineFault::HostInvariant("fixture fault"));
                 }
                 _ => {}
             }
@@ -133,7 +138,7 @@ mod tests {
                 id,
                 task,
                 Err(TaskFailure {
-                    error: RuntimeError::new(RuntimeErrorKind::ScriptTrap, message),
+                    error: RuntimeError::from(TrapReason::Provider(message.into())),
                     source_task: task,
                     cancellation: None,
                 }),

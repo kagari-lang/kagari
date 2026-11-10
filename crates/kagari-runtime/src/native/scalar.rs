@@ -1,10 +1,11 @@
 //! Rust scalar conversion is inferred only against an explicit Kagari signature.
 //! This defines converters, never language declarations or trait implementations.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::ErrorReason},
     native::binding::NativeResult,
     value::Value,
 };
+
 use kagari_types::scalar::BuiltinType;
 
 mod sealed {
@@ -29,10 +30,7 @@ pub trait NativeScalar: sealed::Scalar + Sized + 'static {
 }
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::ModuleValidation,
-        "native scalar conversion differs from its declaration",
-    )
+    RuntimeError::new(ErrorReason::NativeScalarMismatch)
 }
 
 macro_rules! integer_scalar {

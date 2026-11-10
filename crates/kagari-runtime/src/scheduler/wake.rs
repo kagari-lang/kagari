@@ -1,8 +1,9 @@
 //! Notification-only routing; neither host wakers nor worker threads enter the heap.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault},
     native::binding::NativeResult,
 };
+
 use std::{
     mem,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -88,10 +89,7 @@ impl WakeHub {
 
     pub(crate) fn check(&self) -> NativeResult<()> {
         if self.faulted.load(Ordering::Acquire) {
-            Err(RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                "scheduler callback failed",
-            ))
+            Err(RuntimeError::from(EngineFault::SchedulerCallbackFailed))
         } else {
             Ok(())
         }

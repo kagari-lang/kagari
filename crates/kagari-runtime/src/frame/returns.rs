@@ -1,16 +1,16 @@
 //! All call kinds share retirement and publication after any result adaptation.
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
-
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     frame::{
         ExecutionStack, ReturnDestination,
         driver::{ExecutionAction, ReturnAction},
         transfer::ReturnValue,
     },
 };
+
 use kagari_bytecode::module::CallableTarget;
 
 impl ExecutionStack<'_> {
@@ -64,13 +64,21 @@ impl ExecutionStack<'_> {
                 .resources
                 .sessions
                 .frames_mut(self.session.id)
-                .ok_or_else(|| runtime.resources().quarantine("return stack is borrowed"))
+                .ok_or_else(|| {
+                    runtime
+                        .resources()
+                        .quarantine(EngineFault::ReturnStackIsBorrowed)
+                })
         };
         let mut frames = borrow_frames()?;
         let frame = frames
             .last()
             .filter(|_| frames.len() > self.base)
-            .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::MissingReturnFrame)
+            })?;
         if frame.environment.is_some() || frame.invocation.is_some() {
             drop(frames);
             packet = self.adapt_return(runtime, packet)?;
@@ -80,7 +88,11 @@ impl ExecutionStack<'_> {
         let frame = frames
             .last()
             .filter(|_| frames.len() > self.base)
-            .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::MissingReturnFrame)
+            })?;
         if frame.initializer.is_some() {
             drop(frames);
             return self.finish_static_return(runtime, packet);
@@ -115,7 +127,9 @@ impl ExecutionStack<'_> {
         if let ReturnDestination::Slot(Some(register)) = destination
             && register.index() >= caller.slot_count
         {
-            return Err(runtime.resources().quarantine("invalid frame register"));
+            return Err(runtime
+                .resources()
+                .quarantine(EngineFault::InvalidFrameRegister));
         }
         // Retirement and publication form a closed transition: no allocation,
         // collection or callback can observe an unrooted managed return value.
@@ -137,7 +151,9 @@ impl ExecutionStack<'_> {
                 .materialize()
                 .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
             if !runtime.gc.validate_value(&value) {
-                return Err(runtime.resources().quarantine("invalid return value"));
+                return Err(runtime
+                    .resources()
+                    .quarantine(EngineFault::InvalidReturnValue));
             }
             match destination {
                 ReturnDestination::Slot(Some(register)) => {
@@ -149,7 +165,11 @@ impl ExecutionStack<'_> {
                 _ => unreachable!("present return destination"),
             }
         };
-        published.ok_or_else(|| runtime.resources().quarantine("invalid return destination"))?;
+        published.ok_or_else(|| {
+            runtime
+                .resources()
+                .quarantine(EngineFault::InvalidReturnDestination)
+        })?;
         caller.completed = caller.executing;
         caller.execution_action(runtime).map(ReturnAction::Continue)
     }

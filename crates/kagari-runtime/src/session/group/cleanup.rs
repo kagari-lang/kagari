@@ -1,7 +1,7 @@
 //! Descendants retire leaf-first, without recursive group teardown or script execution.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     gc::roots::RootedValue,
     native::binding::NativeResult,
     scheduler::WorkKey,
@@ -116,7 +116,7 @@ impl Runtime {
         };
         let callback_fault = self.scheduler.hub.check().is_err();
         if selected_fatal {
-            self.quarantine_execution_invariant("structured branch failed");
+            self.quarantine_execution_invariant(EngineFault::StructuredBranchFailed);
         } else if let Err(error) = self.poll_group_parent(parent) {
             outcome = Err(retain_trace(error));
         }

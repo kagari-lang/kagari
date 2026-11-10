@@ -659,7 +659,7 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
     assert!(
         matches!(&error, EmbeddingError::Load { error }
             if error.kind() == RuntimeErrorKind::ModuleValidation
-                && error.message().contains("native declaration differs from its installed contract")),
+                && error.to_string().contains("native declaration differs from its installed contract")),
         "{error:?}"
     );
     assert_eq!(runtime.runtime().gc().active_roots(), 0);

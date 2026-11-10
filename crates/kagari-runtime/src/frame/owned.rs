@@ -1,16 +1,17 @@
 //! Parking retains live values, never transient native borrows.
+use crate::{
+    Runtime,
+    error::{RuntimeError, fault::EngineFault},
+    frame::{ExecutionStack, NativeEntryState},
+    module::linked_execution::LinkedFunction,
+    session::ExecutionSession,
+};
 #[cfg(test)]
 pub(super) mod tests;
 
 #[cfg(test)]
 use crate::gc::retention_probe::{self, Event};
-use crate::{
-    Runtime,
-    error::RuntimeError,
-    frame::{ExecutionStack, NativeEntryState},
-    module::linked_execution::LinkedFunction,
-    session::ExecutionSession,
-};
+
 use kagari_bytecode::module::CallableTarget;
 use std::sync::Arc;
 
@@ -55,7 +56,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             .sessions
             .frames_mut(stack.session.id)
             .ok_or_else(|| {
-                runtime.quarantine_execution_invariant("resumed frame stack borrowed")
+                runtime.quarantine_execution_invariant(EngineFault::ResumedFrameStackBorrowed)
             })?;
         for (frame, links) in frames.iter_mut().zip(links) {
             frame.links = links;
@@ -73,7 +74,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             .ok_or_else(|| {
                 self.session
                     .resources
-                    .quarantine("parked frame stack borrowed")
+                    .quarantine(EngineFault::ParkedFrameStackBorrowed)
             })?;
         let previous = frames
             .iter_mut()
@@ -109,7 +110,7 @@ impl<'runtime> ExecutionStack<'runtime> {
             .map_err(|_| {
                 self.session
                     .resources
-                    .quarantine("execution windows borrowed during suspension")
+                    .quarantine(EngineFault::ExecutionWindowsBorrowedDuringSuspension)
             })?;
         runtime.gc().with_async_values(|walk| {
             for frame in frames.iter() {
@@ -123,7 +124,7 @@ impl<'runtime> ExecutionStack<'runtime> {
                 let ranges = values.ranges(frame.slots).ok_or_else(|| {
                     self.session
                         .resources
-                        .quarantine("invalid parked frame window")
+                        .quarantine(EngineFault::InvalidParkedFrameWindow)
                 })?;
                 let retained = &values.values[ranges.managed];
                 if !retained.iter().all(|value| value.is_storable(runtime.gc())) {

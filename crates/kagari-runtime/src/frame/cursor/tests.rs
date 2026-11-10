@@ -1,7 +1,7 @@
 //! Region results remain inspectable only after successful publication and released borrows.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, trap::TrapReason},
     frame::{
         ExecutionStack,
         cursor::kernel::{RegionError, RegionExit},
@@ -14,6 +14,7 @@ use crate::{
     },
     value::Value,
 };
+
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, Slot},
     program::updates,
@@ -59,10 +60,9 @@ fn native_completion_fixture(
                     assert!(!cx.runtime.capture_error_trace().incomplete);
                     cx.runtime.collect_garbage()?;
                     if invoked.fetch_add(1, Ordering::Relaxed) == 1 && fail_second {
-                        Err(RuntimeError::new(
-                            RuntimeErrorKind::ScriptTrap,
-                            "native failure",
-                        ))
+                        Err(RuntimeError::from(TrapReason::Provider(
+                            "native failure".into(),
+                        )))
                     } else {
                         Ok(7)
                     }

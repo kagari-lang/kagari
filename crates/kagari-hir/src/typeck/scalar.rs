@@ -39,6 +39,18 @@ pub enum ScalarValue {
     Char(char),
 }
 
+/// An integer fact cannot be represented in its selected semantic type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("{}", self.message())]
+pub struct IntegerRangeError;
+
+impl IntegerRangeError {
+    /// Returns the source diagnostic used for an out-of-range integer literal.
+    pub fn message(self) -> &'static str {
+        "integer literal is outside the target type range"
+    }
+}
+
 impl ScalarValue {
     /// Returns the intrinsic semantic type implied by the value tag.
     pub fn ty(&self) -> TypeId {
@@ -91,6 +103,7 @@ impl ScalarValue {
                 }
                 let value = i128::from(literal::parse_integer_literal(&literal.text)?);
                 Self::integer(if negative { -value } else { value }, ty)
+                    .map_err(IntegerRangeError::message)
             }
             LiteralKind::Float => {
                 let compact = digits.replace('_', "");
@@ -118,7 +131,8 @@ impl ScalarValue {
             },
             LiteralKind::String => Ok(Self::String(literal.text.clone())),
             LiteralKind::Char => literal::decode_char_literal(&literal.text).map(Self::Char),
-            LiteralKind::Byte(value) => Self::integer(i128::from(value), IntegerType::U8),
+            LiteralKind::Byte(value) => Self::integer(i128::from(value), IntegerType::U8)
+                .map_err(IntegerRangeError::message),
         }
     }
 
@@ -127,10 +141,10 @@ impl ScalarValue {
     /// # Errors
     ///
     /// Returns an error if `value` lies outside `ty.bounds()`.
-    pub fn integer(value: i128, ty: IntegerType) -> Result<Self, &'static str> {
+    pub fn integer(value: i128, ty: IntegerType) -> Result<Self, IntegerRangeError> {
         let (min, max) = ty.bounds();
         if !(min..=max).contains(&value) {
-            return Err("integer literal is outside the target type range");
+            return Err(IntegerRangeError);
         }
         Ok(Self::Integer { value, ty })
     }

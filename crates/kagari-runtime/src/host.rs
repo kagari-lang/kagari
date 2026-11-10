@@ -826,7 +826,8 @@ impl Default for HostRegistryId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct HostError {
     message: String,
     trace: Option<Arc<ErrorTrace>>,
@@ -838,6 +839,10 @@ impl HostError {
             message: message.into(),
             trace: None,
         }
+    }
+
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.message.capacity()
     }
 
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
@@ -950,7 +955,7 @@ impl<'host, T: ?Sized> MutHostRef<'host, T> {
 
 fn path_scope_error(error: RuntimeError) -> RuntimeError {
     if error.kind() == RuntimeErrorKind::HostCallFailure {
-        RuntimeError::typed_path_validation(error.message())
+        RuntimeError::typed_path_validation(error.to_string())
     } else {
         error
     }

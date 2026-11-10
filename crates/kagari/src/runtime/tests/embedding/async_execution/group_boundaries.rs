@@ -12,7 +12,7 @@ use crate::{
 };
 use kagari_runtime::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     error_trace::ErrorTrace,
     frame::ExecutionFrame,
     host::HostCallContext,
@@ -30,6 +30,7 @@ use kagari_runtime::{
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
+
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::host::HostCallPolicy;
 use std::{
@@ -47,10 +48,9 @@ impl ExecutionObserver for FatalBranchEntry {
     fn begin(&mut self, runtime: &Runtime, _: &ExecutableModule) -> NativeResult<()> {
         let trace = runtime.capture_error_trace();
         *self.0.lock().unwrap() = Some(trace.clone());
-        Err(RuntimeError::new(
-            RuntimeErrorKind::EngineFault,
+        Err(RuntimeError::from(EngineFault::HostInvariant(
             "recognizable branch entry fault",
-        )
+        ))
         .with_trace(trace))
     }
 
@@ -144,7 +144,7 @@ pub fn factory() -> fn()->Future<i32> { || nested() }
             event.failure.error
         };
         assert_eq!(failure.kind(), RuntimeErrorKind::EngineFault);
-        assert_eq!(failure.message(), "recognizable branch entry fault");
+        assert_eq!(failure.to_string(), "recognizable branch entry fault");
         assert_eq!(message, "recognizable branch entry fault");
         assert!(Arc::ptr_eq(terminal_trace.as_ref().unwrap(), &selected));
         drop(scope);
@@ -240,7 +240,7 @@ pub async fn run() -> Result<(i32,i32),String> {
     assert!(f.runtime.runtime().is_quarantined());
     let error = result(&mut ticket).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    assert_eq!(error.message(), "owned execution cleanup failed");
+    assert_eq!(error.to_string(), "owned execution cleanup failed");
     assert_eq!(message, "owned execution cleanup failed");
     if fatal_entry {
         let original = trace.lock().unwrap().clone().unwrap();

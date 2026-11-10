@@ -1,8 +1,29 @@
+//! Runtime failures keep typed reasons separate from owned diagnostic context.
+pub mod context;
+pub mod fault;
+pub mod reason;
+pub mod trap;
+
 use crate::{
+    error::{
+        context::{ErrorContext, ErrorLocation},
+        fault::EngineFault,
+        reason::{
+            CancellationReason, ErrorReason, IndexError, ReflectiveFailure, StaleHandleReason,
+        },
+        trap::TrapReason,
+    },
     error_trace::{ErrorTrace, asynchronous::AsyncBoundary},
+    host::HostError,
     task::TaskFailureOrigin,
 };
-use std::{fmt, sync::Arc};
+use kagari_types::scalar::error::ScalarError;
+use std::{
+    error::Error,
+    fmt::{self, Display},
+    mem,
+    sync::Arc,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeErrorKind {
@@ -47,128 +68,170 @@ impl RuntimeErrorKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{message}")]
+/// An execution failure with one authoritative reason and optional cold context.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeError {
-    kind: RuntimeErrorKind,
-    message: String,
-    trace: Option<Arc<ErrorTrace>>,
-    task_origin: Option<TaskFailureOrigin>,
+    reason: ErrorReason,
+    context: Option<Box<ErrorContext>>,
 }
 
 impl RuntimeError {
-    /// Owned message capacity for heap payload attribution; shared trace metadata
-    /// is deliberately excluded, including when several task failures retain it.
-    pub(crate) fn message_capacity(&self) -> usize {
-        self.message.capacity()
-    }
-
-    pub fn new(kind: RuntimeErrorKind, message: impl Into<String>) -> Self {
+    /// Construct a diagnostic without formatting or allocating execution context.
+    pub fn new(reason: ErrorReason) -> Self {
         Self {
-            kind,
-            message: message.into(),
-            trace: None,
-            task_origin: None,
+            reason,
+            context: None,
         }
     }
 
+    /// The typed reason is preserved when positions, traces or task origins are added.
+    pub fn reason(&self) -> &ErrorReason {
+        &self.reason
+    }
+
+    /// Owned storage attributed to retained task failures. Shared trace metadata
+    /// remains excluded even when several failures retain it.
+    pub(crate) fn retained_bytes(&self) -> usize {
+        self.reason.retained_bytes()
+            + self.context.as_ref().map_or(0, |context| {
+                mem::size_of::<ErrorContext>()
+                    + context.locations.capacity() * mem::size_of::<ErrorLocation>()
+                    + context
+                        .locations
+                        .iter()
+                        .map(ErrorLocation::retained_bytes)
+                        .sum::<usize>()
+            })
+    }
+
     pub fn execution_phase_violation(operation: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::ExecutionPhaseViolation,
-            format!("execution phase forbids: {}", operation.into()),
-        )
+        Self::new(ErrorReason::ExecutionPhaseViolation(operation.into()))
     }
 
     pub fn resource_limit(limit: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::ResourceLimitExceeded,
-            format!("resource limit exceeded: {}", limit.into()),
-        )
+        Self::new(ErrorReason::ResourceLimit(limit.into()))
     }
 
     pub fn metadata_conflict(name: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::MetadataConflict,
-            format!("metadata conflict: {}", name.into()),
-        )
+        Self::new(ErrorReason::MetadataConflict(name.into()))
     }
 
     pub fn expired_host_borrow(detail: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::ExpiredHostBorrow,
-            format!("expired host borrow: {}", detail.into()),
-        )
+        Self::new(ErrorReason::ExpiredHostBorrow(detail.into()))
     }
 
     pub fn host_borrow_conflict(detail: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::HostBorrowConflict,
-            format!("host borrow conflict: {}", detail.into()),
-        )
+        Self::new(ErrorReason::HostBorrowConflict(detail.into()))
     }
 
     pub fn host_borrow_escape(detail: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::HostBorrowEscape,
-            format!("host borrow escape: {}", detail.into()),
-        )
-    }
-
-    pub fn invalid_reflective_read(detail: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::InvalidReflectiveRead,
-            format!("invalid reflective read: {}", detail.into()),
-        )
-    }
-
-    pub fn invalid_reflective_write(detail: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::InvalidReflectiveWrite,
-            format!("invalid reflective write: {}", detail.into()),
-        )
-    }
-
-    pub fn host_call_failure(detail: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::HostCallFailure,
-            format!("host call failed: {}", detail.into()),
-        )
+        Self::new(ErrorReason::HostBorrowEscape(detail.into()))
     }
 
     pub fn typed_path_validation(detail: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::TypedPathValidation,
-            format!("typed path validation failed: {}", detail.into()),
-        )
+        Self::new(ErrorReason::TypedPathValidation(detail.into()))
     }
 
     pub fn module_validation(detail: impl Into<String>) -> Self {
-        Self::new(
-            RuntimeErrorKind::ModuleValidation,
-            format!("module validation failed: {}", detail.into()),
-        )
+        Self::new(ErrorReason::ModuleValidation(detail.into()))
     }
 
-    pub(crate) fn at_conversion(mut self, location: impl fmt::Display) -> Self {
-        self.message = format!("{location}: {}", self.message);
+    pub fn invalid_reflective_read(detail: impl Into<String>) -> Self {
+        Self::new(ErrorReason::InvalidReflectiveRead(
+            ReflectiveFailure::Detail(detail.into()),
+        ))
+    }
+
+    pub fn invalid_reflective_write(detail: impl Into<String>) -> Self {
+        Self::new(ErrorReason::InvalidReflectiveWrite(
+            ReflectiveFailure::Detail(detail.into()),
+        ))
+    }
+
+    pub fn host_call_failure(detail: impl Into<String>) -> Self {
+        Self::from_host(HostError::new(detail))
+    }
+
+    /// Preserve the Host diagnostic and its original trace without flattening it.
+    pub fn from_host(error: HostError) -> Self {
+        let trace = error.trace().cloned();
+        let mut failure = Self::new(ErrorReason::HostCallFailure(error));
+        if let Some(trace) = trace {
+            failure = failure.with_trace(trace);
+        }
+        failure
+    }
+
+    pub(crate) fn into_reflective_read(self) -> Self {
+        let trace = self.trace().cloned();
+        let origin = self.task_origin();
+        let mut error = Self::new(ErrorReason::InvalidReflectiveRead(
+            ReflectiveFailure::Cause(Box::new(self)),
+        ));
+        if let Some(trace) = trace {
+            error = error.with_trace(trace);
+        }
+        if let Some(origin) = origin {
+            error = error.with_task_origin(origin);
+        }
+        error
+    }
+
+    pub(crate) fn into_reflective_write(self) -> Self {
+        let trace = self.trace().cloned();
+        let origin = self.task_origin();
+        let mut error = Self::new(ErrorReason::InvalidReflectiveWrite(
+            ReflectiveFailure::Cause(Box::new(self)),
+        ));
+        if let Some(trace) = trace {
+            error = error.with_trace(trace);
+        }
+        if let Some(origin) = origin {
+            error = error.with_task_origin(origin);
+        }
+        error
+    }
+
+    /// Attach one owned position on failure; successful operations allocate none.
+    pub fn at(mut self, location: ErrorLocation) -> Self {
+        self.context
+            .get_or_insert_with(Default::default)
+            .locations
+            .push(location);
         self
     }
 
+    /// Positions in attachment order, from inner to outer.
+    pub fn locations(&self) -> &[ErrorLocation] {
+        self.context
+            .as_ref()
+            .map_or(&[], |context| context.locations.as_slice())
+    }
+
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
-        self.trace.as_ref()
+        self.context
+            .as_ref()
+            .and_then(|context| context.trace.as_ref())
     }
 
     pub fn task_origin(&self) -> Option<TaskFailureOrigin> {
-        self.task_origin
+        self.context
+            .as_ref()
+            .and_then(|context| context.task_origin)
     }
 
     pub(crate) fn with_task_origin(mut self, origin: TaskFailureOrigin) -> Self {
-        self.task_origin.get_or_insert(origin);
+        self.context
+            .get_or_insert_with(Default::default)
+            .task_origin
+            .get_or_insert(origin);
         self
     }
 
     pub(crate) fn with_async_boundary(mut self, boundary: AsyncBoundary) -> Self {
         let trace = self
+            .context
+            .get_or_insert_with(Default::default)
             .trace
             .get_or_insert_with(|| Arc::new(ErrorTrace::default()));
         Arc::make_mut(trace).append_async(boundary);
@@ -176,7 +239,8 @@ impl RuntimeError {
     }
 
     pub fn with_trace(mut self, trace: Arc<ErrorTrace>) -> Self {
-        if let Some(previous) = &mut self.trace
+        let context = self.context.get_or_insert_with(Default::default);
+        if let Some(previous) = &mut context.trace
             && previous.frames.is_empty()
             && !previous.async_boundaries.is_empty()
         {
@@ -186,46 +250,75 @@ impl RuntimeError {
             previous.incomplete |= trace.incomplete;
             return self;
         }
-        if self
+        if context
             .trace
             .as_ref()
             .is_none_or(|previous| previous.frames.is_empty())
         {
-            self.trace = Some(trace);
+            context.trace = Some(trace);
         }
         self
     }
 
     pub fn kind(&self) -> RuntimeErrorKind {
-        self.kind
+        self.reason.kind()
     }
 
     pub fn code(&self) -> &'static str {
-        self.kind.code()
+        self.kind().code()
     }
+}
 
-    pub fn message(&self) -> &str {
-        &self.message
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for location in self.locations().iter().rev() {
+            write!(f, "{location}: ")?;
+        }
+        Display::fmt(&self.reason, f)
+    }
+}
+
+impl Error for RuntimeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.reason)
+    }
+}
+
+impl From<ScalarError> for RuntimeError {
+    fn from(reason: ScalarError) -> Self {
+        Self::new(reason.into())
+    }
+}
+
+impl From<TrapReason> for RuntimeError {
+    fn from(reason: TrapReason) -> Self {
+        Self::new(reason.into())
+    }
+}
+
+impl From<EngineFault> for RuntimeError {
+    fn from(reason: EngineFault) -> Self {
+        Self::new(reason.into())
+    }
+}
+
+impl From<CancellationReason> for RuntimeError {
+    fn from(reason: CancellationReason) -> Self {
+        Self::new(reason.into())
+    }
+}
+
+impl From<StaleHandleReason> for RuntimeError {
+    fn from(reason: StaleHandleReason) -> Self {
+        Self::new(reason.into())
+    }
+}
+
+impl From<IndexError> for RuntimeError {
+    fn from(reason: IndexError) -> Self {
+        Self::new(reason.into())
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{RuntimeError, RuntimeErrorKind};
-
-    #[test]
-    fn runtime_errors_expose_stable_codes() {
-        let error = RuntimeError::execution_phase_violation("external candidate access");
-
-        assert_eq!(
-            RuntimeErrorKind::ExecutionPhaseViolation.code(),
-            "KG_RUNTIME_EXECUTION_PHASE_VIOLATION"
-        );
-        assert_eq!(error.code(), "KG_RUNTIME_EXECUTION_PHASE_VIOLATION");
-        assert_eq!(error.kind(), RuntimeErrorKind::ExecutionPhaseViolation);
-        assert_eq!(
-            RuntimeErrorKind::IndexOutOfBounds.code(),
-            "KG_RUNTIME_INDEX_OUT_OF_BOUNDS"
-        );
-    }
-}
+mod tests;

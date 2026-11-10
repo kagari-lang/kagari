@@ -121,7 +121,7 @@ fn call_repeatedly(
         callback
             .call::<u64, _>(cx, (value,))
             .unwrap_err()
-            .message()
+            .to_string()
             .contains("conversion")
     );
     for _ in 0..count {
@@ -407,7 +407,7 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
                     value
                         .scalar::<i64>()
                         .unwrap_err()
-                        .message()
+                        .to_string()
                         .contains("argument type")
                 );
                 let host = value.scalar::<usize>()?;

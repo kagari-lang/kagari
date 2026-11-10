@@ -1,6 +1,6 @@
 //! Prepared compound descriptors retain normal roots until publication.
 use crate::{
-    error::RuntimeError,
+    error::{RuntimeError, context::ErrorLocation},
     frame::types::arguments::TypeArgument,
     module::EnumVariantRef,
     native::{
@@ -11,6 +11,7 @@ use crate::{
     },
     value::{EnumTag, Value},
 };
+
 use kagari_types::{language::binding, ty::Ty};
 use serde::{
     Serialize,
@@ -141,7 +142,7 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
                 .ok_or_else(|| unsupported("payload has extra elements"))?,
         };
         let value = encode(self.cx, expected, value)
-            .map_err(|error| error.at_conversion(format_args!("element {slot}")))?;
+            .map_err(|error| error.at(ErrorLocation::Element(slot)))?;
         self.values
             .try_reserve(1)
             .map_err(|_| RuntimeError::resource_limit("Serde compound capacity"))?;

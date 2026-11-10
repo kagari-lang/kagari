@@ -1,7 +1,7 @@
 //! An admitted interpreter scope cannot escape the closed execution operation.
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     frame::{
         ExecutionFrame, ExecutionStack,
         cursor::kernel::{CursorExit, RegionError, RegionExit},
@@ -11,6 +11,7 @@ use crate::{
     native::context::ScriptInvoker,
     session::SessionState,
 };
+
 use kagari_bytecode::module::CallableTarget;
 use std::ptr;
 
@@ -77,12 +78,12 @@ impl ExecutionStack<'_> {
             .map_err(|_| {
                 runtime
                     .resources()
-                    .quarantine("execution slots borrowed across instruction")
+                    .quarantine(EngineFault::ExecutionSlotsBorrowedAcrossInstruction)
             })?;
         let values = values.borrow_operands(frame.slots).ok_or_else(|| {
             runtime
                 .resources()
-                .quarantine("invalid execution frame window")
+                .quarantine(EngineFault::InvalidExecutionFrameWindow)
         })?;
         let session = self.session.state();
         // Split immutable execution facts from the only frame state a closed
@@ -99,14 +100,18 @@ impl ExecutionStack<'_> {
         let CallableTarget::Script(function) = *target else {
             return Err(runtime
                 .resources()
-                .quarantine("scalar region requires script frame")
+                .quarantine(EngineFault::ScalarRegionRequiresScriptFrame)
                 .into());
         };
         let function = loaded
             .execution()
             .functions
             .get(function.index())
-            .ok_or_else(|| runtime.resources().quarantine("invalid execution function"))?;
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine(EngineFault::InvalidExecutionFunction)
+            })?;
         let result = ExecutionCursor {
             loaded,
             function,
@@ -132,6 +137,6 @@ impl ExecutionCursor<'_> {
     fn invalid(&self) -> RuntimeError {
         self.runtime
             .resources()
-            .quarantine("invalid execution operand slot")
+            .quarantine(EngineFault::InvalidExecutionOperandSlot)
     }
 }

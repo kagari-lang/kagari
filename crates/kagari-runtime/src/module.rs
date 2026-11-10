@@ -1,3 +1,34 @@
+use crate::{
+    cache::ReloadDependencySnapshot,
+    error::{RuntimeError, reason::CancellationReason},
+    host::{HostPathDescriptorId, HostRegistryId},
+    metadata::TypeId,
+    module::{
+        admission::DefinitionAdmission,
+        dispatch::{
+            PublicationDispatch, PublicationToken, bindings::PublishedRoutes, facts::DispatchFacts,
+        },
+        execution::ExecutionModule,
+        layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
+        layout_identity::{LayoutFacts, LayoutIdentity, ProgramLayouts},
+        layout_scope::LayoutScope,
+        owner::ProgramCodeOwner,
+        records::ModuleRecord,
+        retention::{ProgramLease, Retentions},
+        revision::ProgramRevision,
+        staging::{CandidateLease, StagedProgram},
+        state::{
+            StaticState,
+            cells::{CellId, StaticCell},
+        },
+    },
+    native::binding::LinkedNativeFunction,
+    reload::{
+        ModuleEpoch, ModuleEpochAllocator, ReloadValidationError,
+        updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
+    },
+    source::ProgramSourceSnapshot,
+};
 pub(crate) mod admission;
 mod applied_layout_identity;
 pub(crate) mod collection;
@@ -24,37 +55,7 @@ pub(crate) mod staging;
 pub mod state;
 #[cfg(test)]
 mod tests;
-use crate::{
-    cache::ReloadDependencySnapshot,
-    error::{RuntimeError, RuntimeErrorKind},
-    host::{HostPathDescriptorId, HostRegistryId},
-    metadata::TypeId,
-    module::state::{
-        StaticState,
-        cells::{CellId, StaticCell},
-    },
-    module::{
-        admission::DefinitionAdmission,
-        dispatch::{
-            PublicationDispatch, PublicationToken, bindings::PublishedRoutes, facts::DispatchFacts,
-        },
-        execution::ExecutionModule,
-        layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
-        layout_identity::{LayoutFacts, LayoutIdentity, ProgramLayouts},
-        layout_scope::LayoutScope,
-        owner::ProgramCodeOwner,
-        records::ModuleRecord,
-        retention::{ProgramLease, Retentions},
-        revision::ProgramRevision,
-        staging::{CandidateLease, StagedProgram},
-    },
-    native::binding::LinkedNativeFunction,
-    reload::{
-        ModuleEpoch, ModuleEpochAllocator, ReloadValidationError,
-        updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
-    },
-    source::ProgramSourceSnapshot,
-};
+
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
     instruction::{EnumId, PathId, StructId},
@@ -213,9 +214,8 @@ impl VerifiedProgram {
     ) -> Result<Arc<RetainedDemands>, ReloadValidationError> {
         let check = || {
             cancel.check().map_err(|_| {
-                ReloadValidationError::Runtime(RuntimeError::new(
-                    RuntimeErrorKind::Cancelled,
-                    "initial demand preparation cancelled",
+                ReloadValidationError::Runtime(RuntimeError::from(
+                    CancellationReason::InitialDemandPreparationCancelled,
                 ))
             })
         };
@@ -363,10 +363,7 @@ impl VerifiedProgram {
             .for_product(self.product_identity, &self.definitions, cancel)
             .map_err(|error| match error {
                 SourcePackageError::Identity(DefinitionMappingError::Cancelled) => {
-                    RuntimeError::new(
-                        RuntimeErrorKind::Cancelled,
-                        "source package attachment cancelled",
-                    )
+                    RuntimeError::from(CancellationReason::SourcePackageAttachmentCancelled)
                 }
                 error => RuntimeError::module_validation(error.to_string()),
             })?;

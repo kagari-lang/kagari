@@ -23,7 +23,7 @@ use kagari_contract::{
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, reason::IndexError, trap::TrapReason},
     gc::roots::RootedValue,
     module::ExecutableModule,
     native::{
@@ -32,8 +32,7 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         completion::{Completion, CompletionStatus},
-        conversion::KagariType,
-        conversion::context::ConversionContext,
+        conversion::{KagariType, context::ConversionContext},
         declarations::FunctionDecl,
         future::NativeStart,
         storage::NativeStorage,
@@ -43,6 +42,7 @@ use kagari_runtime::{
     session::ExecutionOptions,
     value::Value,
 };
+
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty, visibility::Visibility};
 use std::{
     num::NonZeroUsize,
@@ -186,10 +186,9 @@ impl Fixture {
                         completion.complete(Ok(8));
                     }
                     if input == -2 {
-                        return Err(RuntimeError::new(
-                            RuntimeErrorKind::ScriptTrap,
-                            "submission failed",
-                        ));
+                        return Err(RuntimeError::from(TrapReason::Provider(
+                            "submission failed".into(),
+                        )));
                     }
                     sent_to.lock().unwrap().push((input, completion));
                     let cancelled = cancelled.clone();
@@ -220,7 +219,7 @@ impl Fixture {
                      (values, index): (Vec<i32>, i32)|
                      -> NativeResult<i32> {
                         values.get(index as usize).copied().ok_or_else(|| {
-                            RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "fixture index")
+                            RuntimeError::from(IndexError::SequenceIndexIsOutOfBounds)
                         })
                     },
                 )
@@ -772,16 +771,15 @@ fn async_native_completion_contract_retirement_and_admission() {
         DriveResult::Waiting
     ));
     let (_, endpoint) = f.sent.lock().unwrap().pop().unwrap();
-    endpoint.complete(Err(RuntimeError::new(
-        RuntimeErrorKind::ScriptTrap,
-        "provider failure",
-    )));
+    endpoint.complete(Err(RuntimeError::from(TrapReason::Provider(
+        "provider failure".into(),
+    ))));
     let DriveResult::Complete(Err(VmError::RuntimeError(error))) =
         f.vm.drive(&execution, slice()).unwrap()
     else {
         panic!("provider failure terminates its waiter");
     };
-    assert_eq!(error.message(), "provider failure");
+    assert_eq!(error.to_string(), "provider failure");
     assert_eq!(
         f.cancels.load(Ordering::Relaxed),
         1,

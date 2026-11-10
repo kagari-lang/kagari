@@ -1,5 +1,5 @@
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::{GcHeap, HeapObjectId},
     module::ExecutableModule,
     native::{
@@ -9,14 +9,12 @@ use crate::{
     resource::HeapCharge,
     value::Value,
 };
+
 use kagari_types::ty::Ty;
 use std::sync::Arc;
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::ScriptTrap,
-        "invalid array target or payload",
-    )
+    RuntimeError::from(TrapReason::InvalidArrayTargetOrPayload)
 }
 
 impl GcHeap {

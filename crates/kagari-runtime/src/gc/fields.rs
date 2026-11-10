@@ -1,8 +1,6 @@
 //! Ordinary structs borrow initialized arena bytes under the heap storage guard.
-mod codec;
-
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     gc::{GcHeap, HeapObjectId},
     module::{
         StructLayoutRef,
@@ -11,6 +9,8 @@ use crate::{
     value::{StructValueField, Value, scalar},
     value_check::matches_type_in,
 };
+mod codec;
+
 use kagari_contract::representation::builtin_representation;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
@@ -113,7 +113,7 @@ impl GcHeap {
         values: Vec<Value>,
     ) -> Result<StructInitializer, RuntimeError> {
         if values.len() != layout.layout().fields.len() {
-            return Err(field_error("invalid heap target, index, or payload"));
+            return Err(field_error(TrapReason::InvalidHeapTargetIndexOrPayload));
         }
         let description = self.struct_storage_description(layout)?;
         // Closed scalar domains need no lexical type resolution. Managed fields
@@ -143,7 +143,7 @@ impl GcHeap {
                 }
             };
             if !admitted {
-                return Err(field_error("invalid heap target, index, or payload"));
+                return Err(field_error(TrapReason::InvalidHeapTargetIndexOrPayload));
             }
         }
         Ok(StructInitializer {
@@ -246,37 +246,37 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         if !self.valid_payload(&next_value) {
-            return Err(field_error("invalid heap payload"));
+            return Err(field_error(TrapReason::InvalidHeapPayload));
         }
         let field = expected
             .layout()
             .fields
             .get(slot)
-            .ok_or_else(|| field_error("invalid field slot"))?;
+            .ok_or_else(|| field_error(TrapReason::InvalidFieldSlot))?;
         if !field.mutable
             || !expected.field_type(slot).is_some_and(|(ty, environment)| {
                 matches_type_in(self, &next_value, ty, expected.module(), environment)
             })
         {
             return Err(field_error(
-                "field is read-only or value has the wrong concrete type",
+                TrapReason::FieldIsReadOnlyOrValueHasTheWrongConcreteType,
             ));
         }
         self.with_struct_mut(id, |mut storage| {
             if !storage.description.semantic.matches(expected) {
-                return Err(field_error("struct layout mismatch"));
+                return Err(field_error(TrapReason::StructLayoutMismatch));
             }
             storage.set(slot, next_value).ok_or_else(|| {
                 self.resources
-                    .quarantine("struct storage does not match its layout")
+                    .quarantine(EngineFault::StructStorageDoesNotMatchItsLayout)
             })
         })
-        .ok_or_else(|| field_error("invalid heap target"))?
+        .ok_or_else(|| field_error(TrapReason::InvalidHeapTarget))?
     }
 }
 
-fn field_error(message: &'static str) -> RuntimeError {
-    RuntimeError::new(RuntimeErrorKind::ScriptTrap, message)
+fn field_error(message: TrapReason) -> RuntimeError {
+    RuntimeError::from(message)
 }
 
 impl GcHeap {
@@ -310,27 +310,27 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         if !scalar::admits_payload(builtin_representation(ty), Some(ty), bits) {
-            return Err(field_error("invalid heap payload"));
+            return Err(field_error(TrapReason::InvalidHeapPayload));
         }
         let field = expected
             .layout()
             .fields
             .get(slot)
-            .ok_or_else(|| field_error("invalid field slot"))?;
+            .ok_or_else(|| field_error(TrapReason::InvalidFieldSlot))?;
         if !field.mutable || field.ty != Ty::Builtin(ty) {
             return Err(field_error(
-                "field is read-only or value has the wrong concrete type",
+                TrapReason::FieldIsReadOnlyOrValueHasTheWrongConcreteType,
             ));
         }
         self.with_struct_mut(id, |mut storage| {
             if !storage.description.semantic.matches(expected) {
-                return Err(field_error("struct layout mismatch"));
+                return Err(field_error(TrapReason::StructLayoutMismatch));
             }
             storage.set_scalar(slot, ty, bits).ok_or_else(|| {
                 self.resources
-                    .quarantine("struct storage does not match its layout")
+                    .quarantine(EngineFault::StructStorageDoesNotMatchItsLayout)
             })
         })
-        .ok_or_else(|| field_error("invalid heap target"))?
+        .ok_or_else(|| field_error(TrapReason::InvalidHeapTarget))?
     }
 }

@@ -73,7 +73,7 @@ impl EnumSymbols {
         }
         let option = enumerations
             .get("Option")
-            .map(|enumeration| {
+            .map(|enumeration| -> NativeResult<_> {
                 Ok((
                     enumeration.declaration.variant("Some")?,
                     enumeration.declaration.variant("None")?,

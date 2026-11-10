@@ -5,24 +5,19 @@ use crate::{
         decode_integer_domain, float_binary,
         operation::{FloatOperation, FloatType, ShiftKind},
     },
-    scalar::IntegerType,
+    scalar::{IntegerType, error::ScalarError},
 };
 
 /// Decode and validate the complete source domain before numeric evaluation.
 #[inline(never)]
-pub fn decode_integer(value: u64, domain: IntegerType) -> Result<i128, &'static str> {
+pub fn decode_integer(value: u64, domain: IntegerType) -> Result<i128, ScalarError> {
     let (bits, signed) = domain.layout();
     decode_integer_domain(value, bits, signed)
 }
 
 /// Evaluate an integer operation without repeating interpreter operand handling.
 #[inline(never)]
-pub fn integer(
-    op: IntegerOp,
-    domain: IntegerType,
-    lhs: u64,
-    rhs: u64,
-) -> Result<u64, &'static str> {
+pub fn integer(op: IntegerOp, domain: IntegerType, lhs: u64, rhs: u64) -> Result<u64, ScalarError> {
     let (bits, signed) = domain.layout();
     let lhs = decode_integer_domain(lhs, bits, signed)?;
     let rhs = decode_integer_domain(rhs, bits, signed)?;
@@ -36,7 +31,7 @@ pub fn shift(
     count_domain: IntegerType,
     lhs: u64,
     rhs: u64,
-) -> Result<u64, &'static str> {
+) -> Result<u64, ScalarError> {
     let (domain, op) = kind.parts();
     let (bits, signed) = domain.layout();
     let lhs = decode_integer_domain(lhs, bits, signed)?;
@@ -51,7 +46,7 @@ pub fn float(
     domain: FloatType,
     lhs: u64,
     rhs: u64,
-) -> Result<u64, &'static str> {
+) -> Result<u64, ScalarError> {
     match (domain, op) {
         (FloatType::F32, FloatOperation::Add) => float_binary::<0, true>(lhs, rhs),
         (FloatType::F32, FloatOperation::Sub) => float_binary::<1, true>(lhs, rhs),

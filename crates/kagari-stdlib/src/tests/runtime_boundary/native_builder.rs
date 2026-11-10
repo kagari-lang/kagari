@@ -106,7 +106,7 @@ fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations
             group.inherent_impl(|_| Ok(()))
         })
         .unwrap_err();
-    assert!(error.message().contains("defining module"));
+    assert!(error.to_string().contains("defining module"));
 }
 
 #[test]

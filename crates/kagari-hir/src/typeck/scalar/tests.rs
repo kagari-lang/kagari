@@ -69,7 +69,11 @@ fn integer_literals_keep_their_type_and_full_range_in_one_representation() {
             assert_eq!(ScalarValue::integer(value, ty), Ok(expected));
         }
         for value in [min - 1, max + 1] {
-            assert!(ScalarValue::integer(value, ty).is_err(), "{ty:?}: {value}");
+            assert_eq!(
+                ScalarValue::integer(value, ty),
+                Err(IntegerRangeError),
+                "{ty:?}: {value}"
+            );
         }
     }
     assert_eq!(
@@ -77,7 +81,7 @@ fn integer_literals_keep_their_type_and_full_range_in_one_representation() {
             kind: LiteralKind::Number,
             text: "42".into()
         }),
-        ScalarValue::integer(42, IntegerType::I32),
+        ScalarValue::integer(42, IntegerType::I32).map_err(IntegerRangeError::message),
     );
     for ty in [
         BuiltinType::Never,

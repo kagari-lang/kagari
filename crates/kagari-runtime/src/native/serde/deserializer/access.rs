@@ -1,6 +1,6 @@
 //! Immediate child snapshots remain rooted while arbitrary Serde visitors run.
 use crate::{
-    error::RuntimeError,
+    error::{RuntimeError, context::ErrorLocation},
     frame::types::arguments::TypeArgument,
     gc::roots::RootSet,
     native::{
@@ -13,6 +13,7 @@ use crate::{
     },
     value::Value,
 };
+
 use serde::de::{
     DeserializeSeed, EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor,
     value::StringDeserializer,
@@ -164,7 +165,7 @@ impl<'de> SeqAccess<'de> for Sequence<'_, '_> {
             .get(self.cx.runtime().gc(), self.next)
             .ok_or_else(|| unsupported("expired child snapshot"))?;
         let result = decode(self.cx, field, &value, seed)
-            .map_err(|error| error.at_conversion(format_args!("element {}", self.next)))?;
+            .map_err(|error| error.at(ErrorLocation::Element(self.next)))?;
         self.next += 1;
         Ok(Some(result))
     }

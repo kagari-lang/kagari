@@ -1,5 +1,5 @@
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::{GcHeap, HeapObjectId},
     native::{
         hash_storage::{HashMapStorage, HashSetStorage},
@@ -9,14 +9,12 @@ use crate::{
     resource::HeapCharge,
     value::{MapKey, Value},
 };
+
 use kagari_types::ty::Ty;
 use std::sync::Arc;
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::ScriptTrap,
-        "hash storage type or selected key protocol mismatch",
-    )
+    RuntimeError::from(TrapReason::HashStorageTypeOrSelectedKeyProtocolMismatch)
 }
 
 impl GcHeap {
@@ -58,7 +56,7 @@ impl GcHeap {
             return Err(invalid());
         }
         let key = MapKey::from_value(self, &key)
-            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidHashKey))?;
         self.ensure_key_mutable(id)?;
         self.with_map_mut(id, 1, |entries| {
             let units = usize::from(!entries.contains_key(&key));
@@ -83,7 +81,7 @@ impl GcHeap {
             return Err(invalid());
         }
         let key = MapKey::from_value(self, key)
-            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidHashKey))?;
         let value = self.with_map_mut(id, 0, |entries| entries.remove(&key))?;
         Ok(value)
     }
@@ -123,7 +121,7 @@ impl GcHeap {
             return Err(invalid());
         }
         let key = MapKey::from_value(self, &value)
-            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidHashKey))?;
         self.ensure_key_mutable(id)?;
         self.with_set_mut(id, 1, |values| {
             let units = usize::from(!values.contains(&key));
@@ -148,7 +146,7 @@ impl GcHeap {
             return Err(invalid());
         }
         let key = MapKey::from_value(self, value)
-            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
+            .ok_or_else(|| RuntimeError::from(TrapReason::InvalidHashKey))?;
         let removed = self.with_set_mut(id, 0, |values| values.remove(&key))?;
         Ok(removed)
     }

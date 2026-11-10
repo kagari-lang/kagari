@@ -31,7 +31,7 @@ pub(crate) struct TaskPayload {
 impl TaskPayload {
     pub(crate) fn outcome_bytes(outcome: Option<&Result<Value, TaskFailure>>) -> usize {
         match outcome {
-            Some(Err(failure)) => failure.error.message_capacity(),
+            Some(Err(failure)) => failure.error.retained_bytes(),
             _ => 0,
         }
     }

@@ -427,7 +427,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
                             context
                                 .allocate_array(context.resolve_type(Type::i32().abi())?, vec![])
                                 .unwrap_err()
-                                .message()
+                                .to_string()
                                 .contains("native storage access")
                         );
                         let Value::Array(id) = payload.values else {
@@ -538,7 +538,7 @@ fn rooted_sequence_len(
         assert!(
             cx.collect_garbage()
                 .unwrap_err()
-                .message()
+                .to_string()
                 .contains("native storage access")
         );
         Ok(())
@@ -1113,7 +1113,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
     let VmError::RuntimeError(error) = error.cause() else {
         panic!("expected storage allocation error");
     };
-    assert!(error.message().contains("explicitly supplied payload"));
+    assert!(error.to_string().contains("explicitly supplied payload"));
     let value = vm
         .execute(&loaded, ProgramEntry::Main)
         .unwrap()

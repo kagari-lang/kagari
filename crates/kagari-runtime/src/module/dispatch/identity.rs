@@ -1,6 +1,6 @@
 //! Metadata-only correspondence between exact publications of one installation.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::CancellationReason},
     module::{
         ModuleStore, VerifiedProgram,
         admission::DefinitionAdmission,
@@ -8,6 +8,7 @@ use crate::{
     },
     reload::updates::headers,
 };
+
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -465,10 +466,9 @@ impl DeclarationIndex {
 
 pub(super) fn mapping_error(error: DefinitionMappingError) -> RuntimeError {
     match error {
-        DefinitionMappingError::Cancelled => RuntimeError::new(
-            RuntimeErrorKind::Cancelled,
-            "declaration correspondence cancelled",
-        ),
+        DefinitionMappingError::Cancelled => {
+            RuntimeError::from(CancellationReason::DeclarationCorrespondenceCancelled)
+        }
         DefinitionMappingError::LimitExceeded => {
             RuntimeError::resource_limit("declaration correspondence")
         }

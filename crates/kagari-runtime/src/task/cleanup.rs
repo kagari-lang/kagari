@@ -1,13 +1,14 @@
 //! Cancellation control never invokes a factory or resumes script instructions.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, reason::CancellationReason},
     error_trace::ErrorTrace,
     native::binding::NativeResult,
     session::ExecutionPhase,
     task::{CancellationCause, TaskId, store::TaskState},
     value::Value,
 };
+
 use std::{mem, sync::atomic::Ordering};
 
 impl Runtime {
@@ -93,9 +94,7 @@ impl Runtime {
                 .err()
                 .or(selected)
                 .or_else(|| fault.clone())
-                .unwrap_or_else(|| {
-                    RuntimeError::new(RuntimeErrorKind::Cancelled, "task cancelled")
-                });
+                .unwrap_or_else(|| RuntimeError::from(CancellationReason::TaskCancelled));
             let error = match trace {
                 Some(trace) => error.with_trace(trace),
                 None => error,

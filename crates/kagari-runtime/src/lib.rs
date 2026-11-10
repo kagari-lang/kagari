@@ -1,15 +1,10 @@
-mod authority;
-mod clock;
-mod loading;
-mod objects;
-mod observer;
 use crate::{
     builtin::BuiltinError,
     cache::{
         InterpreterCacheId, InterpreterCacheRecord, InterpreterCacheRegistry,
         ReloadDependencySnapshot,
     },
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     frame::ExecutionStack,
     gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, roots::RootedValue},
     host::{
@@ -39,6 +34,12 @@ use crate::{
     task::store::TaskStore,
     value::Value,
 };
+mod authority;
+mod clock;
+mod loading;
+mod objects;
+mod observer;
+
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
@@ -229,7 +230,7 @@ impl Runtime {
     }
 
     /// Report an invariant failure detected by an execution backend.
-    pub fn quarantine_execution_invariant(&self, reason: &'static str) -> RuntimeError {
+    pub fn quarantine_execution_invariant(&self, reason: EngineFault) -> RuntimeError {
         self.resources().quarantine(reason)
     }
 
@@ -386,7 +387,7 @@ impl Runtime {
                 .frames(session.id)
                 .ok_or_else(|| {
                     self.resources()
-                        .quarantine("frame stack is borrowed across execution")
+                        .quarantine(EngineFault::FrameStackIsBorrowedAcrossExecution)
                 })?
                 .last()
                 .is_some_and(|frame| {
@@ -427,7 +428,7 @@ impl Runtime {
             .expect("entered execution session");
         let scopes = state.scopes.get().checked_add(1).ok_or_else(|| {
             self.resources()
-                .quarantine("execution scope count overflow")
+                .quarantine(EngineFault::ExecutionScopeCountOverflow)
         })?;
         state.scopes.set(scopes);
         drop(state);
@@ -643,10 +644,7 @@ impl Runtime {
             .iter()
             .all(|value| value.is_default_heap_payload(&self.gc) && self.gc.validate_value(value))
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid or foreign heap payload",
-            ));
+            return Err(RuntimeError::from(TrapReason::InvalidOrForeignHeapPayload));
         }
         Ok(())
     }
@@ -691,7 +689,7 @@ impl Runtime {
     ) -> Result<value::Value, RuntimeError> {
         self.resources().poll_execution()?;
         reflection::get_field(&self.gc, value, field_name)
-            .map_err(|error| RuntimeError::invalid_reflective_read(error.message()))
+            .map_err(|error| error.into_runtime_error().into_reflective_read())
     }
 
     pub fn reflect_set_field(

@@ -1,7 +1,7 @@
 //! Borrowed method metadata cannot retain executable storage or cross an entry.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     execution_metadata::{
         application_key::{AdapterIdentity, InterfaceMethodIdentity, MethodIdentity},
         applications::MethodApplication,
@@ -16,6 +16,7 @@ use crate::{
     module::{ExecutableModule, dispatch::SelectedTarget},
     value::Value,
 };
+
 use kagari_bytecode::module::CallableTarget;
 use kagari_types::ty::{GenericParam, Ty};
 use std::{cell::Ref, sync::Arc};
@@ -58,9 +59,8 @@ impl MethodView<'_> {
                 ),
             })?
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "interface method argument does not match its linked signature",
+            return Err(RuntimeError::from(
+                TrapReason::InterfaceMethodArgumentDoesNotMatchItsLinkedSignature,
             ));
         }
         Ok(())
@@ -86,9 +86,8 @@ impl MethodView<'_> {
                 ),
             }
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "interface method result does not match its linked signature",
+            return Err(RuntimeError::from(
+                TrapReason::InterfaceMethodResultDoesNotMatchItsLinkedSignature,
             ));
         }
         Ok(())

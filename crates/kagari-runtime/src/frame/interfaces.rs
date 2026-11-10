@@ -1,5 +1,10 @@
 //! Prepared interface conversions publish their result after cursor borrows end.
-use crate::{Runtime, error::RuntimeError, frame::ExecutionStack};
+use crate::{
+    Runtime,
+    error::{RuntimeError, fault::EngineFault},
+    frame::ExecutionStack,
+};
+
 use kagari_bytecode::module::CallableTarget;
 
 impl ExecutionStack<'_> {
@@ -11,7 +16,7 @@ impl ExecutionStack<'_> {
         let invalid = || {
             runtime
                 .resources()
-                .quarantine("invalid prepared interface upcast")
+                .quarantine(EngineFault::InvalidPreparedInterfaceUpcast)
         };
         let (owner, target, links, environment, slots) = {
             let frame = self.current()?;

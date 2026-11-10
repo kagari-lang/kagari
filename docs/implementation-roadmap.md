@@ -1580,6 +1580,35 @@ and memory; test duplicate-storage elimination separately. The source-generation
 measurements do not answer this question. No compiler/bytecode change is activated,
 and the experiment does not block Runtime consolidation or GC/Host work.
 
+The [typed error design review](runtime-refactor-design.md#typed-errors-and-diagnostic-ownership)
+identifies existing ArithmeticError-to-string erasure, Runtime kind/message
+construction and overlapping VM/SDK execution wrappers. Preserve typed numeric
+leaves, use one Runtime reason/context owner, and format text at diagnostic
+boundaries. The bounded sequence starts with numeric helpers and consumers, then
+migrates Runtime families/context and consolidates wrappers with Runtime ownership.
+The first numeric checkpoint (EN01) is locally accepted: ScalarError preserves
+ArithmeticError and domain/width/shift/Unicode reasons through payload execution,
+constant evaluation and checked Runtime numeric adapters. Thirty focused tests,
+workspace all-target Clippy, structure, fmt, generation consistency and diff checks
+pass. The scalar guide records measured error/Result layouts without a speed claim.
+Retain stable categories, effect order, trace origin and Host custom errors; this
+change adds no execution checks and changes no failure classification. Runtime
+reason/context follow-up and comparative timing remain separate from numeric
+transport; full-workspace tests/exhaustive matrices remain CI-only and unrun.
+
+EN02 Runtime reason/context ownership is locally accepted in the same error design.
+RuntimeError derives kind/code from ErrorReason, formats via Display and stores
+positions/trace/task origin in optional owned context. Fixed traps, cancellation,
+stale/index failures and quarantine reasons are typed; retained-task accounting
+includes owned diagnostic storage. Builtin admission uses the VM RuntimeError route,
+removing the obsolete builtin/reflection VM variants. Forty-nine selected tests,
+workspace all-target Clippy, structure, fmt, generation consistency and diff/link
+checks pass; one observer-fixture omission and feature-gated Serde API consumers
+were repaired without reducing coverage. Finer cold validation details, remaining
+VM/SDK/crate consolidation and comparative timing remain queued. The Runtime map
+owns current API/data/source/memory contracts. No execution speedup or full-workspace
+test claim is made.
+
 MS00-MS05 are locally accepted with per-phase commits. Immutable Program products,
 detached preparation, final current/retained call bindings and Runtime-owned exclusive
 publication are implemented. The [Runtime map](architecture/runtime.md),

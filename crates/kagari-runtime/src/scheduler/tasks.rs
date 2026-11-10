@@ -1,7 +1,7 @@
 //! Managed scope Tasks share the invocation ready ring and retire automatically.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     error_trace::asynchronous::SpawnOrigin,
     module::ExecutableModule,
     native::binding::NativeResult,
@@ -12,6 +12,7 @@ use crate::{
         store::TaskState,
     },
 };
+
 use std::sync::Arc;
 
 /// Detached diagnostics for a managed scope failure. It retains no script result
@@ -79,7 +80,7 @@ impl Runtime {
         if let TaskState::Terminal(Err(failure)) = record.state {
             // Includes failures during queued admission, before an activation exists.
             if failure.error.kind() == RuntimeErrorKind::EngineFault {
-                self.quarantine_execution_invariant("scheduled Task failed");
+                self.quarantine_execution_invariant(EngineFault::ScheduledTaskFailed);
             }
             let mut events = self.scheduler.failures.borrow_mut();
             if events.len() < self.scheduler.limits.max_task_failure_events.get()

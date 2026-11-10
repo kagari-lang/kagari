@@ -1,13 +1,14 @@
 //! Local shutdown and cancellation never resume a script continuation.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     error_trace::ErrorTrace,
     native::binding::NativeResult,
     scheduler::{Invocation, WorkKey, cancelled},
     session::owned::OwnedExecution,
     task::CancellationCause,
 };
+
 use std::mem;
 
 impl Runtime {
@@ -16,7 +17,7 @@ impl Runtime {
             .as_ref()
             .is_err_and(|error| error.kind() == RuntimeErrorKind::EngineFault)
         {
-            self.quarantine_execution_invariant("scheduled invocation failed");
+            self.quarantine_execution_invariant(EngineFault::ScheduledInvocationFailed);
         }
         self.scheduler
             .forget(WorkKey::Invocation(invocation.execution.execution_id()));
@@ -62,7 +63,7 @@ impl Runtime {
             error
         };
         if error.kind() == RuntimeErrorKind::EngineFault {
-            self.quarantine_execution_invariant("scheduled execution failed");
+            self.quarantine_execution_invariant(EngineFault::ScheduledExecutionFailed);
         }
         let cleanup = if exists {
             self.finish_owned_execution(execution)
@@ -70,7 +71,7 @@ impl Runtime {
             // The backend may have discovered this fault while retiring.
             Ok(())
         } else {
-            Err(self.quarantine_execution_invariant("missing scheduled execution"))
+            Err(self.quarantine_execution_invariant(EngineFault::MissingScheduledExecution))
         };
         let error = cleanup.err().unwrap_or(error);
         match trace {
@@ -138,7 +139,9 @@ impl Runtime {
         }
         if let Some(error) = failure {
             if error.kind() != RuntimeErrorKind::EngineFault {
-                return Err(self.quarantine_execution_invariant("runtime shutdown cleanup failed"));
+                return Err(
+                    self.quarantine_execution_invariant(EngineFault::RuntimeShutdownCleanupFailed)
+                );
             }
             return Err(error);
         }

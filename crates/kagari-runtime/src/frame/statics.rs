@@ -1,12 +1,13 @@
 //! A static access suspends its own PC until the fixed recipe returns successfully.
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     frame::{
         ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments, driver::ReturnAction,
         transfer::ReturnValue,
     },
 };
+
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, ModuleSlot},
     module::CallableTarget,
@@ -86,7 +87,7 @@ impl ExecutionStack<'_> {
             .ok_or_else(|| {
                 runtime
                     .resources()
-                    .quarantine("initializer return stack is borrowed")
+                    .quarantine(EngineFault::InitializerReturnStackIsBorrowed)
             })?;
         let frame = frames.pop().expect("checked initializer return frame");
         let retired = frame.retire_values(self.session.resources).is_some();
@@ -100,7 +101,7 @@ impl ExecutionStack<'_> {
             if !retired {
                 return Err(runtime
                     .resources()
-                    .quarantine("initializer return window was not retired"));
+                    .quarantine(EngineFault::InitializerReturnWindowWasNotRetired));
             }
             let caller = frames
                 .last()
@@ -108,7 +109,7 @@ impl ExecutionStack<'_> {
                 .ok_or_else(|| {
                     runtime
                         .resources()
-                        .quarantine("initializer return lost its caller")
+                        .quarantine(EngineFault::InitializerReturnLostItsCaller)
                 })?;
             let action = caller.execution_action(runtime)?;
             initializer.commit(runtime, value)?;

@@ -372,7 +372,7 @@ fn assert_outcome(
         (Expected::HostFailure, Err(VmError::RuntimeError(error)))
             if error.kind() == RuntimeErrorKind::HostCallFailure => {}
         (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
-            if error.kind() == RuntimeErrorKind::ScriptTrap && error.message() == *message => {}
+            if error.kind() == RuntimeErrorKind::ScriptTrap && error.to_string() == *message => {}
         (Expected::Cancelled, Err(VmError::RuntimeError(error)))
             if error.kind() == RuntimeErrorKind::Cancelled => {}
         (expected, actual) => panic!(

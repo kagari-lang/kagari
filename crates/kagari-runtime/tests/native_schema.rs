@@ -10,6 +10,7 @@ use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
+    error::context::ErrorLocation,
     frame::types::arguments::TypeArgument,
     gc::{GcHeapConfig, HeapObjectId},
     native::{
@@ -195,7 +196,7 @@ fn source_free_loading_checks_registered_schema_without_native_calls() {
         .load_program("corrupt", self::program(&altered))
         .unwrap_err();
     assert!(
-        failure.message().contains("registered value schema"),
+        failure.to_string().contains("registered value schema"),
         "{failure}"
     );
 }
@@ -350,14 +351,20 @@ fn dto_limits_and_incomplete_initializers_release_unpublished_roots() {
     )
     .unwrap();
     let error = cx.encode(input.clone()).unwrap_err();
-    assert!(error.message().contains("field leaf"), "{error}");
+    assert!(error.to_string().contains("field leaf"), "{error}");
+    assert!(
+        error
+            .locations()
+            .iter()
+            .any(|position| matches!(position, ErrorLocation::Field(name) if name == "leaf"))
+    );
     assert_eq!(runtime.gc().active_roots(), 0);
     drop(cx);
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let expected = cx.type_for::<Tree>().unwrap();
     let mut fields = cx.write_struct(&expected).unwrap();
     fields.field("leaf", Leaf { value: 1 }).unwrap();
-    assert!(fields.finish().unwrap_err().message().contains("missing"));
+    assert!(fields.finish().unwrap_err().to_string().contains("missing"));
     assert_eq!(runtime.gc().active_roots(), 0);
     let mut fields = cx.write_struct(&expected).unwrap();
     fields.field("leaf", Leaf { value: 1 }).unwrap();
@@ -365,7 +372,7 @@ fn dto_limits_and_incomplete_initializers_release_unpublished_roots() {
         fields
             .field("leaf", Leaf { value: 2 })
             .unwrap_err()
-            .message()
+            .to_string()
             .contains("duplicate")
     );
     drop(fields);

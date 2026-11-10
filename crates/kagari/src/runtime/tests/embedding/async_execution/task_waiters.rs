@@ -331,7 +331,7 @@ fn scoped_task_dependency_failure_contract() {
             assert_eq!(tasks.drive(id), TaskDriveResult::Complete);
             let failure = tasks.report(id).outcome.unwrap_err();
             assert_eq!(failure.error.kind(), RuntimeErrorKind::ScriptTrap);
-            assert_eq!(failure.error.message(), "Task wait cycle");
+            assert_eq!(failure.error.to_string(), "Task wait cycle");
             assert_eq!(failure.source_task, origin);
         }
     }

@@ -4,20 +4,13 @@ use kagari_contract::native::ExecutableDebugInfo;
 pub mod native;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{}", self.message())]
 pub enum BackendInvocationError {
+    #[error("{0}")]
     UnsupportedArtifact(String),
+    #[error(transparent)]
     RuntimeFailure(RuntimeError),
+    #[error("{0}")]
     InternalError(String),
-}
-
-impl BackendInvocationError {
-    pub fn message(&self) -> &str {
-        match self {
-            Self::UnsupportedArtifact(message) | Self::InternalError(message) => message,
-            Self::RuntimeFailure(error) => error.message(),
-        }
-    }
 }
 
 pub fn missing_debug_requirements(

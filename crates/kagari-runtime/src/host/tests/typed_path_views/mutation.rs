@@ -197,7 +197,7 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
                     .unwrap_err()
             };
             assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
-            assert!(error.message().contains(stage));
+            assert!(error.to_string().contains(stage));
             assert_eq!(target.load(Ordering::SeqCst), 10);
             assert!(runtime.host_dirty_paths().is_empty());
             assert_eq!(runtime.gc().active_roots(), 0);
@@ -618,7 +618,7 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
             )
             .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
-        assert_eq!(error.message(), message);
+        assert_eq!(error.to_string(), message);
         assert_eq!(*value.lock().unwrap(), initial);
         assert_eq!(*writes.lock().unwrap(), 0);
         assert!(runtime.host_dirty_paths().is_empty());

@@ -1,9 +1,7 @@
 //! Finite specialization of script scalar layouts, selected from the declared type.
 //! No inference from the first element, no per-element GC roots for primitive data.
-mod allocation;
-
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::IndexError},
     native::{
         binding::NativeResult,
         scalar::NativeScalar,
@@ -13,6 +11,8 @@ use crate::{
     resource::HeapCharge,
     value::Value,
 };
+mod allocation;
+
 use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
 use std::mem::size_of;
 use std::{any::Any, collections::TryReserveError, sync::Arc};
@@ -179,10 +179,7 @@ fn copy_segments<T: Clone>(left: &[T], right: &[T]) -> NativeResult<Vec<T>> {
 }
 
 fn invalid_index() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::IndexOutOfBounds,
-        "sequence index is out of bounds",
-    )
+    RuntimeError::from(IndexError::SequenceIndexIsOutOfBounds)
 }
 
 impl SequenceStorage {

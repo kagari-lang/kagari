@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::RuntimeErrorKind;
 use std::{
     panic::panic_any,
     sync::{
@@ -95,10 +96,7 @@ fn async_native_completion_contract_reservation_delivery_and_retirement() {
     failure
         .completion()
         .unwrap()
-        .complete(Err(RuntimeError::new(
-            RuntimeErrorKind::HostCallFailure,
-            "provider failed",
-        )));
+        .complete(Err(RuntimeError::host_call_failure("provider failed")));
     let OperationPoll::Ready(Err(error)) = failure.poll().unwrap() else {
         panic!("provider failure")
     };

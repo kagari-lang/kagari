@@ -1,8 +1,11 @@
+#[cfg(test)]
+use crate::error::RuntimeErrorKind;
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::GcHeap,
     value::{Value, scalar},
 };
+
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 use kagari_contract::{
     numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
@@ -13,7 +16,7 @@ use kagari_types::{
     conversion, integer,
     integer::IntegerMethod,
     payload::{self, ScalarBinaryOp, operation::ScalarOperation},
-    scalar::BuiltinType,
+    scalar::{BuiltinType, error::ScalarError},
 };
 
 mod compare;
@@ -49,7 +52,12 @@ pub fn scalar_binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, Runt
 }
 
 pub fn arithmetic_trap(error: ArithmeticError) -> RuntimeError {
-    RuntimeError::new(RuntimeErrorKind::ScriptTrap, error.message())
+    scalar_trap(error.into())
+}
+
+#[cold]
+fn scalar_trap(error: ScalarError) -> RuntimeError {
+    RuntimeError::from(error)
 }
 
 pub fn unary(op: UnaryOp, value: Value) -> Result<Value, RuntimeError> {
@@ -63,10 +71,7 @@ pub fn unary(op: UnaryOp, value: Value) -> Result<Value, RuntimeError> {
         (UnaryOp::Neg, Value::F32(value)) => Ok(Value::F32(-value)),
         (UnaryOp::Neg, Value::F64(value)) => Ok(Value::F64(-value)),
         (UnaryOp::Not, Value::Bool(value)) => Ok(Value::Bool(!value)),
-        _ => Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "invalid unary operand",
-        )),
+        _ => Err(RuntimeError::from(TrapReason::InvalidUnaryOperand)),
     }
 }
 
@@ -101,9 +106,8 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
         }
         (Value::F64(lhs), Value::F64(rhs)) => float_bits::<false>(op, lhs.to_bits(), rhs.to_bits())
             .map(|bits| Value::F64(f64::from_bits(bits))),
-        _ => Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "arithmetic requires matching numeric operands",
+        _ => Err(RuntimeError::from(
+            TrapReason::ArithmeticRequiresMatchingNumericOperands,
         )),
     }
 }
@@ -117,15 +121,12 @@ fn float_bits<const F32: bool>(op: BinaryOp, lhs: u64, rhs: u64) -> Result<u64, 
         BinaryOp::Rem => payload::float_binary::<4, F32>(lhs, rhs),
         _ => return Err(expected_arithmetic()),
     }
-    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))
+    .map_err(scalar_trap)
 }
 
 #[cold]
 fn expected_arithmetic() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::ScriptTrap,
-        "expected arithmetic operation",
-    )
+    RuntimeError::from(TrapReason::ExpectedArithmeticOperation)
 }
 
 /// Execute the verified source-width contract, independently of Value storage width.
@@ -134,7 +135,7 @@ pub fn fixed_integer(
     lhs: Value,
     rhs: Option<Value>,
 ) -> Result<Value, RuntimeError> {
-    let invalid = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric operand");
+    let invalid = || RuntimeError::from(TrapReason::InvalidNumericOperand);
     operation.contract().ok_or_else(invalid)?;
     let lhs = read_integer(operation.input, &lhs)? as u64;
     let rhs = match (operation.rhs, rhs) {
@@ -144,9 +145,7 @@ pub fn fixed_integer(
     };
     let selected = ScalarOperation::integer(operation.op, operation.input, operation.rhs)
         .ok_or_else(invalid)?;
-    let bits = selected
-        .evaluate(lhs, rhs)
-        .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
+    let bits = selected.evaluate(lhs, rhs).map_err(scalar_trap)?;
     Ok(scalar::decode(builtin_representation(operation.input), bits).expect("integer result"))
 }
 
@@ -157,20 +156,16 @@ pub fn integer_method(
     args: &[Value],
 ) -> Result<Option<Value>, RuntimeError> {
     let [lhs, rhs] = args else {
-        return Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "integer method requires two arguments",
+        return Err(RuntimeError::from(
+            TrapReason::IntegerMethodRequiresTwoArguments,
         ));
     };
-    let (bits, signed) = ty.integer_layout().ok_or_else(|| {
-        RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer receiver required")
-    })?;
+    let (bits, signed) = ty
+        .integer_layout()
+        .ok_or_else(|| RuntimeError::from(TrapReason::IntegerReceiverRequired))?;
 
     let contract = IntegerMethodContract::new(operation, ty).ok_or_else(|| {
-        RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "signed-offset wrapping requires an unsigned receiver",
-        )
+        RuntimeError::from(TrapReason::SignedOffsetWrappingRequiresAnUnsignedReceiver)
     })?;
     let (value, overflow) = integer::arithmetic_method(
         operation,
@@ -226,7 +221,7 @@ pub fn checked_convert(
 }
 
 pub fn convert(conversion: NumericConversion, value: Value) -> Result<Value, RuntimeError> {
-    let fail = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric conversion");
+    let fail = || RuntimeError::from(TrapReason::InvalidNumericConversion);
     conversion.contract().ok_or_else(fail)?;
     if !value.has_representation(builtin_representation(conversion.source)) {
         return Err(fail());
@@ -235,17 +230,12 @@ pub fn convert(conversion: NumericConversion, value: Value) -> Result<Value, Run
         ScalarOperation::conversion(conversion.source, conversion.target).ok_or_else(fail)?;
     let bits = selected
         .evaluate(scalar::encode(&value).ok_or_else(fail)?, 0)
-        .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
+        .map_err(scalar_trap)?;
     scalar::decode(builtin_representation(conversion.target), bits).ok_or_else(fail)
 }
 
 pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, RuntimeError> {
-    let fail = || {
-        RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "invalid numeric operand type or range",
-        )
-    };
+    let fail = || scalar_trap(ScalarError::InvalidOperandDomain);
     if !value.has_representation(builtin_representation(ty)) {
         return Err(fail());
     }
@@ -351,7 +341,7 @@ mod boundary_tests {
         ] {
             let error = binary(op, lhs, rhs).unwrap_err();
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
-            assert_eq!(error.message(), message);
+            assert_eq!(error.to_string(), message);
         }
         let Value::F32(nan) = binary(BinaryOp::Div, Value::F32(0.0), Value::F32(0.0)).unwrap()
         else {
@@ -419,7 +409,7 @@ mod boundary_tests {
             (IntegerMethod::WrappingAddSigned, BuiltinType::U64),
         ] {
             let error = integer_method(gc, method, receiver, &[]).unwrap_err();
-            assert_eq!(error.message(), "integer method requires two arguments");
+            assert_eq!(error.to_string(), "integer method requires two arguments");
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
         }
         assert_eq!(gc.active_roots(), 0);

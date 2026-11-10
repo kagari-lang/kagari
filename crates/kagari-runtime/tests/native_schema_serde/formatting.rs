@@ -101,12 +101,12 @@ fn serde_formatted_output_is_bounded_and_duplicate_fields_skip_child_effects() {
     )
     .unwrap();
     let error = cx.encode(Serde(Formatted(Rc::clone(&calls)))).unwrap_err();
-    assert!(error.message().contains("string byte limit"));
+    assert!(error.to_string().contains("string byte limit"));
     assert_eq!(calls.get(), 2);
     assert_eq!(runtime.gc().active_roots(), 0);
     calls.set(0);
     let error = cx.encode(Serde(Duplicate(Rc::clone(&calls)))).unwrap_err();
-    assert!(error.message().contains("duplicate object initializer"));
+    assert!(error.to_string().contains("duplicate object initializer"));
     assert_eq!(calls.get(), 0);
     assert_eq!(runtime.gc().active_roots(), 0);
 }

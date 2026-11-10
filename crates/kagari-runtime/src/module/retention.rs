@@ -1,4 +1,6 @@
 //! Version retention is registered centrally; exported leases never own the store.
+#[cfg(test)]
+use crate::error::fault::EngineFault;
 use crate::module::{ModuleEpochRetention, ModuleEpochRetentionCounts};
 use std::sync::Arc;
 
@@ -258,7 +260,9 @@ mod tests {
         let candidate = runtime
             .stage_reload_program(&target, None, program())
             .unwrap();
-        runtime.resources().quarantine("test execution fault");
+        runtime
+            .resources()
+            .quarantine(EngineFault::HostInvariant("test execution fault"));
         assert!(runtime.module_instance_snapshot(&baseline).is_none());
         assert_eq!(
             runtime

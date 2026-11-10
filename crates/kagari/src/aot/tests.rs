@@ -188,7 +188,7 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
         .execute_prepared(&old_selected, ProgramEntry::Main, &old_native)
         .unwrap_err();
     assert!(
-        matches!(stale, VmError::RuntimeError(error) if error.message().contains("different function or execution version"))
+        matches!(stale, VmError::RuntimeError(error) if error.to_string().contains("different function or execution version"))
     );
     result(
         &second,

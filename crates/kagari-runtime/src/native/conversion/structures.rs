@@ -1,6 +1,6 @@
 //! DTO field conversion reuses checked object preparation and rooted construction.
 use crate::{
-    error::RuntimeError,
+    error::{RuntimeError, context::ErrorLocation},
     frame::types::arguments::TypeArgument,
     gc::roots::RootSet,
     native::{
@@ -114,7 +114,7 @@ impl StructEncoder<'_, '_> {
         let argument = field.argument(self.cx.runtime())?;
         self.builder.check_member(&field)?;
         let value = encode(self.cx, &argument)
-            .map_err(|error| error.at_conversion(format_args!("field {name}")))?;
+            .map_err(|error| error.at(ErrorLocation::Field(name.to_owned())))?;
         self.builder.set_value_in(self.cx, &field, value)
     }
 
@@ -125,7 +125,7 @@ impl StructEncoder<'_, '_> {
         self.builder
             .set_in(self.cx, &field, value)
             .map(|_| ())
-            .map_err(|error| error.at_conversion(format_args!("field {name}")))
+            .map_err(|error| error.at(ErrorLocation::Field(name.to_owned())))
     }
 
     /// Publish only after every initializer succeeds. The raw result must stay
@@ -156,7 +156,7 @@ impl StructDecoder<'_, '_> {
             .get(self.cx.runtime().gc(), slot)
             .ok_or_else(|| RuntimeError::module_validation("struct conversion snapshot field"))?;
         decode(self.cx, &argument, &value)
-            .map_err(|error| error.at_conversion(format_args!("field {name}")))
+            .map_err(|error| error.at(ErrorLocation::Field(name.to_owned())))
     }
 
     /// Decode a field from the original snapshot. A child converter may collect
@@ -165,6 +165,6 @@ impl StructDecoder<'_, '_> {
         let field = self.cx.runtime().bind_field::<T>(&self.object_type, name)?;
         field
             .read_snapshot(self.cx, &self.object_type, &self.values)
-            .map_err(|error| error.at_conversion(format_args!("field {name}")))
+            .map_err(|error| error.at(ErrorLocation::Field(name.to_owned())))
     }
 }

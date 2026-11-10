@@ -1,13 +1,18 @@
-use crate::module::state::tests::{add_static, program as static_program, ready};
-use crate::test_support::native::program::ProgramFixture;
-use crate::value::Value;
+use crate::{
+    Runtime, RuntimeConfig,
+    error::{RuntimeErrorKind, fault::EngineFault},
+    gc::GcHeap,
+    host::HostRegistryId,
+    module::state::tests::{add_static, program as static_program, ready},
+    reload::validate_verified_reload_candidate,
+    resource::ResourceState,
+    test_support::native::program::ProgramFixture,
+    value::Value,
+};
+
 use kagari_types::visibility::Visibility;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-use crate::host::HostRegistryId;
-use crate::reload::validate_verified_reload_candidate;
-use crate::resource::ResourceState;
-use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeap};
 use kagari_bytecode::instruction::{ConstantId, ConstantOperand};
 use kagari_bytecode::program::ModuleRef;
 
@@ -456,9 +461,9 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
     drop(candidate);
     assert_eq!(store.loaded_count(), 0);
     let candidate = stage(3).unwrap();
-    runtime
-        .resources()
-        .quarantine("test failed initializer invariant");
+    runtime.resources().quarantine(EngineFault::HostInvariant(
+        "test failed initializer invariant",
+    ));
     drop(candidate);
     assert_eq!(store.loaded_count(), 0);
     assert!(runtime.is_quarantined());

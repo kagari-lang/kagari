@@ -1,7 +1,7 @@
 //! Runtime-owned native bodies with closed, nonallocating script-heap effects.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::IndexError},
     frame::types::arguments::ScopedSignature,
     gc::GcHeap,
     module::ExecutableModule,
@@ -13,6 +13,7 @@ use crate::{
     },
     value::Value,
 };
+
 use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
 
 // A fixed kernel's successful result must not carry the cold diagnostic payload.
@@ -133,12 +134,8 @@ impl NativePrimitive {
                 let id =
                     check_sequence_argument(runtime, owner, &signature.params[0], || Ok(base))?;
                 let index = u64::decode(argument(1)?)?;
-                heap.sequence_element(id, index)?.ok_or_else(|| {
-                    Box::new(RuntimeError::new(
-                        RuntimeErrorKind::IndexOutOfBounds,
-                        "list index is out of bounds",
-                    ))
-                })
+                heap.sequence_element(id, index)?
+                    .ok_or_else(|| Box::new(RuntimeError::from(IndexError::ListIndexIsOutOfBounds)))
             }
             Self::VecSet | Self::VecSetFluent => {
                 let base = argument(0)?;

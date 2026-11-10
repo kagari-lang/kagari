@@ -1,6 +1,6 @@
 //! Checked collection readers retain values and dispatch targets across callbacks.
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     native::{
         binding::NativeResult,
         declarations::SelectedCall,
@@ -111,8 +111,7 @@ impl Cursor {
 }
 
 fn inconsistent_length() -> RuntimeError {
-    RuntimeError::new(
-        RuntimeErrorKind::ScriptTrap,
-        "collection iteration differs from its declared length",
-    )
+    RuntimeError::from(TrapReason::Provider(
+        "collection iteration differs from its declared length".into(),
+    ))
 }

@@ -1,13 +1,15 @@
-use crate::native::hash_storage::{HashMapStorage, HashSetStorage};
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::GcHeap,
-    native::sequence::SequenceStorage,
+    native::{
+        hash_storage::{HashMapStorage, HashSetStorage},
+        sequence::SequenceStorage,
+    },
     value::Value,
 };
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid capacity receiver")
+    RuntimeError::from(TrapReason::InvalidCapacityReceiver)
 }
 
 impl GcHeap {

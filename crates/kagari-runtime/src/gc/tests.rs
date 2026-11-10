@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::RuntimeErrorKind;
 use crate::{
     Runtime,
     closure::ClosureTarget,

@@ -1,9 +1,10 @@
 //! Complete referenced identity inventory, prepared once per immutable product.
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::CancellationReason},
     module::VerifiedProgram,
     reload::updates::coverage::CoverageFacts,
 };
+
 use kagari_bytecode::{module::BytecodeModule, source_package::VerifiedSourcePackage};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -59,10 +60,9 @@ impl VerifiedProgram {
 
 fn identity_error(error: DefinitionMappingError) -> RuntimeError {
     match error {
-        DefinitionMappingError::Cancelled => RuntimeError::new(
-            RuntimeErrorKind::Cancelled,
-            "program identity import cancelled",
-        ),
+        DefinitionMappingError::Cancelled => {
+            RuntimeError::from(CancellationReason::ProgramIdentityImportCancelled)
+        }
         error => RuntimeError::module_validation(error.to_string()),
     }
 }

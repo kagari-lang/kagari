@@ -3,7 +3,7 @@ use super::Fixture;
 use crate::{context::ExecutionContext, engine::EngineConfig, runtime::Runtime};
 use kagari_runtime::{
     Runtime as CoreRuntime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault},
     frame::ExecutionFrame,
     gc::roots::RootedValue,
     module::ExecutableModule,
@@ -14,6 +14,7 @@ use kagari_runtime::{
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
+
 use std::{
     cell::Cell,
     future::Future,
@@ -507,7 +508,7 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
         });
         let error = result(&mut rejected).unwrap_err();
         assert_eq!(
-            error.message(),
+            error.to_string(),
             "module validation failed: scheduler entry rejected"
         );
         assert!(error.trace().is_some());
@@ -516,7 +517,7 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
                 panic!("failed Task retired and reported")
             };
             assert_eq!(
-                event.failure.error.message(),
+                event.failure.error.to_string(),
                 "module validation failed: scheduler entry rejected"
             );
         } else {
@@ -583,9 +584,8 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
         };
         f.runtime
             .runtime()
-            .set_execution_observer(RejectEntry(Some(RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                "fatal scheduler entry",
+            .set_execution_observer(RejectEntry(Some(RuntimeError::from(
+                EngineFault::HostInvariant("fatal scheduler entry"),
             ))))
             .unwrap();
         assert!(matches!(
@@ -604,9 +604,9 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
             let Some(TaskEvent::Failed(event)) = f.runtime.take_task_event() else {
                 panic!("fatal Task outcome")
             };
-            assert_eq!(event.failure.error.message(), "fatal scheduler entry");
+            assert_eq!(event.failure.error.to_string(), "fatal scheduler entry");
         } else {
-            assert_eq!(error.message(), "fatal scheduler entry");
+            assert_eq!(error.to_string(), "fatal scheduler entry");
             assert!(!error.trace().unwrap().frames.is_empty());
         }
         assert_eq!(f.cancels.load(Ordering::SeqCst), 1);

@@ -1,14 +1,14 @@
 //! Ready-only access to installation-owned persistent cells.
+use crate::{
+    Runtime,
+    error::{RuntimeError, fault::EngineFault},
+    module::{ExecutableModule, ModuleInstance, ModuleStore},
+    value::Value,
+};
 pub(super) mod cells;
 mod compatibility;
 pub(crate) mod initialization;
 
-use crate::{
-    Runtime,
-    error::RuntimeError,
-    module::{ExecutableModule, ModuleInstance, ModuleStore},
-    value::Value,
-};
 use kagari_bytecode::instruction::ModuleSlot;
 use kagari_common::span::Span;
 use kagari_contract::ids::FunctionRef;
@@ -103,7 +103,7 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::module_validation("static binding index out of bounds"))?;
         let state = self.modules.static_state(module, slot).ok_or_else(|| {
             self.resources()
-                .quarantine("loaded static binding disappeared")
+                .quarantine(EngineFault::LoadedStaticBindingDisappeared)
         })?;
         match state {
             StaticState::Ready(value) => {
@@ -111,7 +111,7 @@ impl Runtime {
                 if !self.matches_type_in(&value, &contract.contract.ty, module, None) {
                     return Err(self
                         .resources()
-                        .quarantine("invalid semantic value in static cell"));
+                        .quarantine(EngineFault::InvalidSemanticValueInStaticCell));
                 }
                 Ok(value)
             }
@@ -158,7 +158,7 @@ impl Runtime {
             .replace_static(module, slot, value)
             .ok_or_else(|| {
                 self.resources()
-                    .quarantine("loaded static binding disappeared")
+                    .quarantine(EngineFault::LoadedStaticBindingDisappeared)
             })?;
         Ok(())
     }

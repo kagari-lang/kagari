@@ -1,9 +1,11 @@
 use super::*;
 use crate::{
     RuntimeConfig,
+    error::fault::EngineFault,
     frame::{driver::ReturnAction, transfer::ReturnValue},
     resource::RuntimeLimits,
 };
+
 use std::sync::Arc;
 
 fn access_program() -> DefinitionMetadata<BytecodeProgram> {
@@ -86,7 +88,9 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
                 runtime.execution_options().cancellation.cancel();
             }
             2 => {
-                runtime.quarantine_execution_invariant("test cleanup after fault");
+                runtime.quarantine_execution_invariant(EngineFault::HostInvariant(
+                    "test cleanup after fault",
+                ));
             }
             3 => {
                 stack.fail_static_initializers("observer failed");
@@ -106,7 +110,7 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
                 .read_module_slot(&current, ModuleSlot::new(0))
                 .unwrap_err();
             assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-            assert!(error.message().contains("initializ"));
+            assert!(error.to_string().contains("initializ"));
             assert!(
                 runtime
                     .collect_garbage()

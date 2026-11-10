@@ -54,13 +54,7 @@ where
                     check_arguments(cx, &values, &policy)?;
                     acquire_arguments(&context, &values, &policy)?;
                     let result = self(&context, &values)
-                        .map_err(|error| {
-                            let failure = RuntimeError::host_call_failure(error.message());
-                            match error.trace() {
-                                Some(trace) => failure.with_trace(trace.clone()),
-                                None => failure,
-                            }
-                        })
+                        .map_err(RuntimeError::from_host)
                         .and_then(|value| check_result(cx, value));
                     context.runtime().resources().poll_execution()?;
                     let value = result?;

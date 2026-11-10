@@ -1,4 +1,16 @@
 //! Installation and invocation of trusted compiler products without a compiler dependency.
+use crate::{
+    Runtime,
+    backend::BackendInvocationError,
+    error::{RuntimeError, fault::EngineFault, reason::CancellationReason, trap::TrapReason},
+    error_trace::ErrorTrace,
+    jit_abi::{NATIVE_HELPERS, decode_native_value},
+    module::{
+        ExecutableModule, ModuleEpochRetention, dispatch::CallRoute, retention::ProgramLease,
+    },
+    value::Value,
+};
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use std::{mem, sync::Arc};
 
 use {
@@ -16,18 +28,6 @@ use {
 };
 
 use kagari_bytecode::module::CallableTarget;
-
-use crate::{
-    Runtime,
-    backend::BackendInvocationError,
-    error::{RuntimeError, RuntimeErrorKind},
-    error_trace::ErrorTrace,
-    jit_abi::{NATIVE_HELPERS, decode_native_value},
-    module::{
-        ExecutableModule, ModuleEpochRetention, dispatch::CallRoute, retention::ProgramLease,
-    },
-    value::Value,
-};
 
 /// Native code bound to one runtime and one exact executable publication.
 /// Cloning retains code memory and module instances; its descriptor is immutable.
@@ -176,17 +176,16 @@ impl Runtime {
         let value = decode_native_value(result).ok_or_else(|| {
             runtime_failure(
                 self.resources()
-                    .quarantine("compiled function returned an invalid value"),
+                    .quarantine(EngineFault::CompiledFunctionReturnedAnInvalidValue),
             )
         })?;
         let expected = installed.module.bytecode.functions[installed.artifact().function.index()]
             .metadata
             .return_type;
         if !value.has_representation(expected) {
-            return Err(runtime_failure(
-                self.resources()
-                    .quarantine("compiled function returned the wrong representation"),
-            ));
+            return Err(runtime_failure(self.resources().quarantine(
+                EngineFault::CompiledFunctionReturnedTheWrongRepresentation,
+            )));
         }
         Ok(value)
     }
@@ -262,22 +261,19 @@ fn check_status(runtime: &Runtime, status: i32) -> Result<(), BackendInvocationE
             .resources()
             .termination()
             .unwrap_or_else(|| RuntimeError::resource_limit("instruction steps")),
-        JIT_STATUS_CANCELLED => {
-            RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled")
-        }
+        JIT_STATUS_CANCELLED => RuntimeError::from(CancellationReason::ExecutionCancelled),
         JIT_STATUS_INTEGER_OVERFLOW => {
-            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer overflow")
+            RuntimeError::from(ScalarError::from(ArithmeticError::Overflow))
         }
-        JIT_STATUS_INVALID_HEAP_REFERENCE => RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "invalid heap reference at safepoint",
-        ),
+        JIT_STATUS_INVALID_HEAP_REFERENCE => {
+            RuntimeError::from(TrapReason::InvalidHeapReferenceAtSafepoint)
+        }
         JIT_STATUS_ENGINE_FAULT | JIT_STATUS_INVALID_RUNTIME => runtime
             .resources()
-            .quarantine("native execution reported an engine fault"),
+            .quarantine(EngineFault::NativeExecutionReportedAnEngineFault),
         _ => runtime
             .resources()
-            .quarantine("compiled function returned an unknown status"),
+            .quarantine(EngineFault::CompiledFunctionReturnedAnUnknownStatus),
     };
     Err(runtime_failure(error))
 }

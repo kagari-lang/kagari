@@ -404,7 +404,7 @@ fn host_hash_traversals_detect_committed_edits_including_the_final_callback() {
             Ok(())
         })
         .unwrap_err();
-    assert!(error.message().contains("structurally modified iterator"));
+    assert!(error.to_string().contains("structurally modified iterator"));
     assert_eq!(map.get(&mut cx, 2).unwrap(), Some(20));
     let error = set
         .for_each(&mut cx, |cx, value| {
@@ -414,6 +414,6 @@ fn host_hash_traversals_detect_committed_edits_including_the_final_callback() {
             Ok(())
         })
         .unwrap_err();
-    assert!(error.message().contains("structurally modified iterator"));
+    assert!(error.to_string().contains("structurally modified iterator"));
     assert!(set.contains(&cx, 2).unwrap());
 }

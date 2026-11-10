@@ -445,7 +445,7 @@ fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
             Ok(())
         })
         .unwrap_err();
-    assert!(error.message().contains("structurally modified iterator"));
+    assert!(error.to_string().contains("structurally modified iterator"));
     assert_eq!(count, 1);
     assert_eq!(values.get(&mut cx, 3).unwrap(), Some(99));
     // Callback failure and invalidation do not roll back completed edits.

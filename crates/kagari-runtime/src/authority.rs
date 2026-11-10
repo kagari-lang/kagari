@@ -1,9 +1,10 @@
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     session::ExecutionPhase,
     value::Value,
 };
+
 use kagari_types::declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle};
 
 impl Runtime {
@@ -56,9 +57,8 @@ impl Runtime {
     pub fn validate_debug_value(&self, value: &Value) -> Result<(), RuntimeError> {
         self.resources().poll_execution()?;
         if !self.gc.validate_value(value) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap reference in debug value",
+            return Err(RuntimeError::from(
+                TrapReason::InvalidHeapReferenceInDebugValue,
             ));
         }
         Ok(())

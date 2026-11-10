@@ -2,7 +2,7 @@
 use crate::{
     Runtime,
     closure::{ClosureTarget, ClosureValueSnapshot},
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     frame::{
         ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
         driver::ExecutionAction,
@@ -13,6 +13,7 @@ use crate::{
     },
     value::Value,
 };
+
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 use kagari_contract::representation::semantic_representation;
 use kagari_types::ty::Ty;
@@ -110,10 +111,7 @@ impl ExecutionStack<'_> {
                 value.has_representation(function.metadata.params[index])
             })?
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "closure call contract mismatch",
-            ));
+            return Err(RuntimeError::from(TrapReason::ClosureCallContractMismatch));
         }
         if let Some(environment) = &closure.environment
             && !all.all(runtime, |index, value| {
@@ -206,10 +204,7 @@ impl ExecutionFrame {
             }
         };
         if !matches {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "closure call contract",
-            ));
+            return Err(RuntimeError::from(TrapReason::ClosureCallContract));
         }
         Ok(())
     }

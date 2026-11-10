@@ -1,6 +1,6 @@
 use crate::{
     closure::ClosureValueSnapshot,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     error_trace::ErrorTrace,
     execution_metadata::{
         applications::ApplicationStore,
@@ -23,6 +23,7 @@ use crate::{
     value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, Value},
     value_check::matches_type_in,
 };
+
 use kagari_abi::representation::ValueType;
 use kagari_types::ty::Ty;
 use std::{
@@ -346,9 +347,8 @@ impl GcHeap {
             || matches!(&tag, EnumTag::Declared(layout)
                 if !fields.iter().enumerate().all(|(slot, value)| layout.payload_type(slot).is_some_and(|(ty, environment)| matches_type_in(self, value, ty, layout.module(), environment))))
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap target, index, or payload",
+            return Err(RuntimeError::from(
+                TrapReason::InvalidHeapTargetIndexOrPayload,
             ));
         }
         let trace = origin();
@@ -449,10 +449,7 @@ impl GcHeap {
             (Value::HostRoot(_), Ty::Host(_))
         );
         if !durable_host && !self.valid_payload(&view.data) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid interface receiver",
-            ));
+            return Err(RuntimeError::from(TrapReason::InvalidInterfaceReceiver));
         }
         snapshot
             .directory_index()
@@ -472,10 +469,7 @@ impl GcHeap {
             .iter()
             .all(|value| self.valid_payload(value))
         {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid closure capture",
-            ));
+            return Err(RuntimeError::from(TrapReason::InvalidClosureCapture));
         }
         self.alloc_object(HeapObject::Closure { snapshot })
     }
@@ -487,10 +481,7 @@ impl GcHeap {
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) || !value.has_representation(ty) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid cell value",
-            ));
+            return Err(RuntimeError::from(TrapReason::InvalidCellValue));
         }
         self.alloc_object(HeapObject::Cell { ty, value })
     }
@@ -499,10 +490,7 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id) {
             Some(HeapObject::Cell { ty: actual, value }) if *actual == ty => Ok(*value),
-            _ => Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid capture cell",
-            )),
+            _ => Err(RuntimeError::from(TrapReason::InvalidCaptureCell)),
         }
     }
 
@@ -522,10 +510,7 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) || !value.has_representation(ty) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid cell value",
-            ));
+            return Err(RuntimeError::from(TrapReason::InvalidCellValue));
         }
         let mut objects = self.objects_mut()?;
         match self.object_mut(&mut objects, id) {
@@ -536,10 +521,7 @@ impl GcHeap {
                 *current = value;
                 Ok(())
             }
-            _ => Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid capture cell",
-            )),
+            _ => Err(RuntimeError::from(TrapReason::InvalidCaptureCell)),
         }
     }
 

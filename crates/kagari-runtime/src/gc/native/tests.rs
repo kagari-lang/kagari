@@ -1,5 +1,6 @@
 use crate::{
     Runtime,
+    error::fault::EngineFault,
     gc::mutations::PreparedCollectionCommit,
     native::{binding::NativeResult, conversion::context::ConversionContext},
     resource::HeapCharge,
@@ -510,7 +511,8 @@ fn detached_cleanup_releases_logical_units_after_termination_or_quarantine() {
             heap.edit_sequence(id, |mut edit| {
                 edit.retain(|_| Ok(false))?;
                 Err::<(), _>(if quarantine {
-                    heap.resources.quarantine("test cleanup")
+                    heap.resources
+                        .quarantine(EngineFault::HostInvariant("test cleanup"))
                 } else {
                     heap.resource_limit("test cleanup")
                 })

@@ -780,7 +780,7 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
         .execute_prepared(&selected_old, ProgramEntry::Main, &old_native)
         .unwrap_err();
     assert!(
-        matches!(stale, VmError::RuntimeError(error) if error.message().contains("different function or execution version"))
+        matches!(stale, VmError::RuntimeError(error) if error.to_string().contains("different function or execution version"))
     );
     let PreparedNativeEntry::Native(installed) = &old_native else {
         panic!("expected retained native code")

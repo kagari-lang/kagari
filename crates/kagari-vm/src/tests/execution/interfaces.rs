@@ -597,7 +597,7 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
         .invoke_interface_method(&boxed, &method, &[wrong])
         .unwrap_err();
     assert!(
-        matches!(error, VmError::RuntimeError(ref error) if error.message() == "interface method argument does not match its linked signature")
+        matches!(error, VmError::RuntimeError(ref error) if error.to_string() == "interface method argument does not match its linked signature")
     );
 }
 

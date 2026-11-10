@@ -2,7 +2,10 @@ use super::fixture;
 use crate::error::VmError;
 use kagari_runtime::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{
+        RuntimeError, RuntimeErrorKind, fault::EngineFault, reason::CancellationReason,
+        trap::TrapReason,
+    },
     frame::ExecutionFrame,
     module::{Module, entry::ProgramEntry},
     native::{
@@ -19,6 +22,7 @@ use kagari_runtime::{
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
+
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::sync::{
     Arc, Mutex, OnceLock,
@@ -64,9 +68,18 @@ impl ExecutionObserver for TrapObserver {
         assert_eq!(termination.kind(), RuntimeErrorKind::ResourceLimitExceeded);
         self.terminations.lock().unwrap().push(termination);
         Err(if self.error == RuntimeErrorKind::EngineFault {
-            runtime.quarantine_execution_invariant("trap observer fault")
+            runtime
+                .quarantine_execution_invariant(EngineFault::HostInvariant("trap observer fault"))
         } else {
-            RuntimeError::new(self.error, "trap observer rejection")
+            match self.error {
+                RuntimeErrorKind::ModuleValidation => {
+                    RuntimeError::module_validation("trap observer rejection")
+                }
+                RuntimeErrorKind::ScriptTrap => {
+                    RuntimeError::from(TrapReason::Provider("trap observer rejection".into()))
+                }
+                other => panic!("unexpected observer error: {other:?}"),
+            }
         })
     }
 }
@@ -95,10 +108,9 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
                     Failure::ReturnedResource => {
                         Err(RuntimeError::resource_limit("native operation"))
                     }
-                    Failure::OrdinaryTrap => Err(RuntimeError::new(
-                        RuntimeErrorKind::ScriptTrap,
-                        "native trap",
-                    )),
+                    Failure::OrdinaryTrap => Err(RuntimeError::from(TrapReason::Provider(
+                        "native trap".into(),
+                    ))),
                     Failure::ConfiguredConversion => {
                         let owner = cx.runtime().execution_root().unwrap();
                         let mut conversion = ConversionContext::with_limits(
@@ -135,9 +147,8 @@ fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>
                     assert_eq!(
                         cx.runtime()
                             .resources()
-                            .admit_execution_error(RuntimeError::new(
-                                RuntimeErrorKind::Cancelled,
-                                "later cancellation"
+                            .admit_execution_error(RuntimeError::from(
+                                CancellationReason::HostRequest("later cancellation")
                             )),
                         nested
                     );

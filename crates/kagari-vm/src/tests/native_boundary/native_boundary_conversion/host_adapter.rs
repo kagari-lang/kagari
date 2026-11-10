@@ -153,7 +153,7 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         assert_eq!(session.host_scope_count(), 0);
         let error = vm.execute(&owner, "fail").unwrap_err();
         assert!(
-            matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::HostCallFailure && error.message() == "host call failed: service failed"),
+            matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::HostCallFailure && error.to_string() == "host call failed: service failed"),
             "{error:?}"
         );
         let trace = session.trace().unwrap();

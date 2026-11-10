@@ -1,6 +1,6 @@
 use crate::{
     PreparedReload, Runtime, StagedLoad, StagedReload,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault, reason::StaleHandleReason},
     module::{
         ExecutableModule, Installation, InstalledProgram, LinkedHostBindings,
         LinkedProgramBindings, ModuleEpochRetention, VerifiedProgram,
@@ -13,6 +13,7 @@ use crate::{
         validate_reload_target, validate_verified_reload_candidate,
     },
 };
+
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact, validate_program_resource_limits},
     instruction::NativeImportId,
@@ -137,19 +138,17 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         self.resources().ensure_execution_allowed()?;
         if !module.belongs_to(self.host.owner()) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "executable module belongs to another runtime",
+            return Err(RuntimeError::from(
+                StaleHandleReason::ExecutableModuleBelongsToAnotherRuntime,
             ));
         }
         let loaded = self.modules.contains_module(module).map_err(|_| {
             self.resources()
-                .quarantine("module store is borrowed across execution")
+                .quarantine(EngineFault::ModuleStoreIsBorrowedAcrossExecution)
         })?;
         if !loaded {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::StaleHandle,
-                "executable module has been released",
+            return Err(RuntimeError::from(
+                StaleHandleReason::ExecutableModuleHasBeenReleased,
             ));
         }
         // Entry/resume admitted this installation before activating the session.

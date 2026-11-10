@@ -6,7 +6,7 @@ use kagari_common::span::Span;
 use kagari_contract::ids::{DebugPointId, FunctionRef};
 use kagari_runtime::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::ErrorReason},
     frame::ExecutionFrame,
     gc::roots::RootSet,
     module::{ExecutableModule, ModuleId},
@@ -591,9 +591,6 @@ impl ExecutionObserver for DebugSession {
 fn observation_error(error: VmError) -> RuntimeError {
     match error {
         VmError::RuntimeError(error) => error,
-        error => RuntimeError::new(
-            RuntimeErrorKind::EngineFault,
-            format!("debug observation failed: {error:?}"),
-        ),
+        error => RuntimeError::new(ErrorReason::DebugObservationFailure(format!("{error:?}"))),
     }
 }

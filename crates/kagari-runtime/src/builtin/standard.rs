@@ -2,13 +2,14 @@
 use crate::{
     Runtime,
     builtin::BuiltinError,
-    error::RuntimeError,
+    error::{RuntimeError, trap::TrapReason},
     gc::GcHeap,
     module::{ExecutableModule, linked_execution::builtin_results::BuiltinResult},
     native::sequence::SequenceStorage,
     value::{MapKey, Value},
     value_semantics,
 };
+
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::cmp::Ordering;
@@ -26,11 +27,13 @@ pub fn invoke(
     match primitive {
         RuntimePrimitive::ValuePartialCmp | RuntimePrimitive::ValueCmp => {
             let [a, b] = args else {
-                return Err(BuiltinError::new("comparison requires two operands"));
+                return Err(BuiltinError::new(TrapReason::ComparisonRequiresTwoOperands));
             };
             let ordering = value_semantics::builtin_order(gc, a, b)?;
             if intrinsic == RuntimePrimitive::ValueCmp && ordering.is_none() {
-                return Err(BuiltinError::new("total comparison cannot be unordered"));
+                return Err(BuiltinError::new(
+                    TrapReason::TotalComparisonCannotBeUnordered,
+                ));
             }
             let applied = runtime.builtin_result_type(owner, BuiltinResult::Ordering)?;
             let value = ordering
@@ -59,13 +62,13 @@ pub fn invoke(
                     )
                     .map_err(Into::into)
             } else {
-                value.ok_or_else(|| BuiltinError::new("total comparison cannot be unordered"))
+                value.ok_or_else(|| BuiltinError::new(TrapReason::TotalComparisonCannotBeUnordered))
             }
         }
 
         RuntimePrimitive::ValueEq => {
             let [a, b] = args else {
-                return Err(BuiltinError::new("eq expects two operands"));
+                return Err(BuiltinError::new(TrapReason::EqExpectsTwoOperands));
             };
             value_semantics::script_equal(gc, a, b)
                 .map(Value::Bool)
@@ -73,17 +76,17 @@ pub fn invoke(
         }
         RuntimePrimitive::ValueHash => {
             let [value] = args else {
-                return Err(BuiltinError::new("hash expects one operand"));
+                return Err(BuiltinError::new(TrapReason::HashExpectsOneOperand));
             };
             MapKey::from_value(gc, value)
                 .map(|key| Value::I64(key.script_hash()))
                 .ok_or_else(|| {
-                    BuiltinError::new("value has no hash semantics or exceeds key size limit")
+                    BuiltinError::new(TrapReason::ValueHasNoHashSemanticsOrExceedsKeySizeLimit)
                 })
         }
         RuntimePrimitive::ValueDebug | RuntimePrimitive::ValueDisplay => {
             let [value] = args else {
-                return Err(BuiltinError::new("format expects one operand"));
+                return Err(BuiltinError::new(TrapReason::FormatExpectsOneOperand));
             };
             value_semantics::format_value(gc, value, intrinsic == RuntimePrimitive::ValueDebug)
                 .and_then(|text| gc.alloc_string(text))
@@ -97,7 +100,7 @@ pub fn invoke(
 fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Array(handle), Value::Str(separator)] = args else {
         return Err(BuiltinError::new(
-            "array.join expects a string array and separator",
+            TrapReason::ArrayJoinExpectsAStringArrayAndSeparator,
         ));
     };
     if !gc
@@ -105,30 +108,34 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .is_some_and(|contract| contract.ty == Ty::Builtin(BuiltinType::String))
     {
         return Err(BuiltinError::new(
-            "string interpolation requires [String] storage",
+            TrapReason::StringInterpolationRequiresStringStorage,
         ));
     }
     let output = gc
         .with_buffer(*handle, |values| {
             let SequenceStorage::Traced(values) = values else {
-                return Err(BuiltinError::new("array.join expects string elements"));
+                return Err(BuiltinError::new(
+                    TrapReason::ArrayJoinExpectsStringElements,
+                ));
             };
             let overflow =
                 || BuiltinError::from(RuntimeError::resource_limit("joined string size"));
             let separator = gc
                 .string(*separator)
-                .ok_or_else(|| BuiltinError::new("invalid string separator"))?;
+                .ok_or_else(|| BuiltinError::new(TrapReason::InvalidStringSeparator))?;
             let mut length = separator
                 .len()
                 .checked_mul(values.len().saturating_sub(1))
                 .ok_or_else(overflow)?;
             for value in values {
                 let Value::Str(value) = value else {
-                    return Err(BuiltinError::new("array.join expects string elements"));
+                    return Err(BuiltinError::new(
+                        TrapReason::ArrayJoinExpectsStringElements,
+                    ));
                 };
                 let value = gc
                     .string(*value)
-                    .ok_or_else(|| BuiltinError::new("invalid string element"))?;
+                    .ok_or_else(|| BuiltinError::new(TrapReason::InvalidStringElement))?;
                 length = length.checked_add(value.len()).ok_or_else(overflow)?;
             }
             let mut output = String::new();
@@ -142,19 +149,19 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
                 };
                 let value = gc
                     .string(*value)
-                    .ok_or_else(|| BuiltinError::new("invalid string element"))?;
+                    .ok_or_else(|| BuiltinError::new(TrapReason::InvalidStringElement))?;
                 output.push_str(&value);
             }
             Ok(output)
         })
-        .ok_or_else(|| BuiltinError::new("array.join expects a valid array handle"))??;
+        .ok_or_else(|| BuiltinError::new(TrapReason::ArrayJoinExpectsAValidArrayHandle))??;
     gc.alloc_string(output).map_err(Into::into)
 }
 
 fn debug_assert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let [Value::Bool(condition), Value::Str(message)] = args else {
         return Err(BuiltinError::new(
-            "debug.assert expects bool and string message",
+            TrapReason::DebugAssertExpectsBoolAndStringMessage,
         ));
     };
     if *condition {
@@ -162,10 +169,9 @@ fn debug_assert(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     } else {
         let message = gc
             .string(*message)
-            .ok_or_else(|| BuiltinError::new("invalid assertion message"))?;
-        Err(BuiltinError::new(format!(
-            "debug.assert failed: {}",
-            &*message
-        )))
+            .ok_or_else(|| BuiltinError::new(TrapReason::InvalidAssertionMessage))?;
+        Err(BuiltinError::new(TrapReason::DebugAssertion {
+            message: message.to_string(),
+        }))
     }
 }

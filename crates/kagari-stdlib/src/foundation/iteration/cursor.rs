@@ -3,9 +3,8 @@ use crate::foundation::{
     enumerations::value::{self as enums, EnumSymbols, option},
     iteration::operations::increment,
 };
-
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         callable::StoredCallable,
@@ -18,6 +17,7 @@ use kagari_runtime::{
     resource::HeapCharge,
     value::Value,
 };
+
 use std::cell::Cell;
 
 #[derive(Debug, Clone, Copy)]
@@ -126,10 +126,9 @@ fn next(
     receiver: ValueHandle<'_>,
 ) -> NativeResult<Value> {
     let Some(_active) = receiver.try_enter_operation()? else {
-        return Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "recursive next on the same lazy iterator",
-        ));
+        return Err(RuntimeError::from(TrapReason::Provider(
+            "recursive next on the same lazy iterator".into(),
+        )));
     };
     let (source, second, operation, callback, mut remaining, switched) = receiver
         .with_payload::<Adapter, _>(|adapter| {

@@ -1,11 +1,7 @@
 //! A pending native or Task wait is an owned session resource, not a call frame.
-#[cfg(test)]
-mod tests;
-#[cfg(feature = "execution-diagnostics")]
-use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
-    error::RuntimeError,
+    error::{RuntimeError, fault::EngineFault},
     frame::{ExecutionStack, types::arguments::TypeArgument},
     gc::roots::{RootSet, RootedValue},
     native::{
@@ -17,6 +13,11 @@ use crate::{
     task::waiting::TaskWait,
     value::Value,
 };
+#[cfg(test)]
+mod tests;
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
@@ -101,9 +102,9 @@ impl Runtime {
             .get_or_init(|| CompletionRegistry::new(self.async_limits.max_pending_operations))
             .as_ref()
             .map_err(Clone::clone)?;
-        registry
-            .check()
-            .map_err(|_| self.quarantine_execution_invariant("native operation cleanup failed"))?;
+        registry.check().map_err(|_| {
+            self.quarantine_execution_invariant(EngineFault::NativeOperationCleanupFailed)
+        })?;
         Ok(registry)
     }
 }
@@ -243,7 +244,7 @@ impl ExecutionStack<'_> {
         let registry = runtime.operation_registry()?;
         let started = cold.start(runtime, registry, &wake);
         registry.check().map_err(|_| {
-            runtime.quarantine_execution_invariant("native operation cleanup failed")
+            runtime.quarantine_execution_invariant(EngineFault::NativeOperationCleanupFailed)
         })?;
         let pending = started?;
         *self.session.state().pending.borrow_mut() = Some(PendingWait {
@@ -273,7 +274,7 @@ impl ExecutionStack<'_> {
             .map_err(|_| {
                 runtime
                     .resources()
-                    .quarantine("execution windows borrowed during await")
+                    .quarantine(EngineFault::ExecutionWindowsBorrowedDuringAwait)
             })?
             .retain_managed(frame.slots, retained)
             .ok_or_else(invalid)
@@ -317,7 +318,7 @@ impl ExecutionStack<'_> {
         let polled = wait.poll(runtime);
         if polled.is_err() {
             wait.cancel().map_err(|_| {
-                runtime.quarantine_execution_invariant("native operation cleanup failed")
+                runtime.quarantine_execution_invariant(EngineFault::NativeOperationCleanupFailed)
             })?;
         }
         match polled? {

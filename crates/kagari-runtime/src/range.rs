@@ -1,13 +1,15 @@
 //! Immutable integer range values; cursor state belongs to each iterator.
 
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     gc::GcHeap,
     numeric,
     value::{EnumTag, Value},
 };
+
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::operations;
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use kagari_types::{
     integer,
     language::binding,
@@ -27,7 +29,7 @@ pub struct RangeValue {
 }
 
 fn invalid() -> RuntimeError {
-    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid range value")
+    RuntimeError::from(TrapReason::InvalidRangeValue)
 }
 
 impl RangeValue {
@@ -108,10 +110,9 @@ impl RangeValue {
         let (bits, signed) = self.item.integer_layout().ok_or_else(invalid)?;
         let (min, max) = integer::bounds(bits, signed);
         if n < min || n > max {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "integer overflow",
-            ));
+            return Err(RuntimeError::from(ScalarError::from(
+                ArithmeticError::Overflow,
+            )));
         }
         Ok(Some(integer_value(self.item, n)))
     }

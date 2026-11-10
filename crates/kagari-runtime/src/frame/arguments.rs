@@ -1,6 +1,9 @@
 //! Argument sources feed one checked frame admission and publication protocol.
 use crate::{
-    Runtime, error::RuntimeError, frame::values::FrameSlots, module::execution::layout::Location,
+    Runtime,
+    error::{RuntimeError, fault::EngineFault},
+    frame::values::FrameSlots,
+    module::execution::layout::Location,
     value::Value,
 };
 
@@ -83,7 +86,7 @@ impl<'args> FrameArguments<'args> {
                 Some(runtime.resources().frame_values.try_borrow().map_err(|_| {
                     runtime
                         .resources()
-                        .quarantine("argument window borrowed during call entry")
+                        .quarantine(EngineFault::ArgumentWindowBorrowedDuringCallEntry)
                 })?)
             }
         };
@@ -97,7 +100,7 @@ impl<'args> FrameArguments<'args> {
                     .ok_or_else(|| {
                         runtime
                             .resources()
-                            .quarantine("invalid call argument window")
+                            .quarantine(EngineFault::InvalidCallArgumentWindow)
                     })
             })
             .transpose()?;
@@ -115,7 +118,7 @@ impl<'args> FrameArguments<'args> {
                     .ok_or_else(|| {
                         runtime
                             .resources()
-                            .quarantine("invalid call argument register")
+                            .quarantine(EngineFault::InvalidCallArgumentRegister)
                     })?
                 }
             };

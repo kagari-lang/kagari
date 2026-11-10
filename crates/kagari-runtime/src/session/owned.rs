@@ -1,7 +1,7 @@
 //! Owned roots retain session records while each driver activation borrows briefly.
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     frame::{
         ExecutionStack,
         factory::QueuedFactory,
@@ -17,6 +17,7 @@ use crate::{
     },
     value::Value,
 };
+
 use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
 use kagari_contract::ids::FunctionRef;
 use std::{
@@ -585,10 +586,7 @@ impl Runtime {
     pub(crate) fn require_idle_driver(&self) -> Result<(), RuntimeError> {
         self.resources().ensure_not_publishing()?;
         if self.resources().active_session().is_some() {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "runtime driver already active",
-            ));
+            return Err(RuntimeError::from(TrapReason::RuntimeDriverAlreadyActive));
         }
         Ok(())
     }
@@ -644,7 +642,7 @@ impl Runtime {
             })
             .is_err();
         if failed {
-            Err(self.quarantine_execution_invariant("owned execution cleanup failed"))
+            Err(self.quarantine_execution_invariant(EngineFault::OwnedExecutionCleanupFailed))
         } else {
             Ok(())
         }
@@ -657,7 +655,8 @@ impl Runtime {
         match catch_unwind(AssertUnwindSafe(cleanup)) {
             Ok(Ok(())) => Ok(()),
             result => {
-                let error = self.quarantine_execution_invariant("owned execution cleanup failed");
+                let error =
+                    self.quarantine_execution_invariant(EngineFault::OwnedExecutionCleanupFailed);
                 if let Err(payload) = result
                     && let Err(nested) = catch_unwind(AssertUnwindSafe(|| drop(payload)))
                 {

@@ -3,7 +3,7 @@
 use crate::gc::retention_probe::{self, Event};
 use crate::{
     closure::CallableObservation,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     frame::types::arguments::TypeArgument,
     gc::{GcHeap, HeapObjectId, collector::Visited, roots::RootSet, storage::append_value_edges},
     module::ExecutableModule,
@@ -14,6 +14,7 @@ use crate::{
     resource::HeapCharge,
     value::Value,
 };
+
 use kagari_types::ty::Ty;
 
 /// Scratch for one guarded operation, never a reusable proof of object safety.
@@ -63,12 +64,7 @@ impl AsyncValues<'_> {
                 Some(())
             })
         })();
-        valid.ok_or_else(|| {
-            RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "async state retains an invalid or scoped value",
-            )
-        })
+        valid.ok_or_else(|| RuntimeError::from(TrapReason::AsyncStateRetainsAnInvalidOrScopedValue))
     }
 }
 
@@ -156,10 +152,7 @@ impl GcHeap {
     /// Reserve roots while both heap payloads still trace their cold captures.
     pub(crate) fn prepare_future_pair(&self, ids: [HeapObjectId; 2]) -> NativeResult<[RootSet; 2]> {
         if ids[0] == ids[1] {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "duplicate Future operands",
-            ));
+            return Err(RuntimeError::from(TrapReason::DuplicateFutureOperands));
         }
         let captures = {
             let objects = self
@@ -174,12 +167,7 @@ impl GcHeap {
                     .payload::<FuturePayload>()?
                     .cold
                     .as_ref()
-                    .ok_or_else(|| {
-                        RuntimeError::new(
-                            RuntimeErrorKind::ScriptTrap,
-                            "Future has already been awaited",
-                        )
-                    })?;
+                    .ok_or_else(|| RuntimeError::from(TrapReason::FutureHasAlreadyBeenAwaited))?;
                 Ok(cold.values().to_vec())
             };
             [read(ids[0])?, read(ids[1])?]
@@ -201,10 +189,7 @@ impl GcHeap {
         self.ensure_no_native_borrow()?;
         self.ensure_execution_allowed()?;
         if ids[0] == ids[1] {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "duplicate Future operands",
-            ));
+            return Err(RuntimeError::from(TrapReason::DuplicateFutureOperands));
         }
         let mut objects = self.objects_mut()?;
         for id in ids {
@@ -212,10 +197,7 @@ impl GcHeap {
                 .native_ref(&objects, id)
                 .ok_or_else(|| RuntimeError::module_validation("invalid Future receiver"))?;
             if object.payload::<FuturePayload>()?.cold.is_none() {
-                return Err(RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
-                    "Future has already been awaited",
-                ));
+                return Err(RuntimeError::from(TrapReason::FutureHasAlreadyBeenAwaited));
             }
         }
         Ok(ids.map(|id| {
@@ -249,12 +231,7 @@ impl GcHeap {
                 .payload_mut::<FuturePayload>()?
                 .cold
                 .take()
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        RuntimeErrorKind::ScriptTrap,
-                        "Future has already been awaited",
-                    )
-                })?;
+                .ok_or_else(|| RuntimeError::from(TrapReason::FutureHasAlreadyBeenAwaited))?;
             let remaining = object.storage_charge(HeapCharge::default());
             let released = HeapCharge::new(
                 object.charge.logical_units - remaining.logical_units,

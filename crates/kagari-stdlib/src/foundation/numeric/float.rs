@@ -1,7 +1,7 @@
 //! Width-matched float utilities use ordinary exact scalar native bindings.
 use crate::foundation::numeric::binding::{binary, unary};
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, trap::TrapReason},
     native::{
         assembly::draft::ModuleDraft,
         binding::{Codec, NativeBinding, NativeResult},
@@ -142,10 +142,7 @@ macro_rules! declare_float {
                             let min = $float::decode(cx.argument(1)?)?;
                             let max = $float::decode(cx.argument(2)?)?;
                             if min.is_nan() || max.is_nan() || min > max {
-                                return Err(RuntimeError::new(
-                                    RuntimeErrorKind::ScriptTrap,
-                                    concat!(stringify!($float), "::clamp requires non-NaN bounds with min <= max"),
-                                ));
+                                return Err(RuntimeError::from(TrapReason::Provider(concat!(stringify!($float), "::clamp requires non-NaN bounds with min <= max").into())));
                             }
                             Ok(value.clamp(min, max).encode())
                         },

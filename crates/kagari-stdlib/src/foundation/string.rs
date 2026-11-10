@@ -8,7 +8,7 @@ use crate::{
 use kagari_common::identity::DefinitionKind;
 use kagari_contract::operations::{IterOp, StringIterKind};
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, reason::IndexError},
     native::{
         assembly::draft::ModuleDraft,
         binding::{Codec, NativeBinding, NativeResult},
@@ -19,6 +19,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+
 use kagari_types::{
     declaration::{
         TypeDefKind,
@@ -135,12 +136,7 @@ fn slice(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         .zip(usize::try_from(end).ok())
         .and_then(|(start, end)| source.get(start..end))
         .map(str::to_owned)
-        .ok_or_else(|| {
-            RuntimeError::new(
-                RuntimeErrorKind::IndexOutOfBounds,
-                format!("String slice {start}..{end} requires ordered byte offsets within bounds and on UTF-8 boundaries"),
-            )
-        })?;
+        .ok_or_else(|| RuntimeError::from(IndexError::Provider(format!("String slice {start}..{end} requires ordered byte offsets within bounds and on UTF-8 boundaries"))))?;
     drop(source);
     cx.encode_result(result)
 }

@@ -1,6 +1,6 @@
 //! Ordinary enum payloads use the same complete-pack conversion as typed calls.
 use crate::{
-    error::RuntimeError,
+    error::{RuntimeError, context::ErrorLocation},
     frame::types::arguments::TypeArgument,
     module::EnumVariantRef,
     native::{
@@ -12,6 +12,7 @@ use crate::{
     },
     value::{EnumTag, Value},
 };
+
 use std::slice;
 
 impl ConversionContext<'_> {
@@ -29,7 +30,7 @@ impl ConversionContext<'_> {
             .declared_enum_variant(self.owner(), expected, member)?;
         let fields = self.variant_fields(&layout)?;
         let (_roots, values) = encode_arguments(self, &fields, payload)
-            .map_err(|error| error.at_conversion(format_args!("variant {member}")))?;
+            .map_err(|error| error.at(ErrorLocation::Variant(member.to_owned())))?;
         self.runtime()
             .alloc_enum(EnumTag::Declared(layout), values)
             .map(Value::Enum)
@@ -75,7 +76,7 @@ impl ConversionContext<'_> {
             .ok_or_else(|| RuntimeError::module_validation("enum conversion snapshot"))?;
         let fields = self.variant_fields(&actual)?;
         A::from_arguments(self, &fields, &snapshot.fields)
-            .map_err(|error| error.at_conversion(format_args!("variant {member}")))
+            .map_err(|error| error.at(ErrorLocation::Variant(member.to_owned())))
     }
 
     pub(crate) fn variant_layout(

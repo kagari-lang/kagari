@@ -423,10 +423,7 @@ impl HostRegistry {
             RuntimeError::typed_path_validation("path descriptor does not support reads")
         })?;
         let value = read(&scope, &context).map_err(|error| {
-            RuntimeError::typed_path_validation(format!(
-                "host path read failed: {}",
-                error.message()
-            ))
+            RuntimeError::typed_path_validation(format!("host path read failed: {}", error))
         })?;
         HostBorrowTable::validate_no_escape(gc, &value)?;
         if !gc.validate_value(&value) {
@@ -479,7 +476,7 @@ impl HostRegistry {
             .map_err(|error| {
                 RuntimeError::typed_path_validation(format!(
                     "host path previous-value read failed: {}",
-                    error.message()
+                    error
                 ))
             })?;
         scope
@@ -541,10 +538,7 @@ impl HostRegistry {
             RuntimeError::typed_path_validation("path descriptor does not support modify reads")
         })?;
         let old_value = read(&scope, &context).map_err(|error| {
-            RuntimeError::typed_path_validation(format!(
-                "host path modify read failed: {}",
-                error.message()
-            ))
+            RuntimeError::typed_path_validation(format!("host path modify read failed: {}", error))
         })?;
         let new_value = apply_path_modify(op, old_value, value)?;
         scope
@@ -698,7 +692,7 @@ impl HostRegistry {
             validate(call, context, operation, value).map_err(|error| {
                 RuntimeError::typed_path_validation(format!(
                     "host path validation failed: {}",
-                    error.message()
+                    error
                 ))
             })?;
         }
@@ -729,10 +723,7 @@ impl HostRegistry {
         let prepared = prepare(call, context, &record);
         gc.ensure_execution_allowed()?;
         let prepared = prepared.map_err(|error| {
-            RuntimeError::typed_path_validation(format!(
-                "host path preparation failed: {}",
-                error.message()
-            ))
+            RuntimeError::typed_path_validation(format!("host path preparation failed: {}", error))
         })?;
         let mut dirty = self.dirty_paths.borrow_mut();
         gc.prepare_dirty_record(dirty.len())?;

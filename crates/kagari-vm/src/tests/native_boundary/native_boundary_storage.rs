@@ -114,7 +114,7 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
                         .read()
                         .with_slice::<u32, _>(|_| Ok(()))
                         .unwrap_err()
-                        .message()
+                        .to_string()
                         .contains("scalar layout")
                 );
                 buffer.with_slice_mut::<i32, _>(|values| {
@@ -689,7 +689,7 @@ fn collection_revisions_distinguish_replacements_from_structural_writes() {
         assert_eq!(
             heap.check_collection_revision(source, revision)
                 .unwrap_err()
-                .message(),
+                .to_string(),
             "invalid or structurally modified iterator"
         );
     }

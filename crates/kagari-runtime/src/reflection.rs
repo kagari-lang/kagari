@@ -1,24 +1,22 @@
 use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, trap::TrapReason},
     gc::{GcHeap, HeapObjectId},
     module::StructLayoutRef,
     value::Value,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{error}")]
 pub struct ReflectionError {
+    #[source]
     error: RuntimeError,
 }
 
 impl ReflectionError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(reason: TrapReason) -> Self {
         Self {
-            error: RuntimeError::new(RuntimeErrorKind::ScriptTrap, message),
+            error: RuntimeError::from(reason),
         }
-    }
-
-    pub fn message(&self) -> &str {
-        self.error.message()
     }
 
     pub fn kind(&self) -> RuntimeErrorKind {
@@ -34,7 +32,7 @@ impl ReflectionError {
             self.error.kind(),
             RuntimeErrorKind::ScriptTrap | RuntimeErrorKind::IndexOutOfBounds
         ) {
-            RuntimeError::invalid_reflective_write(self.error.message())
+            self.error.into_reflective_write()
         } else {
             self.error
         }
@@ -51,7 +49,7 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Result<Value, ReflectionError> {
     let type_name = match value {
         Value::Range(value) => gc
             .range(*value)
-            .ok_or_else(|| ReflectionError::new("invalid range"))?
+            .ok_or_else(|| ReflectionError::new(TrapReason::InvalidRange))?
             .kind
             .name(),
         Value::Unit => "()",
@@ -100,10 +98,10 @@ pub fn get_field(gc: &GcHeap, value: &Value, field_name: &str) -> Result<Value, 
         Value::Struct(handle) => {
             let (layout, slot) = resolve_field(gc, *handle, field_name)?;
             gc.struct_get_slot(*handle, &layout, slot)
-                .ok_or_else(|| ReflectionError::new("invalid struct field"))
+                .ok_or_else(|| ReflectionError::new(TrapReason::InvalidStructField))
         }
         _ => Err(ReflectionError::new(
-            "reflect_get_field expects struct value",
+            TrapReason::ReflectGetFieldExpectsStructValue,
         )),
     }
 }
@@ -116,7 +114,7 @@ pub fn set_field(
 ) -> Result<Value, ReflectionError> {
     if !next_value.is_default_heap_payload(gc) {
         return Err(ReflectionError::new(
-            "reflect_set_field expects default-storable value",
+            TrapReason::ReflectSetFieldExpectsDefaultStorableValue,
         ));
     }
 
@@ -128,7 +126,7 @@ pub fn set_field(
             Ok(Value::Struct(*handle))
         }
         _ => Err(ReflectionError::new(
-            "reflect_set_field expects struct value",
+            TrapReason::ReflectSetFieldExpectsStructValue,
         )),
     }
 }
@@ -141,7 +139,7 @@ pub fn set_index(
 ) -> Result<Value, ReflectionError> {
     if !next_value.is_default_heap_payload(gc) {
         return Err(ReflectionError::new(
-            "reflect_set_index expects default-storable value",
+            TrapReason::ReflectSetIndexExpectsDefaultStorableValue,
         ));
     }
 
@@ -151,7 +149,7 @@ pub fn set_index(
         Value::U64(index) => *index,
         _ => {
             return Err(ReflectionError::new(
-                "reflect_set_index expects non-negative integer index",
+                TrapReason::ReflectSetIndexExpectsNonNegativeIntegerIndex,
             ));
         }
     };
@@ -165,19 +163,21 @@ pub fn set_index(
         Value::Tuple(elements) => {
             let mut updated = gc
                 .tuple(*elements)
-                .ok_or_else(|| ReflectionError::new("invalid tuple"))?
+                .ok_or_else(|| ReflectionError::new(TrapReason::InvalidTuple))?
                 .to_vec();
             let Some(slot) = usize::try_from(index)
                 .ok()
                 .and_then(|index| updated.get_mut(index))
             else {
-                return Err(ReflectionError::new(format!("invalid index `{index}`")));
+                return Err(ReflectionError::new(TrapReason::InvalidReflectiveIndex {
+                    index,
+                }));
             };
             *slot = next_value;
             gc.alloc_tuple(updated).map_err(Into::into)
         }
         _ => Err(ReflectionError::new(
-            "reflect_set_index expects array or tuple value",
+            TrapReason::ReflectSetIndexExpectsArrayOrTupleValue,
         )),
     }
 }
@@ -189,13 +189,17 @@ fn resolve_field(
 ) -> Result<(StructLayoutRef, usize), ReflectionError> {
     let layout = gc
         .struct_layout(handle)
-        .ok_or_else(|| ReflectionError::new("invalid struct"))?;
+        .ok_or_else(|| ReflectionError::new(TrapReason::InvalidStruct))?;
     let slot = layout
         .layout()
         .fields
         .iter()
         .position(|field| field.name == name)
-        .ok_or_else(|| ReflectionError::new(format!("missing field {name}")))?;
+        .ok_or_else(|| {
+            ReflectionError::new(TrapReason::MissingField {
+                name: name.to_owned(),
+            })
+        })?;
     Ok((layout, slot))
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     Runtime, StagedReload,
     clock::Instant,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, fault::EngineFault, reason::CancellationReason},
     error_trace::ErrorTrace,
     frame::{
         ExecutionFrame,
@@ -17,6 +17,7 @@ use crate::{
     session::store::SessionId,
     value::Value,
 };
+
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use std::{
     any::Any,
@@ -325,7 +326,7 @@ impl SessionState {
         if self.options.cancellation.check().is_err() {
             return Err(self.terminate(
                 resources,
-                RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled"),
+                RuntimeError::from(CancellationReason::ExecutionCancelled),
             ));
         }
         Ok(())
@@ -416,7 +417,7 @@ impl Drop for ExecutionSession<'_> {
                 if !state.frame_scopes.borrow().is_empty() || !state.host_scopes.borrow().is_empty()
                 {
                     self.resources
-                        .quarantine("owned activation ended with active scopes");
+                        .quarantine(EngineFault::OwnedActivationEndedWithActiveScopes);
                 }
                 state.parked_depth.set(self.resources.park_call_depth());
                 self.resources.end_execution(self.id);
@@ -431,7 +432,7 @@ impl Drop for ExecutionSession<'_> {
                 || !state.host_scopes.borrow().is_empty()
             {
                 self.resources
-                    .quarantine("execution session ended with active resources");
+                    .quarantine(EngineFault::ExecutionSessionEndedWithActiveResources);
             }
             self.resources.end_execution(self.id);
             drop(state);
@@ -441,7 +442,7 @@ impl Drop for ExecutionSession<'_> {
                 }
             } else {
                 self.resources
-                    .quarantine("session records remained borrowed during cleanup");
+                    .quarantine(EngineFault::SessionRecordsRemainedBorrowedDuringCleanup);
             }
         }
     }
@@ -468,7 +469,7 @@ impl Drop for CandidateSession<'_, '_> {
             .is_some_and(|execution| execution.state().scopes.get() != 1)
         {
             self.resources
-                .quarantine("candidate session ended with nested execution scopes");
+                .quarantine(EngineFault::CandidateSessionEndedWithNestedExecutionScopes);
         }
         drop(self.execution.take());
         let previous = self.previous.take().filter(|id| {

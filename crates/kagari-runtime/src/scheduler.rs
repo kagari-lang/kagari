@@ -1,15 +1,8 @@
 //! Runtime-owned cooperative scheduling. Backends execute one selected activation
 //! at a time; host notifications carry no heap access and never drive script.
-mod lifecycle;
-pub mod result;
-pub mod tasks;
-pub mod wake;
-#[cfg(test)]
-mod wake_tests;
-
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, fault::EngineFault, reason::CancellationReason},
     gc::roots::RootedValue,
     native::binding::NativeResult,
     publication::SynchronousActivation,
@@ -29,6 +22,13 @@ use crate::{
         store::TaskState,
     },
 };
+mod lifecycle;
+pub mod result;
+pub mod tasks;
+pub mod wake;
+#[cfg(test)]
+mod wake_tests;
+
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
@@ -204,9 +204,9 @@ impl InvocationActivation<'_> {
             .is_some()
         {
             self.invocation = Some(invocation);
-            return Err(self
-                .runtime
-                .quarantine_execution_invariant("publication before invocation retirement"));
+            return Err(self.runtime.quarantine_execution_invariant(
+                EngineFault::PublicationBeforeInvocationRetirement,
+            ));
         }
         self.runtime.publish_invocation(invocation, outcome);
         self.runtime.check_scheduler_fault()
@@ -325,10 +325,7 @@ impl Runtime {
     pub(crate) fn ensure_scheduler_open(&self) -> NativeResult<()> {
         self.check_scheduler_fault()?;
         if self.scheduler.closing.get() {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::Cancelled,
-                "runtime is closed",
-            ));
+            return Err(RuntimeError::from(CancellationReason::RuntimeIsClosed));
         }
         Ok(())
     }
@@ -339,10 +336,9 @@ impl Runtime {
     }
 
     pub(crate) fn check_scheduler_fault(&self) -> NativeResult<()> {
-        self.scheduler
-            .hub
-            .check()
-            .map_err(|_| self.quarantine_execution_invariant("scheduler callback failed"))?;
+        self.scheduler.hub.check().map_err(|_| {
+            self.quarantine_execution_invariant(EngineFault::SchedulerCallbackFailed)
+        })?;
         if self.is_quarantined() {
             self.resources().ensure_execution_allowed()?;
         }
@@ -485,5 +481,5 @@ impl Runtime {
 }
 
 fn cancelled() -> RuntimeError {
-    RuntimeError::new(RuntimeErrorKind::Cancelled, "scheduled execution cancelled")
+    RuntimeError::from(CancellationReason::ScheduledExecutionCancelled)
 }

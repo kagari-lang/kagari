@@ -149,7 +149,7 @@ fn reject_then_call(
     // Public native-frame admission checks variants and semantic ranges before
     // constructing CallContext; deliberately do not bypass that safety boundary.
     assert_eq!(
-        error.message(),
+        error.to_string(),
         "module validation failed: invalid frame argument type or window"
     );
     assert_idle(runtime);
@@ -242,7 +242,7 @@ fn installed_clamp_distinguishes_carrier_errors_from_domain_traps() {
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
             assert!(
                 error
-                    .message()
+                    .to_string()
                     .contains("clamp requires non-NaN bounds with min <= max")
             );
             assert_idle(&runtime);

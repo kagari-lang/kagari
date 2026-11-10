@@ -1,7 +1,6 @@
-use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, reason::CancellationReason},
     frame::{ExecutionFrame, FrameDispatch, FrameEntry, arguments::FrameArguments},
     module::{
         ExecutableModule, InstalledProgram,
@@ -9,8 +8,10 @@ use crate::{
     },
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
+    test_support::native::program::ProgramFixture,
     value::Value,
 };
+
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, Slot},
@@ -137,7 +138,7 @@ fn loaded_function(
     true,
     None,
     2,
-    RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled")
+    RuntimeError::from(CancellationReason::ExecutionCancelled)
 )]
 #[case::depth_before_heap(false, false, Some(0), 2, RuntimeError::resource_limit("call depth"))]
 #[case::candidate_before_cancel(
@@ -272,7 +273,7 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity(
         )
         .unwrap_err();
     assert_eq!(error.kind(), expected.kind());
-    assert_eq!(error.message(), expected.message());
+    assert_eq!(error.to_string(), expected.to_string());
     assert!(stack.is_empty().unwrap());
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.gc().active_roots(), roots_before);
@@ -322,7 +323,7 @@ fn heap_rejection_does_not_skip_later_argument_window_validation() {
         )
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    assert!(error.message().contains("invalid call argument register"));
+    assert!(error.to_string().contains("invalid call argument register"));
     assert_eq!(stack.frames().unwrap().len(), 1);
     assert_eq!(runtime.resources().counters().current_call_depth, 1);
     assert_eq!(runtime.gc().active_roots(), 1);

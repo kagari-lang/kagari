@@ -6,11 +6,12 @@ use crate::foundation::{
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_contract::numeric::NumericOperation;
 use kagari_runtime::{
-    error::{RuntimeError, RuntimeErrorKind},
+    error::RuntimeError,
     native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
     numeric,
     value::Value,
 };
+use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
 
 fn invalid() -> RuntimeError {
@@ -92,7 +93,7 @@ fn scalar_vec_aggregate(
                         cx.poll()?;
                         for item in chunk {
                             result = if product {result.checked_mul(*item)} else {result.checked_add(*item)}
-                                .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer overflow"))?;
+                                .ok_or_else(|| RuntimeError::from(ScalarError::from(ArithmeticError::Overflow)))?;
                         }
                     }
                     Ok(result.encode())
