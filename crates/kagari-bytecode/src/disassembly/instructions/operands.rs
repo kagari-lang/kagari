@@ -7,10 +7,7 @@ use crate::{
     },
     instruction::{BinaryOp, FieldRef, ScalarOperand, Slot, UnaryOp},
 };
-use kagari_contract::{
-    numeric::NumericOperation,
-    operations::{IterOp, StringIterKind},
-};
+use kagari_contract::numeric::NumericOperation;
 use kagari_types::{integer::IntegerOp, ty::Ty};
 use std::io::{self, Write};
 
@@ -133,20 +130,4 @@ pub(super) fn numeric(
         None => write!(writer, "none")?,
     }
     write!(writer, ")")
-}
-
-pub(super) fn iter(op: IterOp) -> &'static str {
-    match op {
-        IterOp::New => "new",
-        IterOp::Next => "next",
-        IterOp::String(kind) => match kind {
-            StringIterKind::Chars => "string.chars",
-            StringIterKind::Bytes => "string.bytes",
-            StringIterKind::CharIndices => "string.char_indices",
-            StringIterKind::Split => "string.split",
-            StringIterKind::SplitN => "string.split_n",
-            StringIterKind::Whitespace => "string.whitespace",
-            StringIterKind::Lines => "string.lines",
-        },
-    }
 }

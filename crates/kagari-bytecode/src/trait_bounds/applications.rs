@@ -181,7 +181,6 @@ pub(super) fn validate(
                 }
                 BytecodeInstruction::MakeFuture { future: ty, .. }
                 | BytecodeInstruction::Await { future: ty, .. }
-                | BytecodeInstruction::Iter { ty, .. }
                 | BytecodeInstruction::MakeRange { ty, .. } => validator.validate_type(ty)?,
                 BytecodeInstruction::RangeBound { range, bound, .. } => {
                     validator.types([range, bound])?

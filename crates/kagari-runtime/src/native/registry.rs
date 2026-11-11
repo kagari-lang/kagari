@@ -252,7 +252,6 @@ impl NativeRegistry {
                         .unwrap_or_else(|| declaration.function.return_type.clone()),
                 },
                 &definitions,
-                &registration.required_catalog,
             )?;
         }
         let mut catalog = self.catalog.clone();
@@ -313,7 +312,6 @@ impl NativeRegistry {
         entry.binding.check(
             &admission.runtime(&signature, &CancellationToken::default())?,
             admission.target(),
-            &entry.required_catalog,
         )?;
         let selected = import
             .callables

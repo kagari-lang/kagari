@@ -1,6 +1,5 @@
 //! Iterable terminal operations preserve ordered callbacks and completed effects.
 use crate::foundation::enumerations::value::{self as enums, EnumSymbols, option};
-use kagari_contract::operations::IterOp;
 use kagari_runtime::{
     error::RuntimeError,
     native::{
@@ -109,15 +108,6 @@ pub(super) fn increment(value: u64) -> NativeResult<u64> {
     value
         .checked_add(1)
         .ok_or_else(|| RuntimeError::from(ScalarError::from(ArithmeticError::Overflow)))
-}
-
-pub(crate) fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.iter_operation(0, IterOp::New)
-}
-
-pub(crate) fn next(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let (some, none) = symbols.option_members()?;
-    cx.iterator_next_result(0, some, none)
 }
 
 #[cfg(test)]

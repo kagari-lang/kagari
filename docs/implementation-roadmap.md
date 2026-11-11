@@ -1514,7 +1514,7 @@ records the concrete coupling in collection layouts/types, packed array sharing,
 heap services, Native codecs/primitives, cursors, Rust adapters/Serde and automatic
 SDK composition. The user activated D00-D05 on 2026-11-11; D00 core-only baseline is complete
 and committed. D01 explicit SDK composition and D02 builtin array/hash separation are complete;
-D03-D05 are pending. Establish a core-only
+D03/D04 are complete as one coordinated contract cut; D05 handoff is pending. Establish a core-only
 witness, make installation explicit, separate builtin storage, perform one coherent
 contract cut, remove library adapters and hand off the Runtime baseline. This is
 detach-first; complete old library availability is not promised during backend

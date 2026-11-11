@@ -216,11 +216,6 @@ impl FunctionLowerer<'_, '_> {
                     Conversion::Interface(coercion) => {
                         self.lower_interface_coercion(expr_id, value, coercion)
                     }
-                    Conversion::ReadOnly => {
-                        let dst = self.alloc_temp(value.ty);
-                        self.emit(Instruction::Move { dst, src: value });
-                        Ok(dst)
-                    }
                 }
             }
             CheckedExprKind::NumericCast { value, conversion } => {

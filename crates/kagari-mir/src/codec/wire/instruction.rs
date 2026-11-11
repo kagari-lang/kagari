@@ -17,7 +17,7 @@ use kagari_contract::callable::{
 };
 use kagari_contract::{
     numeric::{NumericConversion, NumericOperation},
-    operations::{BinaryOp, IterOp, UnaryOp},
+    operations::{BinaryOp, UnaryOp},
 };
 use kagari_types::{declaration::wire::leaf::NominalTyRecord, ty::wire::WireType};
 use serde::{Deserialize, Serialize};
@@ -41,12 +41,7 @@ pub(crate) enum InstructionRecord {
         lhs: MirValue,
         rhs: Option<MirValue>,
     },
-    Iter {
-        dst: MirValue,
-        value: Option<MirValue>,
-        ty: WireType,
-        op: IterOp,
-    },
+
     LoadConst {
         dst: MirValue,
         constant: Constant,
@@ -267,12 +262,7 @@ impl InstructionRecord {
                 lhs: *lhs,
                 rhs: *rhs,
             },
-            Instruction::Iter { dst, value, ty, op } => Self::Iter {
-                dst: *dst,
-                value: *value,
-                ty: WireType::encode(ty, encoding, cancel)?,
-                op: *op,
-            },
+
             Instruction::LoadConst { dst, constant } => Self::LoadConst {
                 dst: *dst,
                 constant: constant.clone(),
@@ -558,12 +548,7 @@ impl InstructionRecord {
                 lhs,
                 rhs,
             },
-            Self::Iter { dst, value, ty, op } => Instruction::Iter {
-                dst,
-                value,
-                ty: ty.decode(decoding, cancel)?,
-                op,
-            },
+
             Self::LoadConst { dst, constant } => Instruction::LoadConst { dst, constant },
             Self::LoadLocal { dst, local } => Instruction::LoadLocal { dst, local },
             Self::LoadModule { dst, slot } => Instruction::LoadModule { dst, slot },

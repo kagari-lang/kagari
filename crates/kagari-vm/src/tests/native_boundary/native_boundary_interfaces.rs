@@ -583,7 +583,7 @@ pub(super) fn generic_identity_module() -> NativeModule {
         .function(&singleton, |function| {
             let item = function.type_parameter("T")?.ty();
             function.parameter("value", item.clone())?;
-            function.returns(language.vec(item)?)?;
+            function.returns(Type::tuple([item])?)?;
             Ok(())
         })
         .unwrap();
@@ -591,14 +591,7 @@ pub(super) fn generic_identity_module() -> NativeModule {
         .bind(
             singleton,
             NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| {
-                let result = cx.allocate_result()?;
-                let root = cx.heap().root_value(result).unwrap();
-                let Value::GcHandle(id) = result else {
-                    panic!("declared array result");
-                };
-                cx.heap().sequence_push(id, cx.argument(0)?)?;
-                drop(root);
-                Ok(result)
+                cx.heap().alloc_tuple(vec![cx.argument(0)?])
             }),
         )
         .unwrap();
@@ -611,7 +604,7 @@ fn shared_native_returns_preserve_the_callers_layout_generation() {
     let source = r#"
 use example::generic_helper::identity;
 use example::generic_helper::singleton;
-trait Forward { fn forward<T>(self, value: T) -> T { singleton(identity(value))[0] } }
+trait Forward { fn forward<T>(self, value: T) -> T { { val (item,) = singleton(identity(value)); item } } }
 struct Source {}
 impl Forward for Source {}
 struct Item { val value: i32 }

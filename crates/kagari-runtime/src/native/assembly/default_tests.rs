@@ -220,7 +220,7 @@ fn list_assembly(counts: Counts, implement: bool, bad_codec: bool) -> NativeResu
         })?;
         let vec_type = module.reference_type(
             path("alloc", "vec", DefinitionKind::AssociatedType, "Vec"),
-            TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element: 0 }),
+            TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
             1,
         )?;
         if implement {
@@ -270,7 +270,7 @@ fn list_assembly(counts: Counts, implement: bool, bad_codec: bool) -> NativeResu
                     result: if bad_codec {
                         Codec::Exact(Type::bool())
                     } else {
-                        Codec::Sequence
+                        Codec::Value
                     },
                     method_generics: 0,
                 })

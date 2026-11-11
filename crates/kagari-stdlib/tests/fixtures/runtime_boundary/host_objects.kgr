@@ -1,0 +1,48 @@
+pub struct Player {
+    pub var hp: i32,
+    pub val name: String
+}
+
+pub struct Other {
+    pub var hp: i32,
+    pub val name: String
+}
+
+pub struct Pair {
+    pub var first: Player,
+    pub var second: Player
+}
+
+pub struct Hidden {
+    val secret: i32,
+    pub (super) var internal: i32,
+    pub var visible: i32
+}
+
+struct Private {
+    pub var hp: i32
+}
+
+pub struct Cell<T> {
+    pub var value: T
+}
+
+pub struct Node {
+    pub var next: Option<Node>
+}
+
+pub struct Bag {
+    pub var items: (Option<Node>, Option<Node>),
+    pub var pair: (Node, i32)
+}
+
+fn layouts() {
+    val p = Player { hp: 100, name: "Ada" };
+    val o = Other { hp: 100, name: "Ada" };
+    val pair = Pair { first: p, second: p };
+    val hidden = Hidden { secret: 1, internal: 2, visible: 3 };
+    val private = Private { hp: 100 };
+    val c = Cell { value: p };
+    val n = Node { next: None };
+    val bag = Bag { items: (Some(n), None), pair: (n, 1) };
+}

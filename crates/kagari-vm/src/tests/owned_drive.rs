@@ -2,6 +2,7 @@ use crate::tests::common::logging_module;
 use crate::tests::common::round_trip_bytecode;
 use crate::{
     error::VmError,
+    executor::Executor,
     reentry::reenter,
     tests::{
         common::{compile_logging_test_bytecode, standard_runtime},
@@ -358,6 +359,9 @@ fn async_owned_drive_contract_iterator_invalidation() {
             sum
         }
         pub fn ping() -> i32 { 42 }
+        pub fn append(items: Vec<i32>) { items.push(9); }
+        pub fn replace(items: Vec<i32>) { items[1] = 20; }
+        pub fn length(items: Vec<i32>) -> u64 { items.len() }
     "#,
     );
     let artifact = round_trip_bytecode(program);
@@ -374,6 +378,15 @@ fn async_owned_drive_contract_iterator_invalidation() {
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
+    let edit = |name: &str, value: Value| {
+        let (owner, function) = ProgramEntry::from(name).resolve(&loaded).unwrap();
+        let runtime = vm.runtime();
+        let _session = runtime.begin_execution(&owner, Default::default()).unwrap();
+        Executor::new(runtime, &owner, function, &[value])
+            .unwrap()
+            .run()
+            .unwrap()
+    };
     let slice = NonZeroUsize::new(1).unwrap();
     // Each case parks an actual collection loop after its first item. Normal
     // completion, invalidation, cancellation and owner drop retain no native borrows.
@@ -381,7 +394,7 @@ fn async_owned_drive_contract_iterator_invalidation() {
         *seen.lock().unwrap() = 0;
         let source = vm.execute(&loaded, "make").unwrap().return_value;
         let value = source.value(vm.runtime().gc()).unwrap();
-        let Value::GcHandle(id) = value else {
+        let Value::GcHandle(_) = value else {
             panic!("source Vec")
         };
         let owner = vm
@@ -406,12 +419,9 @@ fn async_owned_drive_contract_iterator_invalidation() {
             Some(Value::I32(42))
         );
         if exit != 0 {
-            vm.runtime().gc().sequence_push(id, Value::I32(9)).unwrap();
+            edit("append", value);
         }
-        vm.runtime()
-            .gc()
-            .sequence_set(id, 1, Value::I32(20))
-            .unwrap();
+        edit("replace", value);
         match exit {
             0 => {
                 let mut finished = false;
@@ -453,14 +463,14 @@ fn async_owned_drive_contract_iterator_invalidation() {
                     1,
                     "no second item after invalidation"
                 );
-                assert_eq!(vm.runtime().gc().sequence_len(id), Some(4));
+                assert_eq!(edit("length", value), Value::U64(4));
             }
             _ => {
                 drop(owner);
                 assert_eq!(vm.runtime().drain_retired_executions().unwrap(), 1);
             }
         }
-        vm.runtime().gc().sequence_push(id, Value::I32(9)).unwrap();
+        edit("append", value);
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
         assert_eq!(
             vm.runtime()

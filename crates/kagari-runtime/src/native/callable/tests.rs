@@ -138,14 +138,13 @@ fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
 
 #[test]
 fn scoped_closure_views_reject_mutation_without_panicking_or_partial_writes() {
-    let (mut runtime, loaded, prepared) = fixture();
-    let owner = crate::test_support::layouts::sequence_owner(&mut runtime);
-    let root = ConversionContext::new(&runtime, &owner)
-        .unwrap()
-        .encode(vec![1i32])
+    let (runtime, loaded, prepared) = fixture();
+    let value = runtime
+        .alloc_array(&loaded, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
         .unwrap();
-    let Value::GcHandle(array) = root.value(runtime.gc()).unwrap() else {
-        panic!("Vec")
+    let root = runtime.root_value(Value::Array(value)).unwrap();
+    let Value::Array(array) = root.value(runtime.gc()).unwrap() else {
+        panic!("array")
     };
     let snapshot = prepared.snapshot(&runtime).unwrap();
     let before = runtime.resources().counters();
@@ -157,21 +156,19 @@ fn scoped_closure_views_reject_mutation_without_panicking_or_partial_writes() {
             .kind(),
         RuntimeErrorKind::ModuleValidation
     );
-    assert!(runtime.gc.sequence_push(array, Value::I32(2)).is_err());
-    assert!(runtime.gc.sequence_set(array, 0, Value::I32(3)).is_err());
-    assert!(runtime.gc.sequence_swap(array, 0, 0).is_err());
+    assert!(runtime.gc.array_set(array, 0, Value::I32(3)).is_err());
     assert_eq!(
-        runtime.gc.sequence_snapshot(array).unwrap(),
+        runtime.gc.array_snapshot(array).unwrap(),
         vec![Value::I32(1)]
     );
     assert_eq!(runtime.resources().counters(), before);
     assert_eq!(runtime.gc.stats(), stats);
     assert!(!runtime.is_quarantined());
     drop(snapshot);
-    runtime.gc.sequence_push(array, Value::I32(2)).unwrap();
+    runtime.gc.array_set(array, 0, Value::I32(2)).unwrap();
     assert_eq!(
-        runtime.gc.sequence_snapshot(array).unwrap(),
-        vec![Value::I32(1), Value::I32(2)]
+        runtime.gc.array_snapshot(array).unwrap(),
+        vec![Value::I32(2)]
     );
     let snapshot = prepared.snapshot(&runtime).unwrap();
     let before = runtime.resources().counters();
@@ -184,5 +181,5 @@ fn scoped_closure_views_reject_mutation_without_panicking_or_partial_writes() {
     assert_eq!(runtime.gc.stats(), stats);
     drop(snapshot);
     assert!(runtime.gc.validate_value(prepared.value()));
-    assert!(runtime.gc.validate_value(&Value::GcHandle(array)));
+    assert!(runtime.gc.validate_value(&Value::Array(array)));
 }

@@ -5,9 +5,9 @@ use kagari_runtime::{
         binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        collections::vector::ScriptVec,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         declarations::FunctionDecl,
+        payload::Opaque,
         schema::{TypeRegistration, ValueField},
         typed::NativeContext,
         types::Type,
@@ -16,9 +16,11 @@ use kagari_runtime::{
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 
+kagari_runtime::native_data! { struct Shared { len: u64 } }
+
 struct Packet {
     hp: i32,
-    shared: ScriptVec<i32>,
+    shared: Opaque<Shared>,
 }
 
 impl KagariType for Packet {
@@ -30,7 +32,7 @@ impl KagariType for Packet {
         cx.structure::<Self>("Packet", |cx| {
             Ok(vec![
                 ValueField::new("hp", cx.dependency::<i32>()?),
-                ValueField::new("shared", cx.dependency::<ScriptVec<i32>>()?),
+                ValueField::new("shared", cx.dependency::<Opaque<Shared>>()?),
             ])
         })
     }
@@ -68,6 +70,33 @@ fn nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity(
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let mut module = ModuleBuilder::new("example::dto", &catalog).unwrap();
     let packet = module.register_type::<Packet>().unwrap();
+    let shared = Opaque::<Shared>::kagari_type(module.declarations()).unwrap();
+    let make = module
+        .define_function(FunctionDecl::new("shared").returns(shared.clone()))
+        .unwrap();
+    module
+        .bind(
+            make,
+            |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Opaque<Shared>> {
+                cx.create_opaque(Shared { len: 1 })
+            },
+        )
+        .unwrap();
+    let len = module
+        .define_function(
+            FunctionDecl::new("len")
+                .parameter("shared", shared)
+                .returns(Type::u64()),
+        )
+        .unwrap();
+    module
+        .bind(
+            len,
+            |cx: &mut NativeContext<'_>, (shared,): (Opaque<Shared>,)| -> NativeResult<u64> {
+                shared.read(cx, |shared| Ok(shared.len))
+            },
+        )
+        .unwrap();
     let update = module
         .define_function(
             FunctionDecl::new("update")
@@ -80,7 +109,10 @@ fn nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity(
             update,
             |cx: &mut NativeContext<'_>, (mut packet,): (Packet,)| -> NativeResult<Packet> {
                 packet.hp += 1;
-                packet.shared.push(cx, 42)?;
+                packet.shared.edit(cx, |shared| {
+                    shared.len += 1;
+                    Ok(())
+                })?;
                 cx.collect_garbage()?;
                 Ok(packet)
             },
@@ -88,11 +120,11 @@ fn nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity(
         .unwrap();
     let (vm, owner) = source_free_vm(
         r#"
-        use example::dto::{Packet, update};
+        use example::dto::{Packet, update, shared, len};
         pub fn main() -> (i32, i32, u64) {
-            val input = Packet { hp: 7, shared: Vec::from([1]) };
+            val input = Packet { hp: 7, shared: shared() };
             val output = update(input);
-            (input.hp, output.hp, input.shared.len())
+            (input.hp, output.hp, len(input.shared))
         }
         "#,
         &module.finish().unwrap(),

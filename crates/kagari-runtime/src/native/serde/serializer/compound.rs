@@ -5,7 +5,6 @@ use crate::{
     module::EnumVariantRef,
     native::{
         binding::NativeResult,
-        collections::vector::storage::declaration,
         conversion::{context::ConversionContext, structures::StructEncoder},
         serde::{serializer::encode, unsupported},
     },
@@ -15,7 +14,7 @@ use crate::{
 use kagari_types::{language::binding, ty::Ty};
 use serde::{
     Serialize,
-    ser::{SerializeSeq, SerializeStruct, SerializeTuple, SerializeTupleVariant},
+    ser::{SerializeStruct, SerializeTuple, SerializeTupleVariant},
 };
 
 pub(crate) fn check_standard_enum(
@@ -40,24 +39,13 @@ pub(crate) fn check_standard_enum(
     }
 }
 
-pub(crate) fn check_sequence(expected: &TypeArgument) -> NativeResult<()> {
-    if matches!(expected.ty(), Ty::NativeObject(nominal) if binding::matches(&nominal.declaration, &declaration(), expected.definitions()) && nominal.arguments.len() == 1)
-    {
-        Ok(())
-    } else {
-        Err(unsupported("sequence schema mismatch"))
-    }
-}
-
 enum PackKind {
-    Sequence(TypeArgument),
     Tuple(Vec<TypeArgument>),
     Variant(EnumVariantRef, Vec<TypeArgument>),
 }
 
 pub(crate) struct Pack<'scope, 'runtime> {
     cx: &'scope mut ConversionContext<'runtime>,
-    expected: TypeArgument,
     kind: PackKind,
     values: Vec<Value>,
     length: Option<usize>,
@@ -66,7 +54,6 @@ pub(crate) struct Pack<'scope, 'runtime> {
 impl<'scope, 'runtime> Pack<'scope, 'runtime> {
     fn new(
         cx: &'scope mut ConversionContext<'runtime>,
-        expected: &TypeArgument,
         kind: PackKind,
         length: Option<usize>,
     ) -> NativeResult<Self> {
@@ -77,21 +64,10 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
             .map_err(|_| RuntimeError::resource_limit("Serde compound capacity"))?;
         Ok(Self {
             cx,
-            expected: expected.clone(),
             kind,
             values,
             length,
         })
-    }
-
-    pub(crate) fn sequence(
-        cx: &'scope mut ConversionContext<'runtime>,
-        expected: &TypeArgument,
-        length: Option<usize>,
-    ) -> NativeResult<Self> {
-        check_sequence(expected)?;
-        let element = cx.parameter(expected, 0)?;
-        Self::new(cx, expected, PackKind::Sequence(element), length)
     }
 
     pub(crate) fn tuple(
@@ -106,7 +82,7 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
         let fields = (0..length)
             .map(|i| cx.parameter(expected, i))
             .collect::<NativeResult<_>>()?;
-        Self::new(cx, expected, PackKind::Tuple(fields), Some(length))
+        Self::new(cx, PackKind::Tuple(fields), Some(length))
     }
 
     pub(crate) fn variant(
@@ -122,12 +98,7 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
         if fields.len() != length {
             return Err(unsupported("variant payload schema mismatch"));
         }
-        Self::new(
-            cx,
-            expected,
-            PackKind::Variant(layout, fields),
-            Some(length),
-        )
+        Self::new(cx, PackKind::Variant(layout, fields), Some(length))
     }
 
     pub(crate) fn push<T: Serialize + ?Sized>(&mut self, value: &T) -> NativeResult<()> {
@@ -136,7 +107,6 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
             return Err(unsupported("compound has extra elements"));
         }
         let expected = match &self.kind {
-            PackKind::Sequence(element) => element,
             PackKind::Tuple(fields) | PackKind::Variant(_, fields) => fields
                 .get(slot)
                 .ok_or_else(|| unsupported("payload has extra elements"))?,
@@ -158,11 +128,6 @@ impl<'scope, 'runtime> Pack<'scope, 'runtime> {
             return Err(unsupported("compound has missing elements"));
         }
         match self.kind {
-            PackKind::Sequence(_) => {
-                self.cx
-                    .runtime()
-                    .allocate_sequence(self.cx.owner(), &self.expected, self.values)
-            }
             PackKind::Tuple(_) => self.cx.runtime().gc().alloc_tuple(self.values),
             PackKind::Variant(layout, _) => self
                 .cx
@@ -190,7 +155,6 @@ macro_rules! pack_trait {
     };
 }
 
-pack_trait!(SerializeSeq, serialize_element);
 pack_trait!(SerializeTuple, serialize_element);
 pack_trait!(SerializeTupleVariant, serialize_field);
 

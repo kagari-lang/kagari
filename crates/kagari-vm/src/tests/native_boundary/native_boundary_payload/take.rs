@@ -2,7 +2,6 @@ use super::{Counter, SOURCE, module};
 use crate::tests::native_boundary::native_boundary_functions::fixture;
 use kagari_runtime::{
     native::{
-        collections::vector::ScriptVec,
         conversion::{FromKagari, IntoKagari, context::ConversionContext},
         payload::Opaque,
         value_handle::ScriptValue,
@@ -20,7 +19,7 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
     let (module, declaration, _, _) = module(drops.clone());
     let source = SOURCE.to_owned()
         + r#"
-        pub fn aliases(counter: Counter) -> Vec<Counter> { Vec::from([counter, counter]) }
+        pub fn aliases(counter: Counter) -> (Counter, Counter) { (counter, counter) }
     "#;
     let (vm, owner) = fixture(&source, Some(&module));
     let _owner_program = owner;
@@ -31,7 +30,7 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
         .unwrap();
     let object: Opaque<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
     let alias = object.clone();
-    let script: ScriptVec<Opaque<Counter>> = vm
+    let script: ScriptValue = vm
         .execute_typed(&owner, "aliases", (alias.clone(),))
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
@@ -50,7 +49,7 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
             Ok(())
         })
         .unwrap();
-    // Retire the temporary source-array before testing immediate native slot reuse.
+    // Collect before testing immediate native slot reuse; the tuple retains both aliases.
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     let before = runtime.gc().stats().current_heap_units;
     let original = object.take(&cx).unwrap();
@@ -61,7 +60,11 @@ fn take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_sl
     assert!(runtime.root_value(old).is_none());
     assert!(alias.read(&cx, |_| Ok(())).is_err());
     assert!(object.take(&cx).is_err());
-    assert!(script.get(&mut cx, 0).is_err());
+    assert!(
+        script
+            .decode::<(Opaque<Counter>, Opaque<Counter>)>(&mut cx)
+            .is_err()
+    );
     assert!(parked.decode::<Opaque<Counter>>(&mut cx).is_err());
     assert!(
         vm.execute_typed::<_, i32>(&owner, "value", (alias.clone(),))

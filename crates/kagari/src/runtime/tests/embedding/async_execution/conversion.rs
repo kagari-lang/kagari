@@ -49,7 +49,7 @@ struct Reply {
 
 impl KagariType for Reply {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Vec::<i32>::kagari_type(catalog)
+        <(i32,)>::kagari_type(catalog)
     }
 }
 
@@ -60,7 +60,7 @@ impl IntoKagari for Reply {
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
         self.encoded.fetch_add(1, Ordering::SeqCst);
-        let value = cx.encode_value(expected, vec![7_i32])?;
+        let value = cx.encode_value(expected, (7_i32,))?;
         cx.runtime().collect_garbage()?;
         match self.boundary {
             Boundary::DuringConversion => self.cancellation.cancel(),
@@ -219,7 +219,7 @@ fn async_output_publication_contract() {
         );
         if boundary != Boundary::ConversionFault {
             assert!(!runtime.is_quarantined());
-            let _ = f.invoke("push", slice::from_ref(&f.value(&items)));
+            let _ = f.invoke("write", slice::from_ref(&f.value(&items)));
         }
         scope.close();
         runtime.drain_cancelled_tasks().unwrap();

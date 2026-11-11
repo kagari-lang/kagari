@@ -178,14 +178,14 @@ inside Runtime and executable contracts, not a missing Cargo feature. Adding a
 | Mechanism and current owner | Evidence | Disposition |
 | --- | --- | --- |
 | Automatic complete library composition | [SDK builder](../crates/kagari/src/engine/builder.rs), formerly `KagariEngineBuilder::standard` | D01 removes implicit installation: `empty` constructs the provider-free builder, and host/CLI/web consumers explicitly select library modules. Runtime already has an empty native-registry constructor. |
-| Nominal Vec storage and core recognition | [Vec declaration](../crates/kagari-stdlib/src/foundation/vector.rs), [native layout families](../crates/kagari-types/src/declaration/native.rs), [NativeStorage](../crates/kagari-runtime/src/native/storage.rs) | Remove Sequence/Map/Set/Iterator as privileged library storage families; later library types use ordinary nominal native payload declarations. Future/Task/TaskScope are separate execution mechanisms. |
-| Packed array and Vec implementation sharing | [sequence storage](../crates/kagari-runtime/src/native/sequence.rs), [buffer kernels](../crates/kagari-runtime/src/gc/buffers.rs), [fixed arrays](../crates/kagari-runtime/src/gc/arrays.rs), `gc/sequences.rs`, `gc/sequence_ops.rs`, `gc/sequence_edit.rs` | First give fixed arrays a Runtime-owned storage boundary; remove nominal Vec constructors/edit policy without discarding scalar packing or changing fixed-length array semantics. |
-| Hash storage and key policy | [hash payloads](../crates/kagari-runtime/src/native/hashed.rs), [table storage](../crates/kagari-runtime/src/native/hash_storage.rs), [heap operations](../crates/kagari-runtime/src/gc/maps_sets.rs), [custom keys](../crates/kagari-runtime/src/gc/custom_keys.rs) | Retire concrete tables, collision/lookup policy and stored Hash/Eq selections from Runtime. Preserve ordinary checked Hash/Eq calls and current-version selection. |
+| Nominal Vec storage and core recognition | `crates/kagari-stdlib/src/foundation/vector.rs` (retired), [native layout families](../crates/kagari-types/src/declaration/native.rs), [NativeStorage](../crates/kagari-runtime/src/native/storage.rs) | Remove Sequence/Map/Set/Iterator as privileged library storage families; later library types use ordinary nominal native payload declarations. Future/Task/TaskScope are separate execution mechanisms. |
+| Packed array and Vec implementation sharing | `crates/kagari-runtime/src/native/sequence.rs` (retired), [buffer kernels](../crates/kagari-runtime/src/gc/buffers.rs), [fixed arrays](../crates/kagari-runtime/src/gc/arrays.rs), `gc/sequences.rs`, `gc/sequence_ops.rs`, `gc/sequence_edit.rs` | First give fixed arrays a Runtime-owned storage boundary; remove nominal Vec constructors/edit policy without discarding scalar packing or changing fixed-length array semantics. |
+| Hash storage and key policy | `crates/kagari-runtime/src/native/hashed.rs` (retired), `crates/kagari-runtime/src/native/hash_storage.rs` (retired), `crates/kagari-runtime/src/gc/maps_sets.rs` (retired), `crates/kagari-runtime/src/gc/custom_keys.rs` (retired) | Retire concrete tables, collision/lookup policy and stored Hash/Eq selections from Runtime. Preserve ordinary checked Hash/Eq calls and current-version selection. |
 | Special collection value/type branches | [Value and MapKey](../crates/kagari-runtime/src/value.rs), [type checks](../crates/kagari-runtime/src/value_check.rs), [Ty](../crates/kagari-types/src/ty.rs), [operation contracts](../crates/kagari-contract/src/operations.rs) | Remove Value::Map/Set and dedicated Ty::Map/Set/Iter with their consumers coherently. Do not rename them into a new generic container enum. Extract builtin structural hash semantics from MapKey before retiring its table-key policy. |
-| Collection Native codecs and public services | [Codec](../crates/kagari-runtime/src/native/binding.rs), [CallContext](../crates/kagari-runtime/src/native/context.rs), [operation services](../crates/kagari-runtime/src/native/context/operations.rs), [iterator services](../crates/kagari-runtime/src/native/context/iteration.rs) | Remove collection-specific codecs, factories, views and edits. Retain argument windows, typed calls, checked opaque payload access and roots. A public collection-specific method is still coupling. |
-| Cursors and string/range traversal | [NativeIter](../crates/kagari-runtime/src/gc/iter.rs), [string traversal](../crates/kagari-runtime/src/gc/string_iter.rs), [Runtime iteration entry](../crates/kagari-runtime/src/objects.rs) | Remove the universal concrete cursor, source-container dispatch, key snapshots and cursor-specific allocation. Preserve language for-loop lowering to checked iterator calls; library cursor implementations return later. String/array/range representations stay core. |
+| Collection Native codecs and public services | [Codec](../crates/kagari-runtime/src/native/binding.rs), [CallContext](../crates/kagari-runtime/src/native/context.rs), [operation services](../crates/kagari-runtime/src/native/context/operations.rs), `crates/kagari-runtime/src/native/context/iteration.rs` (retired) | Remove collection-specific codecs, factories, views and edits. Retain argument windows, typed calls, checked opaque payload access and roots. A public collection-specific method is still coupling. |
+| Cursors and string/range traversal | `crates/kagari-runtime/src/gc/iter.rs` (retired), `crates/kagari-runtime/src/gc/string_iter.rs` (retired), [Runtime iteration entry](../crates/kagari-runtime/src/objects.rs) | Remove the universal concrete cursor, source-container dispatch, key snapshots and cursor-specific allocation. Preserve language for-loop lowering to checked iterator calls; library cursor implementations return later. String/array/range representations stay core. |
 | Privileged Native implementation selection | [NativePrimitive](../crates/kagari-runtime/src/native/primitive.rs), [prepared Native bodies](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs), [cursor execution](../crates/kagari-runtime/src/frame/cursor/primitives.rs) | Remove VecIndex/VecSet/VecSetFluent and their prepared execution branches together. Review StringByteLength as a builtin String operation rather than deleting it by filename; do not extend these privileges to replacement libraries. |
-| Host collection adapters and canonical identities | [owning adapters](../crates/kagari-runtime/src/native/collections.rs), [hardcoded Vec identity](../crates/kagari-runtime/src/native/collections/vector/storage.rs), [Rust conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), [Serde schemas](../crates/kagari-runtime/src/native/serde/schema.rs) | Remove core knowledge of kagari-alloc::vec::Vec and library-specific handles/conversions. Rust Vec<T> conversion cannot simply move to stdlib: both the Runtime trait and Rust Vec would be foreign there. A later library-owned wrapper/explicit adapter belongs to the library API design. Preserve independent tuple/enum/scalar/struct conversion. |
+| Host collection adapters and canonical identities | `crates/kagari-runtime/src/native/collections.rs` (retired), `crates/kagari-runtime/src/native/collections/vector/storage.rs` (retired), [Rust conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), [Serde schemas](../crates/kagari-runtime/src/native/serde/schema.rs) | Remove core knowledge of kagari-alloc::vec::Vec and library-specific handles/conversions. Rust Vec<T> conversion cannot simply move to stdlib: both the Runtime trait and Rust Vec would be foreign there. A later library-owned wrapper/explicit adapter belongs to the library API design. Preserve independent tuple/enum/scalar/struct conversion. |
 | Language protocol bridges colocated with library names | [Runtime primitives](../crates/kagari-runtime/src/builtin/standard.rs), [builtin result contracts](../crates/kagari-runtime/src/module/linked_execution/builtin_results.rs), [language enum identities](../crates/kagari-types/src/language/binding.rs) | Keep checked numeric/value operations, interpolation and required enum result construction. Option/Result propagation and Ordering are language contracts; removing the full stdlib bundle must not erase their identities or replace scope validation with names. Classify Assert by its compiler/contract consumers before moving it. |
 | Compiler/artifact/backend propagation | [HIR native declarations](../crates/kagari-hir/src/native.rs), [instance lowering](../crates/kagari-compiler/src/source/lower/instances/native.rs), [bytecode access verification](../crates/kagari-bytecode/src/access.rs), [VM aggregate dispatch](../crates/kagari-vm/src/executor/aggregate_ops.rs) | Update directly affected constructor/layout/type/operation consumers, serializers, verifiers and presentation. Preserve ordinary trait/index dispatch and source-free validation. This is finite contract removal, not a compiler architecture rewrite. |
 
@@ -248,7 +248,8 @@ through it before deleting old paths. That is broader work than detach-first.
 #### Activated execution and D00 baseline
 
 Activated by the user on 2026-11-11, starting from `204e7276`. D00 is complete;
-D01-D02 are complete; D03-D05 remain pending. Phase commits use `Plan: docs/runtime-refactor-design.md`
+D01-D04 are complete; D03/D04 share one coordinated contract-cut checkpoint.
+D05 handoff and isolated performance comparison remain pending. Phase commits use `Plan: docs/runtime-refactor-design.md`
 and `Plan-Phase: DNN`. This activation covers detachment only; later Runtime/Host,
 VM, frame and collector proposals remain design inputs.
 
@@ -399,6 +400,92 @@ documentation links and diff checks pass. No build/test errors are carried. The
 initial missing-import warning was removed during ownership review. Full-workspace
 tests and exhaustive features/platforms remain CI-only. The nominal packed-buffer
 bridge is the explicit D03/D04 removal obligation, not completed detachment.
+
+D03/D04 removes Map/Set/Iter semantic/value tags, Sequence/Map/Set/Iterator
+storage families, the builtin cursor instruction/codec, concrete tables/cursors,
+Vec NativePrimitive bodies, collection codecs/handles/factories and automatic Rust
+Vec/Serde sequence adapters. Fixed arrays retain the exact D02 payload, scalar
+packing, checked replacement and accounting kernels; their length cannot change.
+`Type::array` authors ordinary builtin-array signatures without a nominal provider.
+The ABI/format identifiers remain unchanged under the unpublished-artifact policy.
+The disposable old `target/fixtures/feature_artifact.kbc` was explicitly invalidated;
+feature, async-pair and async-task products were emitted against the new contract.
+
+The old Map/Set readonly marker and its special HIR admission policy are removed
+with those types. Reference access, checked trait/index-write selection, host
+path/loan validation and the bounded source-free type-flow checker remain.
+Native source/declaration shape correspondence remains at `native/api/correspondence.rs`.
+Ordinary nominal Native declarations still require their explicit trait proofs.
+
+`StoredSelection` and explicit payload selection slots remain generic capabilities.
+`allocate_result_payload` and `call_stored_values` retain exact metadata roots,
+checked current-call selection and caller type environments. Only automatic table
+Hash/Eq capture is removed. The focused payload witness exercises collection,
+current calls, replacement candidates and foreign owners through an ordinary
+application declaration. GC safepoint borrow admission is unrelated to retired
+script collection policy and remains intact.
+
+The reduced stdlib seals and executes basic string/numeric/character methods,
+language enum/async contracts, fixed-array index/equality and generic protocol
+algorithms. Concrete Vec/hash contributors, source-container cursors, String
+split/traversal helpers and List algorithms requiring retired edit scratch are
+withdrawn. No replacement backend, compatibility alias or new library crate exists.
+NC owns full library reconstruction through the later public payload/edit protocol.
+
+Generic consumers now use builtin arrays, tuples and application payloads. DTO
+recursion uses transparent Rust `Box<T>`/`Option<Box<T>>`, including Serde schemas;
+Box adds no script type or graph node. Conversion delegates directly to its child
+within the existing checked frame, avoiding a false cycle from entering the same
+identity twice. Real cycles remain rejected; child snapshots survive alias mutation,
+GC and visitor unwind. Root, result-conversion, cancellation, host reentry, type
+scope, owner/generation and cleanup assertions remain at their semantic owners.
+Tests solely about removed Sequence growth/detached leases, table capacity and
+obsolete codecs/instructions are retired. Full-library source fixtures remain for
+NC rather than being ignored or replaced by success stubs.
+
+D03/D04 local validation:
+
+- Workspace all-target Clippy, structure (1847 Rust files, zero violations, three
+  existing scalar-dispatch exceptions), Rust/changed-fixture formatting and diff
+  checks pass. SDK serde all-target and optional enum measurement example checks
+  pass. Production SDK, CLI, web, VM, compiler and Cranelift targets build.
+- Runtime samples cover Native accounting/extraction/revision exhaustion, fixed
+  array bounds/precommit cleanup, closure borrow rejection, explicit stored
+  selections and recursive DTOs. Seven Serde cases additionally cover all variant
+  shapes, scalar domains, real cycles, alias mutation/GC, limits and unwind.
+- Thirty sampled VM core/reload/Native cases passed initially. Two migrated test
+  setup defects (private export lookup and holding a tuple view during reflection)
+  were repaired and their existing contracts pass. Scalar/array Native invocation
+  retains its zero-allocation prepared-boundary oracle.
+- SDK samples pass seven generic concrete-result/interface cases, async output
+  publication, three offline composite routes, failed-shift completed effects and
+  application-only allocating callbacks. Stdlib samples pass nine conversions,
+  eight retained-object contracts and two wide-index/UTF-8 cases.
+- Artifact default/native routes pass fourteen initial cases plus the repaired
+  async example. All twelve cases also pass with SDK `--no-default-features`,
+  consuming the newly emitted products without SDK source compilation. They retain
+  enum propagation, host schemas, checked binding-forgery rejection, closures and
+  async tasks. The task example uses a script-authored Iterator over an array,
+  preserving for-body suspension rather than relying on the retired universal cursor.
+
+The initial removed-API compiler diagnostics are resolved, including VM tests
+(formerly 325 errors), Runtime serde tests and required-feature Rust consumers.
+Shared-type substitution depth, explicit Native Eq/Hash prerequisites and carried
+implementation bounds, reference access wire round-tripping and installed Native
+layout contracts also pass. Two migrated test assumptions were corrected: nominal
+ownership uses its retained identity scope without a constructor table, and decoded
+IDs belong to a fresh table. The oracles retain foreign-owner rejection, complete
+type shapes and portable declaration paths. No known core build/test failure is
+carried. Full-library behavior remains an
+explicit integration gap: Vec/HashMap/HashSet, built-in array/range iteration,
+String traversal/split, collection algorithms and the collection-heavy manual
+measurement workloads await NC/public-payload reconnection. The renamed Runtime
+`array_access` example is provider-free. The optional enum baseline observes values
+through checked script calls but still needs its actual collection providers to run.
+Full-workspace tests and exhaustive feature/backend/platform matrices were not run
+locally and are not claimed passing; library-dependent cases currently require NC.
+D05 must update current ownership docs and carry this boundary into the existing
+NC/Runtime sections, independently of its required local all-target build acceptance.
 
 #### Validation and deferred work
 

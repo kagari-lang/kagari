@@ -164,12 +164,6 @@ impl RemapDefinitions for BytecodeInstruction {
                 value: *value,
                 future: future.remap_definitions(mapper)?,
             },
-            Self::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
-                dst: *(dst),
-                value: *(value),
-                ty: (ty).remap_definitions(mapper)?,
-                op: *(op),
-            },
 
             Self::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
                 dst: *(dst),
@@ -474,14 +468,6 @@ impl DefinitionReferences for BytecodeInstruction {
             } => {}
             Self::Await { future, .. } | Self::MakeFuture { future, .. } => {
                 future.visit_definition_ids(visit, cancel)?
-            }
-            Self::Iter {
-                dst: _,
-                value: _,
-                ty,
-                op: _,
-            } => {
-                (ty).visit_definition_ids(visit, cancel)?;
             }
 
             Self::LoadConst {

@@ -8,7 +8,7 @@ use kagari_common::identity::{
 use kagari_contract::types::PublicItem;
 use kagari_hir::types::semantic::{lower_type, raise_type};
 use kagari_types::{
-    collection::CollectionAccess::{Mutable, ReadOnly},
+    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty, identity::PortableTypes},
 };
@@ -273,74 +273,64 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
 }
 
 #[test]
-fn collection_access_survives_checked_and_wire_conversions() {
+fn reference_access_survives_checked_and_wire_conversions() {
     let context = DefinitionContext::new().unwrap();
-
-    let integer = Ty::Builtin(BuiltinType::I32);
-    for access in [ReadOnly, Mutable] {
-        for ty in [
-            Ty::Set(Box::new(integer.clone()), access),
-            Ty::Map {
-                key: Box::new(integer.clone()),
-                value: Box::new(Ty::Array(Box::new(integer.clone()))),
-                access,
-            },
-        ] {
-            let checked = raise_type(&ty);
-            assert_eq!(checked.collection_access(), Some(access));
-            assert_eq!(lower_type(&checked), ty);
-            let portable = PortableTypes::encode(
-                &context.snapshot(),
-                slice::from_ref(&ty),
-                &Default::default(),
-            )
-            .unwrap();
-            let bytes = codec().serialize(&portable).unwrap();
-            let decoded = codec()
-                .deserialize::<PortableTypes>(&bytes)
-                .unwrap()
-                .decode(&Default::default())
-                .unwrap();
-            assert_eq!(decoded.types, [ty]);
-        }
-    }
-    let array = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
-    assert_eq!(raise_type(&array).collection_access(), None);
-    assert_eq!(lower_type(&raise_type(&array)), array);
-    assert_eq!(
-        codec()
-            .deserialize::<PortableTypes>(
-                &codec()
-                    .serialize(
-                        &PortableTypes::encode(
-                            &context.snapshot(),
-                            slice::from_ref(&array),
-                            &Default::default()
-                        )
-                        .unwrap()
-                    )
-                    .unwrap()
-            )
+    let declaration = owner(
+        &context,
+        &ModuleIdentity::single_file("views.kgr"),
+        &[],
+        DefinitionKind::AssociatedType,
+        "Payload",
+    );
+    let target = Ty::NativeObject(NominalTy {
+        declaration,
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let mut encodings = Vec::new();
+    for access in [ReferenceAccess::Shared, ReferenceAccess::Mutable] {
+        let ty = Ty::Reference {
+            target: Box::new(target.clone()),
+            access,
+        };
+        assert_eq!(lower_type(&raise_type(&ty)), ty);
+        let portable = PortableTypes::encode(
+            &context.snapshot(),
+            slice::from_ref(&ty),
+            &Default::default(),
+        )
+        .unwrap();
+        let bytes = codec().serialize(&portable).unwrap();
+        let decoded = codec()
+            .deserialize::<PortableTypes>(&bytes)
             .unwrap()
             .decode(&Default::default())
-            .unwrap()
-            .types,
-        [array]
-    );
-    let readonly = Ty::Set(Box::new(integer.clone()), ReadOnly);
-    let mutable = Ty::Set(Box::new(integer), Mutable);
-    assert_ne!(
-        codec()
-            .serialize(
-                &PortableTypes::encode(&context.snapshot(), &[readonly], &Default::default())
-                    .unwrap()
-            )
-            .unwrap(),
-        codec()
-            .serialize(
-                &PortableTypes::encode(&context.snapshot(), &[mutable], &Default::default())
-                    .unwrap()
-            )
-            .unwrap()
-    );
+            .unwrap();
+        let [
+            Ty::Reference {
+                target,
+                access: decoded_access,
+            },
+        ] = decoded.types.as_slice()
+        else {
+            panic!("one scoped reference");
+        };
+        assert_eq!(*decoded_access, access);
+        let Ty::NativeObject(nominal) = target.as_ref() else {
+            panic!("nominal payload");
+        };
+        assert!(nominal.arguments.is_empty() && nominal.associated_types.is_empty());
+        assert_eq!(
+            decoded
+                .definitions
+                .resolve(nominal.declaration)
+                .unwrap()
+                .to_path(),
+            context.snapshot().resolve(declaration).unwrap().to_path(),
+        );
+        encodings.push(bytes);
+    }
+    assert_ne!(encodings[0], encodings[1]);
+    let array = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
+    assert_eq!(lower_type(&raise_type(&array)), array);
 }

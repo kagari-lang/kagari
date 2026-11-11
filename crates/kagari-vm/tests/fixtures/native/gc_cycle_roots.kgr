@@ -1,0 +1,9 @@
+struct Cycle {
+    var next: Option<Cycle>
+}
+
+fn main() -> Cycle {
+    val node = Cycle { next: None };
+    node.next = Some(node);
+    node
+}

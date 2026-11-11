@@ -599,17 +599,8 @@ fn children_match<'a>(
         (Ty::Tuple(a), Ty::Tuple(b)) => a.iter().zip(b).all(|(a, b)| test(a, b)),
         (Ty::Array(a), Ty::Array(b))
         | (Ty::Reference { target: a, .. }, Ty::Reference { target: b, .. })
-        | (Ty::Set(a, _), Ty::Set(b, _))
-        | (Ty::Iter(a), Ty::Iter(b))
         | (Ty::Range(a, _), Ty::Range(b, _)) => test(a, b),
-        (
-            Ty::Map {
-                key: a, value: av, ..
-            },
-            Ty::Map {
-                key: b, value: bv, ..
-            },
-        ) => test(a, b) && test(av, bv),
+
         (
             Ty::Function {
                 params: a,

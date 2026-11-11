@@ -43,7 +43,7 @@ use std::{
 #[derive(Debug, Clone, PartialEq, KagariValue)]
 struct Tree {
     leaf: Leaf,
-    children: Vec<Tree>,
+    children: Option<Box<Tree>>,
 }
 
 #[derive(Debug, Clone, PartialEq, KagariValue)]
@@ -225,7 +225,7 @@ impl FromKagari for Leaf {
         value: &Value,
     ) -> NativeResult<Self> {
         if let Some(parent) = REWRITE_PARENT.take() {
-            let empty = cx.encode(Vec::<Tree>::new())?;
+            let empty = cx.encode(None::<Box<Tree>>)?;
             let layout = cx.runtime().gc().struct_layout(parent).unwrap();
             cx.runtime().gc().struct_set_slot(
                 parent,
@@ -273,20 +273,16 @@ fn char_host_conversions_preserve_domains_in_scalars_and_generic_containers() {
         let integer = cx.encode(u32::from(ch)).unwrap();
         assert!(cx.decode::<char>(&integer).is_err());
     }
-    let expected = (
-        vec!['\0', 'é', '🙂'],
-        Some('a'),
-        Ok::<char, char>(char::MAX),
-    );
-    let root = cx.encode(expected.clone()).unwrap();
+    let expected = (('\0', 'é', '🙂'), Some('a'), Ok::<char, char>(char::MAX));
+    let root = cx.encode(expected).unwrap();
     runtime.collect_garbage().unwrap();
     assert_eq!(
-        cx.decode::<(Vec<char>, Option<char>, Result<char, char>)>(&root)
+        cx.decode::<((char, char, char), Option<char>, Result<char, char>)>(&root)
             .unwrap(),
         expected
     );
     assert!(
-        cx.decode::<(Vec<u32>, Option<char>, Result<char, char>)>(&root)
+        cx.decode::<((u32, u32, u32), Option<char>, Result<char, char>)>(&root)
             .is_err()
     );
 }
@@ -296,10 +292,10 @@ fn nested_dtos_and_enum_payloads_round_trip_with_owned_isolation_and_collection(
     let (runtime, owner) = conversion_fixture();
     let input = Tree {
         leaf: Leaf { value: 42 },
-        children: vec![Tree {
+        children: Some(Box::new(Tree {
             leaf: Leaf { value: 7 },
-            children: vec![],
-        }],
+            children: None,
+        })),
     };
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let root = cx.encode(input.clone()).unwrap();
@@ -336,10 +332,10 @@ fn dto_limits_and_incomplete_initializers_release_unpublished_roots() {
     let (runtime, owner) = conversion_fixture();
     let input = Tree {
         leaf: Leaf { value: 42 },
-        children: vec![Tree {
+        children: Some(Box::new(Tree {
             leaf: Leaf { value: 7 },
-            children: vec![],
-        }],
+            children: None,
+        })),
     };
     let mut cx = ConversionContext::with_limits(
         &runtime,
@@ -398,10 +394,10 @@ fn dto_snapshot_survives_alias_mutation_collection_and_child_unwind() {
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let input = Tree {
         leaf: Leaf { value: 1 },
-        children: vec![Tree {
+        children: Some(Box::new(Tree {
             leaf: Leaf { value: 2 },
-            children: vec![],
-        }],
+            children: None,
+        })),
     };
     let root = cx.encode(input.clone()).unwrap();
     let Value::Struct(parent) = root.value(runtime.gc()).unwrap() else {
@@ -409,11 +405,11 @@ fn dto_snapshot_survives_alias_mutation_collection_and_child_unwind() {
     };
     REWRITE_PARENT.set(Some(parent));
     assert_eq!(cx.decode::<Tree>(&root).unwrap(), input);
-    assert!(cx.decode::<Tree>(&root).unwrap().children.is_empty());
+    assert!(cx.decode::<Tree>(&root).unwrap().children.is_none());
     PANIC_IN_LEAF.set(true);
     assert!(catch_unwind(AssertUnwindSafe(|| cx.decode::<Tree>(&root))).is_err());
     assert_eq!(runtime.gc().active_roots(), 1);
-    assert!(cx.decode::<Tree>(&root).unwrap().children.is_empty());
+    assert!(cx.decode::<Tree>(&root).unwrap().children.is_none());
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }

@@ -4,14 +4,9 @@ use crate::{
     gc::{GcHeap, HeapObjectId},
     host::{FrameHostBorrowToken, scoped::ScopedHostView},
     module::EnumVariantRef,
-    value_semantics::hashing::StructuralKey,
 };
 use kagari_abi::representation::ValueType;
 use kagari_contract::representation::semantic_representation;
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructValueField {
@@ -87,68 +82,6 @@ pub enum EphemeralValue {
     HostView(ScopedHostView),
 }
 
-/// Prepared, immutable key. The original value is retained and traced by the heap.
-#[derive(Debug, Clone)]
-pub struct MapKey {
-    parts: StructuralKey,
-    value: Value,
-    custom: Option<(i64, i64)>,
-}
-
-impl PartialEq for MapKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.custom == other.custom && self.parts == other.parts
-    }
-}
-
-impl Eq for MapKey {}
-
-impl Hash for MapKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Some((hash, _)) = self.custom {
-            Hash::hash(&hash, state);
-        } else {
-            Hash::hash(&self.parts, state);
-        }
-    }
-}
-
-impl MapKey {
-    pub(crate) fn custom(hash: i64, token: i64, value: Value) -> Self {
-        Self {
-            parts: StructuralKey::empty(),
-            value,
-            custom: Some((hash, token)),
-        }
-    }
-
-    pub(crate) fn custom_parts(&self) -> Option<(i64, i64)> {
-        self.custom
-    }
-
-    pub fn from_value(gc: &GcHeap, value: &Value) -> Option<Self> {
-        Some(Self {
-            parts: StructuralKey::from_value(gc, value)?,
-            value: *value,
-            custom: None,
-        })
-    }
-
-    pub fn to_value(&self) -> Value {
-        self.value
-    }
-
-    pub(crate) fn value(&self) -> &Value {
-        &self.value
-    }
-
-    pub fn script_hash(&self) -> i64 {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish() as i64
-    }
-}
-
 /// Compact unrooted transport. Heap-backed payloads are accessed only through
 /// their owning heap; copying a value never copies text or establishes a root.
 /// Rust equality compares transport tags and IDs. Use `value_semantics::script_equal`
@@ -167,8 +100,7 @@ pub enum Value {
     Tuple(HeapObjectId),
     Range(HeapObjectId),
     Array(HeapObjectId),
-    Map(HeapObjectId),
-    Set(HeapObjectId),
+
     Enum(HeapObjectId),
     Struct(HeapObjectId),
     GcHandle(HeapObjectId),
@@ -198,8 +130,6 @@ impl Value {
             | Self::Tuple(id)
             | Self::Range(id)
             | Self::Array(id)
-            | Self::Map(id)
-            | Self::Set(id)
             | Self::Enum(id)
             | Self::Struct(id)
             | Self::GcHandle(id)
@@ -234,8 +164,6 @@ impl Value {
                     Self::Range(_)
                         | Self::Tuple(_)
                         | Self::Array(_)
-                        | Self::Map(_)
-                        | Self::Set(_)
                         | Self::Enum(_)
                         | Self::Struct(_)
                         | Self::GcHandle(_)
@@ -261,8 +189,6 @@ impl Value {
             Self::Range(_)
             | Self::Tuple(_)
             | Self::Array(_)
-            | Self::Map(_)
-            | Self::Set(_)
             | Self::Enum(_)
             | Self::Struct(_)
             | Self::GcHandle(_) => ValueCategory::ScriptOwned,
@@ -411,40 +337,6 @@ mod tests {
                 .alloc_tuple(vec![unique_borrow_value(heap, 1)])
                 .unwrap()
                 .is_default_heap_payload(heap)
-        );
-    }
-
-    #[test]
-    fn keys_share_value_equality_and_preserve_original_values() {
-        let gc = crate::gc::GcHeap::new(Default::default(), Default::default());
-        for value in [
-            Value::Unit,
-            Value::Bool(true),
-            Value::Char('\0'),
-            Value::Char('🙂'),
-            gc.alloc_tuple(vec![Value::Char('é')]).unwrap(),
-            Value::I32(7),
-            Value::I64(9),
-            gc.alloc_string("hp".into()).unwrap(),
-            gc.alloc_tuple(vec![Value::I32(1)]).unwrap(),
-        ] {
-            let a = MapKey::from_value(&gc, &value).unwrap();
-            let b = MapKey::from_value(&gc, &value).unwrap();
-            assert_eq!(a, b);
-            assert_eq!(a.script_hash(), b.script_hash());
-            assert_eq!(a.to_value(), value);
-        }
-        let first = gc.alloc_string("é🙂".into()).unwrap();
-        let second = gc.alloc_string("é🙂".into()).unwrap();
-        assert_ne!(first, second);
-        let first_key = MapKey::from_value(&gc, &first).unwrap();
-        let second_key = MapKey::from_value(&gc, &second).unwrap();
-        assert_eq!(first_key, second_key);
-        assert_eq!(first_key.script_hash(), second_key.script_hash());
-        assert!(MapKey::from_value(&gc, &Value::F64(1.0)).is_none());
-        assert_ne!(
-            MapKey::from_value(&gc, &Value::Char('a')),
-            MapKey::from_value(&gc, &Value::I64(97))
         );
     }
 }

@@ -21,7 +21,6 @@ use kagari_contract::callable::{
 use kagari_contract::{
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
-    operations::IterOp,
 };
 use kagari_types::{declaration::wire::leaf::NominalTyRecord, ty::wire::WireType};
 use serde::{Deserialize, Serialize};
@@ -54,12 +53,7 @@ pub(in crate::artifact) enum BytecodeInstructionRecord {
         lhs: Slot,
         rhs: Option<Slot>,
     },
-    Iter {
-        dst: Slot,
-        value: Option<Slot>,
-        ty: WireType,
-        op: IterOp,
-    },
+
     LoadConst {
         dst: Slot,
         constant: ConstantId,
@@ -325,12 +319,7 @@ impl BytecodeInstructionRecord {
                 lhs: *lhs,
                 rhs: *rhs,
             },
-            BytecodeInstruction::Iter { dst, value, ty, op } => Self::Iter {
-                dst: *dst,
-                value: *value,
-                ty: WireType::encode(ty, encoding, cancel)?,
-                op: *op,
-            },
+
             BytecodeInstruction::LoadConst { dst, constant } => Self::LoadConst {
                 dst: *dst,
                 constant: *constant,
@@ -674,12 +663,7 @@ impl BytecodeInstructionRecord {
                 lhs,
                 rhs,
             },
-            Self::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
-                dst,
-                value,
-                ty: ty.decode(decoding, cancel)?,
-                op,
-            },
+
             Self::LoadConst { dst, constant } => BytecodeInstruction::LoadConst { dst, constant },
             Self::LoadModule { dst, slot } => BytecodeInstruction::LoadModule { dst, slot },
             Self::StoreModule { slot, src } => BytecodeInstruction::StoreModule { slot, src },

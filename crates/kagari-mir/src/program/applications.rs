@@ -119,9 +119,7 @@ pub(super) fn validate<'a>(
                 }
                 Instruction::MakeArray { element, .. }
                 | Instruction::RepeatArray { element, .. } => validator.validate_type(element)?,
-                Instruction::Iter { ty, .. } | Instruction::MakeRange { ty, .. } => {
-                    validator.validate_type(ty)?
-                }
+                Instruction::MakeRange { ty, .. } => validator.validate_type(ty)?,
                 Instruction::RangeBound { range, bound, .. } => validator.types([range, bound])?,
                 Instruction::UpcastInterface { source, target, .. } => {
                     validator.trait_application(source)?;

@@ -207,3 +207,23 @@ pub fn error_storage(n: u64) -> Vec<Result<u64, u64>> {
     }
     values
 }
+
+pub fn scalar_storage_len(values: Vec<u64>) -> u64 {
+    values.len()
+}
+
+pub fn object_storage_len(values: Vec<Player>) -> u64 {
+    values.len()
+}
+
+pub fn option_storage_len(values: Vec<Option<u64>>) -> u64 {
+    values.len()
+}
+
+pub fn result_storage_len(values: Vec<Result<u64, u64>>) -> u64 {
+    values.len()
+}
+
+pub fn error_storage_len(values: Vec<Result<u64, u64>>) -> u64 {
+    values.len()
+}

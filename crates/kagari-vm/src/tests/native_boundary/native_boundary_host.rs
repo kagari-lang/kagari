@@ -5,27 +5,22 @@ use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    host::{HostCallContext, HostObjectId, HostSchemaEpoch},
+    host::{HostCallContext, HostObjectId},
     metadata::TypeId,
-    module::{ExecutableModule, entry::ProgramEntry},
+    module::ExecutableModule,
     native::{
         builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::Type,
     },
     value::Value,
 };
-use kagari_stdlib::{identity, namespaces};
 use kagari_types::{
-    collection::CollectionAccess,
-    declaration::{
-        host::{
-            HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
-            HostTypeOwnership, HostTypePolicy, PathAccess,
-        },
-        module::ModuleDecl,
+    declaration::host::{
+        HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
+        HostTypeOwnership, HostTypePolicy, PathAccess,
     },
     language::binding,
     scalar::BuiltinType,
-    ty::{NominalTy, Ty},
+    ty::Ty,
 };
 use std::sync::{
     Arc,
@@ -91,19 +86,7 @@ fn allocation_owner(runtime: &mut Runtime) -> ExecutableModule {
 #[test]
 fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let mut runtime = runtime();
-    let fixture_source = r#"use std::collections::{HashMap, HashSet, List};
-
-        pub fn fixtures() -> ([i32], [bool], HashMap<String,[i32]>, HashMap<String,[bool]>, HashSet<String>, HashSet<i32>, Vec<i32>, List<i32>) {
-            val array = [7]; val wrong_array = [true];
-            val map: HashMap<String,[i32]> = HashMap::new(); map.insert("k", array);
-            val wrong_map: HashMap<String,[bool]> = HashMap::new(); wrong_map.insert("k", wrong_array);
-            val set: HashSet<String> = HashSet::new(); set.insert("ok");
-            val wrong_set: HashSet<i32> = HashSet::new(); wrong_set.insert(7);
-            val vector = Vec::from(array);
-            val list: List<i32> = vector;
-            (array, wrong_array, map, wrong_map, set, wrong_set, vector, list)
-        }
-    "#;
+    let fixture_source = "pub fn fixtures() -> ([i32], [bool]) { ([7], [true]) }";
     let program = compile_program(fixture_source, None);
     let loaded = runtime.load_program("host-composites", program).unwrap();
     let _loaded_program = loaded;
@@ -119,18 +102,8 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         panic!("fixtures")
     };
     let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [
-        array,
-        wrong_array,
-        map,
-        wrong_map,
-        set,
-        wrong_set,
-        vector,
-        list,
-    ] = values.as_slice()
-    else {
-        panic!("eight fixtures")
+    let [array, wrong_array] = values.as_slice() else {
+        panic!("two fixtures")
     };
     let runtime = vm.runtime_mut();
     let definitions = runtime.host().definitions();
@@ -198,48 +171,6 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             *wrong_array,
         ),
         (
-            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-            *array,
-            *vector,
-        ),
-        (
-            Ty::NativeObject(NominalTy {
-                declaration: ModuleDecl::new(namespaces::type_owner("Vec"))
-                    .definition(DefinitionKind::AssociatedType, "Vec", &definitions)
-                    .unwrap(),
-                arguments: vec![Ty::Builtin(BuiltinType::I32)],
-                associated_types: Default::default(),
-            }),
-            *vector,
-            *array,
-        ),
-        (
-            Ty::Trait(NominalTy {
-                declaration: definitions.lookup(&identity::trait_id("List")).unwrap(),
-                arguments: vec![Ty::Builtin(BuiltinType::I32)],
-                associated_types: Default::default(),
-            }),
-            *list,
-            *vector,
-        ),
-        (
-            Ty::Map {
-                access: CollectionAccess::Mutable,
-                key: Box::new(Ty::Builtin(BuiltinType::String)),
-                value: Box::new(Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))),
-            },
-            *map,
-            *wrong_map,
-        ),
-        (
-            Ty::Set(
-                Box::new(Ty::Builtin(BuiltinType::String)),
-                CollectionAccess::Mutable,
-            ),
-            *set,
-            *wrong_set,
-        ),
-        (
             binding::option(&definitions, Ty::Builtin(BuiltinType::I32)).unwrap(),
             some(Value::I32(7)),
             some(Value::Bool(true)),
@@ -295,11 +226,6 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     let syntax = [
         "([i32], String)",
         "[i32]",
-        "[i32]",
-        "Vec<i32>",
-        "List<i32>",
-        "HashMap<String,[i32]>",
-        "HashSet<String>",
         "Option<i32>",
         "Option<i32>",
         "Option<i32>",
@@ -517,69 +443,4 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
         assert!(native_invocation::invoke(&runtime, &entry, id, &[value]).is_err());
     }
     assert!(!runtime.is_quarantined());
-}
-
-#[test]
-fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
-    let mut runtime = runtime();
-    let program = compile_program(
-        "use std::collections::{HashMap, HashSet, List};\nfn main() -> (HashMap<i32,i32>, HashSet<i32>) { (HashMap::new(), HashSet::new()) }",
-        None,
-    );
-    let loaded = runtime.load_program("host-storage", program).unwrap();
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = Vm::new(runtime);
-    let Value::Tuple(values) = vm
-        .execute(&loaded, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result")
-    else {
-        panic!("containers")
-    };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
-        panic!("handles")
-    };
-    let runtime = vm.runtime_mut();
-    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("external", &catalog).unwrap();
-    let mut external = builder.define_type("External").unwrap();
-    external
-        .external(HostTypePolicy {
-            ownership: HostTypeOwnership::HostRoot,
-            reflection: HostReflectionPolicy::Hidden,
-            path_access: PathAccess::ReadOnly,
-        })
-        .unwrap();
-    external.finish().unwrap();
-    builder.finish().unwrap().install(runtime).unwrap();
-    let ty = runtime
-        .types()
-        .get_by_name("external::External")
-        .unwrap()
-        .id;
-    let host = runtime
-        .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
-        .unwrap();
-    let scope = runtime.host_scope(&[]).unwrap();
-    let borrowed = runtime
-        .gc()
-        .alloc_host_ref(scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap())
-        .unwrap();
-    let heap = runtime.gc();
-    let invalid_values = [heap.alloc_host_root(host).unwrap(), borrowed];
-    let before = heap.stats();
-    for invalid in invalid_values {
-        assert!(heap.map_insert(*map, Value::I32(1), invalid).is_err());
-        assert!(heap.map_insert(*map, invalid, Value::I32(1)).is_err());
-        assert!(heap.set_insert(*set, invalid).is_err());
-        assert_eq!(heap.stats(), before);
-        assert_eq!(heap.map_len(*map), Some(0));
-        assert_eq!(heap.set_len(*set), Some(0));
-    }
 }

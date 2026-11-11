@@ -1,23 +1,22 @@
 use test::converted_reply::read;
 
-pub fn items() -> Vec<i32> {
-    Vec::from([5])
+pub fn items() -> [i32] {
+    [5]
 }
 
-pub fn push(items: Vec<i32>) {
-    items.push(9);
+pub fn write(items: [i32]) {
+    items[0] = 9;
 }
 
-pub fn first(items: Vec<i32>) -> i32 {
+pub fn first(items: [i32]) -> i32 {
     items[0]
 }
 
-pub fn factory(items: Vec<i32>) -> fn() -> Future<i32> {
+pub fn factory(items: [i32]) -> fn() -> Future<i32> {
     async || {
-        for item in items {
-            val reply = read().await;
-            items[0] = reply[0] + item;
-        }
+        val item = items[0];
+        val (reply,) = read().await;
+        items[0] = reply + item;
         items[0]
     }
 }

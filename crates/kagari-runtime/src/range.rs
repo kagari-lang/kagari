@@ -9,9 +9,7 @@ use crate::{
 
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::operations;
-use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use kagari_types::{
-    integer,
     language::binding,
     range::RangeKind,
     scalar::BuiltinType,
@@ -95,27 +93,6 @@ impl RangeValue {
             bits as i128
         }
     }
-
-    pub(crate) fn at(&self, offset: u128) -> Result<Option<Value>, RuntimeError> {
-        if !self.kind.has_start() {
-            return Err(invalid());
-        }
-        let start = self.endpoint(self.start);
-        let offset = i128::try_from(offset).map_err(|_| invalid())?;
-        let n = start.checked_add(offset).ok_or_else(invalid)?;
-        let end = self.endpoint(self.end);
-        if self.kind.has_end() && (n > end || n == end && !self.kind.inclusive()) {
-            return Ok(None);
-        }
-        let (bits, signed) = self.item.integer_layout().ok_or_else(invalid)?;
-        let (min, max) = integer::bounds(bits, signed);
-        if n < min || n > max {
-            return Err(RuntimeError::from(ScalarError::from(
-                ArithmeticError::Overflow,
-            )));
-        }
-        Ok(Some(integer_value(self.item, n)))
-    }
 }
 
 pub(crate) fn integer_value(ty: BuiltinType, n: i128) -> Value {
@@ -188,10 +165,15 @@ mod tests {
         ] {
             let ty = Ty::Range(Box::new(Ty::Builtin(item)), RangeKind::Inclusive);
             let range = RangeValue::new(&ty, Some(&start), Some(&end)).unwrap();
-            for (offset, value) in expected.iter().enumerate() {
-                assert_eq!(range.at(offset as u128).unwrap().as_ref(), Some(value));
-            }
-            assert_eq!(range.at(expected.len() as u128).unwrap(), None);
+            assert!(range.matches(&ty));
+            assert_eq!(
+                integer_value(range.item, range.endpoint(range.start)),
+                *expected.first().unwrap()
+            );
+            assert_eq!(
+                integer_value(range.item, range.endpoint(range.end)),
+                *expected.last().unwrap()
+            );
             assert!(RangeValue::new(&ty, None, Some(&end)).is_err());
         }
         let ty = Ty::Range(
@@ -204,15 +186,11 @@ mod tests {
             Some(&Value::I64(i64::MAX)),
         )
         .unwrap();
-        assert_eq!(
-            range.at(u64::MAX as u128).unwrap(),
-            Some(Value::I64(i64::MAX))
-        );
-        assert_eq!(range.at(u64::MAX as u128 + 1).unwrap(), None);
+        assert_eq!(range.endpoint(range.start), i64::MIN as i128);
+        assert_eq!(range.endpoint(range.end), i64::MAX as i128);
         let ty = Ty::Range(Box::new(Ty::Builtin(BuiltinType::U8)), RangeKind::From);
         let range = RangeValue::new(&ty, Some(&Value::I64(255)), None).unwrap();
-        assert_eq!(range.at(0).unwrap(), Some(Value::I64(255)));
-        assert!(range.at(1).is_err());
+        assert_eq!(range.endpoint(range.start), 255);
         assert!(RangeValue::new(&ty, Some(&Value::I64(256)), None).is_err());
     }
 }

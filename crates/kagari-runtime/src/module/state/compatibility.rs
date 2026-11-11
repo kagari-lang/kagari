@@ -295,14 +295,10 @@ fn applied_closure(ty: &Ty, old: &ExecutableModule, new: &ExecutableModule) -> O
                 )?;
             }
             Ty::Tuple(items) => pending.extend(items.iter().cloned()),
-            Ty::Array(item)
-            | Ty::Iter(item)
-            | Ty::Range(item, _)
-            | Ty::Set(item, _)
-            | Ty::Reference { target: item, .. } => pending.push(item.as_ref().clone()),
-            Ty::Map { key, value, .. } => {
-                pending.extend([key.as_ref().clone(), value.as_ref().clone()])
+            Ty::Array(item) | Ty::Range(item, _) | Ty::Reference { target: item, .. } => {
+                pending.push(item.as_ref().clone())
             }
+
             Ty::Function { params, result } => {
                 pending.extend(params.iter().cloned());
                 pending.push(result.as_ref().clone());

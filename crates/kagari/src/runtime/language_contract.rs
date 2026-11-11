@@ -25,10 +25,7 @@ use kagari_runtime::{
     gc::GcHeap,
     host::{HostCallContext, HostError},
     module::{InstalledProgram, entry::ProgramEntry},
-    native::{
-        builder::ModuleBuilder, conversion::context::ConversionContext, module::NativeModule,
-        types::Type,
-    },
+    native::{builder::ModuleBuilder, module::NativeModule},
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
@@ -212,16 +209,9 @@ fn logging_module(
 
 fn observe_vector() -> DefinitionMetadata<ModuleDecl> {
     let context = DefinitionContext::new().unwrap();
-    let vector = StandardDeclarations::default().vec(Type::i32()).unwrap();
-    let vector = DefinitionMetadata::checked(
-        vector.definitions().unwrap().clone(),
-        vector.abi().clone(),
-        &Default::default(),
-    )
-    .unwrap()
-    .import_into(&context, &Default::default())
-    .unwrap()
-    .into_records();
+    let vector = kagari_types::ty::Ty::Array(Box::new(kagari_types::ty::Ty::Builtin(
+        kagari_types::scalar::BuiltinType::I32,
+    )));
     let identity = ModuleIdentity {
         package: PackageId("observe".into()),
         path: vec![],
@@ -503,8 +493,14 @@ fn run(case: &Case<'_>, route: Route, module: &Program, candidate_program: Optio
         .unwrap_or_else(|error| panic!("{} ({route:?}): {error}", case.name));
     let selected = runtime.select_program(&loaded).unwrap();
     let retained = case.vector.map(|(initial, _)| {
-        let mut conversion = ConversionContext::new(&runtime, &selected).unwrap();
-        let rooted = conversion.encode(initial.to_vec()).unwrap();
+        let id = runtime
+            .alloc_array(
+                &selected,
+                kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
+                initial.iter().copied().map(Value::I32).collect(),
+            )
+            .unwrap();
+        let rooted = runtime.root_value(Value::Array(id)).unwrap();
         *observed_vector.lock().unwrap() = Some(rooted.value(runtime.gc()).unwrap());
         rooted
     });
@@ -725,12 +721,12 @@ fn run(case: &Case<'_>, route: Route, module: &Program, candidate_program: Optio
             "only the explicit observer root remains"
         );
         vm.runtime().collect_garbage().unwrap();
-        let Value::GcHandle(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
+        let Value::Array(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
         else {
             unreachable!()
         };
         assert_eq!(
-            vm.runtime().gc().sequence_snapshot(array),
+            vm.runtime().gc().array_snapshot(array),
             Some(expected.iter().copied().map(Value::I32).collect()),
             "{} ({route:?}): post-execution heap state",
             case.name

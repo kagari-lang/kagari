@@ -103,12 +103,9 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
                             NativeStorage::payload::<CatalogOnlyPayload>()
                         }
                         NativeStorageLayout::Future => NativeStorage::future(),
-                        NativeStorageLayout::Sequence { element } => {
-                            NativeStorage::sequence(element)
-                        }
+
                         NativeStorageLayout::Task => NativeStorage::task(),
                         NativeStorageLayout::TaskScope => NativeStorage::task_scope(),
-                        _ => panic!("unexpected foundation storage: {layout:?}"),
                     };
                     Some((id, storage))
                 })

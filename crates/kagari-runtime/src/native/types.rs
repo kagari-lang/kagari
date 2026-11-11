@@ -15,7 +15,6 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::{TraitDef, TypeDef, TypeDefKind, module::ModuleDecl},
     reference::ReferenceAccess,
     scalar::BuiltinType,
@@ -108,6 +107,13 @@ impl Type {
         Self::scalar(BuiltinType::F64)
     }
 
+    /// A builtin fixed-length array; element identity and scope are retained.
+    pub fn array(element: Type) -> NativeResult<Self> {
+        Self::assemble(vec![element], |mut types| {
+            Ok(Ty::Array(Box::new(types.pop().expect("array element"))))
+        })
+    }
+
     pub fn tuple(items: impl IntoIterator<Item = Type>) -> NativeResult<Self> {
         Self::assemble(items.into_iter().collect(), |types| Ok(Ty::Tuple(types)))
     }
@@ -121,29 +127,6 @@ impl Type {
                 params: types,
                 result,
             })
-        })
-    }
-
-    /// Construct an iterator input, retaining or adopting its element identity scope.
-    pub fn iterator(item: Type) -> NativeResult<Self> {
-        Self::assemble(vec![item], |mut types| {
-            Ok(Ty::Iter(Box::new(types.pop().expect("iterator item"))))
-        })
-    }
-
-    /// Construct a map input after adopting both key and value into one scope.
-    pub fn map(key: Type, value: Type, access: CollectionAccess) -> NativeResult<Self> {
-        Self::assemble(vec![key, value], |mut types| {
-            let value = Box::new(types.pop().expect("map value"));
-            let key = Box::new(types.pop().expect("map key"));
-            Ok(Ty::Map { key, value, access })
-        })
-    }
-
-    /// Construct a set input in its element scope with explicit collection access.
-    pub fn set(item: Type, access: CollectionAccess) -> NativeResult<Self> {
-        Self::assemble(vec![item], |mut types| {
-            Ok(Ty::Set(Box::new(types.pop().expect("set item")), access))
         })
     }
 

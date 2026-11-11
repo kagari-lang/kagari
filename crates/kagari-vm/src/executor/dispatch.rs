@@ -3,7 +3,7 @@ use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, ConstructionTarget as BytecodeConstruction, PathId,
     RuntimeHelper, ScalarOperand, Slot,
 };
-use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
+use kagari_contract::standard::RuntimePrimitive;
 use kagari_runtime::{
     error::fault::EngineFault, frame::transfer::ReturnValue, host::HostPathDescriptorId, numeric,
     range::RangeValue, value::Value,
@@ -19,23 +19,6 @@ pub(super) enum InstructionProgress {
 }
 
 impl<'a> Executor<'a> {
-    fn dispatch_iterator(
-        &mut self,
-        source: &Value,
-        ty: &Ty,
-        op: IterOp,
-        dst: Option<Slot>,
-    ) -> Result<(), VmError> {
-        let result = self
-            .runtime
-            .iter_operation(self.current_frame()?.loaded(), source, ty, op)?;
-        if let Some(dst) = dst {
-            self.current_frame_mut()?
-                .write_slot(self.runtime, dst, result)?;
-        }
-        Ok(())
-    }
-
     fn dispatch_range_bound(
         &mut self,
         value: Value,
@@ -139,18 +122,6 @@ impl<'a> Executor<'a> {
                 let value = numeric::fixed_integer(operation, lhs, rhs)?;
                 self.current_frame_mut()?
                     .write_slot(self.runtime, dst, value)?;
-            }
-            BytecodeInstruction::Iter {
-                dst,
-                value,
-                ref ty,
-                op,
-            } => {
-                let source = self.current_frame()?.read_slot(
-                    self.runtime,
-                    value.ok_or(VmError::TypeMismatch("iterator source"))?,
-                )?;
-                self.dispatch_iterator(&source, ty, op, Some(dst))?;
             }
 
             BytecodeInstruction::TestEnumVariant { dst, value, .. } => {

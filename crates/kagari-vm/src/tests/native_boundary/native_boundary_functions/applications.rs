@@ -8,7 +8,6 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
-        collections::vector::ScriptVec,
         conversion::context::ConversionContext,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         function_handle::Function,
@@ -106,7 +105,7 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
 }
 
 #[test]
-fn generic_native_calls_return_retained_objects_collections_and_closures() {
+fn generic_native_calls_return_retained_objects_tuples_and_closures() {
     let module = generic_identity_module();
     let identity_id = declaration_query(&module, DefinitionKind::Function, "identity");
     let singleton_id = declaration_query(&module, DefinitionKind::Function, "singleton");
@@ -115,7 +114,7 @@ fn generic_native_calls_return_retained_objects_collections_and_closures() {
         use example::generic_helper::{identity, singleton};
         pub struct Item { pub val value: i32 }
         pub fn make() -> Item { identity(Item { value: 42 }) }
-        pub fn evidence() -> Vec<i32> { singleton(1) }
+        pub fn evidence() -> (i32,) { singleton(1) }
         pub fn closure() -> fn() -> i32 { identity(|| 42) }
     "#,
         Some(&module),
@@ -151,17 +150,14 @@ fn generic_native_calls_return_retained_objects_collections_and_closures() {
     );
     let singleton = vm
         .runtime()
-        .bind_function_application_declaration::<(i32,), ScriptVec<i32>>(
+        .bind_function_application_declaration::<(i32,), (i32,)>(
             &_owner_program.root(),
             &singleton_id,
             &[i32_type],
         )
         .unwrap();
     let values = vm.call(&singleton, (42,)).unwrap();
-    assert_eq!(
-        values.get(&mut vm.context(&owner).unwrap(), 0).unwrap(),
-        Some(42)
-    );
+    assert_eq!(values, (42,));
     type Callback = Function<(), i32>;
     let callback_type = conversion.type_for::<Callback>().unwrap();
     let identity = vm

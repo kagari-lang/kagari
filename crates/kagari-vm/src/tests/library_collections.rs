@@ -1,4 +1,4 @@
-use crate::vm::Vm;
+use crate::{executor::Executor, vm::Vm};
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -9,7 +9,7 @@ use kagari_hir::{
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     gc::roots::RootedValue,
-    module::entry::ProgramEntry,
+    module::{ExecutableModule, entry::ProgramEntry},
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,
         declarations::FunctionDecl, module::NativeModule, types::Type, views::ValueHandle,
@@ -61,6 +61,38 @@ fn program(text: &str, modules: &[&NativeModule]) -> DefinitionMetadata<Bytecode
     lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap()
+}
+
+// Deferred library algorithms are observed through checked script methods, not
+// privileged Runtime sequence storage. The generated fragment follows each case's
+// concrete expected length and element type; it also proves the failed edit ended.
+fn after_failure_source(element: &str, count: usize) -> String {
+    let fields = (0..count)
+        .map(|index| format!("values[{index}]"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "pub fn after_failure(values: Vec<{element}>) -> [{element}] {{ if values.len() != {count}u64 {{ val fail = 1 / 0; }} val snapshot = [{fields}]; values.push(values[0]); snapshot }}"
+    )
+}
+
+fn inspect_retained(vm: &Vm, owner: &ExecutableModule, probe: &Probe) -> RootedValue {
+    let value = probe
+        .retained
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .value(vm.runtime().gc())
+        .unwrap();
+    let (owner, function) = ProgramEntry::from("after_failure").resolve(owner).unwrap();
+    let runtime = vm.runtime();
+    let _session = runtime.begin_execution(&owner, Default::default()).unwrap();
+    let value = Executor::new(runtime, &owner, function, &[value])
+        .unwrap()
+        .run()
+        .unwrap();
+    runtime.root_value(value).unwrap()
 }
 
 fn run(text: &str) -> Value {
@@ -196,25 +228,24 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
-        .load_program("sort", program(source, &[&library, &probe.module]))
+        .load_program(
+            "sort",
+            program(
+                &format!("{source} {}", after_failure_source("Item", 4)),
+                &[&library, &probe.module],
+            ),
+        )
         .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
-    let Value::GcHandle(array) = probe
-        .retained
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .value(vm.runtime().gc())
-        .unwrap()
-    else {
-        panic!("array");
+    let snapshot = inspect_retained(&vm, &loaded, &probe);
+    let Value::Array(array) = snapshot.value(vm.runtime().gc()).unwrap() else {
+        panic!("snapshot")
     };
-    let values = vm.runtime().gc().sequence_snapshot(array).unwrap();
+    let values = vm.runtime().gc().array_snapshot(array).unwrap();
     let mut keys = Vec::new();
     let mut visits = 0;
     for value in &values {
@@ -246,7 +277,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         visits, 3,
         "completed effects on referenced payloads survive failure"
     );
-    vm.runtime().gc().sequence_push(array, values[0]).unwrap();
+    drop(snapshot);
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -277,7 +308,13 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
         probe.module.install(&mut runtime).unwrap();
         let loaded = runtime
-            .load_program("sort", program(&source, &[&library, &probe.module]))
+            .load_program(
+                "sort",
+                program(
+                    &format!("{source} {}", after_failure_source("i32", 3)),
+                    &[&library, &probe.module],
+                ),
+            )
             .unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -287,25 +324,15 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             format!("{error:?}").contains("guarded callback"),
             "{error:?}"
         );
-        let Value::GcHandle(array) = probe
-            .retained
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .value(vm.runtime().gc())
-            .unwrap()
-        else {
-            panic!("array");
+        let snapshot = inspect_retained(&vm, &loaded, &probe);
+        let Value::Array(array) = snapshot.value(vm.runtime().gc()).unwrap() else {
+            panic!("snapshot")
         };
         assert_eq!(
-            vm.runtime().gc().sequence_snapshot(array),
+            vm.runtime().gc().array_snapshot(array),
             Some(vec![Value::I32(3), Value::I32(1), Value::I32(2)])
         );
-        vm.runtime()
-            .gc()
-            .sequence_push(array, Value::I32(9))
-            .unwrap();
+        drop(snapshot);
     }
 }
 

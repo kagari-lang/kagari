@@ -863,12 +863,6 @@ fn lower_instruction(
             value: context.value(*value),
             future: future.clone(),
         },
-        Instruction::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
-            dst: context.value(*dst),
-            value: value.map(|value| context.value(value)),
-            ty: ty.clone(),
-            op: *op,
-        },
 
         Instruction::MakeEnum {
             dst,

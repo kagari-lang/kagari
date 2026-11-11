@@ -3,7 +3,6 @@ use crate::types::{NominalType, TypeId};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     callable::NativeDefaultApplication,
-    collection::CollectionAccess,
     declaration::path::HostPathDeclaration,
     declaration::{TypeDeclaration, TypeDef, native::NativeStorageLayout},
     range::RangeKind,
@@ -59,11 +58,11 @@ pub enum NativeTypeKind {
     /// Intrinsic String representation with no generic arguments.
     String,
     /// Existing map storage representation with key and value types.
-    HashMap,
+
     /// Existing set storage representation with one element type.
-    HashSet,
+
     /// Existing iterator representation with one element type.
-    Iter,
+
     /// Range representation; full ranges take no argument and other shapes take an element type.
     Range(RangeKind),
 }
@@ -74,7 +73,7 @@ impl NativeTypeKind {
         match self {
             Self::Storage { arity, .. } => *arity,
             Self::Host { .. } | Self::String | Self::Range(RangeKind::Full) => 0,
-            Self::HashMap => 2,
+
             _ => 1,
         }
     }
@@ -97,13 +96,7 @@ impl NativeTypeKind {
                 associated_types: Default::default(),
             }),
             Self::String => TypeId::Builtin(BuiltinType::String),
-            Self::HashMap => TypeId::Map {
-                key: first(),
-                value: Box::new(arguments[1].clone()),
-                access: CollectionAccess::Mutable,
-            },
-            Self::HashSet => TypeId::Set(first(), CollectionAccess::Mutable),
-            Self::Iter => TypeId::Iter(first()),
+
             Self::Range(RangeKind::Full) => TypeId::Range(
                 Box::new(TypeId::Builtin(BuiltinType::Unit)),
                 RangeKind::Full,

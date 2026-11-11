@@ -7,13 +7,7 @@ use crate::{
     error::RuntimeError,
     frame::types::compatibility::TypeView,
     gc::{GcHeap, HeapObjectId, leases::BorrowedLease, storage::HeapObject},
-    native::{
-        binding::NativeResult,
-        sequence::{NativeElement, SequencePayload},
-        storage::{NativeObject, NativeStorage},
-        stored_selection::StoredSelection,
-    },
-    value::Value,
+    native::{binding::NativeResult, storage::NativeObject, stored_selection::StoredSelection},
 };
 use kagari_types::ty::Ty;
 use std::{cell::Cell, sync::Arc};
@@ -112,15 +106,6 @@ impl GcHeap {
         matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(expected))
     }
 
-    pub(crate) fn default_storage(&self, ty: &Ty) -> Option<&NativeStorage> {
-        match ty {
-            Ty::Array(..) => Some(self.array_storage()),
-            Ty::Map { .. } => Some(self.map_storage.get_or_init(|| NativeStorage::map(0, 1))),
-            Ty::Set(..) => Some(self.set_storage.get_or_init(|| NativeStorage::set(0))),
-            _ => None,
-        }
-    }
-
     pub(crate) fn native_type_name(&self, id: HeapObjectId) -> Option<String> {
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;
@@ -169,81 +154,9 @@ impl GcHeap {
             ));
         };
         let payload = object.payload::<S>()?;
-        if object
-            .payload::<SequencePayload>()
-            .is_ok_and(|sequence| sequence.detached)
-        {
-            return Err(RuntimeError::module_validation(
-                "sequence storage is exclusively borrowed",
-            ));
-        }
+
         self.native_borrows.set(self.native_borrows.get() + 1);
         let _borrow = NativeBorrow(&self.native_borrows);
         access(payload)
-    }
-
-    pub(crate) fn push_sequence_value(
-        &self,
-        id: HeapObjectId,
-        expected: TypeView<'_>,
-        value: Value,
-    ) -> NativeResult<()> {
-        self.ensure_execution_allowed()?;
-        self.ensure_sequence(id)?;
-        self.ensure_structure_mutable(id)?;
-        {
-            let objects = self.objects.try_borrow().map_err(|_| {
-                RuntimeError::module_validation("conflicting native storage borrow")
-            })?;
-            let Some(object) = self.native_ref(&objects, id) else {
-                return Err(RuntimeError::module_validation("invalid sequence receiver"));
-            };
-            let sequence = object.payload::<SequencePayload>()?;
-            if !object.matches(expected)
-                || !self.valid_payload(&value)
-                || !sequence.contract.accepts_value(self, &value)
-            {
-                return Err(RuntimeError::module_validation(
-                    "sequence value differs from its element type",
-                ));
-            }
-        }
-        self.with_buffer_mut(id, 1, |values| {
-            values
-                .try_reserve(1)
-                .map_err(|_| self.resource_limit("allocation capacity"))?;
-            values.push(value)
-        })?
-    }
-
-    pub(crate) fn with_sequence_mut<E: NativeElement, R>(
-        &self,
-        id: HeapObjectId,
-        access: impl for<'slice> FnOnce(&'slice mut [E]) -> NativeResult<R>,
-    ) -> NativeResult<R> {
-        self.ensure_execution_allowed()?;
-        self.ensure_sequence(id)?;
-        self.ensure_structure_mutable(id)?;
-        let mut objects = self
-            .objects
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
-        let Some(object) = self.native_mut(&mut objects, id) else {
-            return Err(RuntimeError::module_validation("invalid sequence receiver"));
-        };
-        let revision = object
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| RuntimeError::module_validation("sequence revision exhausted"))?;
-        let sequence = object.payload_mut::<SequencePayload>()?;
-        let values = E::slice_mut(&mut sequence.values)
-            .ok_or_else(|| RuntimeError::module_validation("sequence scalar layout"))?;
-        self.native_borrows.set(self.native_borrows.get() + 1);
-        let _borrow = NativeBorrow(&self.native_borrows);
-        let result = access(values);
-        // A bulk write may permute slots. Closed cursors must observe that change
-        // even when the closure returned an error after completed scalar writes.
-        object.revision = revision;
-        result
     }
 }

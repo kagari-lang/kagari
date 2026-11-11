@@ -11,7 +11,7 @@ use kagari_contract::{
     effects::{EffectSet, runtime_primitive_effects},
     native_import::NativeImport,
     numeric::{NumericConversion, NumericOperation},
-    operations::{BinaryOp, IterOp, UnaryOp},
+    operations::{BinaryOp, UnaryOp},
     standard::RuntimePrimitive,
 };
 use kagari_types::{
@@ -80,12 +80,7 @@ pub enum Instruction {
         lhs: MirValue,
         rhs: Option<MirValue>,
     },
-    Iter {
-        dst: MirValue,
-        value: Option<MirValue>,
-        ty: Ty,
-        op: IterOp,
-    },
+
     LoadConst {
         dst: MirValue,
         constant: Constant,
@@ -368,8 +363,6 @@ impl Instruction {
             | Self::UpcastInterface { .. }
             | Self::MakeStruct { .. }
             | Self::MakeEnum { .. } => EffectSet::allocation(),
-
-            Self::Iter { .. } => EffectSet::allocation().union(EffectSet::aggregate_write()),
 
             Self::ReadAggregateField { field, .. } | Self::WriteAggregateField { field, .. }
                 if field.reference.is_some() =>

@@ -6,7 +6,7 @@ use crate::{
         types::TypeEnvironment,
         values::{ExecutionValues, FrameSlots},
     },
-    gc::CollectionMutation,
+    gc::NativeMutation,
     module::{
         ExecutableModule,
         execution::{
@@ -377,7 +377,7 @@ pub struct ExecutionFrame {
     slot_layout: Option<Arc<FrameLayout>>,
     return_to: ReturnDestination,
     invocation: Option<MethodInvocation>,
-    mutations: Vec<(Value, CollectionMutation)>,
+    mutations: Vec<(Value, NativeMutation)>,
     initializer: Option<StaticInitialization>,
 }
 
@@ -463,7 +463,7 @@ impl ExecutionFrame {
         self.environment.clone()
     }
 
-    pub fn begin_collection_mutation(
+    pub fn begin_native_mutation(
         &mut self,
         runtime: &Runtime,
         value: &Value,
@@ -473,11 +473,11 @@ impl ExecutionFrame {
             .try_reserve(1)
             .map_err(|_| RuntimeError::from(TrapReason::MutationGuardAllocation))?;
         self.mutations
-            .push((*value, runtime.gc.begin_collection_mutation(value)?));
+            .push((*value, runtime.gc.begin_native_mutation(value)?));
         Ok(())
     }
 
-    pub fn end_collection_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
+    pub fn end_native_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
         if !self
             .mutations
             .last()

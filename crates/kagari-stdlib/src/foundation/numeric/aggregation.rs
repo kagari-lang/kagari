@@ -1,17 +1,13 @@
-//! Numeric reductions retain the callback-free Vec path and checked arithmetic.
-use crate::foundation::{
-    enumerations::value::EnumSymbols,
-    iteration::traversal::{for_each, vec_argument},
-};
+//! Numeric reductions use checked iterator calls and source-width arithmetic.
+use crate::foundation::{enumerations::value::EnumSymbols, iteration::traversal::for_each};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_contract::numeric::NumericOperation;
 use kagari_runtime::{
     error::RuntimeError,
-    native::{binding::NativeResult, context::CallContext, scalar::NativeScalar},
+    native::{binding::NativeResult, context::CallContext},
     numeric,
     value::Value,
 };
-use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
 
 fn invalid() -> RuntimeError {
@@ -35,9 +31,7 @@ fn aggregate(
         return Err(invalid());
     };
     let kind = *kind;
-    if vec_argument(cx)?.is_some() {
-        return scalar_vec_aggregate(cx, kind, product);
-    }
+
     let identity = i32::from(product);
     let mut result = match kind {
         BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(identity),
@@ -75,43 +69,4 @@ fn aggregate(
         Ok(())
     })?;
     Ok(result)
-}
-
-// Match the physical element layout once, then reduce borrowed Rust scalars.
-// The scoped borrow prevents structural mutation; this path invokes no callbacks.
-fn scalar_vec_aggregate(
-    cx: &CallContext<'_>,
-    kind: BuiltinType,
-    product: bool,
-) -> NativeResult<Value> {
-    macro_rules! integers {
-        ($($kind:ident:$rust:ty),+) => {
-            match kind {
-                $(BuiltinType::$kind => cx.with_sequence::<$rust, _>(0, |items| {
-                    let mut result: $rust = if product {1} else {0};
-                    for chunk in items.chunks(256) {
-                        cx.poll()?;
-                        for item in chunk {
-                            result = if product {result.checked_mul(*item)} else {result.checked_add(*item)}
-                                .ok_or_else(|| RuntimeError::from(ScalarError::from(ArithmeticError::Overflow)))?;
-                        }
-                    }
-                    Ok(result.encode())
-                }),)+
-                BuiltinType::F32 => cx.with_sequence::<f32, _>(0, |items| {
-                    let mut result = if product {1.0} else {0.0};
-                    for chunk in items.chunks(256) { cx.poll()?; for item in chunk { result = if product {result * item} else {result + item}; } }
-                    Ok(Value::F32(result))
-                }),
-                BuiltinType::F64 => cx.with_sequence::<f64, _>(0, |items| {
-                    let mut result = if product {1.0} else {0.0};
-                    for chunk in items.chunks(256) { cx.poll()?; for item in chunk { result = if product {result * item} else {result + item}; } }
-                    Ok(Value::F64(result))
-                }),
-                _ => Err(invalid()),
-            }
-        };
-    }
-
-    integers!(I8:i8,I16:i16,I32:i32,I64:i64,U8:u8,U16:u16,U32:u32,U64:u64)
 }

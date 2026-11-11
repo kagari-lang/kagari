@@ -160,7 +160,7 @@ fn ancestry_rejects_expanding_cycles_missing_contracts_and_wrong_arity() {
         1,
         vec![applied(
             &recursive,
-            vec![Ty::Iter(Box::new(Ty::Parameter {
+            vec![Ty::Array(Box::new(Ty::Parameter {
                 owner: recursive,
                 position: 0,
             }))],

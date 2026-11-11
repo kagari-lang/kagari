@@ -16,13 +16,6 @@ fn fixture() -> (Runtime, ExecutableModule, BTreeMap<String, usize>) {
         &modules,
         "collection_indices.kgr",
         r#"
-fn get(values: Vec<u64>, index: u64) -> Option<u64> { values.get(index) }
-fn remove(values: Vec<u64>, index: u64) -> Option<u64> { values.remove(index) }
-fn insert(values: Vec<u64>, index: u64) -> Vec<u64> { values.insert(index, 42u64) }
-fn insert_mutable<T: std::collections::MutableList<u64>>(values: T, index: u64) {
-    values.insert(index, 42u64);
-}
-fn insert_unit(values: Vec<u64>, index: u64) { insert_mutable(values, index); }
 fn array_index(values: [u64], index: u64) -> u64 { values.index(index) }
 fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end) }
 "#,
@@ -52,78 +45,31 @@ fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end
 }
 
 #[test]
-fn wide_collection_indices_preserve_absence_traps_and_mutation() {
+fn wide_array_indices_preserve_bounds_and_source_values() {
     let (runtime, owner, slots) = fixture();
-    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
-    let values = cx.encode(vec![1u64 << 32]).unwrap();
-    let value = values.value(runtime.gc()).unwrap();
     let array = runtime
         .alloc_array(
             &owner,
             Ty::Builtin(BuiltinType::U64),
-            vec![Value::U64(1 << 32)],
+            vec![Value::U64(1u64 << 32)],
         )
         .unwrap();
-    let array = runtime.root_value(Value::Array(array)).unwrap();
+    let root = runtime.root_value(Value::Array(array)).unwrap();
     for index in [1, 1u64 << 32, u64::MAX] {
-        for name in ["get", "remove"] {
-            let result =
-                invoke(&runtime, &owner, slots[name], &[value, Value::U64(index)]).unwrap();
-            let result = runtime.root_value(result).unwrap();
-            assert_eq!(
-                cx.decode::<Option<u64>>(&result).unwrap(),
-                None,
-                "{name}: {index}"
-            );
-        }
         let error = invoke(
             &runtime,
             &owner,
             slots["index"],
-            &[array.value(runtime.gc()).unwrap(), Value::U64(index)],
+            &[root.value(runtime.gc()).unwrap(), Value::U64(index)],
         )
         .unwrap_err();
         assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
         assert!(error.to_string().contains(&index.to_string()));
+        assert_eq!(
+            runtime.gc().array_snapshot(array).unwrap(),
+            vec![Value::U64(1u64 << 32)]
+        );
     }
-    for index in [2, 1u64 << 32, u64::MAX] {
-        for name in ["insert_unit", "insert"] {
-            let error = invoke(
-                &runtime,
-                &owner,
-                slots[name],
-                &[value, Value::U64(index), Value::U64(42)],
-            )
-            .unwrap_err();
-            assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
-            assert!(error.to_string().contains(&index.to_string()));
-            assert_eq!(cx.decode::<Vec<u64>>(&values).unwrap(), [1u64 << 32]);
-        }
-    }
-    let result = invoke(
-        &runtime,
-        &owner,
-        slots["insert_unit"],
-        &[value, Value::U64(1), Value::U64(42)],
-    )
-    .unwrap();
-    assert_eq!(result, Value::Unit);
-    let result = invoke(
-        &runtime,
-        &owner,
-        slots["insert"],
-        &[value, Value::U64(2), Value::U64(43)],
-    )
-    .unwrap();
-    assert_eq!(result, value);
-    assert_eq!(
-        cx.decode::<Vec<u64>>(&values).unwrap(),
-        [1u64 << 32, 42, 43]
-    );
-    let result = invoke(&runtime, &owner, slots["remove"], &[value, Value::U64(0)]).unwrap();
-    let result = runtime.root_value(result).unwrap();
-    assert_eq!(cx.decode::<Option<u64>>(&result).unwrap(), Some(1u64 << 32));
-    assert_eq!(cx.decode::<Vec<u64>>(&values).unwrap(), [42, 43]);
 }
 
 #[test]

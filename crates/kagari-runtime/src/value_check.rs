@@ -83,26 +83,12 @@ pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> 
             .interface_snapshot(*id)
             .is_some_and(|actual| actual.matches_type(view.ty, view.owner, view.environment)),
         (Value::GcHandle(id), Ty::NativeObject(_)) => heap.matches_native_type(*id, view),
-        (Value::GcHandle(id), Ty::Iter(_)) => view
-            .parameter(0)
-            .is_some_and(|element| heap.matches_iter_type(*id, element)),
+
         (Value::Array(id), Ty::Array(_)) => heap.array_contract(*id).is_some_and(|contract| {
             view.parameter(0)
                 .is_some_and(|element| contract.matches_view(element))
         }),
-        (Value::Map(id), Ty::Map { .. }) => {
-            heap.map_contract(*id).is_some_and(|(key, value, _)| {
-                view.parameter(0)
-                    .is_some_and(|expected| key.matches_view(expected))
-                    && view
-                        .parameter(1)
-                        .is_some_and(|expected| value.matches_view(expected))
-            })
-        }
-        (Value::Set(id), Ty::Set(_, _)) => heap.set_contract(*id).is_some_and(|(contract, _)| {
-            view.parameter(0)
-                .is_some_and(|element| contract.matches_view(element))
-        }),
+
         (_, Ty::Projection { .. } | Ty::SelfType(_)) => view
             .closed()
             .is_some_and(|ty| matches_type(heap, value, &ty, view.owner)),

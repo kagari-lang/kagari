@@ -10,13 +10,12 @@ use kagari_common::identity::{
     table::DefinitionId,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::callable::witness::OperationWitness;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{Runtime, native::module::NativeModule, value::Value};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
-use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
 use std::sync::Arc;
 
@@ -287,76 +286,6 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         );
         assert_eq!(vm.runtime().gc().active_roots(), 0);
     }
-}
-
-#[test]
-fn hash_storage_native_imports_carry_and_validate_selected_callables() {
-    let program = fixture(
-        r#"use std::collections::{HashSet};
-pub fn answer() -> i32 {
-        val values: HashSet<i32> = HashSet::new();
-        values.insert(42);
-        if values.contains(42) { 42 } else { 0 }
-    }"#,
-    );
-    let context = DefinitionContext::new().unwrap();
-    let (definitions, program) = program
-        .import_into(&context, &Default::default())
-        .unwrap()
-        .into_parts();
-    let (owner, import) = program
-        .modules
-        .iter()
-        .enumerate()
-        .find_map(|(index, module)| {
-            module
-                .native_imports
-                .iter()
-                .position(|import| {
-                    matches!(&import.signature.result, Ty::Set(item, _)
-                        if **item == Ty::Builtin(BuiltinType::I32))
-                        && !import.callables.is_empty()
-                })
-                .map(|import| (index, import))
-        })
-        .unwrap();
-    assert!(
-        program.modules[owner].native_imports[import]
-            .callables
-            .len()
-            >= 2
-    );
-    let mut missing = program.clone();
-    missing.modules[owner].native_imports[import]
-        .callables
-        .clear();
-    assert!(verify_program(&missing, &definitions, &Default::default()).is_err());
-    let mut forged = program.clone();
-    let OperationWitness::Selected(selected) =
-        &mut forged.modules[owner].native_imports[import].callables[0]
-    else {
-        panic!("concrete callable");
-    };
-    selected.implementation = CallableImplementation::Required;
-    assert!(verify_program(&forged, &context.snapshot(), &Default::default()).is_err());
-    let decoded = round_trip_program(
-        DefinitionMetadata::checked(definitions.clone(), program, &Default::default()).unwrap(),
-    );
-    let mut runtime = Runtime::default();
-    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
-    let loaded = runtime.load_program("native-witnesses", decoded).unwrap();
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let vm = Vm::new(runtime);
-    assert_eq!(
-        vm.execute(&loaded, ProgramEntry::Main)
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
 }
 
 #[test]

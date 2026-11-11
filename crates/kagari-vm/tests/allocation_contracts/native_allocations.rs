@@ -18,7 +18,7 @@ use kagari_runtime::{
         declarations::FunctionDecl,
         module::NativeModule,
         types::Type,
-        views::SequenceHandle,
+        views::ValueHandle,
     },
     value::Value,
 };
@@ -61,19 +61,29 @@ fn module() -> NativeModule {
     let sum = module
         .define_function(
             FunctionDecl::new("sum")
-                .parameter("values", language.vec(Type::i32()).unwrap())
+                .parameter("values", Type::array(Type::i32()).unwrap())
                 .returns(Type::i32()),
         )
         .unwrap();
     module
         .bind(
             sum,
-            |cx: &mut CallContext<'_>, values: SequenceHandle<'_>| -> NativeResult<i32> {
+            |cx: &mut CallContext<'_>, values: ValueHandle<'_>| -> NativeResult<i32> {
                 assert_eq!(
                     cx.argument_type_parameter(0, 0)?.ty(),
                     &Ty::Builtin(BuiltinType::I32)
                 );
-                values.with_slice::<i32, _>(|values| Ok(values.iter().copied().sum()))
+                let Value::Array(id) = values.value() else {
+                    panic!("checked array")
+                };
+                let mut sum = 0;
+                for index in 0..cx.heap().array_len(id).unwrap() {
+                    let Value::I32(value) = cx.heap().array_get(id, index).unwrap() else {
+                        panic!("checked i32 element")
+                    };
+                    sum += value;
+                }
+                Ok(sum)
             },
         )
         .unwrap();
@@ -89,7 +99,7 @@ fn load() -> (Runtime, ExecutableModule) {
             r#"
         use measure::native::{add, sum};
         fn scalar(a: i32, b: i32) -> i32 { add(a, b) }
-        fn bulk(values: Vec<i32>) -> i32 { sum(values) }
+        fn bulk(values: [i32]) -> i32 { sum(values) }
         fn script_add(a: i32, b: i32, c: i32) -> i32 { a + b + c }
         fn script_caller(a: i32, b: i32) -> i32 { script_add(b, a, b) }
     "#
@@ -244,7 +254,7 @@ fn sample(
 }
 
 #[test]
-fn warmed_scalar_and_contiguous_i32_boundaries_add_no_allocations() {
+fn warmed_scalar_and_array_read_boundaries_add_no_allocations() {
     verify_counter();
     let (runtime, loaded) = load();
     let scalar = CallSite::find(&loaded, "scalar");

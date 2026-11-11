@@ -692,15 +692,6 @@ pub(super) fn verify(
                 "interface receiver",
             )?;
         }
-        Instruction::Iter { dst, value, ty, op } => {
-            let (input, output) = op
-                .contract(ty, context.definitions)
-                .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
-            if input != value.map(|v| v.ty) {
-                return Err(context.error(Error::InvalidEnumInitializer));
-            }
-            context.expect(dst.ty, output, "iterator result")?;
-        }
 
         Instruction::MakeEnum {
             dst,

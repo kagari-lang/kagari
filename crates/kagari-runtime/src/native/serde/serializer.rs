@@ -77,7 +77,7 @@ macro_rules! scalar {
 impl<'scope, 'runtime> SerdeSerializer for Serializer<'scope, 'runtime> {
     type Ok = Value;
     type Error = RuntimeError;
-    type SerializeSeq = Pack<'scope, 'runtime>;
+    type SerializeSeq = Impossible<Value, RuntimeError>;
     type SerializeTuple = Pack<'scope, 'runtime>;
     type SerializeTupleStruct = Impossible<Value, RuntimeError>;
     type SerializeTupleVariant = Pack<'scope, 'runtime>;
@@ -117,7 +117,7 @@ impl<'scope, 'runtime> SerdeSerializer for Serializer<'scope, 'runtime> {
     }
 
     fn serialize_bytes(self, _: &[u8]) -> NativeResult<Value> {
-        Err(unsupported("byte encoding; use a sequence schema"))
+        Err(unsupported("byte encoding"))
     }
 
     fn serialize_none(self) -> NativeResult<Value> {
@@ -169,8 +169,10 @@ impl<'scope, 'runtime> SerdeSerializer for Serializer<'scope, 'runtime> {
         pack.finish()
     }
 
-    fn serialize_seq(self, len: Option<usize>) -> NativeResult<Self::SerializeSeq> {
-        Pack::sequence(self.cx, self.expected, len)
+    fn serialize_seq(self, _: Option<usize>) -> NativeResult<Self::SerializeSeq> {
+        Err(unsupported(
+            "sequence schemas require a library-owned adapter",
+        ))
     }
 
     fn serialize_tuple(self, len: usize) -> NativeResult<Self::SerializeTuple> {

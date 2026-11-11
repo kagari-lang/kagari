@@ -1,6 +1,5 @@
 //! Synchronous native access borrows stable, already rooted caller slots.
 mod enums;
-mod iteration;
 pub mod operations;
 mod references;
 mod tasks;
@@ -18,18 +17,16 @@ use crate::{
         },
         values::FrameSlots,
     },
-    gc::{GcCollection, GcHeap, HeapObjectId, custom_keys::KeyLookupRoots, roots::RootSet},
+    gc::{GcCollection, GcHeap, roots::RootSet},
     module::{ExecutableModule, execution::layout::Location},
     native::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
         callable::{CallableHandle, PreparedClosure},
-        context::operations::NativeKeyLookupGuard,
         conversion::{IntoKagari, context::ConversionContext},
         declarations::SelectedCall,
         function_handle::PreparedFunction,
         scalar::NativeScalar,
-        sequence::{NativeElement, SequencePayload},
         storage::{NativePayload, StorageContext},
         storage_type::StorageType,
         stored_selection::StoredSelection,
@@ -255,72 +252,23 @@ impl<'call> CallContext<'call> {
         CallableHandle::from_argument(self, index)
     }
 
-    /// Root a key and block structural mutation until its synchronous lookup ends.
-    pub fn begin_key_lookup(&self, index: usize) -> NativeResult<NativeKeyLookupGuard<'call>> {
-        let roots = self.arguments.frame.ok_or_else(|| {
-            RuntimeError::module_validation("key lookup requires rooted frame arguments")
-        })?;
-        Ok(NativeKeyLookupGuard {
-            _guard: self
-                .heap()
-                .begin_key_lookup(&self.argument(index)?, KeyLookupRoots::Frame(roots))?,
-        })
-    }
-
-    fn sequence_id(&self, index: usize) -> NativeResult<HeapObjectId> {
-        match self.argument(index)? {
-            Value::GcHandle(id) => {
-                self.heap().ensure_sequence(id)?;
-                Ok(id)
-            }
-            _ => Err(RuntimeError::module_validation("native sequence argument")),
-        }
-    }
-
-    pub fn sequence_push(&self, index: usize, value: Value) -> NativeResult<()> {
-        match self.argument(index)? {
-            Value::GcHandle(id) => {
-                self.heap()
-                    .push_sequence_value(id, self.argument_type_view(index)?, value)
-            }
-            _ => Err(RuntimeError::module_validation("native sequence argument")),
-        }
-    }
-
-    pub fn with_sequence<E: NativeElement, R>(
-        &self,
-        index: usize,
-        access: impl for<'slice> FnOnce(&'slice [E]) -> NativeResult<R>,
-    ) -> NativeResult<R> {
-        self.heap()
-            .with_native::<SequencePayload, R>(self.sequence_id(index)?, |sequence| {
-                let values = E::slice(&sequence.values)
-                    .ok_or_else(|| RuntimeError::module_validation("sequence scalar layout"))?;
-                access(values)
-            })
-    }
-
-    pub fn with_sequence_mut<E: NativeElement, R>(
-        &self,
-        index: usize,
-        access: impl for<'slice> FnOnce(&'slice mut [E]) -> NativeResult<R>,
-    ) -> NativeResult<R> {
-        self.heap()
-            .with_sequence_mut(self.sequence_id(index)?, access)
-    }
-
+    /// Allocate the checked factory of this call's declared nominal Native result.
     pub fn allocate_result(&self) -> NativeResult<Value> {
         self.heap().ensure_no_native_borrow()?;
         let ty = self.function.type_signature()?.result.ty();
-        let storage = match ty {
-            Ty::NativeObject(nominal) => self
-                .runtime
-                .native_entries
-                .storage
-                .get_id(nominal.declaration),
-            _ => self.heap().default_storage(ty),
-        }
-        .ok_or_else(|| RuntimeError::module_validation("native result storage is not installed"))?;
+        let Ty::NativeObject(nominal) = ty else {
+            return Err(RuntimeError::module_validation(
+                "native result requires a nominal type",
+            ));
+        };
+        let storage = self
+            .runtime
+            .native_entries
+            .storage
+            .get_id(nominal.declaration)
+            .ok_or_else(|| {
+                RuntimeError::module_validation("native result storage is not installed")
+            })?;
         self.runtime.validate_executable_module(self.owner)?;
         let object = storage.create(&StorageContext {
             runtime: self.runtime,
@@ -329,13 +277,7 @@ impl<'call> CallContext<'call> {
             scope: Some(&self.function.type_signature()?.result),
             selected: &self.function.selected,
         })?;
-        let id = self.heap().alloc_native(object)?;
-        Ok(match ty {
-            Ty::Array(..) => Value::Array(id),
-            Ty::Map { .. } => Value::Map(id),
-            Ty::Set(..) => Value::Set(id),
-            _ => Value::GcHandle(id),
-        })
+        self.heap().alloc_native(object).map(Value::GcHandle)
     }
 
     /// Retain only declared selected slots as metadata edges of the result.
@@ -367,7 +309,7 @@ impl<'call> CallContext<'call> {
         self.heap().alloc_native(object).map(Value::GcHandle)
     }
 
-    /// Invoke a stored selection from a native object, map or set argument.
+    /// Invoke a declared stored selection from an ordinary Native object argument.
     /// The argument roots its relationship evidence; temporary call authority pins
     /// the newly selected computation without changing the root session.
     /// Rejects missing slots, incompatible values and forbidden candidate reentry.
@@ -379,7 +321,7 @@ impl<'call> CallContext<'call> {
         values: &[Value],
     ) -> NativeResult<Value> {
         let id = match self.argument(argument)? {
-            Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => id,
+            Value::GcHandle(id) => id,
             _ => return Err(RuntimeError::module_validation("stored callable receiver")),
         };
         let selections = self.heap().native_selections(id)?;
@@ -494,16 +436,6 @@ impl<'call> CallContext<'call> {
         self.heap()
             .alloc_array_with_contract(contract, elements)
             .map(Value::Array)
-    }
-
-    /// Allocate the installed standard Vec with an explicit element contract.
-    pub fn allocate_vec(&self, element: TypeArgument, elements: Vec<Value>) -> NativeResult<Value> {
-        self.heap().ensure_no_native_borrow()?;
-        element.validate(self.runtime)?;
-        self.runtime.validate_heap_payloads(&elements)?;
-        let applied = self.runtime.vec_type(self.owner, &element)?;
-        self.runtime
-            .allocate_sequence(self.owner, &applied, elements)
     }
 
     pub fn owner(&self) -> &ExecutableModule {

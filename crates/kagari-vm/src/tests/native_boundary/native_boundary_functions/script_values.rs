@@ -3,7 +3,6 @@ use crate::tests::native_boundary::publish_unused_version;
 use kagari_runtime::native::{
     binding::NativeResult,
     builder::ModuleBuilder,
-    collections::vector::ScriptVec,
     declarations::{CallableRequirement, FunctionDecl, MethodDecl},
     function_handle::Function,
     interfaces::Interface,
@@ -121,13 +120,8 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         assert!(vm.call(&string_argument, (number.clone(),)).is_err());
         assert!(vm.call(&write, (readonly.clone(),)).is_err());
         assert_eq!(vm.call(&read, (readonly.clone(),)).unwrap(), 42);
-        let items = vector.decode::<ScriptVec<ScriptValue>>(&mut cx).unwrap();
-        let item = items
-            .get(&mut cx, 0)
-            .unwrap()
-            .unwrap()
-            .decode::<Object>(&mut cx)
-            .unwrap();
+        let items = vector.decode::<(ScriptValue,)>(&mut cx).unwrap();
+        let item = items.0.decode::<Object>(&mut cx).unwrap();
         let field = vm
             .runtime()
             .bind_field::<i32>(item.object_type(), "value")
@@ -154,7 +148,7 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
 }
 
 #[test]
-fn selected_associated_collection_results_keep_their_supplying_scope() {
+fn selected_associated_tuple_results_keep_their_supplying_scope() {
     let mut module = ModuleBuilder::new(
         "example::associated_values",
         &StandardDeclarations::default().catalog().unwrap(),
@@ -182,8 +176,8 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
                 let method = cx.selected_method::<(ScriptValue,), ScriptValue>(&selected)?;
                 let result = method.call(cx, (receiver,))?;
                 cx.collect_garbage()?;
-                let items = result.decode::<ScriptVec<ScriptValue>>(cx)?;
-                let item = items.get(cx, 0)?.unwrap().decode::<Object>(cx)?;
+                let items = result.decode::<(ScriptValue,)>(cx)?;
+                let item = items.0.decode::<Object>(cx)?;
                 let field = cx
                     .runtime()
                     .bind_field::<i32>(item.object_type(), "value")?;
@@ -200,14 +194,14 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
         pub struct Item { pub var value: i32 }
         pub struct Holder<T> { val item: T }
         impl<T> Producer for Holder<T> {
-            type Items = Vec<T>;
-            fn items(self) -> Vec<T> { Vec::from([self.item]) }
+            type Items = (T,);
+            fn items(self) -> (T,) { (self.item,) }
         }
         pub trait Relay { fn relay<P: Producer>(self, source: P) -> P::Items { source.again() } }
         impl Relay for i32 {}
         pub fn target() -> Relay { 0 }
         pub fn holder() -> Holder<Item> { Holder { item: Item { value: 42 } } }
-        pub fn make() -> Vec<Item> {
+        pub fn make() -> (Item,) {
             val r: Relay = 0;
             r.relay(Holder { item: Item { value: 42 } })
         }
@@ -218,12 +212,12 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
     let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let make = vm
         .runtime()
-        .bind_function::<(), ScriptVec<Object>>(&_owner_program.root(), "make")
+        .bind_function::<(), (Object,)>(&_owner_program.root(), "make")
         .unwrap();
     let values = vm.call(&make, ()).unwrap();
     vm.runtime().collect_garbage().unwrap();
     let mut cx = vm.context(&owner).unwrap();
-    let item = values.get(&mut cx, 0).unwrap().unwrap();
+    let item = values.0.clone();
     let field = vm
         .runtime()
         .bind_field::<i32>(item.object_type(), "value")
@@ -233,14 +227,14 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
     let holder: Object = vm.execute_typed(&owner, "holder", ()).unwrap();
     let relay = vm
         .runtime()
-        .bind_interface_method_application::<(Object,), ScriptVec<Object>>(
+        .bind_interface_method_application::<(Object,), (Object,)>(
             &target.member(vm.runtime(), "relay").unwrap(),
             slice::from_ref(holder.object_type().type_argument()),
         )
         .unwrap();
     vm.runtime().collect_garbage().unwrap();
     let returned = target.call(&mut cx, &relay, (holder,)).unwrap();
-    let returned_item = returned.get(&mut cx, 0).unwrap().unwrap();
+    let returned_item = returned.0.clone();
     assert_eq!(returned_item.get(&mut cx, &field).unwrap(), 43);
     drop((target, relay, returned, returned_item));
     drop((item, values, cx));

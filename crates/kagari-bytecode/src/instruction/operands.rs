@@ -10,7 +10,7 @@ impl BytecodeInstruction {
             BytecodeInstruction::Numeric { lhs, rhs, .. } => {
                 iter::once(*lhs).chain(rhs.iter().copied()).collect()
             }
-            BytecodeInstruction::Iter { value, .. } => value.iter().copied().collect(),
+
             BytecodeInstruction::LoadConst { .. } | BytecodeInstruction::LoadModule { .. } => {
                 vec![]
             }
@@ -129,7 +129,6 @@ impl BytecodeInstruction {
             | BytecodeInstruction::Await { dst, .. }
             | BytecodeInstruction::Convert { dst, .. }
             | BytecodeInstruction::Numeric { dst, .. }
-            | BytecodeInstruction::Iter { dst, .. }
             | BytecodeInstruction::MakeEnum { dst, .. }
             | BytecodeInstruction::MakeInterface { dst, .. }
             | BytecodeInstruction::UpcastInterface { dst, .. }
@@ -175,12 +174,7 @@ impl BytecodeInstruction {
                     *slot = rewrite(*slot);
                 }
             }
-            Self::Iter { dst, value, .. } => {
-                *dst = rewrite(*dst);
-                if let Some(slot) = value {
-                    *slot = rewrite(*slot);
-                }
-            }
+
             Self::LoadConst { dst, .. } => {
                 *dst = rewrite(*dst);
             }

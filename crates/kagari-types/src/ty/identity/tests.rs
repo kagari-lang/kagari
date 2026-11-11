@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    collection::CollectionAccess,
     scalar::BuiltinType,
     ty::{GenericParam, substitution::TypeSubstitution},
 };
@@ -44,7 +43,7 @@ fn fixture(builder: &mut DefinitionTableBuilder) -> Vec<Ty> {
         arguments: vec![Ty::Parameter { owner, position: 0 }],
         associated_types: [
             (item, Ty::Builtin(BuiltinType::I32)),
-            (iter, Ty::Iter(Box::new(Ty::Builtin(BuiltinType::I32)))),
+            (iter, Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))),
         ]
         .into(),
     };
@@ -64,13 +63,9 @@ fn fixture(builder: &mut DefinitionTableBuilder) -> Vec<Ty> {
         Ty::NativeObject(plain),
         Ty::Tuple(vec![
             Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-            Ty::Map {
-                key: Box::new(Ty::Builtin(BuiltinType::String)),
-                value: Box::new(Ty::Set(
-                    Box::new(Ty::Builtin(BuiltinType::I64)),
-                    CollectionAccess::Mutable,
-                )),
-                access: CollectionAccess::Mutable,
+            Ty::Reference {
+                target: Box::new(Ty::Array(Box::new(Ty::Builtin(BuiltinType::I64)))),
+                access: crate::reference::ReferenceAccess::Mutable,
             },
         ]),
         Ty::Function {

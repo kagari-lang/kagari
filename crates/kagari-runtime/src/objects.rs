@@ -18,12 +18,8 @@ use crate::{
 
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::{ids::FunctionRef, operations::IterOp};
-use kagari_types::{
-    declaration::native::NativeStorageLayout,
-    language::binding,
-    ty::{NominalTy, Ty},
-};
+use kagari_contract::ids::FunctionRef;
+use kagari_types::ty::{NominalTy, Ty};
 use std::{cell::Ref, slice};
 mod adapters;
 mod application;
@@ -305,99 +301,6 @@ impl Runtime {
             target: ClosureTarget::Script(function),
             captures,
         })
-    }
-
-    pub fn iter_operation(
-        &self,
-        owner: &ExecutableModule,
-        value: &value::Value,
-        ty: &Ty,
-        op: IterOp,
-    ) -> Result<value::Value, RuntimeError> {
-        let ty = owner
-            .identity_admission()
-            .product(ty, &Default::default())?;
-        let ty = self
-            .resolve_type_arguments(owner, slice::from_ref(&ty))?
-            .pop()
-            .ok_or_else(|| RuntimeError::module_validation("iterator type scope"))?;
-        self.iter_operation_with_type(owner, value, &ty, op)
-    }
-
-    pub(crate) fn iter_operation_with_type(
-        &self,
-        owner: &ExecutableModule,
-        value: &Value,
-        ty: &TypeArgument,
-        op: IterOp,
-    ) -> Result<Value, RuntimeError> {
-        self.validate_executable_module(owner)?;
-        ty.validate(self)?;
-        match op {
-            IterOp::String(kind) => self.gc.new_string_iter(value, ty.ty(), kind, owner),
-            IterOp::New => {
-                let sequence_element = match ty.ty() {
-                    Ty::NativeObject(nominal) => self
-                        .native_entries
-                        .storage
-                        .get_id(nominal.declaration)
-                        .and_then(|storage| match storage.layout() {
-                            NativeStorageLayout::Sequence { element } => Some(element),
-                            _ => None,
-                        }),
-                    _ => None,
-                };
-                let item = ty.derive(self, owner, |ty| match ty {
-                    Ty::Range(item, _) | Ty::Array(item) | Ty::Set(item, _) => {
-                        Some((**item).clone())
-                    }
-                    Ty::NativeObject(nominal) => nominal.arguments.get(sequence_element?).cloned(),
-                    Ty::Map { key, value, .. } => {
-                        Some(Ty::Tuple(vec![(**key).clone(), (**value).clone()]))
-                    }
-                    Ty::Builtin(_) => Some(ty.clone()),
-                    _ => None,
-                })?;
-                self.gc.new_iter(value, ty, item, owner)
-            }
-            IterOp::Next => {
-                self.check_iterator_contract(owner, value, ty)?;
-                let declaration = self
-                    .definition_context()
-                    .intern(&binding::option_declaration())
-                    .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-                let applied = ty.derive(self, owner, |ty| match ty {
-                    Ty::Iter(item) => Some(Ty::Enum(NominalTy {
-                        declaration,
-                        arguments: vec![(**item).clone()],
-                        associated_types: Default::default(),
-                    })),
-                    _ => None,
-                })?;
-                self.gc.advance_iter_with(value, ty.ty(), |payload| {
-                    self.make_enum_member(
-                        owner,
-                        &applied,
-                        if payload.is_some() { "Some" } else { "None" },
-                        payload.into_iter().collect(),
-                    )
-                })
-            }
-        }
-    }
-
-    pub(crate) fn check_iterator_contract(
-        &self,
-        owner: &ExecutableModule,
-        value: &Value,
-        ty: &TypeArgument,
-    ) -> Result<(), RuntimeError> {
-        if !ty.matches(self, value, owner) {
-            return Err(RuntimeError::module_validation(
-                "iterator differs from its checked item contract",
-            ));
-        }
-        Ok(())
     }
 
     pub fn make_capture_cell(

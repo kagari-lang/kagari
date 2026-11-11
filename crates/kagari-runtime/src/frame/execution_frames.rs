@@ -824,7 +824,7 @@ fn frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point
             .unwrap_err(),
         frame.jump_to(&foreign, 0).unwrap_err(),
         frame
-            .begin_collection_mutation(&foreign, &original)
+            .begin_native_mutation(&foreign, &original)
             .unwrap_err(),
     ] {
         assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);

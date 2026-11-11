@@ -15,35 +15,31 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     .unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
-        .load_program("failure", program(source, &[&probe.module]))
+        .load_program(
+            "failure",
+            program(
+                &format!("{source} {}", after_failure_source("i32", expected.len())),
+                &[&probe.module],
+            ),
+        )
         .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     assert!(vm.execute(&loaded, ProgramEntry::Main).is_err());
     assert_eq!(probe.calls.load(Ordering::SeqCst), calls);
-    let Value::GcHandle(array) = probe
-        .retained
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .value(vm.runtime().gc())
-        .unwrap()
-    else {
-        panic!("array")
+    let snapshot = inspect_retained(&vm, &loaded, &probe);
+    let Value::Array(array) = snapshot.value(vm.runtime().gc()).unwrap() else {
+        panic!("snapshot")
     };
     assert_eq!(
-        vm.runtime().gc().sequence_snapshot(array).unwrap(),
+        vm.runtime().gc().array_snapshot(array).unwrap(),
         expected
             .iter()
             .map(|value| Value::I32(*value))
             .collect::<Vec<_>>()
     );
-    vm.runtime()
-        .gc()
-        .sequence_push(array, Value::I32(99))
-        .unwrap();
+    drop(snapshot);
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
     assert_eq!(vm.runtime().gc().active_roots(), 0);

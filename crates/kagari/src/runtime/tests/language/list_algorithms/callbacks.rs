@@ -82,8 +82,13 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         builder.install_all(stdlib::modules().unwrap()).unwrap();
         builder.install(module.finish().unwrap()).unwrap();
         let engine = builder.build().unwrap();
+        let fields = (0..retained_values.len())
+            .map(|index| format!("values[{index}]"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let length = retained_values.len();
         let source = format!(
-            "use test::cancellation::{{keep, visit}}; fn main() {{ val values = Vec::from([1,3,2,0]); keep(values); values.{operation}; }}"
+            "use test::cancellation::{{keep, visit}}; fn main() {{ val values = Vec::from([1,3,2,0]); keep(values); values.{operation}; }} pub fn inspect(values: Vec<i32>) -> [i32] {{ if values.len() != {length}u64 {{ val fail = 1 / 0; }} val snapshot = [{fields}]; values.push(99); snapshot }}"
         );
         let artifact = engine
             .compile_to_artifact(SourceFile::new("cancel.kgr", source), Default::default())
@@ -100,20 +105,24 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             "KG_RUNTIME_CANCELLED"
         );
         assert_eq!(calls.load(Ordering::SeqCst), 3);
-        let Value::GcHandle(array) = retained
+        let value = retained
             .lock()
             .unwrap()
             .as_ref()
             .unwrap()
             .value(runtime.runtime().gc())
+            .unwrap();
+        let snapshot = runtime
+            .execute(&loaded, "inspect", &[value], &ExecutionContext::default())
             .unwrap()
-        else {
-            panic!("Vec")
+            .return_value;
+        let Value::Array(array) = snapshot.value(runtime.runtime().gc()).unwrap() else {
+            panic!("snapshot")
         };
         let mut actual = runtime
             .runtime()
             .gc()
-            .sequence_snapshot(array)
+            .array_snapshot(array)
             .unwrap()
             .into_iter()
             .map(|value| {
@@ -127,11 +136,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             actual.sort();
         }
         assert_eq!(actual, retained_values);
-        runtime
-            .runtime()
-            .gc()
-            .sequence_push(array, Value::I32(99))
-            .unwrap();
+        drop(snapshot);
         retained.lock().unwrap().take();
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);

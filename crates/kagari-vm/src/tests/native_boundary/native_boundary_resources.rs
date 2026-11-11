@@ -1,5 +1,5 @@
 use super::compile_program;
-use crate::vm::Vm;
+use crate::{executor::Executor, vm::Vm};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeError,
@@ -23,7 +23,7 @@ struct MutationFixture {
 }
 
 impl MutationFixture {
-    fn new(source: &str, policy: RuntimeLimits) -> Self {
+    fn new(source: &str, policy: RuntimeLimits, retained_type: &str) -> Self {
         let retained: Arc<Mutex<Option<RootedValue>>> = Arc::default();
         let keep = retained.clone();
         let mut module = ModuleBuilder::new(
@@ -55,7 +55,10 @@ impl MutationFixture {
             )
             .unwrap();
         let module = module.finish().unwrap();
-        let program = compile_program(source, Some(&module));
+        let source = format!(
+            "{source} pub fn retained_is_empty(value: {retained_type}) -> bool {{ value.is_empty() }}"
+        );
+        let program = compile_program(&source, Some(&module));
         let mut runtime = Runtime::new(RuntimeConfig {
             limits: policy,
             ..Default::default()
@@ -88,14 +91,19 @@ impl MutationFixture {
     }
 
     fn is_empty(&self) -> bool {
-        let heap = self.vm.runtime().gc();
-        let length = match self.value() {
-            Value::GcHandle(id) => heap.sequence_len(id),
-            Value::Map(id) => heap.map_len(id),
-            Value::Set(id) => heap.set_len(id),
-            _ => panic!("retained collection"),
+        let (owner, function) = ProgramEntry::from("retained_is_empty")
+            .resolve(&self.loaded)
+            .unwrap();
+        let runtime = self.vm.runtime();
+        let _session = runtime.begin_execution(&owner, Default::default()).unwrap();
+        let Value::Bool(empty) = Executor::new(runtime, &owner, function, &[self.value()])
+            .unwrap()
+            .run()
+            .unwrap()
+        else {
+            panic!("checked bool result")
         };
-        length.unwrap() == 0
+        empty
     }
 }
 
@@ -106,6 +114,7 @@ fn successful_removal_accounts_prepared_result_and_preserves_live_occupancy() {
         RuntimeLimits {
             ..Default::default()
         },
+        "Vec<i32>",
     );
     let Value::Enum(result) = fixture
         .vm
@@ -142,38 +151,24 @@ fn duplicate_native_insertions_preserve_final_container_contents() {
     let fixture = MutationFixture::new(
         r#"use std::collections::{HashMap, HashSet};
 
-        fn main() -> (HashMap<i32,i32>, HashSet<i32>) {
+        fn main() -> bool {
             val map: HashMap<i32,i32> = HashMap::new(); map.insert(1, 2); map.insert(1, 3);
-            val set: HashSet<i32> = HashSet::new(); set.insert(1); set.insert(1); (map, set)
+            val set: HashSet<i32> = HashSet::new(); set.insert(1); set.insert(1); map.get(1) == Some(3) && set.contains(1) && set.len() == 1u64
         }
     "#,
         RuntimeLimits {
             ..Default::default()
         },
-    );
-    let Value::Tuple(values) = fixture
-        .vm
-        .execute(&fixture.loaded, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(fixture.vm.runtime().gc())
-        .expect("retained execution result")
-    else {
-        panic!("containers")
-    };
-    let values = fixture.vm.runtime().gc().tuple(values).unwrap().to_vec();
-    let [Value::Map(map), Value::Set(set)] = values.as_slice() else {
-        panic!("handles")
-    };
-    let runtime = fixture.vm.runtime();
-
-    assert_eq!(
-        runtime.gc().map_get(*map, &Value::I32(1)),
-        Some(Value::I32(3))
+        "Vec<i32>",
     );
     assert_eq!(
-        runtime.gc().set_snapshot(*set).unwrap(),
-        vec![Value::I32(1)]
+        fixture
+            .vm
+            .execute(&fixture.loaded, ProgramEntry::Main)
+            .unwrap()
+            .return_value
+            .value(fixture.vm.runtime().gc()),
+        Some(Value::Bool(true))
     );
 }
 
@@ -196,6 +191,7 @@ use std::hash::{Hash};
             }
         "#,
             RuntimeLimits::default(),
+            "HashMap<Key, i32>",
         );
         assert_eq!(
             fixture

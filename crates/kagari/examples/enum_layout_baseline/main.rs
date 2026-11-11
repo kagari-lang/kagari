@@ -12,7 +12,7 @@ use kagari_runtime::{
     diagnostics::allocations::{self, Allocator, Counts},
     gc::GcHeapStats,
     module::entry::ProgramEntry,
-    native::{collections::vector::ScriptVec, value_handle::ScriptValue},
+    native::value_handle::ScriptValue,
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -107,6 +107,12 @@ fn main() {
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let owner = runtime.runtime().select_program(&loaded).unwrap();
         let entry = ProgramEntry::Export(name);
+        let length = stored.then(|| {
+            runtime
+                .runtime()
+                .bind_function::<(ScriptValue,), u64>(&loaded.root(), &format!("{name}_len"))
+                .unwrap()
+        });
         // Warm code/type/root capacities using the measured workload, then collect.
         for _ in 0..2 {
             drop(
@@ -134,9 +140,9 @@ fn main() {
                 runtime
                     .with_context(&owner, &context, |cx| {
                         if stored {
-                            let values: ScriptVec<ScriptValue> = result.decode(cx)?;
-                            assert_eq!(values.len(cx)? as u64, count, "{name}");
-                            black_box(values);
+                            let actual = length.as_ref().unwrap().call(cx, (result.clone(),))?;
+                            assert_eq!(actual, count, "{name}");
+                            black_box(&result);
                         } else {
                             let value: u64 = result.decode(cx)?;
                             assert_eq!(value, count * (count - 1) / 2, "{name}");

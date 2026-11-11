@@ -1,0 +1,8 @@
+struct Record {
+    val values: [i32],
+    val name: String
+}
+
+fn main() ->(Record, [String]) {
+    (Record { values: [1], name: "leaf" }, ["seen"])
+}

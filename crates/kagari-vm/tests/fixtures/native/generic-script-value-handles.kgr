@@ -1,6 +1,18 @@
 use example::script_values::{ Identity, invoke };
 
-use std::collections::{ List, MutableList };
+trait Read {
+    fn read(self) -> i32;
+}
+
+trait Write {
+    fn write(self);
+}
+
+impl Read for Item {
+    fn read(self) -> i32 {
+        self.value
+    }
+}
 
 impl Identity for i32 {
     fn identity<T>(self, value: T) -> T {
@@ -30,9 +42,9 @@ pub fn text() -> String {
     r.relay("retained")
 }
 
-pub fn vector() -> Vec<Item> {
+pub fn vector() ->(Item,) {
     val r: Relay = 0;
-    r.relay(Vec::from([Item { value: 42 }]))
+    r.relay((Item { value: 42 },))
 }
 
 pub fn closure() -> fn() -> Item {
@@ -42,18 +54,18 @@ pub fn closure() -> fn() -> Item {
     r.relay(callback)
 }
 
-pub fn readonly() -> List<i32> {
+pub fn readonly() -> Read {
     val r: Relay = 0;
-    val list: List<i32> = Vec::from([42]);
+    val list: Read = Item { value: 42 };
     r.relay(list)
 }
 
-pub fn read(list: List<i32>) -> i32 {
-    list[0]
+pub fn read(list: Read) -> i32 {
+    list.read()
 }
 
-pub fn write(list: MutableList<i32>) {
-    list[0] = 0;
+pub fn write(list: Write) {
+    list.write();
 }
 
 pub fn string_argument(text: String) -> String {

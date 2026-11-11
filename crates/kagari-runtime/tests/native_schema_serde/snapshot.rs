@@ -27,7 +27,7 @@ use std::{
 #[derive(Debug, PartialEq, Serialize, Deserialize, KagariSchema)]
 pub(super) struct Graph {
     value: Reentrant,
-    children: Vec<Graph>,
+    children: Option<Box<Graph>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -98,25 +98,25 @@ fn serde_snapshot_survives_alias_mutation_gc_and_visitor_unwind() {
     let root = cx
         .encode(Serde(Graph {
             value: Reentrant(1),
-            children: vec![Graph {
+            children: Some(Box::new(Graph {
                 value: Reentrant(2),
-                children: vec![],
-            }],
+                children: None,
+            })),
         }))
         .unwrap();
     let Value::Struct(parent) = root.value(runtime.gc()).unwrap() else {
         panic!("Graph");
     };
-    let empty = cx.encode(Serde(Vec::<Graph>::new())).unwrap();
+    let empty = cx.encode(Serde(None::<Box<Graph>>)).unwrap();
     HOOK.with(|hook| *hook.borrow_mut() = Some(Hook::Rewrite(Rc::clone(&runtime), parent, empty)));
     let decoded: Serde<Graph> = cx.decode(&root).unwrap();
-    assert_eq!(decoded.0.children[0].value, Reentrant(2));
+    assert_eq!(decoded.0.children.unwrap().value, Reentrant(2));
     assert!(
         cx.decode::<Serde<Graph>>(&root)
             .unwrap()
             .0
             .children
-            .is_empty()
+            .is_none()
     );
     let roots = runtime.gc().active_roots();
     HOOK.with(|hook| *hook.borrow_mut() = Some(Hook::Panic));
@@ -131,13 +131,13 @@ fn serde_snapshot_survives_alias_mutation_gc_and_visitor_unwind() {
 }
 
 #[test]
-fn serde_owned_graph_rejects_cycles_through_nominal_sequences() {
+fn serde_owned_graph_rejects_cycles_through_recursive_enums() {
     let (runtime, owner) = fixture();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let root = cx
         .encode(Serde(Graph {
             value: Reentrant(1),
-            children: vec![],
+            children: None,
         }))
         .unwrap();
     let value = root.value(runtime.gc()).unwrap();
@@ -145,11 +145,22 @@ fn serde_owned_graph_rejects_cycles_through_nominal_sequences() {
         panic!("Graph");
     };
     let layout = runtime.gc().struct_layout(parent).unwrap();
-    let Value::GcHandle(children) = runtime.gc().struct_get_slot(parent, &layout, 1).unwrap()
-    else {
-        panic!("Vec");
+    let child = cx
+        .encode(Serde(Some(Box::new(Graph {
+            value: Reentrant(2),
+            children: None,
+        }))))
+        .unwrap();
+    let Value::Enum(child_id) = child.value(runtime.gc()).unwrap() else {
+        panic!("Option");
     };
-    runtime.gc().sequence_push(children, value).unwrap();
+    let tag = runtime.gc().enum_snapshot(child_id).unwrap().tag;
+    let cycle = Value::Enum(runtime.alloc_enum(tag, vec![value]).unwrap());
+    runtime
+        .gc()
+        .struct_set_slot(parent, &layout, 1, cycle)
+        .unwrap();
+    drop(child);
     let error = cx.decode::<Serde<Graph>>(&root).unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(error.to_string().contains("cycle"));

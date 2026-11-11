@@ -361,8 +361,6 @@ impl<'runtime> ConversionContext<'runtime> {
 fn identity(value: &Value) -> Option<HeapObjectId> {
     match value {
         Value::Array(id)
-        | Value::Map(id)
-        | Value::Set(id)
         | Value::Enum(id)
         | Value::Struct(id)
         | Value::GcHandle(id)

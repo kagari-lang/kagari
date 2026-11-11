@@ -1,5 +1,4 @@
-//! Packed scalar/traced storage owned by builtin arrays. Nominal sequences reuse
-//! these kernels only until their privileged backend is removed in D03/D04.
+//! Packed scalar/traced storage for fixed builtin arrays.
 use crate::{
     error::{RuntimeError, reason::IndexError},
     native::{binding::NativeResult, scalar::NativeScalar},
@@ -40,6 +39,7 @@ macro_rules! storage {
                 match self { $(Self::$variant(values) => values.len(),)+ Self::Traced(values) => values.len() }
             }
 
+            #[cfg(test)]
             pub(crate) fn capacity(&self) -> usize {
                 match self { $(Self::$variant(values) => values.capacity(),)+ Self::Traced(values) => values.capacity() }
             }
@@ -83,19 +83,9 @@ macro_rules! storage {
                 Ok(match self { $(Self::$variant(values) => Self::$variant(copy_values(&values[start..end])?),)+ Self::Traced(values) => Self::Traced(copy_values(&values[start..end])?) })
             }
 
-            pub(crate) fn copy_excluding(&self, start: usize, end: usize) -> NativeResult<Self> {
-                if start > end || end > self.len() { return Err(invalid_index()); }
-                Ok(match self { $(Self::$variant(values) => Self::$variant(copy_segments(&values[..start], &values[end..])?),)+ Self::Traced(values) => Self::Traced(copy_segments(&values[..start], &values[end..])?) })
-            }
 
-            pub(crate) fn append_storage(&mut self, source: &Self) -> NativeResult<()> {
-                match (self, source) {
-                    $((Self::$variant(values), Self::$variant(source)) => values.extend_from_slice(source),)+
-                    (Self::Traced(values), Self::Traced(source)) => values.extend_from_slice(source),
-                    _ => return Err(RuntimeError::module_validation("sequence copy scalar layout")),
-                }
-                Ok(())
-            }
+
+
 
             pub(crate) fn overwrite(&mut self, start: usize, source: Self) -> NativeResult<()> {
                 let end = start.checked_add(source.len()).ok_or_else(invalid_index)?;
@@ -108,11 +98,7 @@ macro_rules! storage {
                 Ok(())
             }
 
-            pub(crate) fn insert(&mut self, index: usize, value: Value) -> NativeResult<()> {
-                if index > self.len() { return Err(invalid_index()); }
-                match self { $(Self::$variant(values) => values.insert(index, <$ty>::decode(value)?),)+ Self::Traced(values) => values.insert(index, value) }
-                Ok(())
-            }
+
 
             pub(crate) fn set(&mut self, index: usize, value: Value) -> NativeResult<()> {
                 if index >= self.len() { return Err(invalid_index()); }
@@ -120,31 +106,19 @@ macro_rules! storage {
                 Ok(())
             }
 
-            pub(crate) fn pop(&mut self) -> Option<Value> {
-                match self { $(Self::$variant(values) => values.pop().map(NativeScalar::encode),)+ Self::Traced(values) => values.pop() }
-            }
 
-            pub(crate) fn remove(&mut self, index: usize) -> Option<Value> {
-                if index >= self.len() { return None; }
-                Some(match self { $(Self::$variant(values) => values.remove(index).encode(),)+ Self::Traced(values) => values.remove(index) })
-            }
 
-            pub(crate) fn swap_remove(&mut self, index: usize) -> Option<Value> {
-                if index >= self.len() { return None; }
-                Some(match self { $(Self::$variant(values) => values.swap_remove(index).encode(),)+ Self::Traced(values) => values.swap_remove(index) })
-            }
 
-            pub(crate) fn clear(&mut self) { match self { $(Self::$variant(values) => values.clear(),)+ Self::Traced(values) => values.clear() } }
 
-            pub(crate) fn truncate(&mut self, length: usize) { match self { $(Self::$variant(values) => values.truncate(length),)+ Self::Traced(values) => values.truncate(length) } }
 
-            pub(crate) fn reverse(&mut self) { match self { $(Self::$variant(values) => values.reverse(),)+ Self::Traced(values) => values.reverse() } }
 
-            pub(crate) fn swap(&mut self, left: usize, right: usize) -> NativeResult<()> {
-                if left >= self.len() || right >= self.len() { return Err(invalid_index()); }
-                match self { $(Self::$variant(values) => values.swap(left, right),)+ Self::Traced(values) => values.swap(left, right) }
-                Ok(())
-            }
+
+
+
+
+
+
+
         }
     };
 }

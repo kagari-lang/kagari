@@ -15,12 +15,12 @@ use kagari_runtime::{
     },
     value::{EnumTag, Value},
 };
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 pub(crate) type EnumRequest = (&'static str, &'static [&'static str]);
 pub(crate) const OPTION: EnumRequest = ("Option", &["Some", "None"]);
 pub(crate) const RESULT: EnumRequest = ("Result", &["Ok", "Err"]);
-pub(crate) const ORDERING: EnumRequest = ("Ordering", &["Less", "Equal", "Greater"]);
+
 pub(crate) const CONTROL_FLOW: EnumRequest = ("ControlFlow", &["Continue", "Break"]);
 pub(crate) const BOUND: EnumRequest = ("Bound", &["Included", "Excluded", "Unbounded"]);
 pub(crate) const PARSE_ERROR: EnumRequest = (
@@ -196,21 +196,6 @@ pub(crate) fn read_option(
             ("None", []) => Ok(None),
             ("Some", [value]) => Ok(Some(*value)),
             _ => Err(RuntimeError::module_validation("library Option member")),
-        }
-    })?
-}
-
-pub(crate) fn ordering(
-    symbols: &EnumSymbols,
-    cx: &CallContext<'_>,
-    value: &Value,
-) -> NativeResult<Ordering> {
-    read(symbols, cx, value, "Ordering", |member, fields| {
-        match (member, fields) {
-            ("Less", []) => Ok(Ordering::Less),
-            ("Equal", []) => Ok(Ordering::Equal),
-            ("Greater", []) => Ok(Ordering::Greater),
-            _ => Err(RuntimeError::module_validation("library Ordering member")),
         }
     })?
 }

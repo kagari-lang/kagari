@@ -30,57 +30,30 @@ impl Shape {
 }
 
 type Equality = SelectedMethod<(ScriptValue, ScriptValue), bool>;
-type Hash = SelectedMethod<(ScriptValue,), i64>;
-
-#[derive(Clone, Copy)]
-pub(crate) enum Operation {
-    InterfaceEqual,
-    Equal,
-    Hash,
-}
 
 pub(crate) fn binding(
     shape: Shape,
-    operation: Operation,
     declaration: &DefinitionMetadata<NativeDeclaration>,
 ) -> NativeResult<NativeBinding> {
-    let public = matches!(operation, Operation::InterfaceEqual);
-    let hash = matches!(operation, Operation::Hash);
     let calls = declaration
         .records()
         .callable_requirements
         .iter()
         .map(|required| SelectedCall::from_declaration(declaration, required))
         .collect::<NativeResult<Vec<_>>>()?;
-    if calls.len() != shape.components() + if public { 0 } else { 3 } {
+    if calls.len() != shape.components() {
         return Err(RuntimeError::metadata_conflict(
             "collection comparison requirements",
         ));
     }
-    Ok(if public {
-        NativeBinding::declared(
-            declaration,
-            move |cx, (left, right): (Interface, Interface)| {
-                let left = Reader::interface(cx, left)?;
-                let right = Reader::interface(cx, right)?;
-                equal(cx, shape, left, right, &calls)
-            },
-        )
-    } else if hash {
-        NativeBinding::declared(declaration, move |cx, (value,): (ScriptValue,)| {
-            let source = Reader::concrete(cx, value, &calls[shape.components()..])?;
-            content_hash(cx, shape, source, &calls[..shape.components()])
-        })
-    } else {
-        NativeBinding::declared(
-            declaration,
-            move |cx, (left, right): (ScriptValue, ScriptValue)| {
-                let left = Reader::concrete(cx, left, &calls[shape.components()..])?;
-                let right = Reader::concrete(cx, right, &calls[shape.components()..])?;
-                equal(cx, shape, left, right, &calls[..shape.components()])
-            },
-        )
-    })
+    Ok(NativeBinding::declared(
+        declaration,
+        move |cx, (left, right): (Interface, Interface)| {
+            let left = Reader::interface(cx, left)?;
+            let right = Reader::interface(cx, right)?;
+            equal(cx, shape, left, right, &calls)
+        },
+    ))
 }
 
 fn equal(
@@ -220,45 +193,4 @@ fn perfect_matching(cx: &NativeContext<'_>, candidates: &[Vec<usize>]) -> Native
         }
     }
     Ok(true)
-}
-
-const SEED: u64 = 14695981039346656037;
-const PRIME: u64 = 1099511628211;
-
-fn mix(hash: u64, value: u64) -> u64 {
-    (hash ^ value).wrapping_mul(PRIME)
-}
-
-fn content_hash(
-    cx: &mut NativeContext<'_>,
-    shape: Shape,
-    source: Reader,
-    calls: &[SelectedCall],
-) -> NativeResult<i64> {
-    let count = source.len(cx)?;
-    let hashes = calls
-        .iter()
-        .map(|call| cx.selected_method(call))
-        .collect::<NativeResult<Vec<Hash>>>()?;
-    let cursor = source.cursor(cx)?;
-    let mut result = if matches!(shape, Shape::List) {
-        SEED
-    } else {
-        0
-    };
-    for _ in 0..count {
-        let value = cursor.item(cx)?;
-        result = match shape {
-            Shape::List => mix(result, hashes[0].call(cx, (value,))? as u64),
-            Shape::Set => result.wrapping_add(mix(SEED, hashes[0].call(cx, (value,))? as u64)),
-            Shape::Map => {
-                let (key, value) = value.decode::<(ScriptValue, ScriptValue)>(cx)?;
-                let key = hashes[0].call(cx, (key,))? as u64;
-                let value = hashes[1].call(cx, (value,))? as u64;
-                result.wrapping_add(mix(mix(SEED, key), value))
-            }
-        };
-    }
-    cursor.finish(cx)?;
-    Ok(mix(result, count) as i64)
 }

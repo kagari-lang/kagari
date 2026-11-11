@@ -86,24 +86,16 @@ impl<'de> MapAccess<'de> for Fields<'_, '_> {
     }
 }
 
-enum SequenceTypes {
-    Repeated(TypeArgument, usize),
-    Fields(Vec<TypeArgument>),
-}
-
 pub(super) struct Sequence<'scope, 'runtime> {
     cx: &'scope mut ConversionContext<'runtime>,
     roots: RootSet,
-    fields: SequenceTypes,
+    fields: Vec<TypeArgument>,
     next: usize,
 }
 
 impl<'scope, 'runtime> Sequence<'scope, 'runtime> {
     fn count(&self) -> usize {
-        match &self.fields {
-            SequenceTypes::Repeated(_, count) => *count,
-            SequenceTypes::Fields(fields) => fields.len(),
-        }
+        self.fields.len()
     }
 
     fn run<'de, V: Visitor<'de>>(mut self, visitor: V) -> NativeResult<V::Value> {
@@ -123,23 +115,7 @@ impl<'scope, 'runtime> Sequence<'scope, 'runtime> {
         Self {
             cx,
             roots,
-            fields: SequenceTypes::Fields(fields),
-            next: 0,
-        }
-        .run(visitor)
-    }
-
-    pub(super) fn visit_repeated<'de, V: Visitor<'de>>(
-        cx: &'scope mut ConversionContext<'runtime>,
-        roots: RootSet,
-        count: usize,
-        field: TypeArgument,
-        visitor: V,
-    ) -> NativeResult<V::Value> {
-        Self {
-            cx,
-            roots,
-            fields: SequenceTypes::Repeated(field, count),
+            fields,
             next: 0,
         }
         .run(visitor)
@@ -156,10 +132,7 @@ impl<'de> SeqAccess<'de> for Sequence<'_, '_> {
         if self.next == self.count() {
             return Ok(None);
         }
-        let field = match &self.fields {
-            SequenceTypes::Repeated(field, _) => field,
-            SequenceTypes::Fields(fields) => &fields[self.next],
-        };
+        let field = &self.fields[self.next];
         let value = self
             .roots
             .get(self.cx.runtime().gc(), self.next)

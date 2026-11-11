@@ -30,26 +30,21 @@ fn fill(
     count: usize,
     callback: CallableHandle<'_>,
 ) -> NativeResult<Value> {
-    let value = cx.allocate_result()?;
-    let output = cx
-        .heap()
-        .root_value(value)
-        .ok_or_else(|| RuntimeError::module_validation("output root"))?;
-    let Value::GcHandle(array) = output.value(cx.heap()).unwrap() else {
-        return Err(RuntimeError::module_validation("Vec output"));
-    };
+    let mut roots = Vec::new();
     for index in 0..count {
         let value = callback.call_values(cx, &[Value::U64(index as u64)])?;
-        // Protect a heap result before any allocation or further script reentry.
-        let value = cx
-            .heap()
-            .root_value(value)
-            .ok_or_else(|| RuntimeError::module_validation("callback result root"))?;
+        roots.push(
+            cx.heap()
+                .root_value(value)
+                .ok_or_else(|| RuntimeError::module_validation("callback result root"))?,
+        );
         cx.collect_garbage()?;
-        cx.heap()
-            .sequence_push(array, value.value(cx.heap()).unwrap())?;
     }
-    Ok(output.value(cx.heap()).unwrap())
+    let values = roots
+        .iter()
+        .map(|root| root.value(cx.heap()).unwrap())
+        .collect();
+    cx.allocate_array(cx.result_type_parameter(0)?, values)
 }
 
 pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
@@ -67,7 +62,7 @@ pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
             let item = function.type_parameter("T")?;
             function.parameter("count", Type::u64())?;
             function.parameter("callback", Type::function([Type::u64()], item.ty())?)?;
-            function.returns(language.vec(item.ty())?)?;
+            function.returns(Type::array(item.ty())?)?;
             Ok(())
         })
         .unwrap();

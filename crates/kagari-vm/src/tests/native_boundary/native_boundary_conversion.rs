@@ -3,7 +3,6 @@ mod host_adapter;
 mod scoped_capabilities;
 mod scoped_pairs;
 mod scoped_struct;
-mod vector_edits;
 use crate::tests::native_boundary::{
     compile_program, publish_unused_version, support::round_trip_program,
 };
@@ -19,10 +18,9 @@ use kagari_runtime::{
     gc::{GcHeapConfig, roots::RootedValue},
     module::{InstalledProgram, entry::ProgramEntry},
     native::{
-        binding::NativeResult,
+        binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        collections::vector::ScriptVec,
         conversion::{
             FromKagari, IntoKagari, KagariType,
             context::{ConversionContext, ConversionLimits},
@@ -31,6 +29,7 @@ use kagari_runtime::{
         declarations::MethodDecl,
         module::NativeModule,
         objects::Object,
+        payload::Opaque,
         typed::NativeContext,
         types::Type,
     },
@@ -160,53 +159,6 @@ fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
 }
 
 #[test]
-fn ordinary_native_callbacks_mutate_retained_collections_through_typed_handles() {
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
-    {
-        let registered_function = module
-            .define_function(
-                FunctionDecl::new("append")
-                    .parameter(
-                        "values",
-                        <ScriptVec<i32>>::kagari_type(module.declarations()).unwrap(),
-                    )
-                    .returns(<ScriptVec<i32>>::kagari_type(module.declarations()).unwrap()),
-            )
-            .unwrap();
-        module
-            .bind(
-                registered_function.clone(),
-                |cx: &mut NativeContext<'_>,
-                 (values,): (ScriptVec<i32>,)|
-                 -> NativeResult<ScriptVec<i32>> {
-                    values.push(cx, 42)?;
-                    cx.collect_garbage()?;
-                    Ok(values)
-                },
-            )
-            .map(|()| registered_function)
-    }
-    .unwrap();
-    let (vm, loaded) = source_free_vm(
-        r#"
-        use example::typed::append;
-        pub fn main() -> Vec<i32> { val values = Vec::from([1, 2]); append(values); values }
-    "#,
-        &module.finish().unwrap(),
-    );
-    let _loaded_program = loaded;
-    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    let values: ScriptVec<i32> = vm.execute_typed(&loaded, ProgramEntry::Main, ()).unwrap();
-    vm.runtime().collect_garbage().unwrap();
-    let mut cx = NativeContext::new(vm.runtime(), &loaded).unwrap();
-    assert_eq!(values.len(&cx).unwrap(), 3);
-    assert_eq!(values.get(&mut cx, 2).unwrap(), Some(42));
-    drop(values);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-}
-
-#[test]
 fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments() {
     struct Label(String);
 
@@ -326,11 +278,13 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
                 FunctionDecl::new("wrap")
                     .parameter(
                         "input",
-                        <Vec<String>>::kagari_type(module.declarations()).unwrap(),
+                        <Option<(String, String)>>::kagari_type(module.declarations()).unwrap(),
                     )
                     .returns(
-                        <Result<Option<Vec<String>>, String>>::kagari_type(module.declarations())
-                            .unwrap(),
+                        <Result<Option<(String, String)>, String>>::kagari_type(
+                            module.declarations(),
+                        )
+                        .unwrap(),
                     ),
             )
             .unwrap();
@@ -338,13 +292,13 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
             .bind(
                 registered_function.clone(),
                 |cx: &mut NativeContext<'_>,
-                 (input,): (Vec<String>,)|
-                 -> NativeResult<Result<Option<Vec<String>>, String>> {
+                 (input,): (Option<(String, String)>,)|
+                 -> NativeResult<Result<Option<(String, String)>, String>> {
                     cx.collect_garbage()?;
-                    if input.is_empty() {
+                    if input.is_none() {
                         Ok(Err("empty input".into()))
                     } else {
-                        Ok(Ok(Some(cx.collect(input)?)))
+                        Ok(Ok(input))
                     }
                 },
             )
@@ -357,8 +311,10 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
                 FunctionDecl::new("inspect")
                     .parameter(
                         "input",
-                        <Result<Option<Vec<String>>, String>>::kagari_type(module.declarations())
-                            .unwrap(),
+                        <Result<Option<(String, String)>, String>>::kagari_type(
+                            module.declarations(),
+                        )
+                        .unwrap(),
                     )
                     .returns(Type::i32()),
             )
@@ -367,11 +323,11 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
             .bind(
                 registered_function.clone(),
                 |cx: &mut NativeContext<'_>,
-                 (input,): (Result<Option<Vec<String>>, String>,)|
+                 (input,): (Result<Option<(String, String)>, String>,)|
                  -> NativeResult<i32> {
                     cx.collect_garbage()?;
                     Ok(match input {
-                        Ok(Some(items)) if items == ["雪", "🌱"] => 40,
+                        Ok(Some(items)) if items == ("雪".to_owned(), "🌱".to_owned()) => 40,
                         Err(message) if message == "empty input" => 2,
                         _ => -100,
                     })
@@ -385,8 +341,8 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
         r#"
         use example::typed::{wrap, inspect};
         fn main() -> i32 {
-            val values = Vec::new(); values.push("雪"); values.push("🌱");
-            inspect(wrap(values)) + inspect(wrap(Vec::new()))
+            val values = Some(("雪", "🌱"));
+            inspect(wrap(values)) + inspect(wrap(None))
         }
     "#,
         &module,
@@ -407,65 +363,60 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
 
 #[test]
 fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
-    let standard = StandardDeclarations::default();
-    let catalog = standard.catalog().unwrap();
-    let list = standard
-        .list()
-        .apply([String::kagari_type(&catalog).unwrap()])
-        .unwrap()
-        .ty();
+    kagari_runtime::native_data! { struct FieldCount { len: u64 } }
+    let catalog = StandardDeclarations::default().catalog().unwrap();
     let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
-    {
-        let registered_function = module
-            .define_function(
-                FunctionDecl::new("split")
-                    .parameter(
-                        "text",
-                        <String>::kagari_type(module.declarations()).unwrap(),
-                    )
-                    .parameter(
-                        "separator",
-                        <String>::kagari_type(module.declarations()).unwrap(),
-                    )
-                    .returns(list),
-            )
-            .unwrap();
-        module
-            .function(&registered_function, |f| {
-                f.produces(<Vec<String>>::kagari_type(&catalog).unwrap())
+    let fields = module.register_type::<Opaque<FieldCount>>().unwrap();
+    let mut counted = module.define_trait("Counted").unwrap();
+    counted
+        .define_method(MethodDecl::instance("len").returns(Type::u64()))
+        .unwrap();
+    let counted = counted.finish().unwrap();
+    module
+        .implement(fields.clone(), |group| {
+            group.trait_impl(counted.apply([])?, |methods| {
+                methods.bind(
+                    "len",
+                    NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::u64()), |cx| {
+                        cx.with_payload::<FieldCount, _>(0, |fields| Ok(Value::U64(fields.len)))
+                    }),
+                )
             })
-            .unwrap();
-        module
-            .bind(
-                registered_function.clone(),
-                |cx: &mut NativeContext<'_>,
-                 (text, separator): (String, String)|
-                 -> NativeResult<Vec<String>> {
-                    cx.collect_garbage()?;
-                    cx.collect(text.split(&separator).map(str::to_owned))
-                },
-            )
-            .map(|()| registered_function)
-    }
-    .unwrap();
-    let module = module.finish().unwrap();
-    let (vm, loaded) = source_free_vm(
-        r#"
-        use example::typed::split;
-        fn main() -> u64 { val fields = split("a:雪:", ":"); fields.len() }
-    "#,
-        &module,
+        })
+        .unwrap();
+    let split = module
+        .define_function(
+            FunctionDecl::new("split")
+                .parameter("text", String::kagari_type(module.declarations()).unwrap())
+                .parameter(
+                    "separator",
+                    String::kagari_type(module.declarations()).unwrap(),
+                )
+                .returns(counted.apply([]).unwrap().ty()),
+        )
+        .unwrap();
+    module
+        .function(&split, |function| function.produces(fields))
+        .unwrap();
+    module
+        .bind(
+            split,
+            |cx: &mut NativeContext<'_>,
+             (text, separator): (String, String)|
+             -> NativeResult<Opaque<FieldCount>> {
+                cx.collect_garbage()?;
+                cx.create_opaque(FieldCount {
+                    len: text.split(&separator).count() as u64,
+                })
+            },
+        )
+        .unwrap();
+    let (vm, program) = source_free_vm(
+        include_str!("../../../tests/fixtures/native/typed_concrete_payload.kgr"),
+        &module.finish().unwrap(),
     );
-    let _loaded_program = loaded;
-    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    assert_eq!(
-        vm.execute(&loaded, ProgramEntry::Main)
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::U64(3)
-    );
+    let owner = vm.runtime().select_program(&program).unwrap();
+    assert_eq!(vm.execute_typed::<_, u64>(&owner, "main", ()).unwrap(), 3);
 }
 
 #[test]
@@ -549,15 +500,15 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
 
 #[test]
 fn typed_host_entries_convert_composites_and_retain_returned_handles() {
-    struct RetainedVec(RootedValue);
+    struct RetainedTuple(RootedValue);
 
-    impl KagariType for RetainedVec {
+    impl KagariType for RetainedTuple {
         fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-            Vec::<i32>::kagari_type(catalog)
+            <(i32, i32)>::kagari_type(catalog)
         }
     }
 
-    impl FromKagari for RetainedVec {
+    impl FromKagari for RetainedTuple {
         const PRESERVES_IDENTITY: bool = true;
         fn from_kagari(
             cx: &mut ConversionContext<'_>,
@@ -579,8 +530,8 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     .unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
-        pub fn echo(value: Result<Option<Vec<(String, i32)>>, String>) -> Result<Option<Vec<(String, i32)>>, String> { value }
-        pub fn retain(value: Vec<i32>) -> Vec<i32> { value }
+        pub fn echo(value: Result<Option<((String, i32),)>, String>) -> Result<Option<((String, i32),)>, String> { value }
+        pub fn retain(value: (i32, i32)) -> (i32, i32) { value }
         pub fn tuple(value: (i32, i32)) -> (i32, i32) { value }
         pub fn unit() {}
     "#,
@@ -588,9 +539,9 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     );
     let _loaded_program = loaded;
     let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
-    type Data = Result<Option<Vec<(String, i32)>>, String>;
+    type Data = Result<Option<((String, i32),)>, String>;
     for value in [
-        Ok(Some(vec![("雪".into(), 42)])),
+        Ok(Some((("雪".into(), 42),))),
         Ok(None),
         Err("business failure".into()),
     ] {
@@ -600,14 +551,15 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
     let tuple: (i32, i32) = vm.execute_typed(&loaded, "tuple", ((20, 22),)).unwrap();
     assert_eq!(tuple, (20, 22));
     vm.execute_typed::<_, ()>(&loaded, "unit", ()).unwrap();
-    let retained: RetainedVec = vm
-        .execute_typed(&loaded, "retain", (vec![20, 22],))
-        .unwrap();
+    let retained: RetainedTuple = vm.execute_typed(&loaded, "retain", ((20, 22),)).unwrap();
     vm.runtime().collect_garbage().unwrap();
-    let Value::GcHandle(id) = retained.0.value(vm.runtime().gc()).unwrap() else {
+    let Value::Tuple(id) = retained.0.value(vm.runtime().gc()).unwrap() else {
         panic!("array")
     };
-    assert_eq!(vm.runtime().gc().sequence_get(id, 1), Some(Value::I32(22)));
+    assert_eq!(
+        vm.runtime().gc().tuple(id).unwrap().get(1).copied(),
+        Some(Value::I32(22))
+    );
     drop(retained);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
@@ -695,7 +647,7 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     .unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
-        pub fn make() -> Vec<i32> { val values = Vec::new(); values.push(42); values }
+        pub fn make() -> [i32] { [42] }
         pub fn idle() {}
     "#,
         &module,
@@ -707,10 +659,10 @@ fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration
     drop(result);
     vm.execute(&loaded, "idle").unwrap();
     vm.runtime().collect_garbage().unwrap();
-    let Value::GcHandle(id) = clone.value(vm.runtime().gc()).unwrap() else {
+    let Value::Array(id) = clone.value(vm.runtime().gc()).unwrap() else {
         panic!("array result")
     };
-    assert_eq!(vm.runtime().gc().sequence_get(id, 0), Some(Value::I32(42)));
+    assert_eq!(vm.runtime().gc().array_get(id, 0), Some(Value::I32(42)));
     let other = Runtime::default();
     assert!(clone.value(other.gc()).is_none());
     drop(clone);
@@ -730,20 +682,18 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
     .unwrap();
     {
         let registered_function = module
-            .define_function(
-                FunctionDecl::new("gather")
-                    .returns(<Vec<i32>>::kagari_type(module.declarations()).unwrap()),
-            )
+            .define_function(FunctionDecl::new("gather").returns(Type::i32()))
             .unwrap();
         module
             .bind(
                 registered_function.clone(),
-                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Vec<i32>> {
-                    cx.collect((0..100).inspect(|_| {
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<i32> {
+                    let values = cx.collect((0..100).inspect(|_| {
                         if observed.fetch_add(1, Ordering::SeqCst) == 2 {
                             cancel.cancel();
                         }
-                    }))
+                    }))?;
+                    Ok(values.into_iter().sum())
                 },
             )
             .map(|()| registered_function)
@@ -751,7 +701,7 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
     .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = source_free_vm(
-        "use example::typed::gather; fn main() -> Vec<i32> { gather() } pub fn healthy() -> i32 { 42 }",
+        "use example::typed::gather; fn main() -> i32 { gather() } pub fn healthy() -> i32 { 42 }",
         &module,
     );
     let _loaded_program = loaded;

@@ -45,23 +45,6 @@ impl ExecutionCursor<'_> {
                     )
                 })
             }
-            LinkedNativeBody::Vector(vector) => {
-                let owner = self.loaded;
-                execute_primitive(runtime, &mut self.values, operation.destination, |values| {
-                    vector.operation.execute(
-                        runtime,
-                        owner,
-                        vector.function.type_signature()?,
-                        |index| {
-                            vector
-                                .arguments
-                                .get(index)
-                                .and_then(|location| values.read_location(*location))
-                                .ok_or_else(|| invalid_operand(runtime))
-                        },
-                    )
-                })
-            }
         }?;
         Ok(NativeContinuation::Complete)
     }

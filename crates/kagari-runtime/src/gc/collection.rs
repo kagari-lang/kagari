@@ -299,7 +299,6 @@ impl GcHeap {
         self.interfaces.borrow_mut().prune_descriptions();
         self.struct_layouts.borrow_mut().prune();
         self.mutations.prune();
-        self.key_lookups.prune();
         self.native_operations.prune();
         let pause = started.elapsed();
         let mut stats = self.stats.borrow_mut();

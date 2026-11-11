@@ -1,4 +1,4 @@
-//! Preserve concrete host access descriptors after validating their source view.
+//! Validate registered source type occurrences against checked declaration shapes.
 use crate::{
     hir::{
         ids::TypeRefId,
@@ -12,12 +12,11 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
-    collection::CollectionAccess,
     declaration::module::{DeclarationError, ModuleDecl},
     ty::{GenericBound, NominalTy, Ty},
 };
 
-pub(super) fn attach(
+pub(super) fn validate(
     definition: &ModuleDecl,
     definitions: &DefinitionTable,
     lowered: &mut LoweredModule,
@@ -153,35 +152,20 @@ pub(super) fn attach(
             pending.push((result, declaration.return_type.clone()));
         }
     }
-    attach_occurrences(definitions, lowered, pending)
+    validate_occurrences(definitions, lowered, pending)
 }
 
-fn attach_occurrences(
+fn validate_occurrences(
     definitions: &DefinitionTable,
     lowered: &mut LoweredModule,
     mut pending: Vec<(TypeRefId, Ty)>,
 ) -> Result<(), DeclarationError> {
     let invalid = || DeclarationError("registered concrete access correspondence".into());
     while let Some((id, ty)) = pending.pop() {
-        if matches!(
-            ty,
-            Ty::Map {
-                access: CollectionAccess::ReadOnly,
-                ..
-            } | Ty::Set(_, CollectionAccess::ReadOnly)
-        ) {
-            lowered.native_readonly_types.insert(id);
-        }
         let syntax = &lowered.module.type_ref(id).kind;
         let mut children: Vec<(TypeRefId, Ty)> = Vec::new();
         match (syntax, ty) {
-            (TypeKind::Generic { args, .. }, Ty::Map { key, value, .. }) => {
-                children.extend(args.iter().copied().zip([*key, *value]));
-            }
-            (
-                TypeKind::Generic { args, .. },
-                Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _),
-            ) => {
+            (TypeKind::Generic { args, .. }, Ty::Range(item, _)) => {
                 children.extend(args.iter().copied().zip([*item]));
             }
             (

@@ -98,8 +98,6 @@ pub enum Conversion {
         interface: NominalType,
     },
     Interface(ResolvedInterfaceCoercion),
-    /// Records a readonly capability on the result without changing aliases.
-    ReadOnly,
 }
 
 /// A runtime value location, with imported statics reduced to their canonical identity.

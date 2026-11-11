@@ -31,13 +31,14 @@ impl Hash for Key {fn hash(self)->i64 {
  if self.state.mode==4 {val zero = 0; 1 / zero;}
  0.hash()
 }}
-trait Test {fn mode(self,value:i32);fn attempt(self);fn calls(self)->i32;fn clear(self);}
+trait Test {fn mode(self,value:i32);fn attempt(self);fn calls(self)->i32;fn clear(self);fn len(self)->u64;}
 struct Tester {val set:HashSet<Key>,val key:Key,val state:State}
 impl Test for Tester {
  fn mode(self,value:i32){self.state.mode=value;}
  fn attempt(self){self.set.insert(self.key);}
  fn calls(self)->i32 {self.state.calls}
  fn clear(self){self.set.clear();}
+ fn len(self)->u64{self.set.len()}
 }
 pub fn make()->(Test,HashSet<Key>) {
  val set:HashSet<Key> = HashSet::new();val state=State{mode:0,calls:0};
@@ -118,10 +119,11 @@ pub fn make()->(Test,HashSet<Key>) {
             }),
             "{message}"
         );
-        let Value::Set(id) = values[1] else {
-            panic!("set")
-        };
-        assert_eq!(vm.runtime().gc().set_len(id), Some(1));
+        assert_eq!(
+            vm.invoke_interface_method(&values[0], &method("len"), &[])
+                .unwrap(),
+            Value::U64(1)
+        );
         assert_eq!(vm.runtime().gc().active_roots(), 1);
         if mode <= 2 {
             assert_eq!(
@@ -132,7 +134,11 @@ pub fn make()->(Test,HashSet<Key>) {
         }
         vm.invoke_interface_method(&values[0], &method("clear"), &[])
             .unwrap();
-        assert_eq!(vm.runtime().gc().set_len(id), Some(0));
+        assert_eq!(
+            vm.invoke_interface_method(&values[0], &method("len"), &[])
+                .unwrap(),
+            Value::U64(0)
+        );
         assert!(!vm.runtime().is_quarantined());
         drop(root);
     }
@@ -153,10 +159,11 @@ pub fn make()->(Test,HashSet<Key>) {
         .unwrap();
     vm.invoke_interface_method(&values[0], &method("attempt"), &[])
         .unwrap();
-    let Value::Set(id) = values[1] else {
-        panic!("set")
-    };
-    assert_eq!(vm.runtime().gc().set_len(id), Some(2));
+    assert_eq!(
+        vm.invoke_interface_method(&values[0], &method("len"), &[])
+            .unwrap(),
+        Value::U64(2)
+    );
     assert_eq!(vm.runtime().gc().active_roots(), 1);
     drop(root);
 
@@ -172,21 +179,26 @@ pub fn make()->(Test,HashSet<Key>) {
             panic!("tuple")
         };
         let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-        let Value::Set(id) = values[1] else {
-            panic!("set")
-        };
         let _options = vm.runtime().execution_options();
 
         let session = support::cancel_after(vm.runtime(), &loaded, limit);
         let result = vm.invoke_interface_method(&values[0], &method("attempt"), &[]);
         drop(session);
         if result.is_err() {
-            assert_eq!(vm.runtime().gc().set_len(id), Some(1));
+            assert_eq!(
+                vm.invoke_interface_method(&values[0], &method("len"), &[])
+                    .unwrap(),
+                Value::U64(1)
+            );
         }
         assert_eq!(vm.runtime().gc().active_roots(), 1);
         vm.invoke_interface_method(&values[0], &method("clear"), &[])
             .unwrap();
-        assert_eq!(vm.runtime().gc().set_len(id), Some(0));
+        assert_eq!(
+            vm.invoke_interface_method(&values[0], &method("len"), &[])
+                .unwrap(),
+            Value::U64(0)
+        );
         drop(root);
     }
     assert_eq!(vm.runtime().gc().active_roots(), 0);

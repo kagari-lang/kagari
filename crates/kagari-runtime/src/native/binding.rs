@@ -8,7 +8,6 @@ use crate::{
     },
     module::ExecutableModule,
     native::{
-        catalog::DeclarationCatalog,
         context::{CallContext, LinkedCallable, LinkedOperation},
         declarations::SelectedCall,
         primitive::NativePrimitive,
@@ -23,7 +22,7 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     callable::Signature,
-    declaration::{FnDecl, TypeDefKind, host::HostCallPolicy, native::NativeStorageLayout},
+    declaration::{FnDecl, host::HostCallPolicy},
     reference::ReferenceAccess,
     ty::Ty,
 };
@@ -46,17 +45,12 @@ pub enum Codec {
         declaration: DefinitionId,
         definitions: DefinitionTable,
     },
-    Sequence,
-    MutableSequence,
-    Map,
-    Set,
-    Iterator,
+
     Callable,
 }
 
 impl Codec {
-    /// Both sequence codecs require a nominal storage declaration. Interface
-    /// values and builtin arrays cannot acquire a concrete sequence converter.
+    /// Receiver overrides must retain exact type/identity or the same generic view codec.
     pub(crate) fn receiver_shape_matches(&self, method: &Self) -> bool {
         match (self, method) {
             (Self::Exact(left), Self::Exact(right)) => left.same_type(right),
@@ -70,34 +64,12 @@ impl Codec {
                     definitions: right_scope,
                 },
             ) => same_definition(*left, left_scope, *right, right_scope),
-            (Self::Sequence | Self::MutableSequence, Self::Sequence | Self::MutableSequence)
-            | (Self::Value, Self::Value)
-            | (Self::Map, Self::Map)
-            | (Self::Set, Self::Set)
-            | (Self::Iterator, Self::Iterator)
-            | (Self::Callable, Self::Callable) => true,
+            (Self::Value, Self::Value) | (Self::Callable, Self::Callable) => true,
             _ => false,
         }
     }
 
-    pub(crate) fn accepts(
-        &self,
-        ty: &Ty,
-        definitions: &DefinitionTable,
-        catalog: &DeclarationCatalog,
-    ) -> bool {
-        let layout = match ty {
-            Ty::NativeObject(nominal) => {
-                catalog
-                    .types
-                    .get_id(nominal.declaration)
-                    .and_then(|ty| match ty.kind {
-                        TypeDefKind::NativeStorage(layout) => Some(layout),
-                        _ => None,
-                    })
-            }
-            _ => None,
-        };
+    pub(crate) fn accepts(&self, ty: &Ty, definitions: &DefinitionTable) -> bool {
         match self {
             Self::Exact(expected) => Type::from_semantic(ty.clone(), definitions)
                 .is_ok_and(|actual| expected.same_type(&actual)),
@@ -108,23 +80,8 @@ impl Codec {
             } => {
                 matches!(ty, Ty::NativeObject(nominal) if same_definition(*declaration, source, nominal.declaration, definitions))
             }
-            Self::Sequence | Self::MutableSequence => {
-                matches!(ty, Ty::NativeObject(_))
-                    && matches!(layout, Some(NativeStorageLayout::Sequence { .. }))
-            }
-            Self::Map => {
-                matches!(ty, Ty::Map { .. })
-                    || matches!(layout, Some(NativeStorageLayout::Map { .. }))
-            }
-            Self::Set => {
-                matches!(ty, Ty::Set(_, _))
-                    || matches!(layout, Some(NativeStorageLayout::Set { .. }))
-            }
+
             Self::Callable => matches!(ty, Ty::Function { .. }),
-            Self::Iterator => {
-                matches!(ty, Ty::Iter(_))
-                    || matches!(layout, Some(NativeStorageLayout::Iterator { .. }))
-            }
         }
     }
 }
@@ -204,7 +161,6 @@ impl NativeBinding {
         &self,
         signature: &Signature,
         definitions: &DefinitionTable,
-        catalog: &DeclarationCatalog,
     ) -> NativeResult<()> {
         signature
             .visit_definition_ids(
@@ -217,8 +173,8 @@ impl NativeBinding {
                 .arguments
                 .iter()
                 .zip(&signature.params)
-                .any(|(codec, ty)| !codec.accepts(ty, definitions, catalog))
-            || !self.result.accepts(&signature.result, definitions, catalog)
+                .any(|(codec, ty)| !codec.accepts(ty, definitions))
+            || !self.result.accepts(&signature.result, definitions)
         {
             return Err(RuntimeError::metadata_conflict(
                 "native codec does not match the Kagari declaration",

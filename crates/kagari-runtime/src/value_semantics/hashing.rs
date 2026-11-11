@@ -13,13 +13,12 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct StructuralKey {
+struct StructuralKey {
     parts: KeyParts,
 }
 
 #[derive(Debug, Clone)]
 enum KeyParts {
-    Empty,
     Single(KeyPart),
     Aggregate(Box<[KeyPart]>),
 }
@@ -27,7 +26,6 @@ enum KeyParts {
 impl KeyParts {
     fn as_slice(&self) -> &[KeyPart] {
         match self {
-            Self::Empty => &[],
             Self::Single(part) => slice::from_ref(part),
             Self::Aggregate(parts) => parts,
         }
@@ -47,14 +45,6 @@ enum KeyPart {
     DeclaredEnum(HostRegistryId, DefinitionId, Vec<Ty>, DefinitionId),
 }
 
-impl PartialEq for StructuralKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.parts.as_slice() == other.parts.as_slice()
-    }
-}
-
-impl Eq for StructuralKey {}
-
 impl Hash for StructuralKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.parts.as_slice().hash(state);
@@ -62,13 +52,7 @@ impl Hash for StructuralKey {
 }
 
 impl StructuralKey {
-    pub(crate) fn empty() -> Self {
-        Self {
-            parts: KeyParts::Empty,
-        }
-    }
-
-    pub(crate) fn from_value(gc: &GcHeap, value: &Value) -> Option<Self> {
+    fn from_value(gc: &GcHeap, value: &Value) -> Option<Self> {
         if !gc.validate_value(value) {
             return None;
         }
@@ -137,4 +121,26 @@ pub(crate) fn builtin_hash(gc: &GcHeap, value: &Value) -> Option<i64> {
     let mut hasher = DefaultHasher::new();
     key.hash(&mut hasher);
     Some(hasher.finish() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::builtin_hash;
+    use crate::{gc::GcHeap, value::Value};
+
+    #[test]
+    fn builtin_hash_uses_value_content_and_rejects_unsupported_domains() {
+        let gc = GcHeap::new(Default::default(), Default::default());
+        let first = gc.alloc_string("é🙂".into()).unwrap();
+        let second = gc.alloc_string("é🙂".into()).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(builtin_hash(&gc, &first), builtin_hash(&gc, &second));
+        assert!(builtin_hash(&gc, &first).is_some());
+        let left = gc.alloc_tuple(vec![first, Value::I32(7)]).unwrap();
+        let right = gc.alloc_tuple(vec![second, Value::I32(7)]).unwrap();
+        assert_eq!(builtin_hash(&gc, &left), builtin_hash(&gc, &right));
+        assert!(builtin_hash(&gc, &left).is_some());
+        assert!(builtin_hash(&gc, &Value::F64(1.0)).is_none());
+        assert!(builtin_hash(&gc, &Value::Unit).is_some());
+    }
 }

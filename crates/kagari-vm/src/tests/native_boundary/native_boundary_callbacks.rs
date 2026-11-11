@@ -14,7 +14,7 @@ use kagari_runtime::{
         storage::NativeStorage,
         typed::NativeContext,
         types::Type,
-        views::{SequenceHandle, ValueHandle},
+        views::ValueHandle,
     },
     value::Value,
 };
@@ -446,7 +446,7 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
 }
 
 #[test]
-fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
+fn array_and_callable_arguments_share_an_ordinary_rust_binding() {
     let language = StandardDeclarations::default();
     let mut builder = ModuleBuilder::new(
         "example::fold",
@@ -456,7 +456,7 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
     let fold = builder
         .define_function(
             FunctionDecl::new("fold")
-                .parameter("values", language.vec(Type::i32()).unwrap())
+                .parameter("values", Type::array(Type::i32()).unwrap())
                 .parameter("map", Type::function([Type::i32()], Type::i32()).unwrap())
                 .returns(Type::i32()),
         )
@@ -465,13 +465,18 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
         .bind(
             fold,
             |cx: &mut CallContext<'_>,
-             values: SequenceHandle<'_>,
+             values: ValueHandle<'_>,
              map: CallableHandle<'_>|
              -> NativeResult<i32> {
-                let length = values.len()?;
+                let Value::Array(values) = values.value() else {
+                    panic!("checked array")
+                };
+                let length = cx.heap().array_len(values).unwrap();
                 let mut sum = 0;
                 for index in 0..length {
-                    let value = values.with_slice::<i32, _>(|values| Ok(values[index]))?;
+                    let Value::I32(value) = cx.heap().array_get(values, index).unwrap() else {
+                        panic!("checked element")
+                    };
                     sum += map.call::<i32, _>(cx, (value,))?;
                 }
                 Ok(sum)
@@ -480,7 +485,7 @@ fn sequence_and_callable_arguments_share_an_ordinary_rust_binding() {
         .unwrap();
     let module = builder.finish().unwrap();
     let (vm, loaded) = compile(
-        "use example::fold::fold; fn main() -> i32 { fold(Vec::from([9, 10]), |value| (value + 1) * 2) }",
+        "use example::fold::fold; fn main() -> i32 { fold([9, 10], |value| (value + 1) * 2) }",
         Some(&module),
     );
     let _loaded_program = loaded;

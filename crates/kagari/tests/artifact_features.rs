@@ -311,9 +311,9 @@ fn source_free_native_imports_reject_forged_signatures() {
                     .resolve(import.binding)
                     .unwrap()
                     .last()
-                    .is_some_and(|part| part.name == "push"),
+                    .is_some_and(|part| part.name == "apply"),
                 _ => {
-                    matches!(import.signature.params.as_slice(), [Ty::Array(_)])
+                    matches!(import.signature.params.first(), Some(Ty::Array(_)))
                         && matches!(import.signature.result, Ty::NativeObject(_))
                 }
             })
@@ -322,7 +322,7 @@ fn source_free_native_imports_reject_forged_signatures() {
             0 => import.signature.params.clear(),
             1 => {
                 let Ty::NativeObject(nominal) = &import.signature.params[0] else {
-                    panic!("Vec receiver")
+                    panic!("application payload receiver")
                 };
                 import.signature.params[0] = Ty::Array(Box::new(nominal.arguments[0].clone()));
             }
@@ -585,7 +585,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
 }
 
 #[test]
-fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
+fn source_free_application_payload_traces_closures_and_arrays() {
     let program =
         Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let drops = Arc::new(AtomicUsize::new(0));
@@ -596,7 +596,7 @@ fn source_free_algorithms_and_application_payload_share_the_native_boundary() {
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     for expected in 1..=3 {
         let result = runtime
-            .execute(&loaded, "library_and_object", &[], &context)
+            .execute(&loaded, "application_payload", &[], &context)
             .unwrap();
         assert_eq!(
             result
@@ -619,13 +619,13 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
     let mut changed = false;
     contracts::alter_bindings(&mut artifact, &context, |id| {
         let view = definitions.resolve(*id).unwrap();
-        if view.last().is_some_and(|part| part.name == "sort") {
+        if view.last().is_some_and(|part| part.name == "trim") {
             let segment = view.last().unwrap();
             *id = context
                 .intern_child(
                     definitions.parent(*id).unwrap().unwrap(),
                     segment.kind,
-                    "sort_by",
+                    "replace",
                     segment.occurrence,
                 )
                 .unwrap();
@@ -638,7 +638,7 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
                 .resolve(import.binding)
                 .unwrap()
                 .last()
-                .is_some_and(|part| part.name == "sort_by")
+                .is_some_and(|part| part.name == "replace")
                 && import.signature.params.len() == 1
         });
     }

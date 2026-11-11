@@ -218,7 +218,7 @@ fn portable_collection_view_preserves_concrete_iterator_proofs() {
     let mut actual = original.clone();
     actual
         .associated_types
-        .insert(iter, Ty::Iter(Box::new(Ty::Builtin(BuiltinType::I32))));
+        .insert(iter, Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))));
     let receiver = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
     assert_eq!(
         inheritance::interface_views(&actual, &receiver, &cancel, definitions, &lookup).unwrap()[0],

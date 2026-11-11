@@ -13,7 +13,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::identity as library;
-use kagari_types::{collection::CollectionAccess, language::Protocol, scalar::BuiltinType};
+use kagari_types::{language::Protocol, scalar::BuiltinType};
 
 fn foundation_interface(definitions: &DefinitionTable, name: &str) -> NominalType {
     NominalType {
@@ -100,18 +100,29 @@ fn native_receivers_require_installed_impls_and_exact_host_access() {
         traits::iteration_outputs(
             definitions,
             Protocol::Iterator,
-            &TypeId::Iter(Box::new(item)),
+            &TypeId::NativeObject(NominalType {
+                declaration: definitions
+                    .lookup(&library::type_id(
+                        "CollectionCursor",
+                        DefinitionKind::AssociatedType
+                    ))
+                    .unwrap(),
+                arguments: vec![item],
+                associated_types: Default::default()
+            }),
             None,
             &Default::default()
         )
         .is_none()
     );
     let key = TypeId::Builtin(BuiltinType::F64);
-    let target = TypeId::Map {
-        key: Box::new(key.clone()),
-        value: Box::new(TypeId::Builtin(BuiltinType::I32)),
-        access: CollectionAccess::Mutable,
-    };
+    let target = TypeId::NativeObject(NominalType {
+        declaration: definitions
+            .lookup(&library::type_id("HashMap", DefinitionKind::AssociatedType))
+            .unwrap(),
+        arguments: vec![key.clone(), TypeId::Builtin(BuiltinType::I32)],
+        associated_types: Default::default(),
+    });
     let mut interface = foundation_interface(definitions, "Map");
     interface.arguments = vec![key, TypeId::Builtin(BuiltinType::I32)];
     assert!(

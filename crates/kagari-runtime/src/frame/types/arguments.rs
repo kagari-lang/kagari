@@ -263,20 +263,10 @@ pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
         | Ty::NativeObject(nominal)
         | Ty::Trait(nominal) => nominal.arguments.get(index),
         Ty::Tuple(items) => items.get(index),
-        Ty::Array(item)
-        | Ty::Set(item, _)
-        | Ty::Iter(item)
-        | Ty::Range(item, _)
-        | Ty::Reference { target: item, .. }
-            if index == 0 =>
-        {
+        Ty::Array(item) | Ty::Range(item, _) | Ty::Reference { target: item, .. } if index == 0 => {
             Some(item)
         }
-        Ty::Map { key, value, .. } => match index {
-            0 => Some(key),
-            1 => Some(value),
-            _ => None,
-        },
+
         _ => None,
     }
 }
@@ -298,9 +288,9 @@ fn contains_scoped_nominal(ty: &Ty) -> bool {
                 pending.extend(&ty.arguments);
                 pending.extend(ty.associated_types.values());
             }
-            Ty::Array(ty) | Ty::Iter(ty) | Ty::Range(ty, _) | Ty::Set(ty, _) => pending.push(ty),
+            Ty::Array(ty) | Ty::Range(ty, _) => pending.push(ty),
             Ty::Reference { target, .. } => pending.push(target),
-            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+
             _ => {}
         }
     }

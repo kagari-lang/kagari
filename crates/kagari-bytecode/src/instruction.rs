@@ -9,7 +9,6 @@ use kagari_contract::{
     },
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
-    operations::IterOp,
     standard::RuntimePrimitive,
 };
 use kagari_types::{
@@ -341,12 +340,7 @@ pub enum BytecodeInstruction {
         lhs: Slot,
         rhs: Option<Slot>,
     },
-    Iter {
-        dst: Slot,
-        value: Option<Slot>,
-        ty: Ty,
-        op: IterOp,
-    },
+
     LoadConst {
         dst: Slot,
         constant: ConstantId,

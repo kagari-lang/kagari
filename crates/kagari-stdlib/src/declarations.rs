@@ -1,14 +1,12 @@
 //! Immutable language contracts are available independently of optional modules.
 use crate::{assembly, catalog::semantic::Semantic, identity};
-use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::native::{
     binding::NativeResult,
     catalog::DeclarationCatalog,
     types::{TraitRef, Type, TypeRef},
 };
-use kagari_types::{
-    collection::CollectionAccess, declaration::module::ModuleDecl, language, language::Protocol,
-};
+use kagari_types::{declaration::module::ModuleDecl, language, language::Protocol};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -100,24 +98,6 @@ impl StandardDeclarations {
 
     pub fn iterable(&self) -> TraitRef {
         self.protocol(Protocol::Iterable)
-    }
-
-    pub fn vec(&self, item: Type) -> NativeResult<Type> {
-        self.catalog()?
-            .type_reference(&identity::type_id("Vec", DefinitionKind::AssociatedType))?
-            .apply([item])
-    }
-
-    pub fn collection_cursor(&self, item: Type) -> NativeResult<Type> {
-        Type::iterator(item)
-    }
-
-    pub fn hash_map(&self, key: Type, value: Type) -> NativeResult<Type> {
-        Type::map(key, value, CollectionAccess::Mutable)
-    }
-
-    pub fn hash_set(&self, item: Type) -> NativeResult<Type> {
-        Type::set(item, CollectionAccess::Mutable)
     }
 
     /// Retrieve a library enum's ordinary authoring handle.

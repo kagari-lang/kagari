@@ -152,11 +152,7 @@ impl<'module> ImplementationBuilder<'module> {
 
     pub fn receiver_codec(&mut self, codec: Codec) -> NativeResult<()> {
         let receiver = self.receiver.abi();
-        if !codec.accepts(
-            receiver,
-            &self.module.providers.definitions(),
-            &self.module.providers,
-        ) {
+        if !codec.accepts(receiver, &self.module.providers.definitions()) {
             return Err(RuntimeError::metadata_conflict(
                 "receiver codec differs from the Kagari type",
             ));

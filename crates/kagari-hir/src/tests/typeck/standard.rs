@@ -24,7 +24,6 @@ use kagari_source::{
 use kagari_stdlib::{catalog as foundation_catalog, catalog, identity as library};
 use kagari_types::{
     callable::CallableImplementation,
-    collection::CollectionAccess,
     declaration::{
         module::ModuleDecl,
         names::{ExportName, NameNamespace},
@@ -333,18 +332,30 @@ fn constructed() -> Pick<i32> { Pick(7) }
     );
     assert_eq!(
         typed.signatures.functions()[2].return_type,
-        TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::String)),
-            value: Box::new(TypeId::Builtin(BuiltinType::I32)),
-            access: CollectionAccess::Mutable
-        }
+        TypeId::NativeObject(NominalType {
+            declaration: analyzed
+                .declarations
+                .definitions()
+                .lookup(&library::type_id("HashMap", DefinitionKind::AssociatedType))
+                .unwrap(),
+            arguments: vec![
+                TypeId::Builtin(BuiltinType::String),
+                TypeId::Builtin(BuiltinType::I32)
+            ],
+            associated_types: Default::default()
+        })
     );
     assert_eq!(
         typed.signatures.functions()[3].return_type,
-        TypeId::Set(
-            Box::new(TypeId::Builtin(BuiltinType::String)),
-            CollectionAccess::Mutable
-        )
+        TypeId::NativeObject(NominalType {
+            declaration: analyzed
+                .declarations
+                .definitions()
+                .lookup(&library::type_id("HashSet", DefinitionKind::AssociatedType))
+                .unwrap(),
+            arguments: vec![TypeId::Builtin(BuiltinType::String)],
+            associated_types: Default::default()
+        })
     );
     assert_eq!(
         typed.signatures.functions()[4].return_type,

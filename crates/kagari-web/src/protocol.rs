@@ -119,8 +119,7 @@ impl OwnedResult {
                     Value::Tuple(_) => "tuple",
                     Value::Range(_) => "range",
                     Value::Array(_) => "array",
-                    Value::Map(_) => "map",
-                    Value::Set(_) => "set",
+
                     Value::Enum(_) => "enum",
                     Value::Struct(_) => "struct",
                     Value::GcHandle(_) => "gc_handle",

@@ -100,7 +100,6 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
         ("String", DefinitionKind::AssociatedType),
         ("Ref", DefinitionKind::AssociatedType),
         ("RefMut", DefinitionKind::AssociatedType),
-        ("Vec", DefinitionKind::AssociatedType),
         ("Option", DefinitionKind::Enum),
         ("Result", DefinitionKind::Enum),
         ("Future", DefinitionKind::AssociatedType),

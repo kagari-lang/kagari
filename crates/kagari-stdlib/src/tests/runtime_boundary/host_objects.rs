@@ -11,7 +11,6 @@ use kagari_runtime::{
     native::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
-        collections::vector::ScriptVec,
         conversion::{IntoKagari, KagariType, context::ConversionContext},
         module::NativeModule,
         objects::{Object, ObjectType},
@@ -29,26 +28,7 @@ use std::{
     thread,
 };
 
-const SOURCE: &str = r#"
-pub struct Player { pub var hp: i32, pub val name: String }
-pub struct Other { pub var hp: i32, pub val name: String }
-pub struct Pair { pub var first: Player, pub var second: Player }
-pub struct Hidden { val secret: i32, pub(super) var internal: i32, pub var visible: i32 }
-struct Private { pub var hp: i32 }
-pub struct Cell<T> { pub var value: T }
-pub struct Node { pub var next: Option<Node> }
-pub struct Bag { pub var items: Vec<Option<Node>>, pub var pair: (Node, i32) }
-fn layouts() {
-    val p = Player { hp: 100, name: "Ada" };
-    val o = Other { hp: 100, name: "Ada" };
-    val pair = Pair { first: p, second: p };
-    val hidden = Hidden { secret: 1, internal: 2, visible: 3 };
-    val private = Private { hp: 100 };
-    val c = Cell { value: p };
-    val n = Node { next: None };
-    val bag = Bag { items: Vec::from([Some(n)]), pair: (n, 1) };
-}
-"#;
+const SOURCE: &str = include_str!("../../../tests/fixtures/runtime_boundary/host_objects.kgr");
 
 fn program(source: &str) -> DefinitionMetadata<BytecodeProgram> {
     let context = DefinitionContext::new().unwrap();
@@ -356,7 +336,7 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
         .bind_type(&_owner_program.root(), "Bag", &[])
         .unwrap();
     let items = runtime
-        .bind_field::<Vec<Option<Object>>>(&bag_type, "items")
+        .bind_field::<(Option<Object>, Option<Object>)>(&bag_type, "items")
         .unwrap();
     let pair = runtime
         .bind_field::<(Object, i32)>(&bag_type, "pair")
@@ -378,20 +358,20 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
     node.set(&mut cx, &next, Some(node.clone())).unwrap();
     let mut builder = bag_type.builder().unwrap();
     builder
-        .set(&mut cx, &items, vec![Some(node.clone()), None])
+        .set(&mut cx, &items, (Some(node.clone()), None))
         .unwrap();
     builder.set(&mut cx, &pair, (node.clone(), 42)).unwrap();
     let bag = builder.build(&mut cx).unwrap();
     let read = bag.get(&mut cx, &items).unwrap();
     let (pair_read, number) = bag.get(&mut cx, &pair).unwrap();
     assert_eq!(number, 42);
-    assert!(read[1].is_none());
+    assert!(read.1.is_none());
     drop(node);
     drop(bag);
     runtime.collect_garbage().unwrap();
     assert!(pair_read.get(&mut cx, &next).unwrap().is_some());
     assert!(
-        read[0]
+        read.0
             .as_ref()
             .unwrap()
             .get(&mut cx, &next)
@@ -399,121 +379,6 @@ fn nested_dynamic_handles_store_heap_edges_and_cycles_are_collectible() {
             .is_some()
     );
     drop(pair_read);
-    drop(read);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-}
-
-#[test]
-fn collection_handles_preserve_identity_access_and_traversal_invalidation() {
-    let (runtime, owner) = fixture();
-    let _owner_program = owner;
-    let owner = runtime.select_program(&_owner_program).unwrap();
-    let mut cx = NativeContext::new(&runtime, &owner).unwrap();
-    let values = cx.create_vec(vec![1i32, 2, 3]).unwrap();
-    let alias = values.clone();
-    let readonly = values.read_only();
-    values.set(&mut cx, 0, 10).unwrap();
-    values.push(&mut cx, 4).unwrap();
-    values.insert(&mut cx, 1, 20).unwrap();
-    assert_eq!(alias.remove(&mut cx, 2).unwrap(), Some(2));
-    assert_eq!(alias.pop(&mut cx).unwrap(), Some(4));
-    assert_eq!(readonly.get(&mut cx, 0).unwrap(), Some(10));
-    assert!(readonly.push(&mut cx, 5).is_err());
-    assert!(readonly.set(&mut cx, 0, 5).is_err());
-    assert!(readonly.clear(&cx).is_err());
-    assert_eq!(values.get(&mut cx, 99).unwrap(), None);
-    let mut seen = Vec::new();
-    values
-        .for_each(&mut cx, |cx, value| {
-            cx.collect_garbage()?;
-            seen.push(value);
-            Ok(())
-        })
-        .unwrap();
-    assert_eq!(seen, [10, 20, 3]);
-    assert!(
-        values
-            .for_each(&mut cx, |_, _| Err(RuntimeError::module_validation("stop")))
-            .is_err()
-    );
-    let mut count = 0;
-    let error = values
-        .for_each(&mut cx, |cx, _| {
-            count += 1;
-            alias.push(cx, 99)?;
-            cx.collect_garbage()?;
-            Ok(())
-        })
-        .unwrap_err();
-    assert!(error.to_string().contains("structurally modified iterator"));
-    assert_eq!(count, 1);
-    assert_eq!(values.get(&mut cx, 3).unwrap(), Some(99));
-    // Callback failure and invalidation do not roll back completed edits.
-    alias.push(&mut cx, 4).unwrap();
-    values.truncate(&cx, 1).unwrap();
-    assert_eq!(alias.len(&cx).unwrap(), 1);
-    drop(alias);
-    drop(values);
-    runtime.collect_garbage().unwrap();
-    assert_eq!(readonly.get(&mut cx, 0).unwrap(), Some(10));
-    drop(readonly);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
-}
-
-#[test]
-fn collection_removals_return_retained_objects_and_reject_readonly_widening() {
-    let (runtime, owner) = fixture();
-    let _owner_program = owner;
-    let owner = runtime.select_program(&_owner_program).unwrap();
-    let node_type = runtime
-        .bind_type(&_owner_program.root(), "Node", &[])
-        .unwrap();
-    let next = runtime
-        .bind_field::<Option<Object>>(&node_type, "next")
-        .unwrap();
-    let mut cx = NativeContext::new(&runtime, &owner).unwrap();
-    let mut builder = node_type.builder().unwrap();
-    builder.set(&mut cx, &next, None).unwrap();
-    let node = builder.build(&mut cx).unwrap();
-    let values = cx
-        .create_vec_with_type(node_type.type_argument().clone(), vec![node])
-        .unwrap();
-    let read = values.pop(&mut cx).unwrap().unwrap();
-    runtime.collect_garbage().unwrap();
-    assert!(read.get(&mut cx, &next).unwrap().is_none());
-    let bag_type = runtime
-        .bind_type(&_owner_program.root(), "Bag", &[])
-        .unwrap();
-    let items = runtime
-        .bind_field::<ScriptVec<Option<Object>>>(&bag_type, "items")
-        .unwrap();
-    let pair = runtime
-        .bind_field::<(Object, i32)>(&bag_type, "pair")
-        .unwrap();
-    let option_node = runtime
-        .bind_field::<Vec<Option<Object>>>(&bag_type, "items")
-        .unwrap();
-    let mut builder = bag_type.builder().unwrap();
-    builder
-        .set(&mut cx, &option_node, vec![Some(read.clone())])
-        .unwrap();
-    builder.set(&mut cx, &pair, (read.clone(), 1)).unwrap();
-    let bag = builder.build(&mut cx).unwrap();
-    let shared = bag.get(&mut cx, &items).unwrap();
-    let readonly = shared.read_only();
-    assert!(bag.set(&mut cx, &items, readonly.clone()).is_err());
-    shared.push(&mut cx, None).unwrap();
-    assert_eq!(bag.get(&mut cx, &items).unwrap().len(&cx).unwrap(), 2);
-    let (foreign, foreign_owner) = fixture();
-    let _foreign_owner_program = foreign_owner;
-    let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();
-    let mut foreign_cx = NativeContext::new(&foreign, &foreign_owner).unwrap();
-    assert!(shared.get(&mut foreign_cx, 0).is_err());
-    assert!(shared.push(&mut foreign_cx, None).is_err());
-    drop(bag);
-    drop(shared);
-    drop(readonly);
-    drop(values);
     drop(read);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }
@@ -531,16 +396,29 @@ fn typed_handles_and_bindings_move_with_exclusive_runtime_ownership() {
         let mut cx = NativeContext::new(&runtime, &owner).unwrap();
         (
             player(&mut cx, &ty, 42),
-            cx.create_vec(vec![1i32, 2]).unwrap(),
+            runtime
+                .root_value(Value::Array(
+                    runtime
+                        .alloc_array(
+                            &owner,
+                            kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
+                            vec![Value::I32(1), Value::I32(2)],
+                        )
+                        .unwrap(),
+                ))
+                .unwrap(),
         )
     };
     thread::spawn(move || {
         let mut cx = NativeContext::new(&runtime, &owner).unwrap();
         runtime.collect_garbage().unwrap();
         object.set(&mut cx, &hp, 43).unwrap();
-        values.push(&mut cx, 3).unwrap();
+        let Value::Array(array) = values.value(runtime.gc()).unwrap() else {
+            panic!("array")
+        };
+        runtime.gc().array_set(array, 1, Value::I32(3)).unwrap();
         assert_eq!(object.get(&mut cx, &hp).unwrap(), 43);
-        assert_eq!(values.pop(&mut cx).unwrap(), Some(3));
+        assert_eq!(runtime.gc().array_get(array, 1), Some(Value::I32(3)));
         drop(object);
         drop(values);
         assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);

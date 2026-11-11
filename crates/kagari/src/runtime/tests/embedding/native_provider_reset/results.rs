@@ -8,11 +8,13 @@ use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetada
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
-        binding::{Codec, NativeBinding},
+        binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         declarations::{FunctionDecl, MethodDecl},
+        storage::{NativePayload, NativeStorage},
         types::Type,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -21,6 +23,19 @@ use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
 
+#[derive(Debug)]
+struct StoredValue(Value);
+
+impl NativePayload for StoredValue {
+    fn trace<'a>(&'a self, visit: &mut dyn FnMut(&'a Value)) {
+        visit(&self.0);
+    }
+
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(1, 0))
+    }
+}
+
 fn engine() -> KagariEngine {
     let language = StandardDeclarations::default();
     let mut module = ModuleBuilder::new(
@@ -28,6 +43,30 @@ fn engine() -> KagariEngine {
         &language.catalog().expect("explicit standard providers"),
     )
     .unwrap();
+    let mut item = module.define_trait("Item").unwrap();
+    let parameter = item.type_parameter("T").unwrap().ty();
+    item.define_method(MethodDecl::instance("value").returns(parameter))
+        .unwrap();
+    let item = item.finish().unwrap();
+    let mut boxed = module.define_type("Box").unwrap();
+    boxed.type_parameter("T").unwrap();
+    boxed
+        .native_storage(NativeStorage::payload::<StoredValue>())
+        .unwrap();
+    let boxed = boxed.finish().unwrap();
+    module
+        .implement(boxed.clone(), |group| {
+            let parameter = group.parameter("T")?.ty();
+            group.trait_impl(item.apply([parameter])?, |methods| {
+                methods.bind(
+                    "value",
+                    NativeBinding::new([Codec::Value], Codec::Value, |call| {
+                        call.with_payload::<StoredValue, _>(0, |stored| Ok(stored.0))
+                    }),
+                )
+            })
+        })
+        .unwrap();
     let singleton = module
         .define_function(FunctionDecl::new("singleton"))
         .unwrap();
@@ -35,27 +74,27 @@ fn engine() -> KagariEngine {
         .function(&singleton, |f| {
             let t = f.type_parameter("T")?.ty();
             f.parameter("value", t.clone())?;
-            f.returns(language.list().apply([t.clone()])?.ty())?;
-            f.produces(language.vec(t)?)?;
+            f.returns(item.apply([t.clone()])?.ty())?;
+            f.produces(boxed.apply([t])?)?;
             Ok(())
         })
         .unwrap();
     module
         .bind(
             singleton,
-            NativeBinding::new([Codec::Value], Codec::MutableSequence, |call| {
-                call.allocate_vec(call.result_type_parameter(0)?, vec![call.argument(0)?])
+            NativeBinding::new([Codec::Value], Codec::Value, |call| {
+                call.allocate_result_payload(StoredValue(call.argument(0)?), &[])
             }),
         )
         .unwrap();
     let wrong = module
         .define_function(
-            FunctionDecl::new("wrong").returns(language.list().apply([Type::i32()]).unwrap().ty()),
+            FunctionDecl::new("wrong").returns(item.apply([Type::i32()]).unwrap().ty()),
         )
         .unwrap();
     module
         .function(&wrong, |f| {
-            f.produces(language.vec(Type::i32())?)?;
+            f.produces(boxed.apply([Type::i32()])?)?;
             Ok(())
         })
         .unwrap();
@@ -71,19 +110,17 @@ fn engine() -> KagariEngine {
         .method(&one, |f| {
             let t = f.type_parameter("T")?.ty();
             f.parameter("value", t.clone())?;
-            f.returns(language.list().apply([t.clone()])?.ty())?;
-            f.produces(language.vec(t)?)?;
+            f.returns(item.apply([t.clone()])?.ty())?;
+            f.produces(boxed.apply([t])?)?;
             Ok(())
         })
         .unwrap();
     factory
         .bind(
             one,
-            NativeBinding::new(
-                [Codec::Value, Codec::Value],
-                Codec::MutableSequence,
-                |call| call.allocate_vec(call.result_type_parameter(0)?, vec![call.argument(1)?]),
-            ),
+            NativeBinding::new([Codec::Value, Codec::Value], Codec::Value, |call| {
+                call.allocate_result_payload(StoredValue(call.argument(1)?), &[])
+            }),
         )
         .unwrap();
     factory.finish().unwrap();
@@ -110,16 +147,16 @@ fn artifact(engine: &KagariEngine, source: &str) -> DefinitionMetadata<KbcArtifa
 
 #[rstest]
 #[case::generic_scalar_interface(
-    "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; if std::collections::list_content_equal(f.one(1), f.one(1)) {42} else {0} }"
+    "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; if f.one(1).value() == f.one(1).value() {42} else {0} }"
 )]
 #[case::nested_array_function(
-    "use example::results::singleton; fn main() -> i32 { singleton([42])[0u64][0u64] }"
+    "use example::results::singleton; fn main() -> i32 { singleton([42]).value()[0u64] }"
 )]
 #[case::nested_array_method(
-    "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; f.one([42])[0u64][0u64] }"
+    "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; f.one([42]).value()[0u64] }"
 )]
 #[case::distinct_nominal_results(
-    "use example::results::Factory; struct F {} struct Payload { val value: i32 } impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; val a = f.one(20); val b = f.one(Payload { value: 22 }); a[0u64] + b[0u64].value }"
+    "use example::results::Factory; struct F {} struct Payload { val value: i32 } impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; val a = f.one(20); val b = f.one(Payload { value: 22 }); a.value() + b.value().value }"
 )]
 fn concrete_native_results_construct_declared_interfaces_in_generic_calls(#[case] source: &str) {
     let engine = engine();
@@ -160,7 +197,7 @@ fn forged_native_result_conversions_are_rejected() {
     let engine = engine();
     let original = artifact(
         &engine,
-        "use example::results::singleton; fn main() -> i32 { singleton(42)[0u64] }",
+        "use example::results::singleton; fn main() -> i32 { singleton(42).value() }",
     );
     let context = DefinitionContext::new().unwrap();
     let original = original
@@ -240,7 +277,7 @@ fn native_result_conversion_validates_the_rust_body_value() {
     let program = Program::from_artifact(
         artifact(
             &engine,
-            "use example::results::wrong; fn main() -> i32 { wrong()[0u64] }",
+            "use example::results::wrong; fn main() -> i32 { wrong().value() }",
         ),
         &Default::default(),
         &Default::default(),

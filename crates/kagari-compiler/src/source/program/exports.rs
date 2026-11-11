@@ -134,12 +134,10 @@ pub(super) fn layout_requests(
                     pending.extend(params);
                     pending.push(result);
                 }
-                Ty::Reference { target, .. }
-                | Ty::Array(target)
-                | Ty::Set(target, _)
-                | Ty::Iter(target)
-                | Ty::Range(target, _) => pending.push(target),
-                Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Ty::Reference { target, .. } | Ty::Array(target) | Ty::Range(target, _) => {
+                    pending.push(target)
+                }
+
                 Ty::Builtin(_) | Ty::Host(_) => {}
                 Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Projection { .. } => {
                     return Err(DefinitionMappingError::InvalidContract);

@@ -20,7 +20,6 @@ use crate::{
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
-use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{
     any::{Any, TypeId},
@@ -112,10 +111,6 @@ impl<'call> StorageContext<'call> {
                 .pop()
                 .ok_or_else(|| RuntimeError::module_validation("native storage type scope")),
         }
-    }
-
-    pub(crate) fn element_contract(&self, index: usize) -> NativeResult<Arc<StorageType>> {
-        StorageType::prepare_scoped(self.type_parameter(index)?, self.owner).map(Arc::new)
     }
 
     pub fn owner(&self) -> &'call ExecutableModule {
@@ -282,21 +277,7 @@ impl NativeStorage {
         let payload = factory(context)?;
         let mut object = self.object(context.heap(), context.ty, payload, context.owner)?;
         object.scope = context.scope.cloned();
-        if matches!(
-            self.layout(),
-            NativeStorageLayout::Map { .. } | NativeStorageLayout::Set { .. }
-        ) {
-            let hash = context.selected(0)?;
-            let equal = context.selected(1)?;
-            if hash.primitive != Some(RuntimePrimitive::ValueHash)
-                || equal.primitive != Some(RuntimePrimitive::ValueEq)
-            {
-                object.selected = Arc::from([
-                    StoredSelection::new(context.owner, hash)?,
-                    StoredSelection::new(context.owner, equal)?,
-                ]);
-            }
-        }
+
         Ok(object)
     }
 
@@ -418,27 +399,6 @@ impl NativeObject {
         charge
             .with_shallow_bytes(self.payload_bytes())
             .expect("owned storage allocations fit the address space")
-    }
-
-    pub(crate) fn replaced_payload<S: NativePayload>(&self, payload: S) -> NativeResult<Self> {
-        if self.storage.entries.rust_type != TypeId::of::<S>() {
-            return Err(RuntimeError::module_validation(
-                "native replacement payload type mismatch",
-            ));
-        }
-        let charge = payload
-            .charge()?
-            .with_shallow_bytes(size_of_val(&payload))?;
-        Ok(Self {
-            charge,
-            storage: self.storage.clone(),
-            payload: Box::new(payload),
-            ty: self.ty.clone(),
-            _owner: self._owner.clone(),
-            scope: self.scope.clone(),
-            selected: self.selected.clone(),
-            revision: self.revision,
-        })
     }
 
     pub(crate) fn payload<S: 'static>(&self) -> NativeResult<&S> {

@@ -1,9 +1,6 @@
 //! Owned Serde visitors never retain references into the script heap.
 mod access;
-use super::{
-    serializer::compound::{check_sequence, check_standard_enum},
-    unsupported,
-};
+use super::{serializer::compound::check_standard_enum, unsupported};
 use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
@@ -89,7 +86,6 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
             }
             Ty::Struct(_) => self.deserialize_struct("", &[], visitor),
             Ty::Enum(_) => self.deserialize_enum("", &[], visitor),
-            Ty::NativeObject(_) => self.deserialize_seq(visitor),
             _ => Err(unsupported("dynamic value")),
         }
     }
@@ -160,11 +156,10 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
         Err(unsupported("newtype struct"))
     }
 
-    fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> NativeResult<V::Value> {
-        check_sequence(self.expected)?;
-        let (roots, count) = self.cx.snapshot_sequence(&self.value)?;
-        let field = self.cx.parameter(self.expected, 0)?;
-        Sequence::visit_repeated(self.cx, roots, count, field, visitor)
+    fn deserialize_seq<V: Visitor<'de>>(self, _: V) -> NativeResult<V::Value> {
+        Err(unsupported(
+            "sequence schemas require a library-owned adapter",
+        ))
     }
 
     fn deserialize_tuple<V: Visitor<'de>>(self, len: usize, visitor: V) -> NativeResult<V::Value> {

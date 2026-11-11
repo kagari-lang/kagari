@@ -2,7 +2,6 @@
 use crate::{
     diagnostics::storage::{BufferUsage, StorageUsage},
     gc::{arrays::ArrayPayload, directory::ObjectStorage},
-    native::sequence::SequencePayload,
 };
 use std::sync::Arc;
 
@@ -28,11 +27,7 @@ impl ObjectStorage {
         let mut sequence_capacity_bytes = 0;
         for entry in &stores.natives {
             native_payload_bytes += entry.payload.payload_bytes();
-            if let Ok(sequence) = entry.payload.payload::<SequencePayload>() {
-                let (used, capacity) = sequence.values.backing_bytes();
-                sequence_element_bytes += used;
-                sequence_capacity_bytes += capacity;
-            } else if let Ok(array) = entry.payload.payload::<ArrayPayload>() {
+            if let Ok(array) = entry.payload.payload::<ArrayPayload>() {
                 let (used, capacity) = array.values.backing_bytes();
                 sequence_element_bytes += used;
                 sequence_capacity_bytes += capacity;

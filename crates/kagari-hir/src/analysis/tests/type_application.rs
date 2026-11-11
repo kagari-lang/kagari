@@ -89,9 +89,8 @@ fn native_collection_constructors_infer_items_through_source_aliases() {
     ));
     assert!(matches!(
         call_type("Dictionary::new"),
-        Some(TypeId::Map { key, value, .. })
-            if *key == TypeId::Builtin(BuiltinType::I32)
-                && *value == TypeId::Builtin(BuiltinType::Bool)
+        Some(TypeId::NativeObject(nominal))
+            if nominal.arguments == [TypeId::Builtin(BuiltinType::I32), TypeId::Builtin(BuiltinType::Bool)]
     ));
 }
 

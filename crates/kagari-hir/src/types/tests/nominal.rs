@@ -2,67 +2,12 @@ use crate::types::*;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };
-use kagari_types::collection::CollectionAccess;
 
 fn definition(context: &DefinitionContext, module: &str, kind: DefinitionKind) -> DefinitionId {
     let root = context
         .intern_root(&ModuleIdentity::single_file(module))
         .unwrap();
     context.intern_child(root, kind, "Item", 0).unwrap()
-}
-
-#[test]
-fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
-    let context = DefinitionContext::new().unwrap();
-    use kagari_types::collection::CollectionAccess::{Mutable, ReadOnly};
-    let parameter = GenericParameterType {
-        owner: definition(&context, "collection.kgr", DefinitionKind::Function),
-        position: 0,
-        name: "T".into(),
-    };
-    let item = TypeId::Generic(parameter.clone());
-    for writable in [
-        TypeId::Set(Box::new(item.clone()), Mutable),
-        TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::String)),
-            value: Box::new(item.clone()),
-            access: Mutable,
-        },
-    ] {
-        let readable = writable.read_only_view().unwrap();
-        assert_eq!(readable.collection_access(), Some(ReadOnly));
-        assert!(writable.can_weaken_to(&readable));
-        assert!(!readable.can_weaken_to(&writable));
-        assert!(writable.conflicts_with(&readable));
-        assert!(readable.conflicts_with(&writable));
-        assert_eq!(
-            [writable.clone(), readable.clone()]
-                .into_iter()
-                .collect::<std::collections::HashSet<_>>()
-                .len(),
-            2
-        );
-        let nested_writable = TypeId::Set(Box::new(writable.clone()), Mutable);
-        let nested_readable = TypeId::Set(Box::new(readable.clone()), Mutable);
-        assert!(!nested_writable.can_weaken_to(&nested_readable));
-        assert!(!nested_writable.can_weaken_to(&nested_readable.read_only_view().unwrap()));
-        assert!(nested_writable.conflicts_with(&nested_readable));
-        assert!(
-            TypeId::Tuple(vec![writable]).conflicts_with(&TypeId::Tuple(vec![readable.clone()]))
-        );
-
-        let substitution = [(parameter.clone(), TypeId::Builtin(BuiltinType::I32))]
-            .into_iter()
-            .collect();
-        let instantiated = readable.instantiate(&substitution);
-        assert_eq!(instantiated.collection_access(), Some(ReadOnly));
-        assert!(instantiated.is_concrete());
-        assert_eq!(instantiated.map_children(Clone::clone), instantiated);
-        assert_eq!(
-            instantiated.argument_context(&TypeSubstitution::default(), &[]),
-            instantiated
-        );
-    }
 }
 
 #[test]
@@ -241,14 +186,14 @@ fn self_substitution_copies_deep_replacements_once_and_preserves_foreign_owners(
     let mut template = TypeId::SelfType(owner);
     let mut replacement = TypeId::SelfType(owner);
     for _ in 0..10_000 {
-        template = TypeId::Set(Box::new(template), CollectionAccess::Mutable);
-        replacement = TypeId::Set(Box::new(replacement), CollectionAccess::Mutable);
+        template = TypeId::Array(Box::new(template));
+        replacement = TypeId::Array(Box::new(replacement));
     }
     let result = template.with_self(&owner, &replacement);
     fn consume(mut ty: TypeId, depth: usize, owner: &DefinitionId) {
         for _ in 0..depth {
-            let TypeId::Set(inner, _) = ty else {
-                panic!("missing set layer")
+            let TypeId::Array(inner) = ty else {
+                panic!("missing array layer")
             };
             ty = *inner;
         }

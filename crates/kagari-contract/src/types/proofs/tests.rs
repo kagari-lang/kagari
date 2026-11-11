@@ -4,11 +4,7 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };
 use kagari_types::{
-    collection::CollectionAccess,
-    declaration::{
-        AssociatedTypeFamily, TypeDef, TypeDefKind, module::ImplDecl,
-        native::NativeTypeConstructor, ownership::ReceiverOwners,
-    },
+    declaration::{AssociatedTypeFamily, module::ImplDecl, ownership::ReceiverOwners},
     language::{self, Protocol, binding},
     scalar::BuiltinType,
     ty::GenericParam,
@@ -287,64 +283,13 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
 }
 
 #[test]
-fn registered_collection_equality_requires_explicit_prerequisites() {
-    let context = proof_context();
-    let cancel = CancellationToken::default();
-    let module = ModuleIdentity::single_file("proof.kgr");
-    let declaration = TypeDef {
-        name: "HashSet".into(),
-        kind: TypeDefKind::Native(NativeTypeConstructor::Set),
-        generic_params: vec![GenericParam {
-            owner: id(&context, DefinitionKind::AssociatedType, "HashSet"),
-            position: 0,
-        }],
-        bounds: vec![],
-        fields: vec![],
-        variants: vec![],
-    };
-    let owners = ReceiverOwners::from_types([(&module, &declaration)]).unwrap();
-    let receiver = Ty::Set(Box::new(scalar()), CollectionAccess::Mutable);
-    let tables = [Protocol::PartialEq, Protocol::Eq, Protocol::Hash].map(|protocol| {
-        table(
-            &context,
-            protocol.name(),
-            intrinsic::applied(protocol, vec![], &context.snapshot()).unwrap(),
-            receiver.clone(),
-        )
-    });
-    for (indices, valid) in [
-        (&[0][..], true),
-        (&[1][..], false),
-        (&[2][..], false),
-        (&[0, 2][..], false),
-        (&[0, 1, 2][..], true),
-    ] {
-        let catalog = ProofCatalog::new(
-            indices
-                .iter()
-                .map(|index| (&tables[*index]).into())
-                .collect(),
-            [],
-            [],
-            [],
-            &context.snapshot(),
-            &cancel,
-        )
-        .unwrap();
-        assert_eq!(catalog.overrides_valid(&owners, &cancel).unwrap(), valid);
-        assert!(
-            !catalog
-                .overrides_valid(&Default::default(), &cancel)
-                .unwrap()
-        );
-    }
-}
-
-#[test]
 fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prerequisites() {
     let context = proof_context();
     let cancel = CancellationToken::default();
-    let receiver = Ty::Struct(nominal(id(&context, DefinitionKind::Struct, "Key"), vec![]));
+    let receiver = Ty::NativeObject(nominal(
+        id(&context, DefinitionKind::AssociatedType, "Key"),
+        vec![],
+    ));
     let partial = table(
         &context,
         "partial",
@@ -363,6 +308,24 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
         intrinsic::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap(),
         receiver.clone(),
     );
+    // Eq and Hash each need their explicit predecessor contracts, even when
+    // the opaque receiver is owned by the implementation's module.
+    for incomplete in [&eq, &hash] {
+        let catalog = ProofCatalog::new(
+            vec![incomplete.into()],
+            [],
+            [],
+            [],
+            &context.snapshot(),
+            &cancel,
+        )
+        .unwrap();
+        assert!(
+            !catalog
+                .overrides_valid(&Default::default(), &cancel)
+                .unwrap()
+        );
+    }
     let catalog = ProofCatalog::new(
         vec![(&partial).into()],
         [],
@@ -536,11 +499,6 @@ fn member_defaults_are_limited_to_core_enums_and_proven_payloads() {
         (Ty::Enum(user.clone()), false, false),
         (object, false, false),
         (Ty::Array(Box::new(scalar())), false, false),
-        (
-            Ty::Set(Box::new(scalar()), CollectionAccess::Mutable),
-            false,
-            false,
-        ),
     ] {
         let layout = wrapper_layout(&context, payload.clone());
         let wrapper = Ty::Enum(nominal(layout.declaration, vec![payload]));
@@ -688,7 +646,7 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
         position: 0,
     };
     set.generic_params.push(item.clone());
-    set.for_type = Ty::Set(Box::new(item.as_type()), CollectionAccess::Mutable);
+    set.for_type = Ty::Array(Box::new(item.as_type()));
     set.trait_type = Ty::Trait(nominal(
         id(&context, DefinitionKind::Trait, "FromIterator"),
         vec![item.as_type()],
@@ -733,7 +691,7 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
             vec![element.as_type()],
         ),
     ));
-    let storage = |ty| Ty::Set(Box::new(ty), CollectionAccess::Mutable);
+    let storage = |ty| Ty::Array(Box::new(ty));
     let requested = |ty| {
         nominal(
             id(&context, DefinitionKind::Trait, "FromIterator"),
@@ -812,7 +770,7 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
 fn carried_iterator_outputs_supply_identity_iterable_and_reject_forged_items() {
     let context = proof_context();
     let cancel = CancellationToken::default();
-    let iterator = Ty::Iter(Box::new(scalar()));
+    let iterator = Ty::Array(Box::new(scalar()));
     let mut implemented =
         intrinsic::applied(Protocol::Iterator, vec![], &context.snapshot()).unwrap();
     implemented.associated_types.insert(
@@ -920,15 +878,7 @@ fn equality_composition_uses_carried_payloads_and_explicit_storage_implementatio
             .uses_custom_equality(&Ty::Tuple(vec![chain.clone()]), &cancel)
             .unwrap()
     );
-    let storages = [
-        Ty::Array(Box::new(key.clone())),
-        Ty::Map {
-            key: Box::new(key.clone()),
-            value: Box::new(chain.clone()),
-            access: CollectionAccess::ReadOnly,
-        },
-        Ty::Set(Box::new(key), CollectionAccess::Mutable),
-    ];
+    let storages = [Ty::Array(Box::new(key))];
     let wrappers = storages
         .iter()
         .cloned()

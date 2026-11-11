@@ -36,8 +36,8 @@ fn composite(standard: &StandardDeclarations) -> Type {
     let string = Type::scalar(BuiltinType::String);
     Type::tuple([
         array(),
-        standard.hash_map(string.clone(), Type::bool()).unwrap(),
-        standard.hash_set(string.clone()).unwrap(),
+        Type::tuple([string.clone(), Type::bool()]).unwrap(),
+        string.clone(),
         standard.option(Type::i32()).unwrap(),
         StandardDeclarations::enumeration("Result")
             .unwrap()
@@ -167,8 +167,8 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         let values = runtime.runtime().gc().tuple(values).unwrap().to_vec();
         let [
             Value::Array(array),
-            Value::Map(map),
-            Value::Set(set),
+            Value::Tuple(record),
+            Value::Str(name),
             Value::Enum(option),
             Value::Enum(result),
         ] = values.as_slice()
@@ -177,16 +177,12 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         };
         let heap = runtime.runtime().gc();
         assert_eq!(heap.array_snapshot(*array).unwrap(), [Value::I32(7)]);
-        let entries = heap.map_snapshot(*map).unwrap();
-        let [(Value::Str(key), Value::Bool(true))] = entries.as_slice() else {
-            panic!("map contents")
+        let fields = heap.tuple(*record).unwrap();
+        let [Value::Str(key), Value::Bool(true)] = fields.as_ref() else {
+            panic!("record contents")
         };
         assert_eq!(&*heap.string(*key).unwrap(), "yes");
-        let entries = heap.set_snapshot(*set).unwrap();
-        let [Value::Str(key)] = entries.as_slice() else {
-            panic!("set contents")
-        };
-        assert_eq!(&*heap.string(*key).unwrap(), "name");
+        assert_eq!(&*heap.string(*name).unwrap(), "name");
         assert_eq!(heap.enum_snapshot(*option).unwrap().fields, [Value::I32(8)]);
         assert_eq!(heap.enum_snapshot(*result).unwrap().fields, [Value::I32(9)]);
         assert_eq!(*trace.lock().unwrap(), ["make", "echo"]);

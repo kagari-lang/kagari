@@ -1,4 +1,5 @@
 use super::{Probe, program, run};
+use super::{after_failure_source, inspect_retained};
 use crate::vm::Vm;
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::module::entry::ProgramEntry;
@@ -75,29 +76,25 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
     .unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
-        .load_program("map", program(source, &[&library, &probe.module]))
+        .load_program(
+            "map",
+            program(
+                &format!("{source} {}", after_failure_source("i32", 3)),
+                &[&library, &probe.module],
+            ),
+        )
         .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let vm = Vm::new(runtime);
     let error = vm.execute(&loaded, ProgramEntry::Main).unwrap_err();
     assert!(format!("{error:?}").contains("invalid or structurally modified iterator"));
-    let Value::GcHandle(array) = probe
-        .retained
-        .lock()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .value(vm.runtime().gc())
-        .unwrap()
-    else {
-        panic!("array");
+    let snapshot = inspect_retained(&vm, &loaded, &probe);
+    let Value::Array(array) = snapshot.value(vm.runtime().gc()).unwrap() else {
+        panic!("snapshot")
     };
-    assert_eq!(vm.runtime().gc().sequence_len(array), Some(3));
-    vm.runtime()
-        .gc()
-        .sequence_push(array, Value::I32(3))
-        .unwrap();
+    assert_eq!(vm.runtime().gc().array_len(array), Some(3));
+    drop(snapshot);
     probe.retained.lock().unwrap().take();
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }

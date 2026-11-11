@@ -30,7 +30,7 @@ struct Input {
     target_id: i64,
     #[serde(rename = "power")]
     damage: i32,
-    nested: Vec<Choice>,
+    nested: (Choice, Choice, Choice, Choice, Choice),
     maybe: Option<String>,
     result: Result<(bool, usize, isize), String>,
     #[serde(skip)]
@@ -112,15 +112,25 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
         (
             Some("target".into()),
             Ok((true, usize::MAX, isize::MIN)),
-            vec![
+            (
                 Choice::NoData,
                 Choice::OneValue(-9),
                 Choice::PairValues("pair".into(), u32::MAX),
                 Choice::SkippedPayload(LocalState),
                 Choice::PartialPayload(7, LocalState, 3.5),
-            ],
+            ),
         ),
-        (None, Err("business failure".into()), vec![]),
+        (
+            None,
+            Err("business failure".into()),
+            (
+                Choice::NoData,
+                Choice::NoData,
+                Choice::NoData,
+                Choice::NoData,
+                Choice::NoData,
+            ),
+        ),
     ] {
         let root = cx
             .encode(Serde(Input {
@@ -183,11 +193,11 @@ fn serde_char_roundtrips_scalars_and_containers_without_integer_coercion() {
         let integer = cx.encode(Serde(u32::from(ch))).unwrap();
         assert!(cx.decode::<Serde<char>>(&integer).is_err());
     }
-    let expected = (vec!['\0', 'é', '🙂'], Some('a'));
+    let expected = (('\0', 'é', '🙂'), Some('a'));
     let root = cx.encode(Serde(expected.clone())).unwrap();
     runtime.collect_garbage().unwrap();
     assert_eq!(
-        cx.decode::<Serde<(Vec<char>, Option<char>)>>(&root)
+        cx.decode::<Serde<((char, char, char), Option<char>)>>(&root)
             .unwrap()
             .0,
         expected
@@ -220,7 +230,13 @@ fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
         .encode(Serde(Input {
             target_id: 0,
             damage: 0,
-            nested: vec![Choice::PairValues("oversized".into(), 1)],
+            nested: (
+                Choice::PairValues("oversized".into(), 1),
+                Choice::NoData,
+                Choice::NoData,
+                Choice::NoData,
+                Choice::NoData,
+            ),
             maybe: None,
             result: Ok((false, 0, 0)),
             local: LocalState,

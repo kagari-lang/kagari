@@ -19,8 +19,7 @@ pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Run
     let object = |value: &Value| match value {
         Value::Struct(id) => Some((*id, GcObjectKind::Struct)),
         Value::Array(id) => Some((*id, GcObjectKind::Array)),
-        Value::Map(id) => Some((*id, GcObjectKind::Map)),
-        Value::Set(id) => Some((*id, GcObjectKind::Set)),
+
         Value::GcHandle(id) if gc.object_kind(*id) == Some(GcObjectKind::Native) => {
             Some((*id, GcObjectKind::Native))
         }
@@ -47,8 +46,6 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
     Ok(match (lhs, rhs) {
         (
             Value::Array(_)
-            | Value::Map(_)
-            | Value::Set(_)
             | Value::Struct(_)
             | Value::GcHandle(_)
             | Value::Closure(_)
@@ -62,8 +59,6 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
         | (
             _,
             Value::Array(_)
-            | Value::Map(_)
-            | Value::Set(_)
             | Value::Struct(_)
             | Value::GcHandle(_)
             | Value::Closure(_)
@@ -200,12 +195,11 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
                     out.push(')');
                 }
             }
-            Value::Struct(id) | Value::Array(id) | Value::Map(id) | Value::Set(id) if debug => {
-                let name = match value {
-                    Value::Struct(_) => "Struct",
-                    Value::Array(_) => "Array",
-                    Value::Map(_) => "Map",
-                    _ => "Set",
+            Value::Struct(id) | Value::Array(id) if debug => {
+                let name = if matches!(value, Value::Struct(_)) {
+                    "Struct"
+                } else {
+                    "Array"
                 };
                 write!(out, "{name}@{}:{}", id.index(), id.generation()).ok()?;
             }

@@ -2,10 +2,7 @@ use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
     host::HostCallContext,
     module::entry::ProgramEntry,
-    native::{
-        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
-        types::Type,
-    },
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -45,7 +42,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let memory = builder
         .define_function(
             FunctionDecl::new("memory")
-                .returns(standard.vec(Type::i32()).unwrap())
+                .returns(Type::array(Type::i32()).unwrap())
                 .host_policy(HostCallPolicy {
                     passing: vec![],
                     effects: Default::default(),
@@ -56,7 +53,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let captured_memory = memory_slot.clone();
     builder
         .bind(memory, move |_: &HostCallContext<'_>, _: &[Value]| {
-            Ok(Value::GcHandle(
+            Ok(Value::Array(
                 captured_memory.lock().unwrap().expect("initialized memory"),
             ))
         })
@@ -77,8 +74,8 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
                 "commit.kgr",
                 r#"
         use demo;
-        fn index(log: Vec<i32>) -> u64 { log.push(1); 0u64 }
-        fn count(log: Vec<i32>) -> u16 { log.push(2); 32u16 }
+        fn index(log: [i32]) -> u64 { log[1] = 1; 0u64 }
+        fn count(log: [i32]) -> u16 { log[2] = 2; 32u16 }
         fn main() { val memory = demo::memory(); memory[index(memory)] <<= count(memory); }
     "#,
             ),
@@ -96,13 +93,15 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         .load_program(&loaded_program, Default::default())
         .unwrap();
     let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
-    let root = ConversionContext::new(runtime.runtime(), &_selected_loaded)
-        .unwrap()
-        .encode(vec![7i32])
+    let memory = runtime
+        .runtime()
+        .alloc_array(
+            &_selected_loaded,
+            kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
+            vec![Value::I32(7), Value::I32(0), Value::I32(0)],
+        )
         .unwrap();
-    let Value::GcHandle(memory) = root.value(runtime.runtime().gc()).unwrap() else {
-        panic!("Vec memory fixture")
-    };
+    let root = runtime.runtime().root_value(Value::Array(memory)).unwrap();
     *memory_slot.lock().unwrap() = Some(memory);
     let error = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -112,7 +111,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         "{error:?}"
     );
     assert_eq!(
-        runtime.runtime().gc().sequence_snapshot(memory).unwrap(),
+        runtime.runtime().gc().array_snapshot(memory).unwrap(),
         vec![Value::I32(7), Value::I32(1), Value::I32(2)]
     );
     drop(root);

@@ -2,186 +2,19 @@
 
 use crate::{
     error::{RuntimeError, trap::TrapReason},
-    gc::{
-        CollectionMutation, GcHeap, GcObjectKind, HeapObjectId, arrays::storage::PackedStorage,
-        storage::HeapObject,
-    },
-    native::{
-        hash_storage::{HashMapStorage, HashSetStorage},
-        hashed::{MapPayload, SetPayload},
-        sequence::SequencePayload,
-    },
+    gc::{GcHeap, GcObjectKind, HeapObjectId, NativeMutation},
     value::Value,
 };
 
-use kagari_types::{scalar::BuiltinType, ty::Ty};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PreparedCollectionCommit {
-    ReplaceSequence,
-    Retain,
-}
-
 impl GcHeap {
-    pub fn commit_prepared_collection(
-        &self,
-        operation: PreparedCollectionCommit,
-        args: &[Value],
-    ) -> Result<(), RuntimeError> {
-        let invalid = || RuntimeError::from(TrapReason::InvalidPreparedCollection);
-        let [target, Value::GcHandle(buffer)] = args else {
-            return Err(invalid());
-        };
-        let id = match target {
-            Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => *id,
-            _ => return Err(invalid()),
-        };
-        self.ensure_execution_allowed()?;
-        self.ensure_sequence(*buffer)?;
-        if matches!(target, Value::GcHandle(_)) {
-            self.ensure_sequence(id)?;
-        }
-        self.ensure_structure_mutable(id)?;
-        let objects = self.objects.borrow();
-        let source = self.readable_object(&objects, id).ok_or_else(invalid)?;
-        let Some(HeapObject::Native(buffer_object)) = self.readable_object(&objects, *buffer)
-        else {
-            return Err(invalid());
-        };
-        if !matches!(buffer_object.ty, Ty::NativeObject(_)) {
-            return Err(invalid());
-        }
-        let input_payload = buffer_object.payload::<SequencePayload>()?;
-        let input = &input_payload.values;
-        let before = source.units(&self.interfaces).ok_or_else(invalid)?;
-        let _temporary = self.resources.reserve_temporary_heap(before)?;
-        self.resources.poll_execution()?;
-        let revision = match &source {
-            HeapObject::Native(object) => object.revision.checked_add(1).ok_or_else(invalid)?,
-            _ => return Err(invalid()),
-        };
-        let allocation = || self.resource_limit("prepared collection storage");
-        let prepared: HeapObject = if operation == PreparedCollectionCommit::ReplaceSequence {
-            let HeapObject::Native(original) = source else {
-                return Err(invalid());
-            };
-            if !matches!(original.ty, Ty::NativeObject(_)) {
-                return Err(invalid());
-            }
-            let payload = original.payload::<SequencePayload>()?;
-            if payload.values.len() < input.len()
-                || !input_payload.contract.same_type(&payload.contract)
-            {
-                return Err(invalid());
-            }
-            HeapObject::Native(original.replaced_payload(SequencePayload {
-                detached: false,
-                element: payload.element.clone(),
-                contract: payload.contract.clone(),
-                values: input.copy_range(0, input.len())?,
-            })?)
-        } else {
-            if input_payload.element != Ty::Builtin(BuiltinType::Bool) {
-                return Err(invalid());
-            }
-            if (0..input.len()).any(|index| !matches!(input.get(index), Some(Value::Bool(_)))) {
-                return Err(invalid());
-            }
-            let kept = (0..input.len())
-                .filter(|index| matches!(input.get(*index), Some(Value::Bool(true))))
-                .count();
-            match source {
-                HeapObject::Native(original) if matches!(original.ty, Ty::NativeObject(_)) => {
-                    let payload = original.payload::<SequencePayload>()?;
-                    if payload.values.len() != input.len() {
-                        return Err(invalid());
-                    }
-                    let mut copy = PackedStorage::empty(&payload.element);
-                    copy.try_reserve(kept).map_err(|_| allocation())?;
-                    for index in 0..input.len() {
-                        if matches!(input.get(index), Some(Value::Bool(true))) {
-                            copy.push(payload.values.get(index).ok_or_else(invalid)?)?;
-                        }
-                    }
-                    HeapObject::Native(original.replaced_payload(SequencePayload {
-                        detached: false,
-                        element: payload.element.clone(),
-                        contract: payload.contract.clone(),
-                        values: copy,
-                    })?)
-                }
-                HeapObject::Native(original) if matches!(original.ty, Ty::Map { .. }) => {
-                    let payload = original.payload::<MapPayload>()?;
-                    let values = &payload.entries;
-                    if values.len() != input.len() {
-                        return Err(invalid());
-                    }
-                    let mut copy = HashMapStorage::new();
-                    copy.try_reserve(kept).map_err(|_| allocation())?;
-                    for (index, (key, value)) in values.iter().enumerate() {
-                        if matches!(input.get(index), Some(Value::Bool(true))) {
-                            copy.insert(key.clone(), *value).map_err(|_| allocation())?;
-                        }
-                    }
-                    HeapObject::Native(original.replaced_payload(MapPayload {
-                        key: payload.key.clone(),
-                        value: payload.value.clone(),
-                        builtin_keys: payload.builtin_keys,
-                        entries: copy,
-                    })?)
-                }
-                HeapObject::Native(original) if matches!(original.ty, Ty::Set(..)) => {
-                    let payload = original.payload::<SetPayload>()?;
-                    let values = &payload.entries;
-                    if values.len() != input.len() {
-                        return Err(invalid());
-                    }
-                    let mut copy = HashSetStorage::new();
-                    copy.try_reserve(kept).map_err(|_| allocation())?;
-                    for (index, key) in values.iter().enumerate() {
-                        if matches!(input.get(index), Some(Value::Bool(true))) {
-                            copy.insert(key.clone()).map_err(|_| allocation())?;
-                        }
-                    }
-                    HeapObject::Native(original.replaced_payload(SetPayload {
-                        element: payload.element.clone(),
-                        builtin_keys: payload.builtin_keys,
-                        entries: copy,
-                    })?)
-                }
-                _ => return Err(invalid()),
-            }
-        };
-
-        drop(objects);
-        self.ensure_execution_allowed()?;
-        let mut objects = self.objects_mut()?;
-        let HeapObject::Native(prepared) = prepared else {
-            unreachable!("prepared collection has native storage")
-        };
-        let HeapObject::Native(target) = self.object_mut(&mut objects, id).ok_or_else(invalid)?
-        else {
-            return Err(invalid());
-        };
-        let charge = prepared.charge;
-        let change = self
-            .resources
-            .prepare_heap_change(target.charge, charge.logical_units)?;
-        *target = prepared;
-        target.revision = revision;
-        change.commit(charge);
-        Ok(())
-    }
-
-    pub(crate) fn begin_collection_mutation(
+    pub(crate) fn begin_native_mutation(
         &self,
         value: &Value,
-    ) -> Result<CollectionMutation, RuntimeError> {
+    ) -> Result<NativeMutation, RuntimeError> {
         self.ensure_execution_allowed()?;
         let id = match value {
             Value::GcHandle(id) if self.object_kind(*id) == Some(GcObjectKind::Native) => *id,
-            Value::Map(id) if self.object_kind(*id) == Some(GcObjectKind::Map) => *id,
-            Value::Set(id) if self.object_kind(*id) == Some(GcObjectKind::Set) => *id,
+
             _ => {
                 return Err(RuntimeError::from(TrapReason::InvalidMutationTarget));
             }
@@ -194,7 +27,7 @@ impl GcHeap {
             .mutations
             .acquire(id)
             .map_err(|_| self.resource_limit("mutation registry"))?;
-        Ok(CollectionMutation {
+        Ok(NativeMutation {
             _lease: lease,
             _root: root,
         })

@@ -32,12 +32,13 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         completion::{Completion, CompletionStatus},
+        context::CallContext,
         conversion::{KagariType, context::ConversionContext},
         declarations::FunctionDecl,
         future::NativeStart,
         storage::NativeStorage,
-        typed::NativeContext,
         types::Type,
+        views::ValueHandle,
     },
     session::ExecutionOptions,
     value::Value,
@@ -129,19 +130,7 @@ impl Fixture {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let starts = Arc::new(AtomicUsize::new(0));
         let cancels = Arc::new(AtomicUsize::new(0));
-        let mut vector =
-            ModuleBuilder::new("kagari-alloc::vec", &DeclarationCatalog::default()).unwrap();
-        let mut ty = vector.define_type("Vec").unwrap();
-        ty.type_parameter("T").unwrap();
-        ty.native_storage(NativeStorage::sequence(0)).unwrap();
-        ty.finish().unwrap();
-        let vector = vector.finish().unwrap();
-        let vector_declaration = vector
-            .to_declaration()
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records();
-        let mut builder = ModuleBuilder::new("test::io", &vector.catalog()).unwrap();
+        let mut builder = ModuleBuilder::new("test::io", &DeclarationCatalog::default()).unwrap();
         let mut future = builder.define_type("Future").unwrap();
         future.type_parameter("T").unwrap();
         future.native_storage(NativeStorage::future()).unwrap();
@@ -162,7 +151,7 @@ impl Fixture {
                     FunctionDecl::new("request")
                         .parameter(
                             "values",
-                            <Vec<i32>>::kagari_type(builder.declarations()).unwrap(),
+                            <(i32,)>::kagari_type(builder.declarations()).unwrap(),
                         )
                         .returns(
                             builder
@@ -174,11 +163,11 @@ impl Fixture {
                         ),
                 )
                 .unwrap();
-            builder.bind::<Async<(Vec<i32>,)>, i32>(
+            builder.bind::<Async<((i32,),)>, i32>(
                 registered_function,
-                move |(values,): (Vec<i32>,), completion: Completion<i32>| {
+                move |(values,): ((i32,),), completion: Completion<i32>| {
                     started.fetch_add(1, Ordering::Relaxed);
-                    let input = values.iter().sum();
+                    let input = values.0;
                     if input == 0 {
                         return Ok(NativeStart::Ready(7));
                     }
@@ -204,10 +193,7 @@ impl Fixture {
             let registered_function = builder
                 .define_function(
                     FunctionDecl::new("read")
-                        .parameter(
-                            "values",
-                            <Vec<i32>>::kagari_type(builder.declarations()).unwrap(),
-                        )
+                        .parameter("values", Type::array(Type::i32()).unwrap())
                         .parameter("index", Type::i32())
                         .returns(Type::i32()),
                 )
@@ -215,12 +201,25 @@ impl Fixture {
             builder
                 .bind(
                     registered_function.clone(),
-                    |_: &mut NativeContext<'_>,
-                     (values, index): (Vec<i32>, i32)|
+                    |cx: &mut CallContext<'_>,
+                     values: ValueHandle<'_>,
+                     index: i32|
                      -> NativeResult<i32> {
-                        values.get(index as usize).copied().ok_or_else(|| {
-                            RuntimeError::from(IndexError::SequenceIndexIsOutOfBounds)
-                        })
+                        let Value::Array(values) = values.value() else {
+                            unreachable!("checked array argument")
+                        };
+                        cx.heap()
+                            .array_get(values, index)
+                            .and_then(|value| {
+                                if let Value::I32(value) = value {
+                                    Some(value)
+                                } else {
+                                    None
+                                }
+                            })
+                            .ok_or_else(|| {
+                                RuntimeError::from(IndexError::SequenceIndexIsOutOfBounds)
+                            })
                     },
                 )
                 .map(|()| registered_function)
@@ -281,7 +280,7 @@ impl Fixture {
         edit(&mut functions);
         let module = BytecodeModule {
             identity: declaration.identity.clone(),
-            dependencies: vec![ModuleRef::new(1)],
+            dependencies: vec![],
             native_imports: native_declarations
                 .iter()
                 .map(|entry| NativeImport {
@@ -336,18 +335,7 @@ impl Fixture {
             ProgramFixture {
                 exports: Default::default(),
                 root: ModuleRef::new(0),
-                modules: vec![
-                    module,
-                    BytecodeModule {
-                        identity: vector_declaration.identity,
-                        public_items: vector_declaration
-                            .types
-                            .into_iter()
-                            .map(PublicItem::Type)
-                            .collect(),
-                        ..Default::default()
-                    },
-                ],
+                modules: vec![module],
             }
             .metadata(context.snapshot(), &Default::default())
             .unwrap(),
@@ -355,7 +343,6 @@ impl Fixture {
         let mut config = RuntimeConfig::default();
         config.async_limits.max_pending_operations = NonZeroUsize::new(1).unwrap();
         let mut runtime = Runtime::new(config);
-        vector.install(&mut runtime).unwrap();
         native.install(&mut runtime).unwrap();
         let module = runtime.load_program("native-wait", decoded).unwrap();
         let _module_program = module;
@@ -372,7 +359,7 @@ impl Fixture {
     fn cold(&self, input: i32) -> RootedValue {
         let array = ConversionContext::new(self.vm.runtime(), &self.module)
             .unwrap()
-            .encode(vec![input])
+            .encode((input,))
             .unwrap();
         let execution = self
             .vm
@@ -397,7 +384,7 @@ fn slice() -> NonZeroUsize {
 #[test]
 fn async_wait_live_storage_contract() {
     let f = Fixture::with_functions(|functions| {
-        let array = functions[0].metadata.semantic.params[&0].clone();
+        let array = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
         let mut function = functions[1].clone();
         function.id = FunctionRef::new(2);
         function.name = "wait_with_storage".into();
@@ -478,18 +465,23 @@ fn async_wait_live_storage_contract() {
     for exit in 0..3 {
         let future = f.cold(12);
         let allocate = |value| {
-            ConversionContext::new(f.vm.runtime(), &f.module)
-                .unwrap()
-                .encode(vec![value])
-                .unwrap()
+            let id =
+                f.vm.runtime()
+                    .alloc_array(
+                        &f.module,
+                        Ty::Builtin(BuiltinType::I32),
+                        vec![Value::I32(value)],
+                    )
+                    .unwrap();
+            f.vm.runtime().root_value(Value::Array(id)).unwrap()
         };
         let live_root = allocate(41i32);
         let dead_root = allocate(99i32);
-        let Value::GcHandle(live) = live_root.value(f.vm.runtime().gc()).unwrap() else {
-            panic!("live Vec fixture")
+        let Value::Array(live) = live_root.value(f.vm.runtime().gc()).unwrap() else {
+            panic!("live array fixture")
         };
-        let Value::GcHandle(dead) = dead_root.value(f.vm.runtime().gc()).unwrap() else {
-            panic!("dead Vec fixture")
+        let Value::Array(dead) = dead_root.value(f.vm.runtime().gc()).unwrap() else {
+            panic!("dead array fixture")
         };
         let execution =
             f.vm.start_fixture(
@@ -497,8 +489,8 @@ fn async_wait_live_storage_contract() {
                 FunctionRef::new(2),
                 &[
                     future.value(f.vm.runtime().gc()).unwrap(),
-                    Value::GcHandle(live),
-                    Value::GcHandle(dead),
+                    Value::Array(live),
+                    Value::Array(dead),
                 ],
                 ExecutionOptions::default(),
             )
@@ -516,20 +508,20 @@ fn async_wait_live_storage_contract() {
         assert!(
             f.vm.runtime()
                 .gc()
-                .sequence_push(live, Value::I32(3))
+                .array_set(live, 0, Value::I32(3))
                 .is_ok(),
-            "parked values do not block structural writes"
+            "parked values do not block writes"
         );
         f.vm.runtime()
             .gc()
-            .sequence_set(live, 0, Value::I32(42))
+            .array_set(live, 0, Value::I32(42))
             .unwrap();
         let (_, completion) = f.sent.lock().unwrap().pop().unwrap();
         match exit {
             0 => {
                 assert_eq!(completion.complete(Ok(0)), CompletionStatus::Accepted);
                 let DriveResult::Complete(result) = f.vm.drive(&execution, slice()).unwrap() else {
-                    panic!("resumed Vec read");
+                    panic!("resumed array read");
                 };
                 assert_eq!(
                     result.unwrap().value(f.vm.runtime().gc()),
@@ -552,11 +544,11 @@ fn async_wait_live_storage_contract() {
         assert_eq!(completion.complete(Ok(9)), CompletionStatus::Stale);
         f.vm.runtime()
             .gc()
-            .sequence_push(live, Value::I32(3))
+            .array_set(live, 0, Value::I32(3))
             .unwrap();
         assert_eq!(
             live_root.value(f.vm.runtime().gc()),
-            Some(Value::GcHandle(live))
+            Some(Value::Array(live))
         );
         assert_eq!(f.vm.runtime().resources().counters().current_call_depth, 0);
     }
