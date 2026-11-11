@@ -275,14 +275,12 @@ they describe the same obligation. A
 is symbolic member-call evidence, not a function pointer or runtime argument list:
 its `arguments` are method type arguments; trait arguments belong to `interface`.
 
-For example, `MutableList<T>::dedup` admits `T: Eq`, but calls `T`'s
-`PartialEq::eq`. The [generic default](../crates/kagari-stdlib/src/foundation/lists.rs)
-also requires receiver iteration, iterator advancement and removal. The
-[Vec override](../crates/kagari-stdlib/src/foundation/vector/operations.rs) edits
-its storage directly and needs only the element comparison dependency, retrieved
-through its declaration-scoped `SelectedCall`. Inferring admission bounds solely
-from callbacks would lose the stronger Eq contract; copying default requirements
-into every override would retain operations that its body does not use.
+Admission bounds and selected calls have different owners. For example, a
+library algorithm may require `T: Eq` while calling `PartialEq::eq`. An override
+must declare the calls its own body uses rather than copying a default body's
+requirements; inferred callback requirements cannot replace stronger admission
+bounds. The [iteration owner](../crates/kagari-stdlib/src/foundation/iteration.rs)
+demonstrates explicit checked requirements without privileged container storage.
 
 `define_trait_default` accepts a complete `MethodDefinition` or a
 `DefaultDefinition` with explicit template arguments and proof facts. Runtime's shared default lowerer supplies template
@@ -290,7 +288,6 @@ binders and associated-output substitution; do not author a second template
 lowerer. `TraitOverride::requires`, `produces` and `documentation` attach
 implementation-specific facts/prose without redefining the trait signature.
 The real impl/member binders are substituted before existing proofs run. See the
-[List owner](../crates/kagari-stdlib/src/foundation/lists.rs) and
 [iteration owner](../crates/kagari-stdlib/src/foundation/iteration.rs) for concrete
 hidden-iterator and paired-requirement applications.
 

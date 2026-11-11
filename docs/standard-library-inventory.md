@@ -12,6 +12,14 @@ their scope and ledgers. Their external BTreeMap<i32, T> fixture is not a produc
 generic BTreeMap. This inventory neither enlarges PG/NC acceptance nor reopens
 cancellation-policy design.
 
+Detachment status, 2026-11-11: concrete Vec/hash/cursor providers and their
+dependent String traversal/split and List edit algorithms are withdrawn. Entries
+for these surfaces retain proposed signatures for NC reconstruction; older
+`Implemented` labels there do not imply current executable availability. Primitive,
+String non-traversal, enum/async, builtin array index/equality and generic protocol
+providers remain. Runtime/SDK installation is explicit. See the
+[current boundary](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan).
+
 ## How to read the signatures
 
 - **Implemented**: present in current declarations, or explicitly identified below
@@ -619,7 +627,7 @@ from_iter/get/set method surface and no Eq/Hash implementation.
 
 ### Vec: growable sequence and stack
 
-**Implemented** — [Vec](../crates/kagari-stdlib/src/foundation/vector.rs):
+**Deferred after detachment** — `crates/kagari-stdlib/src/foundation/vector.rs` (retired):
 implements MutableList, Iterable and the algorithms in section 10.
 
 ```text
@@ -670,7 +678,7 @@ shares that object; resize_with invokes a generator for each new element.
 
 ### HashMap and HashSet: unordered membership
 
-**Implemented** — [hash collections](../crates/kagari-stdlib/src/foundation/hash.rs).
+**Deferred after detachment** — `crates/kagari-stdlib/src/foundation/hash.rs` (retired).
 Other methods come from MutableMap/MutableSet and Iterable:
 
 ```text
@@ -945,7 +953,7 @@ not make an extra read merely to detect invalidation.
 
 ### Sorting, filtering and content comparison
 
-**Implemented** — [list algorithms](../crates/kagari-stdlib/src/foundation/lists.rs):
+**Deferred after detachment** — `crates/kagari-stdlib/src/foundation/lists.rs` (retired):
 
 ```text
 List<T> {

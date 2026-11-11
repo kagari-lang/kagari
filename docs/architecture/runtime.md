@@ -10,6 +10,12 @@ The [scalar execution guide](runtime/scalar-execution.md) maps the readable
 instruction loop, explicit source generation and bounded structural exceptions.
 Measurements and their limits belong in the [performance record](../performance-baseline.md).
 
+Runtime/SDK construction installs no libraries. Hosts explicitly compose checked
+Native providers. Fixed arrays, String/ranges, enum/async execution and generic
+payload safety remain core; privileged collection storage/cursors/host adapters
+are withdrawn pending library reconstruction. The [implementation boundary](../runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
+distinguishes completed detachment from deferred full-library acceptance.
+
 ## Physical ownership
 
 ```mermaid

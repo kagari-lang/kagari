@@ -251,7 +251,7 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | Crate | Current responsibility |
 | --- | --- |
 | kagari-common | Portable definition identities/tables/mappings, debug spans, cancellation and bounded decoding |
-| kagari-types | Semantic types, declarations, symbolic defaults, generic checks, numeric/collection/range semantics and offline host schemas |
+| kagari-types | Semantic types, declarations, symbolic defaults, generic checks, numeric/range semantics and offline host schemas |
 | kagari-source | Source documents/revisions, immutable package scopes, diagnostics, literal grammar, line indices and navigation provenance |
 | kagari-syntax | Lexer, parser, CST and AST views |
 | kagari-package | Compilation-only manifests/workspaces, portable package identities, exact dependency graph/lock, virtual/filesystem source capture and atomic handoff to source analysis/SDK/CLI |
@@ -600,17 +600,18 @@ or changed inputs are bounded, validated and sealed again. See
 
 ## Language contracts and native implementations
 
-The installed `core`/`alloc`/`std` foundation defines all 41 foundation
-traits, primitive/value declarations, standard enums, range forms, String and the
-canonical Vec/HashMap/HashSet types. See [the current trait inventory](spec/builtins.md#foundation-trait-inventory).
-These declarations remain available independently of optional libraries.
-`[T]` is a builtin fixed-length array, independent of installed declarations.
-Literal and repeat construction establish its runtime length. Vec is separate
-nominal sequence storage; explicit Vec::from/HashSet::from constructors copy
-array elements into independent collection storage. List views remain shallow.
-HashMap/HashSet require checked Eq + Hash keys and use Rust standard hash storage
-without a traversal-order guarantee. Collection and String behavior lives in
-[collection access](spec/collection-access.md) and [builtins](spec/builtins.md).
+`kagari-stdlib` owns explicit core/alloc/std declarations, language-role enums,
+protocol recipes and native library bodies. Runtime and SDK construction install
+no providers. Hosts install exactly the required modules; language-role use needs
+the corresponding checked declarations. Empty scalar/script/Native execution can
+run without stdlib. See [builtins](spec/builtins.md) for the reduced current bundle
+and [collection access](spec/collection-access.md) for the deferred library surface.
+
+`[T]` is a builtin fixed-length array, independent of nominal library declarations.
+Runtime owns its packed scalar/traced storage, checked bounds/types and GC roots.
+Vec/hash/cursor implementations and their privileged storage, type/value tags,
+codecs and host handles have been removed. NC owns their later library-only
+reconstruction; generic native payload registration is the retained boundary.
 
 Application and library modules use explicit native declarations and
 scoped implementation blocks. `bind` and fluent implementation terminals select
@@ -618,9 +619,8 @@ raw/primitive, flat call-context or owned typed adapters against the same author
 Kagari signature. Rust signatures do not infer Kagari traits. Immediate builders
 check the complete module at `finish`; module-owned batches separate semantic
 sealing from native preparation. Installation validates dependencies and publishes
-atomically. Runtime construction starts empty. Engine
-construction explicitly installs standard modules through the same builder path
-as application modules, retaining independent heaps, host state and generations.
+atomically. Runtime construction starts empty. Hosts explicitly install standard modules through the same builder path as
+application modules, retaining independent heaps, host state and generations.
 
 All 41 standard traits are explicit registrations owned by `kagari-stdlib`.
 Complete generated modules pass through the declaration parser and ordinary HIR
@@ -674,31 +674,15 @@ name resolution and the existing formatting path, not a second expression evalua
 
 ### String traversal ownership
 
-The installed String declarations own the explicit chars, char_indices and bytes
-methods and their checked Item contracts: `char`, `(u64, char)` and `u8`.
-Operation validation and executable lowering carry those contracts into the shared
-native cursor machinery; they do not infer Item from a shared physical scalar
-representation. In particular, bytes remains semantic u8 despite its I64 storage.
-String itself does not gain Iterable or integer indexing, and len/find/slice
-remain byte-based. See [String traversal](spec/builtins.md#explicit-string-traversal)
-for scalar versus byte positions and the public surface.
-
-Runtime's `gc::string_iter` owns UTF-8 traversal state; `gc::iter` owns the shared
-cursor payload, tracing and publication/commit kernel. A cursor retains the
-managed source String as a traced Value. Copies share its progress, whereas each
-new traversal call creates independent state. Unlike Rust's borrowed string iterators,
-these cursors trace managed source objects: a cursor reachable from an active or
-suspended frame keeps its source alive through collection. No Rust string or
-storage borrow survives allocation, callback/reentry or suspension.
-
-A next step previews owned item data and candidate progress under scoped views,
-releases those views, materializes and roots the payload, then publishes the
-checked Option result before committing progress. Failed item/result publication
-leaves progress unchanged. Chars and CharIndices carry scalar Char values, not
-one-character Strings; tuple, cursor and result allocation retain the ordinary
-runtime rules. Existing Iterable adapters consume these cursors without an eager
-intermediate List or a second iteration engine. A callback failure after a
-successful source pull still leaves that item consumed.
+String remains an immutable UTF-8 builtin. The installed library owns len,
+is_empty, contains, starts_with, ends_with, find, slice, trim variants and replace.
+Length and offsets count bytes; slice checks bounds and UTF-8 boundaries.
+StringByteLength is the single retained NativePrimitive and has an exact checked
+String-to-u64 signature. Runtime has no source-container cursor or String traversal
+payload. Chars/bytes/split and array/range traversal await library-owned providers.
+Custom Iterator/Iterable implementations and generic lazy adapters remain ordinary
+checked calls; tracing and publication remain the provider's responsibility under
+the generic Native contract.
 
 ## Crate responsibility target
 
@@ -1116,7 +1100,7 @@ no_std, broader JIT support, new traits or a package manager.
 
 Native entries return synchronously. NativeContext receives owned Rust arguments
 or retained handles; recursive adapters check declared types and protect arguments
-and results automatically. Object, Opaque, collection and interface handles
+and results automatically. Object, Opaque and interface handles
 preserve shared identity. `Function` and prepared Method/Field descriptors retain
 checked identity and applied lexical scopes. Named call routes select current bodies;
 field/layout evidence and exact computation bodies retain their required owners.
@@ -1792,7 +1776,7 @@ object kinds do not pay for native invalidation state. Allocation initializes a 
 native identity's revision even when its payload was copied from a mutated object;
 payload replacement within an existing identity preserves and commits that identity's
 revision. Dense typed stores own each payload family; native
-arrays, collections and custom Rust payloads retain their existing native owner.
+arrays and custom Rust payloads retain their existing native owner.
 Rare candidate-initialization ownership is keyed by full identity outside the
 common directory slot. Sweep updates private locators when compacting records,
 keeps generation tombstones, shrinks payload capacity with hysteresis and disposes
@@ -2264,38 +2248,20 @@ the active frame keeps both operands rooted. Completion rereads those physical
 operands, copies immutable membership and publishes the new tuple before the next
 safepoint. No callback, collection or observation intervenes between cursor exit and
 operand acquisition. There is no extra logical PC or instruction-slice charge.
-NativeBinding distinguishes callback bodies from runtime-owned NativePrimitive
-implementations. Selecting a primitive installs its fixed kernel and exact codecs;
-a callback cannot assert a purity flag. StringByteLength reads immutable UTF-8
-storage; VecIndex and VecSet/VecSetFluent read or replace checked array elements.
-Both scoped native invocation and the prepared cursor use these fixed kernels.
-Registration checks the exact parameter/result relationships, including the Vec
-element type and mutable access for replacement. Linking requires the actual
-installed body, an already prepared exact signature and absence of selected
-operations/result adapters. Shared verified instructions contain only native-call
-ordinals; runtime links hold operation-specific facts. String length needs only
-its physical source; Vec operations also retain argument locations and the
-supplying record's immutable native signature. Its closed type provenance belongs
-to the already pinned program; no new heap value or type environment is retained.
-Arbitrary callbacks and adapters keep the native boundary. Both native cancellation
-polls, current heap identity checks and physical result admission are preserved.
-No method-name recognition, source analysis or per-call descriptor allocation is
-involved. Fixed kernels return a compact Value-or-boxed-error result; detailed
-diagnostics occupy storage only on failure, and the cursor transfers that error
-box into RegionError. The ordinary native callback API keeps its existing error
-type. Private kernel instantiations retain each operation's result facts through
-publication while sharing cancellation, error propagation and destination checks;
-String's scalar result is not merged with Vec's general result before writing it.
-Native execution reports only completion or a native boundary; the region owns
-general exit construction. A fixed kernel cannot request unrelated preparation
-transitions or script returns through its continuation type.
-The stdlib's separate string length/index bodies and owning Vec setter
-adapters are removed. SDK and native adapters share checked array reads and setter
-preflight/commit kernels. Detached storage remains unavailable, not an empty array;
-callbacks, readonly access, bounds and current element contracts remain checked.
-The fixed setter copies an already rooted Value without a Rust conversion or heap
-growth. SDK conversions still retain their own roots, limits and safepoints because
-they may allocate or reenter; committing afterward rechecks the actual storage.
+NativeBinding distinguishes callback bodies from the runtime-owned
+StringByteLength NativePrimitive. Registration validates its exact signature and
+codecs; linking requires the installed primitive body, prepared signature and no
+selected operations/result adapters. Shared instructions retain native-call
+ordinals; runtime links retain physical String operands. The fixed kernel preserves
+cancellation, current heap identity and result admission without method-name
+recognition or per-call descriptor allocation. Failures publish their detailed
+error outside the closed region. Arbitrary callbacks keep the Native boundary.
+VecIndex/VecSet/VecSetFluent and their prepared bodies are removed.
+
+Builtin array reads/replacement use their checked fixed-storage kernels. Replacement
+copies an already rooted Value without growth; owning conversions retain their own
+roots, limits and safepoints and recheck storage after possible reentry. There is no
+detached collection buffer or automatic nominal collection conversion in Runtime.
 Each scalar segment reuses the region's immutable function and bounded
 scalar/initialization slices. Next/executing PCs stay local until the segment exits;
 the wrapper publishes both on success and failure before diagnostics or managed
@@ -2342,13 +2308,10 @@ and error observation run after releasing the cursor. Values retain full scalar
 precision and complete handle identities; large immutable host descriptors are
 shared out of line rather than inflating every scalar execution slot.
 
-Standard Vec length/read/push operations borrow the native frame's existing roots
-and prepared type arguments, retaining declared access, bounds and dynamic lease
-checks without constructing temporary owning SDK handles. Callback algorithms and
-Rust-retained handles keep the owning conversion protocol. Builtin map reads borrow
-the stored key contract and entries together; custom Hash/Eq callbacks still run
-outside table borrows. Collection Option results reuse immutable declaration handles
-but validate runtime-local enum layouts and allocate ordinary traced enum objects.
+Native arguments borrow their admitted frame's existing root window and prepared
+type arguments. Ordinary nominal payloads use checked access/loans, explicit
+StoredCallable/StoredSelection retention and declared result construction. Runtime
+contains no table lookup, collision policy or automatic Hash/Eq selection capture.
 
 The SDK's default artifact path applies the bounded MIR pass pipeline before both
 bytecode and portable native input emission. Copy forwarding requires equal complete
@@ -2798,10 +2761,10 @@ application validation distinguishes static trait references from interface valu
 types in declarations, layouts and body slots, even when no construction or call
 uses them. MIR and bytecode share that value-type validation.
 
-HIR validates collection key constraints once through the complete applied catalog,
-including partially resolved annotations and constants. Signature preparation still
-checks scoped-reference placement, but does not duplicate collection eligibility
-before implementation facts are available.
+Library-owned key constraints are ordinary declaration/implementation bounds.
+HIR and source-free verification check those proofs through the complete catalog;
+there is no additional collection-family eligibility predicate. Scoped-reference
+placement retains its independent validation.
 
 Interface call slot validation checks the applied input/output types separately
 from bound proofs. For `R: FromResidual<A::Residual>`, substitution can leave a
@@ -2864,24 +2827,20 @@ preserves once-only root/index/RHS evaluation and completed effects.
 Runtime-owned Array objects have an exact `gc::arrays::ArrayPayload` and a
 Runtime-local descriptor independent of nominal Sequence storage declarations.
 `gc::arrays::storage::PackedStorage` retains scalar packing and traced-value
-representation. Registered nominal sequences temporarily reuse these physical
-kernels through their separate payload; the D03/D04 detachment checkpoint removes
-that bridge. Growth, capacity and detached edit leases require nominal sequence
-storage; builtin array replacement retains
-bounds, owner/generation and callback guards. No public sequence codec or Rust Vec
-conversion accepts an Array handle. String interpolation uses fixed [String]
+representation. There is no nominal-sequence bridge, growth kernel or detached edit lease.
+Builtin array replacement retains bounds, owner/generation and callback guards.
+Runtime supplies no automatic Rust Vec conversion or collection-specific codec. String interpolation uses fixed [String]
 temporary storage owned by its compiler/runtime primitive contract.
 
 Builtin structural hashing belongs to `value_semantics::hashing`: checked primitive,
 string, tuple and declared-enum contents/identities form the immutable structural
-key. RuntimePrimitive::ValueHash consumes that mechanism directly. Collection
-MapKey separately retains the original value and custom hash/equality token policy;
-table policy does not own builtin hash semantics. Existing depth/size/type and
+key. RuntimePrimitive::ValueHash consumes that mechanism directly. Collection MapKey/custom-token/table policy is removed; builtin hash semantics
+remain independent of any library implementation. Existing depth/size/type and
 owner validation remain unchanged.
 
 String literal typing/representation may remain intrinsic while its methods are
 ordinary native-authored implementations. Adding trim or split needs no compiler
-method enum. Audit storage layouts, CollectionAccess, standard enums and
+method enum. Audit storage layouts, reference access, standard enums and
 RuntimePrimitive separately: they may carry required tracing/access/operation facts.
 Retain those at their consumer layer; do not erase host restrictions or replace
 every engine instruction merely to move declaration ownership.
@@ -3037,9 +2996,10 @@ see the [completion contract](spec/host-interop.md#completion-transport-foundati
 The low-level VM `start_future` entry explicitly queues one Future layer. Ordinary calls
 return cold values, including Future-valued outputs without flattening. Nested
 script awaits push owned resume frames; native waits also work directly as a root
-without an artificial script caller. Real deferred for-body waits retain the same
-cursor and lease, observe later element replacement and reject structural writes.
-Cancellation and owner retirement release the lease. Backend owned tokens request
+without an artificial script caller. Deferred for-body waits retain the selected iterator value and its traced state.
+Custom iterator calls resume through ordinary checked dispatch; Runtime imposes no
+container-specific revision or structural-edit policy. Cancellation and owner
+retirement release all frame roots and generic leases. Backend owned tokens request
 retirement on drop; the SDK's borrowed Call has the stronger synchronous cleanup
 contract described below.
 

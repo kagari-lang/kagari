@@ -12,6 +12,11 @@ not requirements imposed on the upcoming Runtime refactor. Before reactivation,
 recheck the transport/layout decisions and refresh affected cost baselines against
 the resulting execution model. Value structs remain separately deferred.
 
+Runtime detachment has withdrawn nominal collection backends. The EL00/enum
+measurement Rust consumer now uses checked script observers and compiles, but its
+Vec-based workload awaits NC reconnection. Historical `(retired)` paths and old
+measurements are not a current provider or performance claim.
+
 ## Purpose and scope
 
 Introduce a common enum layout mechanism covering Option, Result, small standard
@@ -66,7 +71,7 @@ Current physical ownership is nevertheless uniformly heap-based:
   use scalar banks and managed Value banks. Scalar initialization bits mean
   written/unwritten; they cannot be repurposed as enum presence bits.
 - [Struct fields](../crates/kagari-runtime/src/module/layout_storage.rs) and
-  [sequences](../crates/kagari-runtime/src/native/sequence.rs) specialize primitive
+  `crates/kagari-runtime/src/native/sequence.rs` (retired) specialize primitive
   storage but otherwise rely on managed representations.
 
 For an iterator producing Some(42), or a function returning Ok(42), the caller
@@ -485,7 +490,7 @@ Current evidence distinguishes API layering from misplaced ownership:
 - The same context has sequence-specific operations, while
   [native primitives](../crates/kagari-runtime/src/native/primitive.rs) contain
   VecIndex/VecSet/VecSetFluent. [GC native access](../crates/kagari-runtime/src/gc/native.rs)
-  and [map/set operations](../crates/kagari-runtime/src/gc/maps_sets.rs) know concrete
+  and `crates/kagari-runtime/src/gc/maps_sets.rs` (retired) know concrete
   collection payloads. These are real ownership leaks, not merely verbose names.
 - [ModuleBuilder](../crates/kagari-runtime/src/native/builder.rs),
   [NativeAdapter](../crates/kagari-runtime/src/native/adapter.rs) and
@@ -630,7 +635,7 @@ capability or a simple alias for one.
 | --- | --- | --- |
 | [CallContext::with_payload](../crates/kagari-runtime/src/native/context.rs) | Borrow a native argument as shared &S through GcHeap::with_native | Read access; no general &mut S loan |
 | [GcHeap::with_native_data_mut](../crates/kagari-runtime/src/gc/native.rs) | Checked mutation of admitted fixed data | Requires the sealed NativeData editing proof; cannot edit arbitrary traced/resizable payloads |
-| [GcHeap::push_sequence_value](../crates/kagari-runtime/src/gc/native.rs) and [sequence editing](../crates/kagari-runtime/src/gc/sequence_edit.rs) | Existing collection-specific mutation, validation, accounting and borrow ownership | These are current implementation owners, not a generic payload edit API |
+| [GcHeap::push_sequence_value](../crates/kagari-runtime/src/gc/native.rs) and `crates/kagari-runtime/src/gc/sequence_edit.rs` (retired) | Existing collection-specific mutation, validation, accounting and borrow ownership | These are current implementation owners, not a generic payload edit API |
 
 The value/result migration can adapt these existing collection mutation owners
 to typed records. A general mutable payload provider boundary is separate work

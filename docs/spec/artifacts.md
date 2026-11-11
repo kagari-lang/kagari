@@ -1,5 +1,12 @@
 # Kagari Bytecode Artifact Specification
 
+Current unpublished contract: collection-specific Map/Set/Iter types, native
+storage families and cursor instructions are removed. ABI/format identifiers are
+retained; affected generated artifacts/caches must be discarded and emitted from
+the current checked declarations. Historical format entries below do not imply
+compatibility with the retired layout. Source-free loading still checks exact
+installed declarations, bounds, handles and native signatures.
+
 This document defines the `.kbc` artifact boundary.
 The semantic bytecode model is defined in [bytecode.md](bytecode.md).
 

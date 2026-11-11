@@ -20,6 +20,11 @@ as the next design scope. Paged storage and incremental collection remain queued
 this document is not its prerequisite. Rebase PG/NC handoffs against the resulting
 Runtime and generic payload contracts before activating collector replacement.
 
+D00-D05 detachment has removed the concrete collection paths referenced in the
+older inventory below. Rebase those `(retired)` paths against generic payloads
+before PG activation; collector replacement remains unstarted and is not needed
+to finish the already completed detachment.
+
 This document owns the proposed collector/storage architecture, PG00-PG06 execution
 order, unresolved decisions and GC progress/error ledger. The
 [native collections plan](native-collections-plan.md) continues to own NC01-NC06
@@ -362,7 +367,7 @@ This builds on existing APIs, not a new registration facade:
   object handle, not a Rust reference into payload memory.
 - [Object::get/set and Field](../crates/kagari-runtime/src/native/objects/fields.rs)
   provide checked field operations with prepared type/member evidence.
-- [ScriptVec](../crates/kagari-runtime/src/native/collections/vector.rs) currently
+- `crates/kagari-runtime/src/native/collections/vector.rs` (retired) currently
   provides retained collection handles and direct `get`, `set` and `push` operations.
   This is evidence for flat access ergonomics, not a requirement to preserve its
   runtime-owned sequence implementation or add a separate collection handle type.
@@ -472,11 +477,11 @@ trait-method entries are excluded to avoid counting defaults and overrides twice
 | Iteration, construction and content comparison | Ordinary roots retain intermediate items/results. Zip retains the left item across right.next; fold retains its accumulator; unordered content comparison stores rooted ScriptValue handles in a Rust Vec. |
 | Task/Future composition | Existing traced state/root owners retain pending computations and outputs across suspension; a synchronous no-GC scope cannot replace those lifetimes. |
 
-Evidence: [list algorithms](../crates/kagari-stdlib/src/foundation/lists/algorithms.rs),
-[typed Vec edits](../crates/kagari-runtime/src/native/collections/vector/edits.rs),
-[buffer leases](../crates/kagari-runtime/src/gc/sequence_edit.rs),
-[Vec operations](../crates/kagari-stdlib/src/foundation/vector/operations.rs),
-[hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs),
+Evidence: `crates/kagari-stdlib/src/foundation/lists/algorithms.rs` (retired),
+`crates/kagari-runtime/src/native/collections/vector/edits.rs` (retired),
+`crates/kagari-runtime/src/gc/sequence_edit.rs` (retired),
+`crates/kagari-stdlib/src/foundation/vector/operations.rs` (retired),
+`crates/kagari-stdlib/src/foundation/hash/operations.rs` (retired),
 [lazy cursors](../crates/kagari-stdlib/src/foundation/iteration/cursor.rs),
 [terminal iteration](../crates/kagari-stdlib/src/foundation/iteration/operations.rs),
 [content comparison](../crates/kagari-stdlib/src/foundation/comparison/operations.rs)

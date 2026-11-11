@@ -454,8 +454,8 @@ between activations; changing slices cannot bypass its limit. Runtime-owned oper
 windows reuse retired identities with generation checks. Out-of-order frame cleanup
 compacts their banks while preserving live window identities and roots.
 
-Live cursors stay rooted in parked frames, preserving progress. Structural writes
-commit while parked and invalidate the cursor before its next source read. Mutation guards, live scoped host values, native
+Iterator values stay rooted in parked frames, preserving provider-owned progress.
+Runtime does not implement a universal container cursor or structural-write policy. Mutation guards, live scoped host values, native
 borrows and synchronous reentry prevent a slice exit. Drop requests retirement;
 `drain_retired_executions`, the next owned start/drive or runtime destruction releases
 the frames and roots. Host control wakers can be registered on the owner token.

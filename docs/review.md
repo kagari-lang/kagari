@@ -1575,21 +1575,13 @@ benchmark-only unchecked execution.
 
 ## Hash lookup equality receiver clarification
 
-Inspection during persistent-static integration found a pre-existing contract
-mismatch: [value semantics](spec/value-semantics.md)
-describes the query as the equality receiver for map/set lookup, while
-[hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs) passes
-`[stored, query]` to selected equality. The persistent-state fix deliberately
-changes protocol ownership (stored checked key relationships versus caller-selected
-content comparison), not operand order. Both now select current callback bodies
-under [compatible publication](spec/collection-access.md#stored-key-protocols-across-reload);
-that policy adjustment does not resolve this receiver-order finding.
-
-For an asymmetric or observably effectful equality implementation, receiver order
-can change results or completed effects. Reconcile the intended rule with the
-collection contract and add a focused asymmetric/effect-order case before changing
-implementation or specification. This finding is source-derived, not a new executed
-reproduction; it does not activate a semantic change as part of static support.
+Owner: NC reconstruction. The privileged table implementation is removed by
+Runtime detachment, so there is no current lookup body to repair. Before restoring
+it, reconcile [value semantics](spec/value-semantics.md) query-receiver ordering
+with the former implementation's stored-receiver ordering. An asymmetric or
+effectful equality case must distinguish results and completed effects under
+current-call reload selection. This retains the semantic decision without treating
+retired files as a live Runtime defect or activating new collection work.
 
 ## Generated tuple bridges in source updates
 

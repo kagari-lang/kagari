@@ -1,7 +1,7 @@
 # Runtime Architecture and Host Boundary Refactor
 
 Status: next-scope design recorded at the user's request on 2026-11-09;
-standard-library detachment was activated on 2026-11-11. Other proposed Runtime
+standard-library detachment D00-D05 is complete on 2026-11-11. Other proposed Runtime
 changes remain unstarted. Current product ownership, final call tables and
 publication are in the
 [Runtime model](architecture/runtime.md) and [reload walkthrough](architecture/runtime/reload.md).
@@ -16,8 +16,8 @@ The user-selected sequence is to detach the existing standard-library implementa
 organize Runtime and its general Host interface, then connect the existing collector
 through that model. Full standard-library design and implementation follow later.
 This changes the earlier assumption that Runtime/library boundary work must wait
-for the paged incremental GC migration. It records scope and sequencing only;
-no Rust migration or final public API is activated by this documentation change.
+for the paged incremental GC migration. D00-D05 implemented the detach-first boundary below. Runtime/Host consolidation
+and existing-GC integration remain proposed, without an activated implementation plan.
 
 This document is the design owner. [Current architecture](architecture/runtime.md)
 continues to describe implemented behavior. The [native collections plan](native-collections-plan.md)
@@ -163,364 +163,84 @@ paged-storage migration or the deferred enum/value representation redesign.
 
 ### Standard-library detachment inventory and execution plan
 
-Inventory date: 2026-11-11, implementation baseline `04a8e7e4`. The user requested
-an executable removal plan before reorganizing Runtime. D00-D05 below were activated by the user on 2026-11-11
-within this plan, not another NC/PG migration. Do not merge
-the VM, replace the collector or implement tail recursion during these checkpoints.
+D00-D05 are complete. The implementation checkpoints and resolved migration
+diagnostics live in Git history; this section records the resulting baseline and
+remaining integration boundary. Current contracts belong to
+[architecture](architecture.md#language-contracts-and-native-implementations),
+[embedding](spec/embedding-api.md#typed-native-registration),
+[GC](spec/runtime.md#gc-heap) and [artifact](spec/artifacts.md) specifications.
 
-The production Cargo direction is already `kagari-stdlib -> kagari-runtime`;
-Runtime and VM reference stdlib only as dev dependencies. The defect is ownership
-inside Runtime and executable contracts, not a missing Cargo feature. Adding a
-`stdlib` switch around the same privileged implementation is not detachment.
+Runtime and SDK construction install no providers. Hosts compose exactly their
+checked modules; CLI/web explicitly select the reduced stdlib. SDK's normal
+no-default-feature dependency tree contains no stdlib, and Runtime/VM have only
+dev dependencies on it. Empty/scalar and application-only Native execution need no
+standard bundle. Operator/trait syntax, language-role enums and async declarations
+still require their actual checked providers, never fabricated layouts or names.
 
-#### Concrete coupling inventory
+The retained core owns fixed arrays with packed scalars/traced Values, immutable
+String/ranges/numerics, language enum roles, Future/Task/TaskScope execution,
+generic native payload roots/accounting/loans and checked calls. Assert remains
+the narrow-integer compiler bridge; StringByteLength is the only NativePrimitive.
+Created closures/Futures and admitted bodies retain their selection; ordinary
+inner calls still select current implementations. The detachment introduces no
+cross-version lookup on new code and does not change the reload model.
 
-| Mechanism and current owner | Evidence | Disposition |
-| --- | --- | --- |
-| Automatic complete library composition | [SDK builder](../crates/kagari/src/engine/builder.rs), formerly `KagariEngineBuilder::standard` | D01 removes implicit installation: `empty` constructs the provider-free builder, and host/CLI/web consumers explicitly select library modules. Runtime already has an empty native-registry constructor. |
-| Nominal Vec storage and core recognition | `crates/kagari-stdlib/src/foundation/vector.rs` (retired), [native layout families](../crates/kagari-types/src/declaration/native.rs), [NativeStorage](../crates/kagari-runtime/src/native/storage.rs) | Remove Sequence/Map/Set/Iterator as privileged library storage families; later library types use ordinary nominal native payload declarations. Future/Task/TaskScope are separate execution mechanisms. |
-| Packed array and Vec implementation sharing | `crates/kagari-runtime/src/native/sequence.rs` (retired), [buffer kernels](../crates/kagari-runtime/src/gc/buffers.rs), [fixed arrays](../crates/kagari-runtime/src/gc/arrays.rs), `gc/sequences.rs`, `gc/sequence_ops.rs`, `gc/sequence_edit.rs` | First give fixed arrays a Runtime-owned storage boundary; remove nominal Vec constructors/edit policy without discarding scalar packing or changing fixed-length array semantics. |
-| Hash storage and key policy | `crates/kagari-runtime/src/native/hashed.rs` (retired), `crates/kagari-runtime/src/native/hash_storage.rs` (retired), `crates/kagari-runtime/src/gc/maps_sets.rs` (retired), `crates/kagari-runtime/src/gc/custom_keys.rs` (retired) | Retire concrete tables, collision/lookup policy and stored Hash/Eq selections from Runtime. Preserve ordinary checked Hash/Eq calls and current-version selection. |
-| Special collection value/type branches | [Value and MapKey](../crates/kagari-runtime/src/value.rs), [type checks](../crates/kagari-runtime/src/value_check.rs), [Ty](../crates/kagari-types/src/ty.rs), [operation contracts](../crates/kagari-contract/src/operations.rs) | Remove Value::Map/Set and dedicated Ty::Map/Set/Iter with their consumers coherently. Do not rename them into a new generic container enum. Extract builtin structural hash semantics from MapKey before retiring its table-key policy. |
-| Collection Native codecs and public services | [Codec](../crates/kagari-runtime/src/native/binding.rs), [CallContext](../crates/kagari-runtime/src/native/context.rs), [operation services](../crates/kagari-runtime/src/native/context/operations.rs), `crates/kagari-runtime/src/native/context/iteration.rs` (retired) | Remove collection-specific codecs, factories, views and edits. Retain argument windows, typed calls, checked opaque payload access and roots. A public collection-specific method is still coupling. |
-| Cursors and string/range traversal | `crates/kagari-runtime/src/gc/iter.rs` (retired), `crates/kagari-runtime/src/gc/string_iter.rs` (retired), [Runtime iteration entry](../crates/kagari-runtime/src/objects.rs) | Remove the universal concrete cursor, source-container dispatch, key snapshots and cursor-specific allocation. Preserve language for-loop lowering to checked iterator calls; library cursor implementations return later. String/array/range representations stay core. |
-| Privileged Native implementation selection | [NativePrimitive](../crates/kagari-runtime/src/native/primitive.rs), [prepared Native bodies](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs), [cursor execution](../crates/kagari-runtime/src/frame/cursor/primitives.rs) | Remove VecIndex/VecSet/VecSetFluent and their prepared execution branches together. Review StringByteLength as a builtin String operation rather than deleting it by filename; do not extend these privileges to replacement libraries. |
-| Host collection adapters and canonical identities | `crates/kagari-runtime/src/native/collections.rs` (retired), `crates/kagari-runtime/src/native/collections/vector/storage.rs` (retired), [Rust conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), [Serde schemas](../crates/kagari-runtime/src/native/serde/schema.rs) | Remove core knowledge of kagari-alloc::vec::Vec and library-specific handles/conversions. Rust Vec<T> conversion cannot simply move to stdlib: both the Runtime trait and Rust Vec would be foreign there. A later library-owned wrapper/explicit adapter belongs to the library API design. Preserve independent tuple/enum/scalar/struct conversion. |
-| Language protocol bridges colocated with library names | [Runtime primitives](../crates/kagari-runtime/src/builtin/standard.rs), [builtin result contracts](../crates/kagari-runtime/src/module/linked_execution/builtin_results.rs), [language enum identities](../crates/kagari-types/src/language/binding.rs) | Keep checked numeric/value operations, interpolation and required enum result construction. Option/Result propagation and Ordering are language contracts; removing the full stdlib bundle must not erase their identities or replace scope validation with names. Classify Assert by its compiler/contract consumers before moving it. |
-| Compiler/artifact/backend propagation | [HIR native declarations](../crates/kagari-hir/src/native.rs), [instance lowering](../crates/kagari-compiler/src/source/lower/instances/native.rs), [bytecode access verification](../crates/kagari-bytecode/src/access.rs), [VM aggregate dispatch](../crates/kagari-vm/src/executor/aggregate_ops.rs) | Update directly affected constructor/layout/type/operation consumers, serializers, verifiers and presentation. Preserve ordinary trait/index dispatch and source-free validation. This is finite contract removal, not a compiler architecture rewrite. |
+Removed contracts include Sequence/Map/Set/Iterator layouts, Map/Set/Iter semantic
+and value tags, cursor bytecode, concrete table/key/collision policy, nominal Vec
+primitives/codecs/factories/handles, detached collection edits and automatic Rust
+Vec/Serde sequence adapters. Fixed arrays have an exact independent payload and
+cannot grow. Ordinary payloads retain explicit StoredSelection/StoredCallable
+slots, metadata tracing, type environments and checked current-call dispatch.
+Source/declaration correspondence, reference access, declared bounds, handle
+generations and source-free admission remain independently validated.
 
-GC integration is mixed even though collection data is already stored as native
-payloads rather than a separate directory arena: `gc/native.rs` downcasts
-SequencePayload, buffers serve both arrays and nominal sequences, and concrete
-iterator payloads retain sources, keys and revisions. Removing only Value tags or
-moving table files leaves these paths behind. General heap owner/generation checks,
-native tracing/accounting, mutation revisions and joint value/program reachability
-remain Runtime mechanisms. Internal Rust HashMap/Vec used for engine bookkeeping
-are unrelated to script collection implementations.
+Runtime and library consumers use builtin arrays, tuples and application payloads
+for generic guarantees. Transparent Rust Box supports recursive DTO/Serde schemas
+without a script type or extra graph node. A source-free async example uses a
+script Iterator across await, rather than a privileged source-container cursor.
+Affected disposable artifacts were invalidated and re-emitted without changing
+unpublished ABI/format identifiers. No compatibility aliases or replacement
+collection backend remain.
 
-#### Scope and intermediate product boundary
+Local acceptance passes: workspace all-target Clippy, structure (1847 Rust files,
+zero violations, three existing bounded scalar-dispatch exceptions), Rust/changed
+fixture formatting and diff checks. SDK serde all-target and optional diagnostic
+example builds pass. Focused behavioral evidence covers fixed-array bounds and
+packing, checked numeric traps/completed effects, payload charge/take/revision,
+roots and child snapshots across GC/reentry/unwind, reference wire scopes, explicit
+trait prerequisites/foreign owners, retained-body/current-inner-call reload,
+generic Native result conversion and async output cleanup. Twelve artifact cases
+pass with SDK default features disabled; native/default artifact routes also pass,
+including actual Cranelift and structurally valid forged binding rejection.
+The unchanged warmed scalar/array Native-boundary oracle observes no allocations.
+The [D00/D05 release call comparison](performance-baseline.md#runtime-detachment-core-call-comparison-windows-2026-11-11)
+records unchanged allocation counts and no observed median-time regression; it is
+not a lookup-only, whole-interpreter speedup or compact-frame claim.
 
-Follow the user's detach-first sequence: this stage does not promise that the old
-complete standard library remains usable while its privileged backend is removed.
-Retain the independent stdlib crate and reusable declarations/algorithms; do not
-move them back into Runtime or invent a replacement library crate. Full library
-reconnection and the bounded dynamic-payload/edit API belong to the later Runtime/
-Host work and NC acceptance. Removing a library implementation does not authorize
-changing the semantics of language features that remain supported.
+Full-product acceptance is deliberately separate. Concrete Vec/HashMap/HashSet,
+builtin array/range iteration, String chars/bytes/split, removed List algorithms,
+library collection conversions and collection-heavy manual measurements are not
+currently usable. Their source fixtures and behavioral oracles remain for
+[NC reconstruction](native-collections-plan.md); none are ignored or replaced with
+fake success. NC must use the later public dynamic-payload/edit protocol and prove
+independent-provider parity before those routes can pass. Collection-specific API
+and retired-instruction tests have been removed; generic safety checks remain at
+their owning layer. The optional enum measurement Rust target compiles but still
+needs reconstructed providers to execute its collection workload.
 
-D00 must freeze a minimal language declaration/provider composition separately
-from the full bundle: primitive operators, Option/Result/Ordering roles and any
-required async declarations must still be expressible using checked declarations.
-No new public core wrapper crate, hidden auto-installation, hardcoded layouts or
-unchecked role substitution. Empty-provider execution of simple verified scalar
-bytecode must work independently; a source program using a role still needs its
-actual declarations. The compiler must not silently fabricate the missing library.
-
-Some complete-library SDK/VM/Serde/CLI/example/benchmark targets currently require
-the retiring backend. Before D03, list the exact affected targets and commands in
-this section, their expected diagnostics, and their restoration owner/checkpoint.
-These are planned integration gaps, not passing tests or permission to skip cases.
-Retain distinct behavioral fixtures/oracles for reconnection; move generic root,
-reentry, borrowing, cancellation, readonly and reload witnesses onto custom Native
-providers so they continue to exercise Runtime. Do not add ignored tests, empty
-feature implementations, compatibility shims or success-returning stubs. Unchanged
-failed library routes need not be rerun at every Runtime checkpoint.
-
-#### Ordered checkpoints
-
-| Checkpoint | Work and build boundary | Reviewable exit |
-| --- | --- | --- |
-| D00: freeze the core-only execution witness | Recheck the table against source consumers; record declaration requirements and exact affected targets. Reuse existing source-free, scalar, ordinary Native and opaque-payload fixtures; add only an uncovered empty-provider route. Separate the minimal language declaration composition from full library assembly. | A Runtime-only build and core test route use no stdlib module installation. Freeze empty script/Native call workload and selected integration baseline; do not claim library detachment yet. |
-| D01: make library composition explicit | Remove mandatory full-library installation from SDK construction and migrate CLI, web, examples, benchmark setup and complete-library test helpers to explicit composition while the old backend still exists. Separate library docs/providers from generic Runtime fixtures. | Core construction has no production stdlib dependency; callers that request the existing full library still work. No new Runtime wrapper, feature-based hidden bundle or duplicate registration route. This checkpoint should remain buildable. |
-| D02: separate builtin storage and value semantics | Split fixed arrays from nominal Sequence allocation/edit/capacity policy; keep compact scalar storage under its actual core owner. Separate builtin structural hash from MapKey/table policy. Classify string/range/enum/async primitives and keep their required checked contracts. | Existing fixed-array, numeric, string/interpolation, enum and opaque-payload tests pass without Vec. No blanket deletion of native/sequence.rs, native/collections.rs or builtin/standard.rs before their mixed responsibilities are resolved. This checkpoint should remain buildable. |
-| D03: remove privileged library execution end to end | Remove collection Native primitives/codecs/heap services/cursors, concrete storage factories and their type/value/layout/operation contracts as one coordinated change. Update HIR/MIR/bytecode/preparation/interpreter/backend consumers; invalidate disposable affected artifacts. | Core builds and selected core tests pass. No privileged Sequence/Map/Set/Iterator storage or Vec-specific prepared body remains. If full-library consumers are temporarily unbuildable, record actual commands/diagnostics and restoration ownership; the checkpoint is partial integration, not workspace acceptance. Preserve unpublished ABI/version policy. |
-| D04: retire library adapters and clean consumers | Remove hardcoded Vec identity, collection handles, automatic Rust collection conversions and dependent Serde branches; handle direct derive/schema consumers. Keep ordinary nominal payloads, typed interfaces/callbacks and builtin-value conversions. Remove now-unreachable core branches rather than retaining aliases. | Runtime API/data model contains no library-specific declaration path, table policy, container codec or cursor implementation. Inventory the deliberate removed APIs and remaining library reconnection gaps. Do not recreate the foreign Vec trait implementations in stdlib. |
-| D05: hand off a documented Runtime baseline | Update current architecture/spec ownership for actual retained contracts and removals. Review production dependencies and code paths; run selected behavioral/performance checks and required structural/format/Clippy/diff checks. Carry concrete remaining library gaps to the existing Runtime/Host and NC sections. | Report core detachment separately from full-product acceptance. All-target workspace Clippy remains required: if library targets cannot build, report it as failing and leave integration acceptance pending; never claim the whole refactor complete. Only later restored library routes close their own acceptance. |
-
-D03-D04 are a coordinated contract cut and may share one implementation checkpoint
-if their consumers cannot be kept meaningful separately. Do not spread broken
-contract variants over a long sequence of commits. Do not begin this cut before
-D00's concrete target/error inventory and D02's preserved builtin boundary exist.
-If continuous full-library availability becomes a requirement, change the sequence
-explicitly: prove the general public payload protocol first and migrate libraries
-through it before deleting old paths. That is broader work than detach-first.
-
-#### Activated execution and D00 baseline
-
-Activated by the user on 2026-11-11, starting from `204e7276`. D00 is complete;
-D01-D04 are complete; D03/D04 share one coordinated contract-cut checkpoint.
-D05 handoff and isolated performance comparison remain pending. Phase commits use `Plan: docs/runtime-refactor-design.md`
-and `Plan-Phase: DNN`. This activation covers detachment only; later Runtime/Host,
-VM, frame and collector proposals remain design inputs.
-
-The minimal composition is explicit checked declarations plus only the providers
-the executable actually imports. Empty/unit and scalar forwarding need none;
-an application Native function can be authored against `DeclarationCatalog::default()`.
-The D00 source-free round-trip witness uses `core_only_calls.kgr` and the existing
-Native-function fixture owner. That owner's `fixture_without_foundation` formerly
-omitted stdlib during compilation but still installed the full bundle at execution;
-it now installs only the supplied application provider. Existing closure/reload
-and selected-method witnesses therefore exercise real provider isolation.
-
-Language requirements are not a mandatory complete library bundle:
-
-| Operation | Required composition retained through the cut |
-| --- | --- |
-| Unit/scalar transport, ordinary script calls, builtin fixed arrays | Verified executable facts; no stdlib installation for the core witness. |
-| Operator/trait syntax and custom implementations | Actual checked protocol declarations/implementations in the source/executable closure when used; preserve intrinsic scalar lowering. |
-| `?`, comparisons returning enums, iteration protocols | Exact Option/Result/Ordering/ControlFlow roles and checked trait contracts from their declaration providers; no fabricated layouts or name-only admission. Standard enum/protocol authoring remains in stdlib. |
-| Futures/tasks | Explicit Future/Task/TaskScope declarations and runtime-owned execution/storage mechanisms; not collection cursors. |
-| Narrow integer checks | Keep RuntimePrimitive::Assert: `compiler/source/lower/expr/operators.rs::check_integer_range` emits it for i8/i16/u8/u16/u32 checks. It is a compiler bridge, not removable library policy. |
-
-The current full bundle mixes library defaults with language declarations (notably
-Iterable defaults and Vec-returning methods). Do not install the whole bundle as
-the core-only oracle or pretend that filtering its final modules creates a closed
-minimal provider. D02/D03 must separate these authored dependencies before removing
-their concrete bindings. Standard declarations stay explicit provider composition;
-there is no new core-wrapper crate or hidden runtime registration.
-
-Concrete affected targets and restoration ownership, frozen before the D03 cut:
-
-| Targets / selected command | Expected impact and owner |
-| --- | --- |
-| `cargo check -p kagari-runtime --lib`; `cargo check -p kagari-vm --lib` | D03/D04 must fix removed type/layout/value/codec variants and storage/cursor calls in production; these core builds must pass at the cut. |
-| `cargo check -p kagari-stdlib --all-targets` | Vec/hash/cursor contributors currently call NativeStorage::sequence/map/set, collection codecs and heap services. Expected missing-API diagnostics after removal; D03/D04 remove obsolete bindings coherently, preserve reusable language recipes and carry full collection reconstruction to NC. |
-| Runtime lib tests, `--test native_schema`, examples `collection_iteration`, `rooted_values`, `runtime_construction`, `offline_host`, `atomic_host_path`, `host_trait_table` | Collection-specific witnesses/adapters need D04 migration/removal; generic opaque payload/root/loan/reentry assertions stay active. Derive/schema code itself has no direct collection-variant matches; derived collection fields depend on removed conversion impls. |
-| VM lib tests, `--test allocation_contracts`, `--test library_measurements` | Mixed collection and generic Native witnesses depend on retiring handles/codecs. D04 preserves generic checks with custom providers; collection fixtures/oracles belong to later NC reconnection. The new core-call measurement has no full-library dependency. |
-| `cargo check -p kagari --all-targets`; `cargo check -p kagari --all-targets --features serde` | SDK lib/integration tests `artifact_features`, `async_execution`, `async_facade`; collection examples `value_interop`, `serde_interop`, `foundation_baseline`, `architecture_baseline`, `enum_layout_baseline` are direct adapter consumers. D01 makes composition explicit; D04 owns removed-adapter compile repairs. Retain source-free, enum, async and reload routes. |
-| Remaining SDK examples `aot_host`, `async_tasks`, `definition_pipeline`, `execution_completion`, `host_interfaces`, `host_objects`, `host_reentry`, `offline_compile`, `package_workspace`, `persistent_static`, `regenerate_feature_artifact`, `runtime_initialization`, `scoped_execution`, `scoped_host`, `source_modules`, `source_queries`, `typed_native` | D01 explicitly composes providers where needed. D04 separates core-capable examples from library-only behavior; NC restores removed full-library behavior. Required-feature examples are checked only with their actual supported feature routes. |
-| `cargo check -p kagari-cli --all-targets`; `cargo check -p kagari-web --all-targets` | CLI `kg`/`toolchain` and web output adapter receive explicit composition in D01. Collection source behavior may be unavailable until NC; no fake-success execution or disabled tests. |
-| `cargo check -p kagari-codegen-cranelift --all-targets` | D03 updates removed executable operations/type matches; D01 updates SDK-based test composition. Native supported-subset and fallback checks remain separate. |
-| `cargo clippy --workspace --all-targets -- -D warnings` | Required at each implementation checkpoint. Any library compile failure is a real failure and blocks workspace acceptance, even when core detachment passes. Record actual errors once introduced; anticipated errors above are not observed failures. |
-
-The contract cut includes HIR, types, contract, MIR, compiler, bytecode, Runtime and
-VM consumers and serializers. Preserve ABI identifiers under the unpublished
-policy and invalidate affected disposable artifacts. D03/D04 may be one commit;
-do not stage incompatible partial enums in independent phase commits.
-
-D00 validation/results and the frozen warmed call measurements follow. The measurement command is
-`cargo test -p kagari-vm --release --test library_measurements core_only_script_and_native_calls -- --ignored --nocapture --test-threads=1`.
-It excludes compile/load/binding, uses 3 warm and 11 measured samples of 10,000
-bound host calls per shape, and separately counts one warmed invocation's allocator
-requests. Shapes are empty script, a nested scalar script call, and a nested
-script-to-Native echo call. Results are whole-call costs, not isolated lookup cost.
-
-D00 local evidence (2026-11-11): core Runtime/VM library checks pass. Six selected
-VM contracts pass: empty/custom-provider entry, retained closure/current binding,
-selected generic methods across GC/reload, checked payload edits/loan failure,
-nominal enum payloads, and resumed direct/recursive/shared/module calls. Three
-Runtime contracts pass: one-shot Native charge, rejected charge publication and
-invalid source-free executable rejection. These reuse owner assertions rather than
-adding duplicate root/reload tests. Only the empty/custom-provider composition was
-an uncovered case. Full-workspace tests and exhaustive features/platforms remain CI.
-
-Structure checks pass (1881 Rust files, no violations, three existing documented
-scalar-dispatch LOC exceptions), as do workspace Clippy, formatting, fixture format,
-documentation links and diff checks. No carried build or integration failures.
-
-Frozen D00 measurement: Windows x64 MSVC, Intel i7-10700F (16 logical CPUs),
-Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), workspace release/default features/default
-target and build parallelism. Compilation finished before measurement; one test
-thread, warmed execution storage and providers, no overlapping Cargo/check runs.
-Preparation is excluded; this measures the whole bound host invocation including
-result conversion and cleanup, with one separate warmed allocation sample.
-
-| Shape | Median ns/call (11 samples) | One warmed call allocation requests |
-| --- | ---: | --- |
-| empty | 5254.03 | `Counts { allocations: 38, reallocations: 0, deallocations: 38, requested_bytes: 1808 }` |
-| script | 6036.41 | `Counts { allocations: 38, reallocations: 0, deallocations: 38, requested_bytes: 1808 }` |
-| native | 12484.13 | `Counts { allocations: 103, reallocations: 0, deallocations: 103, requested_bytes: 4688 }` |
-
-These are baseline observations, not a speedup or zero-allocation claim. Reuse the
-same workload at D05 and diagnose repeatable regressions before introducing local
-optimizations; this detachment stage does not activate the compact-frame design.
-
-D01 implements explicit SDK composition. `KagariEngine::builder`, `new` and
-`default` begin with no providers; `with_native_modules` installs exactly its
-argument batch. The SDK stdlib dependency is dev-only. CLI, web and the existing
-Lua-comparison benchmark own direct stdlib dependencies and explicitly install it;
-library examples, test preparation and standard-declaration navigation do the same.
-There is one batch registration path, without a compatibility constructor or hidden
-feature bundle. Generic SDK session witnesses retain only their custom application
-provider, and all four empty constructor routes execute an artifact independently.
-The current collection backend remains available at this checkpoint.
-
-D01 local validation passes: five selected SDK tests cover all four empty
-constructor routes, application-only session/provider isolation, explicit full
-library sorting and Vec/Map/Set composition, and duplicate explicit registration.
-`cargo check -p kagari --lib --no-default-features` and the serde-enabled SDK
-all-target check pass. `cargo tree -p kagari --no-default-features --edges normal`
-contains no stdlib. Workspace Clippy checks all default targets, including CLI,
-web, examples and benchmark consumers. Structure (1881 files, no violations,
-three existing exceptions), formatting, documentation links and diff checks pass.
-No integration failures are carried. Full-workspace tests, feature/platform
-matrices and aot-build-only examples remain unrun locally/CI scope. D01 removes
-no collection backend.
-
-D02 separates builtin array storage from nominal sequence policy. The exact
-`gc::arrays::ArrayPayload` owns a checked element contract and packed/traced buffer;
-it has no nominal factory, growable-element policy or detached-edit state. Arrays
-use a Runtime-owned payload descriptor and their own admission/access entrypoints.
-Scalar buffer kernels now live with arrays, and the array capacity/accounting
-witness uses an empty executable owner rather than registering Vec. Existing
-publication/Native-borrow witnesses use the exact array payload. Diagnostics
-continue to count both array and remaining sequence backing.
-
-One finite D02 bridge remains in `gc/buffers.rs`: ordinary array kernels and the
-old nominal backend select their distinct payloads before using physical scalar
-storage. D03/D04 must remove that nominal branch, its shared growth-only kernels,
-and nominal edit leases. This is not a replacement generic collection API.
-Array owner/generation/type/bounds guards, scalar packing, managed tracing,
-repeat-allocation cancellation polls and lease error ordering remain required.
-
-Builtin structural hash preparation moved from MapKey to `value_semantics::hashing`.
-RuntimePrimitive::ValueHash now calls that owner directly; current table keys reuse
-the immutable structural key while retaining their own original-value/custom-token
-policy. The hashing traversal, enum identity, scalar distinctions and size bound
-are unchanged. Assert stays because compiler narrow-integer checks emit it;
-StringByteLength stays as a checked builtin String operation. Option/Result/
-Ordering construction, ranges and Future/Task/TaskScope execution stay core/checked
-language mechanisms; concrete collection cursors remain scheduled for removal.
-
-D02 local validation passes: 12 distinct selected contracts cover array scalar/
-traced/ZST accounting, Native charge, structural table keys, core-only and Native
-calls, closures, numeric traps, resumed calls, nominal enum factories/layout
-retention, array string join, failed/unwound detached edits, and enum hash stability.
-Unchanged passing evidence is reused rather than repeating package suites.
-The enum provider-isolation recheck initially failed with UnknownTypeAnnotation
-(`String`) and then InvalidImports (missing `alloc` package alias). Its existing
-string payload, GC, visibility and runtime-identity oracle now uses one sealed
-NativeTypeConstructor::String provider with an explicit package alias/import;
-it installs no complete stdlib or Vec. The source program is an ordinary formatted
-fixture. The preserved enum-layout reload route also passes with the updated import.
-
-Workspace Clippy, Runtime `execution-diagnostics,serde` library check, structure
-(1883 files, no violations, three existing exceptions), format, fixture format,
-documentation links and diff checks pass. No build/test errors are carried. The
-initial missing-import warning was removed during ownership review. Full-workspace
-tests and exhaustive features/platforms remain CI-only. The nominal packed-buffer
-bridge is the explicit D03/D04 removal obligation, not completed detachment.
-
-D03/D04 removes Map/Set/Iter semantic/value tags, Sequence/Map/Set/Iterator
-storage families, the builtin cursor instruction/codec, concrete tables/cursors,
-Vec NativePrimitive bodies, collection codecs/handles/factories and automatic Rust
-Vec/Serde sequence adapters. Fixed arrays retain the exact D02 payload, scalar
-packing, checked replacement and accounting kernels; their length cannot change.
-`Type::array` authors ordinary builtin-array signatures without a nominal provider.
-The ABI/format identifiers remain unchanged under the unpublished-artifact policy.
-The disposable old `target/fixtures/feature_artifact.kbc` was explicitly invalidated;
-feature, async-pair and async-task products were emitted against the new contract.
-
-The old Map/Set readonly marker and its special HIR admission policy are removed
-with those types. Reference access, checked trait/index-write selection, host
-path/loan validation and the bounded source-free type-flow checker remain.
-Native source/declaration shape correspondence remains at `native/api/correspondence.rs`.
-Ordinary nominal Native declarations still require their explicit trait proofs.
-
-`StoredSelection` and explicit payload selection slots remain generic capabilities.
-`allocate_result_payload` and `call_stored_values` retain exact metadata roots,
-checked current-call selection and caller type environments. Only automatic table
-Hash/Eq capture is removed. The focused payload witness exercises collection,
-current calls, replacement candidates and foreign owners through an ordinary
-application declaration. GC safepoint borrow admission is unrelated to retired
-script collection policy and remains intact.
-
-The reduced stdlib seals and executes basic string/numeric/character methods,
-language enum/async contracts, fixed-array index/equality and generic protocol
-algorithms. Concrete Vec/hash contributors, source-container cursors, String
-split/traversal helpers and List algorithms requiring retired edit scratch are
-withdrawn. No replacement backend, compatibility alias or new library crate exists.
-NC owns full library reconstruction through the later public payload/edit protocol.
-
-Generic consumers now use builtin arrays, tuples and application payloads. DTO
-recursion uses transparent Rust `Box<T>`/`Option<Box<T>>`, including Serde schemas;
-Box adds no script type or graph node. Conversion delegates directly to its child
-within the existing checked frame, avoiding a false cycle from entering the same
-identity twice. Real cycles remain rejected; child snapshots survive alias mutation,
-GC and visitor unwind. Root, result-conversion, cancellation, host reentry, type
-scope, owner/generation and cleanup assertions remain at their semantic owners.
-Tests solely about removed Sequence growth/detached leases, table capacity and
-obsolete codecs/instructions are retired. Full-library source fixtures remain for
-NC rather than being ignored or replaced by success stubs.
-
-D03/D04 local validation:
-
-- Workspace all-target Clippy, structure (1847 Rust files, zero violations, three
-  existing scalar-dispatch exceptions), Rust/changed-fixture formatting and diff
-  checks pass. SDK serde all-target and optional enum measurement example checks
-  pass. Production SDK, CLI, web, VM, compiler and Cranelift targets build.
-- Runtime samples cover Native accounting/extraction/revision exhaustion, fixed
-  array bounds/precommit cleanup, closure borrow rejection, explicit stored
-  selections and recursive DTOs. Seven Serde cases additionally cover all variant
-  shapes, scalar domains, real cycles, alias mutation/GC, limits and unwind.
-- Thirty sampled VM core/reload/Native cases passed initially. Two migrated test
-  setup defects (private export lookup and holding a tuple view during reflection)
-  were repaired and their existing contracts pass. Scalar/array Native invocation
-  retains its zero-allocation prepared-boundary oracle.
-- SDK samples pass seven generic concrete-result/interface cases, async output
-  publication, three offline composite routes, failed-shift completed effects and
-  application-only allocating callbacks. Stdlib samples pass nine conversions,
-  eight retained-object contracts and two wide-index/UTF-8 cases.
-- Artifact default/native routes pass fourteen initial cases plus the repaired
-  async example. All twelve cases also pass with SDK `--no-default-features`,
-  consuming the newly emitted products without SDK source compilation. They retain
-  enum propagation, host schemas, checked binding-forgery rejection, closures and
-  async tasks. The task example uses a script-authored Iterator over an array,
-  preserving for-body suspension rather than relying on the retired universal cursor.
-
-The initial removed-API compiler diagnostics are resolved, including VM tests
-(formerly 325 errors), Runtime serde tests and required-feature Rust consumers.
-Shared-type substitution depth, explicit Native Eq/Hash prerequisites and carried
-implementation bounds, reference access wire round-tripping and installed Native
-layout contracts also pass. Two migrated test assumptions were corrected: nominal
-ownership uses its retained identity scope without a constructor table, and decoded
-IDs belong to a fresh table. The oracles retain foreign-owner rejection, complete
-type shapes and portable declaration paths. No known core build/test failure is
-carried. Full-library behavior remains an
-explicit integration gap: Vec/HashMap/HashSet, built-in array/range iteration,
-String traversal/split, collection algorithms and the collection-heavy manual
-measurement workloads await NC/public-payload reconnection. The renamed Runtime
-`array_access` example is provider-free. The optional enum baseline observes values
-through checked script calls but still needs its actual collection providers to run.
-Full-workspace tests and exhaustive feature/backend/platform matrices were not run
-locally and are not claimed passing; library-dependent cases currently require NC.
-D05 must update current ownership docs and carry this boundary into the existing
-NC/Runtime sections, independently of its required local all-target build acceptance.
-
-#### Validation and deferred work
-
-Locally sample directly affected contracts: scalar/array access and checked traps;
-ordinary script/Native entry plus synchronous callback; opaque payload tracing,
-accounting and borrow rejection; a retained-body/current-inner-call reload witness;
-source-free invalid type/layout rejection; enum propagation and one owned async
-route using the required declarations. Existing owners include Runtime
-`gc/native/tests.rs`, `native/assembly/default_tests.rs`, VM `tests/prepared_execution.rs`
-and `tests/native_boundary/`, and SDK `runtime/tests/language/`. Keep test-only
-stdlib use separate from the production dependency assertion. Dev dependency
-removal alone is not an architectural acceptance condition.
-
-Selected build commands start with `cargo check -p kagari-runtime --lib` and
-`cargo check -p kagari-vm --lib`; choose focused tests from the affected owners
-rather than running all package suites. At implementation checkpoints run
-`uv run --locked scripts/check_structure.py`, `cargo fmt --all -- --check`,
-`cargo clippy --workspace --all-targets -- -D warnings` and `git diff --check`.
-For removed collection contracts, inspect serde-enabled consumers explicitly.
-Full-workspace tests and exhaustive backend/platform matrices stay CI-only.
-Compare warmed ordinary script/Native calls against D00; source/prepare timings,
-allocation and fixed-array packing remain separate measurements. No performance
-benefit follows merely from deletion.
-
-NC retains full library reconstruction, concrete storage/algorithm API design and
-external-provider parity; PG retains collector replacement. Current GC integration,
-Runtime/VM consolidation, generic Host redesign, tail recursion, enum niches and
-value structs are later checkpoints. D00-D05 do not complete those tracks.
+Full-workspace tests and exhaustive features/backend/platform matrices remain
+CI-only and were not run or claimed passing. The known library-dependent failures
+remain an explicit NC gap, not a core detachment build failure. Current Runtime/VM
+consolidation, Host redesign and existing-GC integration are the next design scope;
+tail recursion, enum/value representation and PG collector replacement remain
+inactive. This completion does not activate any of those migrations.
 
 Mechanism reference: [Lua 5.4.9 library composition](https://www.lua.org/source/5.4/linit.c.html)
 selects/open libraries separately from execution, and its
-[table library](https://www.lua.org/source/5.4/ltablib.c.html) implements operations
-through public table APIs. Adopt explicit composition and a public provider
-boundary. Lua tables remain a VM builtin; this does not prove that Kagari's nominal
-Vec/hash storage should stay builtin or supply Kagari's typed GC mutation protocol.
+[table library](https://www.lua.org/source/5.4/ltablib.c.html) uses public table APIs.
+Kagari adopts explicit composition and a public provider boundary. Lua tables are
+a VM builtin with different typing and GC assumptions; that is not authority to
+retain Kagari's nominal Vec/hash storage in Runtime or to skip typed mutation rules.
 
 ### Sequence and reviewable exit conditions
 

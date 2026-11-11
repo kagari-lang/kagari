@@ -724,20 +724,20 @@ first await. The callback's tuple and completion types must be annotated. Borrow
 host loans cannot be retained in a producer.
 
 The common KagariType/IntoKagari/FromKagari adapters support scalars, owned String,
-Vec, ordinary installed Option/Result and tuples of arity 0-12. The outer tuple is
+transparent Box<T>, ordinary installed Option/Result and tuples of arity 0-12. The outer tuple is
 the argument list: `()` means no arguments and `((a, b),)` means one tuple argument.
 Owned conversion copies data, bounds recursion/work and rejects unrepresentable
 cycles; identity-preserving adapters retain the original object instead. Input
 and output capabilities are independent, and no borrowed input reference escapes.
 NativeResult is the runtime-failure channel; a nested business Result remains data.
 Conversion does not implicitly install nominal providers or ignore type origins.
-Rust Vec<T> and ScriptVec<T> refer to the installed nominal Vec declaration and
-reject builtin arrays, including empty ones. Portable `Ty::Array` carries only its
-element schema; nominal collection types carry their explicit declaration identity
-and type arguments. Runtime matching preserves these families and checks
-empty-container element contracts as well as each stored value. CallContext exposes
-allocate_array and allocate_vec explicitly; native storage factories allocate
-fixed arrays with allocate_array.
+Portable `Ty::Array` carries its element schema; `Type::array` authors that
+signature and `CallContext::allocate_array` allocates checked fixed storage. Native
+values retain ordinary explicit declaration identities and type arguments. Runtime
+has no automatic Rust Vec conversion, collection-specific retained handle or nominal
+collection allocator. Libraries must author their own wrappers/explicit adapters;
+an empty value never bypasses type, scope or owner checks. Rust Box is ownership
+indirection only and adds no script layout or recursive graph node.
 
 `ModuleBuilder::register_type::<T>()` stages a finite schema graph transactionally.
 `kagari_derive::KagariValue` supplies ordinary named structs and unit/tuple enums,
@@ -756,14 +756,15 @@ conversion roots, complete immediate-child snapshots, cycle/depth/work/string
 limits and cancellation. It does not build JSON, byte buffers or a dynamic value tree.
 String formatting through `collect_str` is charged before buffer growth.
 
-Automatic Serde schemas support the same primitives, owned String, Vec, tuples,
+Automatic Serde schemas support the same primitives, owned String, transparent Box, tuples,
 Option/Result, named structs and unit/newtype/tuple enum variants. Symmetric short
 `rename`/`rename_all`, unconditional `skip` and `default` are supported. Names must
 remain script identifiers. Skipped fields have no script member; ordinary script
 structs still contain every declared field, so `default` does not admit incomplete
 GC objects. Flattening, conditional omission, asymmetric names, changed tagging,
 custom serializer attributes, borrowed/remote schemas and generic Opaque-ID encoding
-are rejected. A manual schema must match its actual serializer and passes the same
+are rejected. Serde sequences/maps need a library-owned adapter; no automatic
+Vec schema is installed. A manual schema must match its actual serializer and passes the same
 value validation; no schema grants a Rust reference to GC storage or a field projector.
 Run the [Serde consumer](../../crates/kagari/examples/serde_interop.rs) with
 `cargo run -p kagari --example serde_interop --no-default-features --features source,serde`.
@@ -786,11 +787,10 @@ and the [scope contract](host-interop.md).
 
 ## Retained objects and prepared calls
 
-`Object`, `Opaque<T>`, `ScriptVec<T>`, `ScriptMap<K, V>`, `ScriptSet<T>`,
-`Interface` and `Function<A, R>` retain the values needed by the host. Clones
+`Object`, `Opaque<T>`, `Interface` and `Function<A, R>` retain the values needed by the host. Clones
 preserve identity and share retention; dropping the last handle permits collection.
 `ScriptValue` forwards an exact declared generic value without erasing its type.
-Ordinary field/collection reads and callback results need no manual root operation.
+Ordinary field reads and callback results need no manual root operation.
 
 Backend VM execution (`execute`, `execute_typed`, `start`, `execute_prepared`),
 SDK `execute`/`execute_prepared` and `NativeCompiler::prepare` accept `ProgramEntry` from
@@ -851,13 +851,9 @@ The collector retains only an inert, charged invalidation identity while old ali
 remain; it cannot be accessed or published as a live object. Managed script-edge
 payloads do not receive extraction capability from an empty trace function.
 
-`ScriptVec::retain` and `dedup_by` run typed callbacks under the existing exclusive
-buffer lease. Aliases cannot mutate or read detached slots. GC may run during the
-callback; errors/unwind restore storage with completed removals preserved. A read
-of unavailable storage is an error, not an empty result. Per-field conversions
-finish before their writes; removal handles retain detached results immediately.
-Standard-library pop/remove additionally preserve their specified preparation of
-Option results before committing the removal.
+Collection-specific retain/dedup/edit adapters have been withdrawn. Their future
+library providers must reuse checked roots, loans, cancellation and explicit commit
+semantics; opaque payload access does not grant an unrestricted resizable edit API.
 
 Preauthored native catalogs can use `NativeBinding::declared` and
 `SelectedCall::from_declaration`; ordinary registration uses `bind` and

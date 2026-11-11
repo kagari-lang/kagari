@@ -1509,19 +1509,17 @@ full collection design/implementation and PG owns later collector replacement.
 Record this order before activating finite implementation phases. No new collector,
 full standard-library rewrite or shared declaration-ID migration is activated here.
 
-The [2026-11-11 detachment inventory and D00-D05 plan](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
-records the concrete coupling in collection layouts/types, packed array sharing,
-heap services, Native codecs/primitives, cursors, Rust adapters/Serde and automatic
-SDK composition. The user activated D00-D05 on 2026-11-11; D00 core-only baseline is complete
-and committed. D01 explicit SDK composition and D02 builtin array/hash separation are complete;
-D03/D04 are complete as one coordinated contract cut; D05 handoff is pending. Establish a core-only
-witness, make installation explicit, separate builtin storage, perform one coherent
-contract cut, remove library adapters and hand off the Runtime baseline. This is
-detach-first; complete old library availability is not promised during backend
-removal. D00 must freeze exact affected targets/restoration owners before the cut;
-core-only success cannot establish workspace acceptance. Retain required language
-roles, builtin semantics and generic safety/reload coverage. NC owns later full
-library reconnection; no replacement collector or Runtime/VM merge is activated.
+The [2026-11-11 D00-D05 detachment](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
+is complete. Runtime/SDK start empty, builtin arrays retain packed storage, and
+privileged collection layouts/types/cursors/codecs/adapters are removed end to end.
+Required local Clippy/structure/format checks and selected safety/reload/source-free
+contracts pass; the release call workload retains its D00 allocation counts.
+This is core detachment, not restored full-library acceptance. Vec/hash containers,
+builtin array/range iteration, String traversal/split and collection-dependent
+programs/measurements await NC and the later public payload/edit protocol. Their
+behavioral fixtures remain. Full-workspace tests and exhaustive matrices remain
+CI scope and are not claimed passing. No Runtime/VM consolidation, new collector,
+full-library reconstruction or compact-frame migration is activated by completion.
 
 The [proposed crate consolidation](runtime-refactor-design.md#proposed-crate-consolidation-and-single-runtime)
 merges `kagari-vm` execution into `kagari-runtime`, removes Vm and the SDK Runtime

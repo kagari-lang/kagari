@@ -1,5 +1,9 @@
 # Kagari and Lua comparison
 
+Runtime detachment has withdrawn the concrete Kagari collection providers.
+Collection-dependent Kagari workloads below await [NC reconstruction](../../docs/native-collections-plan.md);
+historical measurements retain their recorded revision and are not current results.
+
 For a focused PUC Lua table-field access measurement, build and run the
 [lua_field_access example](examples/lua_field_access/main.rs):
 
@@ -640,9 +644,9 @@ use the general value/root representation. Arithmetic alone performs 250,003
 to 200,001 binary operations and loop branches/jumps.
 
 Calls/recursion add frame/root allocation costs. Map lookup also constructs
-heap-backed `Option` results: [`map_get`](../../crates/kagari-stdlib/src/foundation/hash/operations.rs)
-calls [`option`](../../crates/kagari-stdlib/src/foundation/enumerations/value.rs), which
-allocates an enum object (links follow their current stdlib owners). This fixture performs 2,000 gets plus one map allocation,
+heap-backed `Option` results: the retired `foundation/hash/operations.rs::map_get`
+called [`option`](../../crates/kagari-stdlib/src/foundation/enumerations/value.rs), which
+allocates an enum object. This historical fixture performed 2,000 gets plus one map allocation,
 matching the measured 2,001 allocations and five collections per call. The zero
 GC collections in scalar/call workloads exclude GC pauses as the cause of their
 large gaps. Both container workloads still spend substantial samples in the same

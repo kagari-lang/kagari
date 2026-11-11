@@ -12,15 +12,23 @@ this plan retains concrete collection implementation and acceptance. Earlier
 NC/PG phase pairings below are historical sequencing to rebase before activation,
 not a prerequisite to organizing Runtime or integrating its current collector.
 
-Detachment planning update, 2026-11-11: the immediate
-[Runtime inventory and D00-D05 checkpoints](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
-own removal of existing privileged library dependencies before the Runtime rewrite.
-NC01-NC06 remain unstarted and own subsequent full library reconstruction/public
-provider parity, not a second concurrent removal sequence. The detach-first plan
-does not promise uninterrupted old-library availability. Preserve unique library
-fixtures/oracles for reconnection and keep generic Runtime guarantees exercised
-through independent Native providers. Rebase the older storage/API inventory below
-on the resulting Runtime/Host boundary before activating NC.
+Detachment handoff, 2026-11-11: [D00-D05](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
+is complete. Runtime no longer has collection storage/type/value families, cursors,
+Vec primitives/codecs/handles, table/key policy or automatic Rust Vec/Serde adapters.
+The SDK starts empty. Fixed arrays, builtin String/ranges, language roles/async,
+generic payload tracing/accounting/loans and explicit stored selections remain.
+The older file inventory below describes the removed baseline; `(retired)` paths
+are historical evidence, not current callable APIs or migration prerequisites.
+
+NC01-NC06 remain unstarted. Before activation, rebase them on the later Runtime/Host
+public dynamic-payload/edit protocol. Restore Vec/HashMap/HashSet, builtin
+array/range iteration, String traversal/split, List algorithms and explicit
+library-owned Rust/Serde wrappers through that same public boundary. Existing
+library source fixtures, source-free roots/callbacks and effect-order oracles are
+retained; restore these concrete routes rather than reviving privileged Runtime
+helpers. Full-product library acceptance remains pending. Keep current exact
+owner/generation, stored selection/current-call and accounting/borrow contracts.
+The optional enum workload compiles but cannot run without these actual providers.
 
 Storage inventory refresh, 2026-10-18: the prioritized
 [runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) and
@@ -146,17 +154,17 @@ Recheck implementation at NC01 without reopening the completed Iterable API work
 
 | Current owner | Evidence and disposition |
 | --- | --- |
-| [Vec declarations](../crates/kagari-stdlib/src/foundation/vector.rs), [hash declarations](../crates/kagari-stdlib/src/foundation/hash.rs) | Vec is nominal but declares Sequence storage; HashMap/HashSet still use special native constructors. Move all three to ordinary native declarations. |
+| `crates/kagari-stdlib/src/foundation/vector.rs` (retired), `crates/kagari-stdlib/src/foundation/hash.rs` (retired) | Vec is nominal but declares Sequence storage; HashMap/HashSet still use special native constructors. Move all three to ordinary native declarations. |
 | [Shared native declarations](../crates/kagari-types/src/declaration/native.rs), [HIR application](../crates/kagari-hir/src/native.rs) | Collection constructor/layout variants leak implementation families into semantic modeling. Remove these dependencies coherently rather than rename them. |
 | [Heap directory](../crates/kagari-runtime/src/gc/directory.rs), [shared interfaces](../crates/kagari-runtime/src/gc/interfaces.rs) | The directory owns generation/locator; native records own mutation revisions. Interfaces locate metadata snapshots directly, preserving distinct checked heap/metadata identities and roots; shared descriptions do not own receivers. Packed script fields do not reinterpret Rust payload memory. No public raw arena/ownerless-token API was added. |
 | [Native storage](../crates/kagari-runtime/src/native/storage.rs), [type builder](../crates/kagari-runtime/src/native/builder/type_builder.rs) | Factories, payload bindings, tracing and scoped type arguments already exist. Native revision initialization/reset/replacement/exhaustion has one runtime owner; checked public mutation access remains NC01 work. Extend these owners only for proven gaps. |
 | [Managed fields](../crates/kagari-runtime/src/native/payload/managed.rs), [fixed native data](../crates/kagari-runtime/src/native/payload/data.rs) | Safe edits separate fixed Rust data from checked script edges. Dynamic storage must preserve that boundary; arbitrary mutable payload access is not a solution. |
-| [Sequences](../crates/kagari-runtime/src/native/sequence.rs), [hash payloads](../crates/kagari-runtime/src/native/hashed.rs), [tables](../crates/kagari-runtime/src/native/hash_storage.rs) | Runtime owns concrete storage and optimizations. Relocate collection policy while preserving useful storage foundations and checks. |
-| [Hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs), [codecs](../crates/kagari-runtime/src/native/binding.rs) | Methods depend on special value tags, heap operations and layout admission. Replace these with checked nominal access. |
+| `crates/kagari-runtime/src/native/sequence.rs` (retired), `crates/kagari-runtime/src/native/hashed.rs` (retired), `crates/kagari-runtime/src/native/hash_storage.rs` (retired) | Runtime owns concrete storage and optimizations. Relocate collection policy while preserving useful storage foundations and checks. |
+| `crates/kagari-stdlib/src/foundation/hash/operations.rs` (retired), [codecs](../crates/kagari-runtime/src/native/binding.rs) | Methods depend on special value tags, heap operations and layout admission. Replace these with checked nominal access. |
 | [Iterable declarations/defaults](../crates/kagari-stdlib/src/foundation/iteration.rs), [shared default lowerer](../crates/kagari-runtime/src/native/builder/default_lowering.rs), [operations](../crates/kagari-stdlib/src/foundation/iteration/operations.rs), [lazy cursors](../crates/kagari-stdlib/src/foundation/iteration/cursor.rs) | Uniform defaults, Iterator identity adaptation and nominal lazy adapters are implemented. Reuse these algorithms and checked iter/next calls; the old Vec-only free map and NativeCursor SDK were removed. |
 | [Call context](../crates/kagari-runtime/src/native/context.rs), [stored selections](../crates/kagari-runtime/src/native/stored_selection.rs) | Payload allocation retains selected calls as metadata edges and later invokes them through the rooted receiver. Reuse this mechanism for collection key calls; public constructor/factory ergonomics still need NC01 review. |
-| [Vec construction/requirements](../crates/kagari-stdlib/src/foundation/vector.rs), [hash construction/requirements](../crates/kagari-stdlib/src/foundation/hash.rs), [Vec operations](../crates/kagari-stdlib/src/foundation/vector/operations.rs), [shared construction traversal](../crates/kagari-stdlib/src/foundation/iteration/traversal.rs) | Vec/HashMap/HashSet FromIterator and collect delegation already work. Hash construction selects insert, but still declares Ty::Map/Set and branches on Value::Map; migrate representation without replacing consumption semantics. |
-| [Base cursors](../crates/kagari-runtime/src/gc/iter.rs) | Cursors check structural revisions on reads; wrappers retain ordinary traced edges, without iteration leases or consumer-scope traversal. Revision ownership for general library storage remains a native storage boundary. |
+| `crates/kagari-stdlib/src/foundation/vector.rs` (retired), `crates/kagari-stdlib/src/foundation/hash.rs` (retired), `crates/kagari-stdlib/src/foundation/vector/operations.rs` (retired), [shared construction traversal](../crates/kagari-stdlib/src/foundation/iteration/traversal.rs) | Vec/HashMap/HashSet FromIterator and collect delegation already work. Hash construction selects insert, but still declares Ty::Map/Set and branches on Value::Map; migrate representation without replacing consumption semantics. |
+| `crates/kagari-runtime/src/gc/iter.rs` (retired) | Cursors check structural revisions on reads; wrappers retain ordinary traced edges, without iteration leases or consumer-scope traversal. Revision ownership for general library storage remains a native storage boundary. |
 
 Today map insertion passes through Value::Map and GcHeap map operations into a
 runtime-owned table. That path also enforces key/value typing, allocation
@@ -177,14 +185,14 @@ and NC06 closes every row, preserving the generic validation each currently owns
 
 | Existing source boundary | Required disposition |
 | --- | --- |
-| [sequence payload](../crates/kagari-runtime/src/native/sequence.rs), [allocation](../crates/kagari-runtime/src/native/sequence/allocation.rs), [heap operations](../crates/kagari-runtime/src/gc/sequence_ops.rs), [sequence admission](../crates/kagari-runtime/src/gc/sequences.rs) | Move Vec representation, scalar selection and operations into the library; remove Sequence as privileged Vec admission. |
-| [edit API](../crates/kagari-runtime/src/native/sequence_edit.rs), [edit lease/snapshot](../crates/kagari-runtime/src/gc/sequence_edit.rs) | Replace concrete detached-buffer policy and the full reference-root snapshot with generic protection/publication services and library-owned algorithms; do not preserve the snapshot as sort admission. |
-| [hashed payloads](../crates/kagari-runtime/src/native/hashed.rs), [hash_storage](../crates/kagari-runtime/src/native/hash_storage.rs), [custom_keys](../crates/kagari-runtime/src/gc/custom_keys.rs) | Move table layout, collision traversal, key policy and concrete operations into the library; reuse checked selected calls and general operation protection. |
-| [concrete cursors](../crates/kagari-runtime/src/gc/iter.rs) | Replace Vec/Map/Set cursor variants and concrete heap traversal with nominal library cursors; retain unrelated builtin cursor support. |
+| `crates/kagari-runtime/src/native/sequence.rs` (retired), `crates/kagari-runtime/src/native/sequence/allocation.rs` (retired), `crates/kagari-runtime/src/gc/sequence_ops.rs` (retired), `crates/kagari-runtime/src/gc/sequences.rs` (retired) | Move Vec representation, scalar selection and operations into the library; remove Sequence as privileged Vec admission. |
+| `crates/kagari-runtime/src/native/sequence_edit.rs` (retired), `crates/kagari-runtime/src/gc/sequence_edit.rs` (retired) | Replace concrete detached-buffer policy and the full reference-root snapshot with generic protection/publication services and library-owned algorithms; do not preserve the snapshot as sort admission. |
+| `crates/kagari-runtime/src/native/hashed.rs` (retired), `crates/kagari-runtime/src/native/hash_storage.rs` (retired), `crates/kagari-runtime/src/gc/custom_keys.rs` (retired) | Move table layout, collision traversal, key policy and concrete operations into the library; reuse checked selected calls and general operation protection. |
+| `crates/kagari-runtime/src/gc/iter.rs` (retired) | Replace Vec/Map/Set cursor variants and concrete heap traversal with nominal library cursors; retain unrelated builtin cursor support. |
 | [Ty](../crates/kagari-types/src/ty.rs), [Value](../crates/kagari-runtime/src/value.rs), [constructors/layouts](../crates/kagari-types/src/declaration/native.rs), [HIR mapping](../crates/kagari-hir/src/native/api.rs), [compiler mapping](../crates/kagari-compiler/src/source/types.rs) | Remove concrete Map/Set families and collection constructor/layout authority, including substitution, checking and formatting consumers. |
 | [type wire](../crates/kagari-types/src/ty/wire.rs), [native wire](../crates/kagari-types/src/declaration/wire/native.rs), [binding codecs](../crates/kagari-runtime/src/native/binding.rs) | Remove collection-family codec/admission branches; keep ordinary nominal/source-free validation, not compatibility readers. |
 | [Vec native primitives](../crates/kagari-runtime/src/native/primitive.rs), [linked execution](../crates/kagari-runtime/src/module/linked_execution.rs), [linker](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs), [execution fast path](../crates/kagari-runtime/src/frame/cursor/primitives.rs) | Remove VecIndex/VecSet/VecSetFluent and linked Vector dispatch as engine protocols; retain valid optimizations inside ordinary library entries. |
-| [host adapters](../crates/kagari-runtime/src/native/collections.rs), [host conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), [constructor binding](../crates/kagari-runtime/src/native/function_handle/constructors.rs), [hardcoded Vec identity](../crates/kagari-runtime/src/native/collections/vector/storage.rs) | Move collection-specific conversions/construction to the library through public generic evidence. Replace special constructor matching and diagnostics/cache preparation; retain generic function-cache ownership and supplying generations. |
+| `crates/kagari-runtime/src/native/collections.rs` (retired), [host conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), `crates/kagari-runtime/src/native/function_handle/constructors.rs` (retired), `crates/kagari-runtime/src/native/collections/vector/storage.rs` (retired) | Move collection-specific conversions/construction to the library through public generic evidence. Replace special constructor matching and diagnostics/cache preparation; retain generic function-cache ownership and supplying generations. |
 
 The [heap descriptor caches](../crates/kagari-runtime/src/gc.rs) and
 [backing diagnostics](../crates/kagari-runtime/src/gc/directory/accounting.rs) must
@@ -664,7 +672,7 @@ only gaps required by these collections and the external proof.
   access checks, permitted callback activity and cleanup using existing guard owners;
   a recursion token is not a substitute for candidate/commit or slot-access safety.
 - Scan/admission: [NativePayload::trace](../crates/kagari-runtime/src/native/storage.rs)
-  is a whole-payload visitor; [sequence editing](../crates/kagari-runtime/src/gc/sequence_edit.rs)
+  is a whole-payload visitor; `crates/kagari-runtime/src/gc/sequence_edit.rs` (retired)
   snapshots all reference elements into roots. NC02 must expose the GC design's
   resumable mutation/scan contract and no-prepass admission for library work state.
   NativeStorage payload admission currently traces incoming payloads; merely moving
@@ -674,7 +682,7 @@ only gaps required by these collections and the external proof.
   but element_contract is private; [NativeType::create](../crates/kagari-runtime/src/native/payload.rs)
   prepares a payload without an explicit selected-slot argument, whereas
   [CallContext](../crates/kagari-runtime/src/native/context.rs) retains declared slots.
-  [Host constructor binding](../crates/kagari-runtime/src/native/function_handle/constructors.rs)
+  `crates/kagari-runtime/src/native/function_handle/constructors.rs` (retired)
   matches Ty::Map/Set. The current [native type binding](../crates/kagari-runtime/src/native/payload/binding.rs)
   also rejects declarations with nonempty bounds. Close these public generic
   construction/host-path gaps using existing checked scopes, selected slots and

@@ -259,9 +259,9 @@ validation cannot consume heap growth units or change the target object.
 Native mutation revisions belong to runtime-owned native records, separately from
 the common identity generation/locator. New identities begin with a fresh revision;
 record relocation preserves it and payload replacement keeps the receiver's state.
-Structural edits, checked native writes and detached sequence restoration retain
-their operation-specific invalidation/commit order. Exhaustion rejects the operation
-without wrapping. A temporarily detached sequence has no readable traversal revision.
+Checked native writes retain their operation-specific invalidation/commit order.
+Exhaustion rejects the operation without wrapping. Runtime contains no collection
+structural-edit/cursor policy or detached sequence storage.
 
 An interface heap identity directly locates a runtime-owned snapshot. Heap aliases
 have independent checked identities even when they share one metadata snapshot.
@@ -369,14 +369,11 @@ The current attribution is deliberately bounded:
 
 - Strings contribute their actual capacity, not just UTF-8 length.
 - Native records include the erased payload Box's shallow size exactly once, plus
-  the provider's exclusively owned indirect backing. Sequence buffers use actual
+  the provider's exclusively owned indirect backing. Fixed-array buffers use actual
   capacity times their physical element width (zero for Unit, `Value` width for
-  traced slots). Managed field buffers, iterator key buffers and cold native Future
+  traced slots). Managed field buffers and cold native Future
   capture/parameter buffers likewise use their known capacities. Task failure
   payloads include their owned error-message capacity.
-- Map/Set storage uses capacity-based entry and collision-table estimates plus
-  known collision-token vector capacities. Rust's standard hash collections do
-  not expose exact bucket/control allocation sizes; these are pressure estimates.
 - Referenced GC objects are charged separately. Shared type/code/layout metadata,
   external host resources and runtime directories, store/frame/struct-byte arenas
   are excluded from byte attribution. Other non-native object backing is not
@@ -389,9 +386,7 @@ shallow Box size. The runtime-owned `NativeObject` records that charge; allocati
 uses it, relocation preserves it, and checked storage mutations update it alongside
 committed storage. Sweep and take release recorded charges without provider calls.
 A prepared replacement has its own charge; unchanged logical length does not imply
-unchanged capacity. Detached sequence editing keeps the original buffer charged
-until restoration; removals reduce logical units but do not invent a capacity
-release. Claiming a cold Future transfers its capture backing out of the payload's
+unchanged capacity. Claiming a cold Future transfers its capture backing out of the payload's
 charge, leaving its Box charged. Native take releases payload units and bytes but
 keeps one logical identity unit until its inert aliases are no longer traced.
 See [provider obligations](host-interop.md#native-payload-accounting) and

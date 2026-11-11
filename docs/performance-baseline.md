@@ -21,6 +21,41 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## Runtime detachment core-call comparison, Windows 2026-11-11
+
+Compare D00 `17845d5f` with detached implementation `ccc7b25c`. Both use
+`cargo test -p kagari-vm --release --test library_measurements core_only_script_and_native_calls -- --ignored --nocapture --test-threads=1`.
+The D05 target was rebuilt before measurement, then executed alone after builds
+and other tests finished. Build time (D05: 2m 35s incremental rebuild) is excluded
+from timings. There are three warm-up batches and eleven measured batches of
+10,000 calls per shape, plus one separate warmed allocation sample. Compilation,
+loading and typed binding are excluded; each measured operation is a complete
+bound SDK-style host call, including conversion, admission, execution and cleanup.
+This is not a function-lookup-only or interpreter-loop measurement.
+
+Environment: Windows x64 MSVC, Intel Core i7-10700F (16 logical processors),
+Rust 1.99.1 `58cf8f9c3` / LLVM 23.1.1, workspace release profile/default features,
+default Cargo target/parallelism, warm runtime/binding caches and one test thread.
+All shapes run in one Runtime with only the application provider installed; empty
+and script forwarding make no Native call. No stdlib is installed or composed
+inside a timed call.
+
+| Shape | D00 median ns/call | D05 median ns/call | Observed change | Allocations / requested bytes, both |
+| --- | ---: | ---: | ---: | ---: |
+| empty | 5254.03 | 4969.08 | -5.42% | 38 / 1808 |
+| script | 6036.41 | 5836.64 | -3.31% | 38 / 1808 |
+| native | 12484.13 | 12092.53 | -3.14% | 103 / 4688 |
+
+All samples have zero reallocations; deallocations equal allocation requests.
+The separately measured prepared scalar/array Native-boundary contract still
+observes zero allocations; it excludes the host entry work measured here.
+Allocation counts/bytes are unchanged, and this run shows no median-time regression.
+Small timing differences are observations without statistical significance or a
+causal speedup claim. The modest sample does not establish whole-language speed,
+memory compactness, tail-call performance or restored collection-library coverage.
+The [Runtime handoff](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
+records that separate integration boundary.
+
 ## Persistent HIR baseline, Windows 2026-11-07
 
 Use the [frontend benchmark guide](frontend-benchmarks.md) for current AST same-lock
@@ -1426,8 +1461,8 @@ one script object and collects twice per workload; byte_state allocates two obje
 and collects once. Per-element object allocation is not their explanation.
 
 **Map insertion/results (maps).** Integer keys use the builtin-key branch, with
-no script Hash/Eq invocation. [map_insert](../crates/kagari-runtime/src/gc/maps_sets.rs)
-checks contains_key and reserves, then [HashMapStorage::insert](../crates/kagari-runtime/src/native/hash_storage.rs)
+no script Hash/Eq invocation. `crates/kagari-runtime/src/gc/maps_sets.rs` (retired)
+checks contains_key and reserves, then `crates/kagari-runtime/src/native/hash_storage.rs` (retired)
 checks contains_key and reserves again before insert. The 2,000 inserts therefore
 make 6,000 explicit membership/insertion searches, plus 2,000 gets (rehash work is
 additional). [Option construction](../crates/kagari-stdlib/src/foundation/enumerations/value.rs)
@@ -4172,9 +4207,9 @@ addition to surrounding interpreter polling. This is a candidate for one checked
 transaction owner, not authorization to delete dynamic validation or polls.
 
 **Map insertion:**
-[`GcHeap::map_insert`](../crates/kagari-runtime/src/gc/maps_sets.rs) calls contains_key
+`crates/kagari-runtime/src/gc/maps_sets.rs` (retired) calls contains_key
 for growth/accounting, then
-[`HashMapStorage::insert`](../crates/kagari-runtime/src/native/hash_storage.rs)
+`crates/kagari-runtime/src/native/hash_storage.rs` (retired)
 calls contains_key again before HashMap::insert. Each successful insertion or
 replacement therefore makes three explicit table-search API calls, not one. The
 fixture's 2,000 inserts issue 6,000 such calls, plus 2,000 gets; rehash work is extra.
@@ -4182,7 +4217,7 @@ This is verified duplicate membership work across accounting/storage ownership,
 not a required language semantic. Its elapsed share is not measured.
 
 **Map lookup and match:** the i32-key fixture takes the
-[builtin-key branch](../crates/kagari-stdlib/src/foundation/hash/operations.rs); it does not call
+`crates/kagari-stdlib/src/foundation/hash/operations.rs` (retired); it does not call
 script Hash/Eq per lookup or allocate a key vector. Each get nevertheless constructs
 an ordinary heap-backed Some with a payload buffer. The 2,000 successful gets explain
 2,000 enum objects in addition to the map. They then execute exactly 2,000
@@ -5630,8 +5665,8 @@ The source paths and these measurements identify the following review order:
 4. **Container-specific work after admission.** Map insertion performs an outer
    contains_key, another in HashMapStorage::insert and the final insert. This is
    repeated probing visible in
-   [maps_sets](../crates/kagari-runtime/src/gc/maps_sets.rs) and
-   [hash storage](../crates/kagari-runtime/src/native/hash_storage.rs). Map gets
+   `crates/kagari-runtime/src/gc/maps_sets.rs` (retired) and
+   `crates/kagari-runtime/src/native/hash_storage.rs` (retired). Map gets
    construct Option records; the fixture produces 2,001 heap objects and 6
    collections per complete workload. Option representation, checked collection
    mutation and host boundaries are current semantic costs; they are separate
