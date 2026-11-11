@@ -14,6 +14,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
@@ -106,9 +107,15 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
             },
         )
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -205,9 +212,15 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
             panic!("invalid source cannot invoke a host callback")
         })
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let error = engine
         .compile_source(SourceFile::new(
             "bad.kgr",
@@ -254,9 +267,15 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             },
         )
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     for (argument, expected_calls) in [
         ("[]", 1),
         ("if true { [] } else { [] }", 1),

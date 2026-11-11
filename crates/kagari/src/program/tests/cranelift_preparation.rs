@@ -27,6 +27,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 use rstest::rstest;
@@ -97,6 +98,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         let second_value = Arc::new(AtomicI32::new(201));
         let first_host = Arc::downgrade(&first_value);
         let mut builder = KagariEngine::builder().unwrap();
+        builder.install_all(stdlib::modules().unwrap()).unwrap();
         let first_provider = player_module(builder.declarations(), first_value.clone());
         let second_provider = player_module(builder.declarations(), second_value.clone());
         builder.install(first_provider).unwrap();
@@ -135,7 +137,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             ..Default::default()
         };
         let mut first = engine.runtime(context.clone());
-        let mut modules = kagari_stdlib::modules().unwrap();
+        let mut modules = stdlib::modules().unwrap();
         modules.push(second_provider);
         let mut second = SdkRuntime::new(
             NativeInstallation::prepare(&modules)
@@ -345,7 +347,8 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
     #[case] source: &str,
     #[case] expected: i32,
 ) {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     // Preserve unsupported MIR operations for this backend-boundary fixture.
     // The native test above separately covers default constant folding.
     let mut options = ArtifactOptions::default();
@@ -397,7 +400,8 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
 fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints() {
     use crate::runtime::Runtime;
     use kagari_runtime::{Runtime as CoreRuntime, RuntimeConfig, gc::GcHeapConfig};
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let prepare = |value| {
         let artifact = engine
             .compile_to_artifact(
@@ -431,7 +435,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
                 ..Default::default()
             });
             kagari_runtime::native::module::NativeModule::install_all(
-                &kagari_stdlib::modules().unwrap(),
+                &stdlib::modules().unwrap(),
                 &mut registered,
             )
             .unwrap();

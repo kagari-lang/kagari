@@ -1,5 +1,6 @@
 //! Matched Lua/Kagari execution with setup separated and every checksum verified.
 use kagari::program::native::NativeCompiler;
+use kagari_stdlib as stdlib;
 #[cfg(feature = "diagnostics")]
 mod diagnostic_forms;
 #[cfg(feature = "diagnostics")]
@@ -261,7 +262,9 @@ fn run(workload: &Workload, options: &Options) {
         workload,
         sample: 0,
     };
-    let engine = record.setup("engine_init", "kagari_vm", KagariEngine::default);
+    let engine = record.setup("engine_init", "kagari_vm", || {
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap()
+    });
     let source = SourceFile::new(
         format!("benchmark_{}.kgr", workload.name),
         kagari_source.clone(),

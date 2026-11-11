@@ -12,6 +12,7 @@ use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
+use kagari_stdlib as stdlib;
 use std::sync::{Mutex, OnceLock};
 
 pub fn engine(config: EngineConfig) -> KagariEngine {
@@ -19,7 +20,12 @@ pub fn engine(config: EngineConfig) -> KagariEngine {
     // AnalysisDatabase is Send, not Sync. The lock only protects cloning the
     // native-only baseline; no source analysis or execution runs under it.
     BASELINE
-        .get_or_init(|| Mutex::new(KagariEngine::default()))
+        .get_or_init(|| {
+            Mutex::new(
+                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                    .unwrap(),
+            )
+        })
         .lock()
         .unwrap()
         .new_session(config)

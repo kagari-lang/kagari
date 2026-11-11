@@ -7,6 +7,7 @@ use crate::{
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 mod boundaries;
 mod inventory;
@@ -25,7 +26,7 @@ const WIDTHS: [(&str, u32); 8] = [
 fn engine() -> KagariEngine {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::new(config)
+    KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap()
 }
 
 fn context() -> ExecutionContext {

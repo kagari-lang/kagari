@@ -12,6 +12,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     collection::CollectionAccess,
@@ -57,8 +58,15 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
         &DefinitionContext::new().unwrap().snapshot(),
     )
     .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![module(array)]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module(array)])
+            .collect(),
+    )
+    .unwrap();
 
     assert!(
         engine
@@ -95,7 +103,15 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
         Value::I32(42)
     );
     let changed = module(declarations.vec(Type::i32()).unwrap());
-    let changed = KagariEngine::with_native_modules(Default::default(), vec![changed]).unwrap();
+    let changed = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![changed])
+            .collect(),
+    )
+    .unwrap();
     let mut mismatched = changed.runtime(context);
     assert!(
         mismatched
@@ -145,8 +161,15 @@ fn readonly_host_hash_storage_has_exact_read_and_content_protocols() {
     }
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine =
-        KagariEngine::with_native_modules(config, vec![builder.finish().unwrap()]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        config,
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     for expression in [
         "val raw: HashMap<i32, i32> = HashMap::new(); val ro = demo::read_map(raw); ro.insert(1, 2);",
         "val ro = demo::read_set(HashSet::from([1])); ro.insert(2);",

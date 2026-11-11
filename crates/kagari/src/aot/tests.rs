@@ -19,6 +19,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_vm::{error::VmError, vm::JitExecutionStatus};
 use std::{
     env, fs,
@@ -134,7 +135,8 @@ fn result(
 #[test]
 fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
     let directory = Directory::new();
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let old_bundle = bundle(
         &engine,
         &directory.0.join("old"),
@@ -229,7 +231,8 @@ impl ExecutionObserver for Observer {
 #[test]
 fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
     let directory = Directory::new();
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let overflow = bundle(
         &engine,
         &directory.0.join("overflow"),
@@ -348,7 +351,8 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
 #[test]
 fn malformed_deployments_are_rejected_before_loading_native_code() {
     let directory = Directory::new();
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let path = directory.0.join("input");
     let original = bundle(&engine, &path, "fn main() -> i32 { 42 }");
     let original_manifest = original.manifest.clone();
@@ -420,7 +424,8 @@ fn malformed_deployments_are_rejected_before_loading_native_code() {
 #[test]
 fn publication_is_complete_and_build_errors_preserve_existing_deployments() {
     let directory = Directory::new();
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let host_specific = engine
         .compile_to_artifact(
             SourceFile::new("host.kgr", "fn main() -> i32 { 42 }"),

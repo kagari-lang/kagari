@@ -11,13 +11,14 @@ use kagari_runtime::{
     native::conversion::context::ConversionContext, session::ExecutionOptions, value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn native_iterators_validate_revisions_and_survive_gc_and_failure() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

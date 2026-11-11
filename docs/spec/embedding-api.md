@@ -1,5 +1,11 @@
 # Kagari Embedding API Specification
 
+Engine construction starts with no Native providers. `builder`, `new` and `default`
+do not install a standard library. Hosts explicitly install their chosen modules
+through `builder.install_all(...)` or `with_native_modules(config, modules)`;
+the latter installs exactly the supplied batch. Hosts that need the bundled
+library depend on `kagari-stdlib` and compose `kagari_stdlib::modules()` explicitly.
+
 This document defines the Rust-facing embedding contracts and implemented SDK APIs.
 Lower-level runtime and VM interfaces are identified separately from the SDK facade.
 The SDK package and Rust import are `kagari`, located at `crates/kagari`.

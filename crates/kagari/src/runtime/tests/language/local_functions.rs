@@ -3,10 +3,12 @@
 use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn local_functions_execute_from_artifacts_without_export_leakage() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("local-functions.kgr", r#"
 pub fn main() -> i32 {
     val result = inner(41);

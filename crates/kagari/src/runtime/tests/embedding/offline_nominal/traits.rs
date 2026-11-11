@@ -6,6 +6,7 @@ use kagari_bytecode::artifact::KbcArtifact;
 use kagari_contract::types::PublicItem;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::diagnostic::DiagnosticKind;
+use kagari_stdlib as stdlib;
 use kagari_types::declaration::{TraitDef, host::PathAccess};
 use std::sync::{Arc, Mutex};
 
@@ -13,7 +14,8 @@ use std::sync::{Arc, Mutex};
 fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
     let uri = "mem://anonymous-trait.kgr";
     let source = "trait Marker {} pub trait Visible {} fn main() {}";
-    let author = KagariEngine::default();
+    let author =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let file = author
         .set_source(uri, source.into(), SourceLayer::Base)
         .unwrap();
@@ -63,9 +65,15 @@ fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
             group.trait_impl(marker.apply([])?, |_| Ok(()))
         })
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let file = engine
         .set_source(uri, source.into(), SourceLayer::Base)
         .unwrap();
@@ -113,7 +121,8 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         }],
     };
     // Obtain the exact portable expectation from the trait's checked source ABI.
-    let author = KagariEngine::default();
+    let author =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let file = author
         .bind_module("mem://readable", module_identity.clone())
         .unwrap();
@@ -253,7 +262,15 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     let module = build_module(definition, true);
     assert_eq!(module.declaration().trait_references.len(), 1);
     assert!(module.declaration().traits.is_empty());
-    let engine = KagariEngine::with_native_modules(Default::default(), vec![module]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module])
+            .collect(),
+    )
+    .unwrap();
     engine
         .bind_module(
             "mem://counter-main",
@@ -409,7 +426,11 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     .unwrap();
     let changed_engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![build_module(definition, false)],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![build_module(definition, false)])
+            .collect(),
     )
     .unwrap();
     changed_engine
@@ -475,7 +496,8 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             occurrence: 0,
         }],
     };
-    let author = KagariEngine::default();
+    let author =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let file = author
         .bind_module("mem://host-trait-contract", identity.clone())
         .unwrap();
@@ -613,7 +635,15 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     assert!(validate(extra).is_err());
 
     let install = |module| {
-        let engine = KagariEngine::with_native_modules(Default::default(), vec![module]).unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            stdlib::modules()
+                .unwrap()
+                .into_iter()
+                .chain(vec![module])
+                .collect(),
+        )
+        .unwrap();
         let file = engine
             .bind_module("mem://host-trait-contract", identity.clone())
             .unwrap();
@@ -690,7 +720,8 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             occurrence: 0,
         }],
     };
-    let author = KagariEngine::default();
+    let author =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let file = author
         .bind_module("mem://host-trait-bound", identity.clone())
         .unwrap();
@@ -796,7 +827,15 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         builder.finish().unwrap()
     };
     let module = build_module(true);
-    let engine = KagariEngine::with_native_modules(Default::default(), vec![module]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module])
+            .collect(),
+    )
+    .unwrap();
     let file = engine
         .bind_module("mem://host-trait-bound", identity.clone())
         .unwrap();
@@ -905,8 +944,15 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap_err();
     assert!(format!("{error:?}").contains("overlap"), "{error:?}");
-    let unimplemented =
-        KagariEngine::with_native_modules(Default::default(), vec![build_module(false)]).unwrap();
+    let unimplemented = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![build_module(false)])
+            .collect(),
+    )
+    .unwrap();
     let file = unimplemented
         .bind_module("mem://host-trait-bound", identity)
         .unwrap();

@@ -6,24 +6,27 @@ use kagari_bytecode::{
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::callable::witness::OperationWitness;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn forged_constraint_operations_are_rejected_before_execution() {
-    let artifact = KagariEngine::default()
-        .compile_to_artifact(
-            SourceFile::new(
-                "witnesses.kgr",
-                r#"
+    let artifact =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .compile_to_artifact(
+                SourceFile::new(
+                    "witnesses.kgr",
+                    r#"
 trait Invoke { fn invoke<F: Fn(i32) -> i32>(self, f: F) -> i32 { f(21) } }
 struct Runner {}
 impl Invoke for Runner {}
 fn main() -> i32 { val runner: Invoke = Runner {}; runner.invoke(|x| x * 2) }
 "#,
-            ),
-            Default::default(),
-        )
-        .unwrap();
+                ),
+                Default::default(),
+            )
+            .unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact
         .import_into(&context, &Default::default())

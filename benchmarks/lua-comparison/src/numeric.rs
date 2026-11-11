@@ -3,6 +3,7 @@ use crate::Options;
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use mlua::{Function, Lua};
 use std::{hint::black_box, time::Instant};
 
@@ -57,7 +58,8 @@ pub(super) fn run(options: &Options) {
         .map(|ty| source(ty))
         .collect::<Vec<_>>()
         .join("\n");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let start = Instant::now();
     let artifact = engine
         .compile_to_artifact(

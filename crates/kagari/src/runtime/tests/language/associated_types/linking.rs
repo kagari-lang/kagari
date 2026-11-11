@@ -1,10 +1,12 @@
 use crate::{engine::KagariEngine, test_support::execution};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::SourceLayer;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn imported_associated_types_keep_trait_identity_and_interface_bindings() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut root = None;
     for (name, source) in [
         (
@@ -43,7 +45,8 @@ fn imported_associated_types_keep_trait_identity_and_interface_bindings() {
 
 #[test]
 fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut root = None;
     for (name, source) in [
         (

@@ -7,12 +7,13 @@ use crate::{
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn operator_traps_and_cancellation_release_execution_roots() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

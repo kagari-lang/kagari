@@ -14,6 +14,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_vm::vm::owned::DriveResult;
 use std::{
     env,
@@ -80,7 +81,9 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let program = engine
             .compile_to_program(
                 SourceFile::new("completion.kgr", SOURCE),

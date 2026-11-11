@@ -157,6 +157,7 @@ mod tests {
         value::Value,
     };
     use kagari_source::source::SourceFile;
+    use kagari_stdlib as stdlib;
     use std::{
         future::Future,
         pin::Pin,
@@ -212,7 +213,9 @@ mod tests {
 
     #[test]
     fn driver_release_fault_overrides_completion_and_preserves_trace() {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let program = engine
             .compile_to_program(
                 SourceFile::new(

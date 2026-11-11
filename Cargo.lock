@@ -588,6 +588,7 @@ dependencies = [
  "kagari-package",
  "kagari-runtime",
  "kagari-source",
+ "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
  "kagari-vm",
@@ -745,6 +746,7 @@ dependencies = [
  "kagari-codegen-cranelift",
  "kagari-runtime",
  "kagari-source",
+ "kagari-stdlib",
  "kagari-vm",
  "mlua",
 ]
@@ -886,6 +888,7 @@ dependencies = [
  "kagari",
  "kagari-runtime",
  "kagari-source",
+ "kagari-stdlib",
  "kagari-types",
  "kagari-vm",
  "serde",

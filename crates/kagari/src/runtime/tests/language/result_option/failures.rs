@@ -6,6 +6,7 @@ use crate::{
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn traps_inside_error_conversion_release_resources() {
@@ -28,7 +29,7 @@ pub fn after() -> i32 { 42 }
 "#;
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("conversion-trap.kgr", source),
@@ -72,7 +73,8 @@ pub fn after() -> i32 { 42 }
 
 #[test]
 fn propagation_does_not_catch_traps_or_termination_and_releases_frames() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

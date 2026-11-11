@@ -11,6 +11,7 @@ use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -20,10 +21,12 @@ mod lifecycle;
 mod linking;
 
 fn compile(source: &str) -> Result<DefinitionMetadata<BytecodeArtifact>, EmbeddingError> {
-    KagariEngine::default().compile_to_artifact(
-        SourceFile::new("inheritance.kgr", source),
-        ArtifactOptions::default(),
-    )
+    KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+        .unwrap()
+        .compile_to_artifact(
+            SourceFile::new("inheritance.kgr", source),
+            ArtifactOptions::default(),
+        )
 }
 
 fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
@@ -44,7 +47,10 @@ fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
             },
             ..Default::default()
         };
-        let mut runtime = KagariEngine::default().runtime(context.clone());
+        let mut runtime =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .runtime(context.clone());
         let program =
             Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -112,7 +118,10 @@ fn interpreter_execution(
         } else {
             artifact.clone()
         };
-        let mut runtime = KagariEngine::default().runtime(context.clone());
+        let mut runtime =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .runtime(context.clone());
         let program_program =
             Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let program = runtime
@@ -147,7 +156,10 @@ fn encoded_execution(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let context = ExecutionContext::default();
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .runtime(context.clone());
     let program_program =
         Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let program = runtime
@@ -178,7 +190,10 @@ fn direct_execution(
     });
     let artifact = compile(&source).unwrap();
     let context = ExecutionContext::default();
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .runtime(context.clone());
     let program_program =
         Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let program = runtime

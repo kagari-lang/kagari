@@ -1,4 +1,5 @@
 //! Compile the actual example once, then execute it with no frontend dependency.
+use kagari_stdlib as stdlib;
 // Cross-target sharing keeps the emitter, standalone consumer and example on the
 // exact same public provider and host-driving contract.
 #[path = "../../examples/async_tasks/host.rs"]
@@ -37,7 +38,8 @@ impl Wake for Notify {
 
 #[test]
 fn source_free_structured_pair_contract() {
-    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -116,6 +118,7 @@ fn source_free_structured_pair_contract() {
 fn source_free_async_execution_contract() {
     let io = FakeIo::default();
     let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     builder
         .install(io.module("demo::rpc", builder.declarations()).unwrap())
         .unwrap();

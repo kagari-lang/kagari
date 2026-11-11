@@ -1,5 +1,6 @@
 //! Enum allocation baseline; the design document owns workloads and interpretation.
 //! Run in release with source and kagari-runtime/execution-diagnostics enabled.
+use kagari_stdlib as stdlib;
 mod model;
 
 use kagari::{
@@ -68,7 +69,7 @@ fn main() {
         config.default_runtime.gc.collection_threshold = None;
     }
     let start = Instant::now();
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let engine_setup_us = start.elapsed().as_micros();
     let start = Instant::now();
     let artifact = engine

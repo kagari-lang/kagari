@@ -1,4 +1,5 @@
 use crate::test_support::cancellation as support;
+use kagari_stdlib as stdlib;
 
 use crate::{BytecodeArtifact, engine::KagariEngine};
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -12,7 +13,8 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
     let source = include_str!(
         "../../../../tests/fixtures/language/collection_callbacks/content_callbacks.kgr"
     );
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("collection-callbacks.kgr", source),
@@ -29,7 +31,7 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
     config.gc.collection_threshold = Some(1);
     config.limits.max_call_depth = Some(32);
     let mut runtime = Runtime::new(config);
-    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
     let loaded = runtime
         .load_program("collection-callbacks", program)
         .unwrap();

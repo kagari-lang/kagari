@@ -3,8 +3,9 @@
 use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_runtime::{Runtime, native::installation::NativeInstallation};
 use kagari_source::source::SourceFile;
-use kagari_stdlib::modules;
+use kagari_stdlib as stdlib;
 use std::{env, hint::black_box, time::Instant};
+use stdlib::modules;
 
 const BATCH: usize = 128;
 const SAMPLES: usize = 11;
@@ -12,7 +13,8 @@ const SAMPLES: usize = 11;
 fn measure_compiled<T>(name: &str, mut create: impl FnMut(&KagariEngine) -> T) {
     let source = include_str!("../../../benchmarks/lua-comparison/workloads/calls.kgr")
         .replace("__N__", "10000");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let prepared = engine
         .compile_to_program(
             SourceFile::new("benchmark_calls.kgr", source),
@@ -79,7 +81,8 @@ fn main() {
     }
     let modules = modules().unwrap();
     let installation = NativeInstallation::prepare(&modules).unwrap();
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let mut routes = ["bare", "installed", "sdk"];
     if reverse {

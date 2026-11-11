@@ -41,16 +41,19 @@ pub struct KagariEngine {
 }
 
 impl KagariEngine {
+    /// Construct an empty registration transaction; providers are installed explicitly.
     pub fn builder() -> NativeResult<KagariEngineBuilder> {
-        KagariEngineBuilder::standard()
+        KagariEngineBuilder::empty()
     }
 
+    /// Construct an engine without Native providers or an implicit standard library.
     pub fn new(config: EngineConfig) -> Self {
-        let mut builder = Self::builder().expect("standard registration");
+        let mut builder = Self::builder().expect("empty registration");
         builder.config(config);
-        builder.build().expect("default native module installation")
+        builder.build().expect("empty native module installation")
     }
 
+    /// Construct with exactly the supplied Native modules, checked as one batch.
     pub fn with_native_modules(
         config: EngineConfig,
         modules: Vec<NativeModule>,

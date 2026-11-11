@@ -18,6 +18,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::SourceLayer;
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{
     HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
@@ -166,8 +167,15 @@ impl Fixture {
             })
             .unwrap();
         let module = module.finish().unwrap();
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), vec![module.clone()]).unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            stdlib::modules()
+                .unwrap()
+                .into_iter()
+                .chain(vec![module.clone()])
+                .collect(),
+        )
+        .unwrap();
         let mut file = engine.bind_module(URI, path.module.clone()).unwrap();
         engine
             .set_source(URI, config.source, SourceLayer::Base)
@@ -205,7 +213,7 @@ impl Fixture {
 
     pub fn runtime(&self) -> Runtime {
         let mut runtime = Runtime::default();
-        let mut modules = kagari_stdlib::modules().unwrap();
+        let mut modules = stdlib::modules().unwrap();
         modules.push(self.module.clone());
         NativeModule::install_all(&modules, &mut runtime).unwrap();
         runtime
@@ -237,7 +245,8 @@ pub fn source_contract(
     source: &str,
     owner: Option<ModuleIdentity>,
 ) -> DefinitionMetadata<BytecodeArtifact> {
-    let author = KagariEngine::default();
+    let author =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     if let Some(owner) = owner {
         author.bind_module(URI, owner).unwrap();
     }

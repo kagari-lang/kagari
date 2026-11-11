@@ -18,6 +18,7 @@ use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetada
 use kagari_runtime::{
     error::RuntimeErrorKind, module::entry::ProgramEntry, native::objects::Object,
 };
+use kagari_stdlib as stdlib;
 use kagari_types::ty::Ty;
 use std::sync::{
     Arc,
@@ -46,6 +47,7 @@ mod async_tasks;
 fn engine(config: EngineConfig, drops: Arc<AtomicUsize>) -> KagariEngine {
     {
         let mut builder = KagariEngine::builder().unwrap();
+        builder.install_all(stdlib::modules().unwrap()).unwrap();
         builder.config(config);
         builder.install(provider::module(drops)).unwrap();
         builder.install(native_enums::module().unwrap()).unwrap();

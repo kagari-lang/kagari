@@ -15,6 +15,37 @@ use kagari_source::{
 use kagari_syntax::parser::ParseLimits;
 use std::{env, process::Command};
 
+#[test]
+fn constructors_do_not_install_implicit_library_providers() {
+    let engines = [
+        KagariEngine::default(),
+        KagariEngine::new(Default::default()),
+        KagariEngine::builder().unwrap().build().unwrap(),
+        KagariEngine::with_native_modules(Default::default(), vec![]).unwrap(),
+    ];
+    for engine in engines {
+        assert!(engine.native_declaration_sources().is_empty());
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("memory://core.kgr", "fn main() -> i32 { 42 }"),
+                Default::default(),
+            )
+            .unwrap();
+        let program =
+            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let result = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap();
+        assert_eq!(
+            result.return_value.value(runtime.runtime().gc()).unwrap(),
+            Value::I32(42)
+        );
+    }
+}
+
 fn provider(answer: i32) -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
     let mut module = ModuleBuilder::new("application::answer", builder.declarations()).unwrap();
@@ -39,6 +70,8 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
     // Equal module identities do not authorize sharing bindings across engines.
     let first = provider(42);
     let second = provider(99);
+    assert_eq!(first.native_declaration_sources().len(), 1);
+    assert_eq!(second.native_declaration_sources().len(), 1);
     let stale = first
         .set_source(
             "memory://stale.kgr",

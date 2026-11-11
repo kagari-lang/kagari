@@ -11,6 +11,7 @@ use kagari_common::{
 use kagari_hir::typeck::const_budget::ConstLimits;
 use kagari_runtime::native::builder::ModuleBuilder;
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::declaration::host::{
@@ -20,7 +21,8 @@ use std::sync::Arc;
 
 #[test]
 fn static_source_prepares_and_roundtrips_unused_initializer_descriptors() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let text = "mod nested { static val UNUSED: i32 = seed(); fn seed() -> i32 { 42 } } static var COUNT: i32 = 0; fn main() -> i32 { COUNT += 1; COUNT }";
     let checked = engine
         .compile_source(SourceFile::new("memory://statics.kgr", text))
@@ -57,7 +59,8 @@ fn static_source_prepares_and_roundtrips_unused_initializer_descriptors() {
 
 #[test]
 fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let first = ModuleIdentity {
         package: PackageId("a".into()),
         path: vec!["main".into()],
@@ -120,7 +123,8 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
 
 #[test]
 fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let token = CancellationToken::default();
     let unchanged = "fn echo<T>(value: T) -> T { value } struct P { var n: i32 } fn b() -> i32 { val p: P = P { n: echo(a()) }; p.n += 1; val xs: Vec<i32> = Vec::from([p.n]); xs.push(2); match 2147483647 { 2147483647 => -2147483648, _ => xs[0] } }";
     let id = engine
@@ -151,7 +155,8 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
         2
     );
     let reused = engine.compile_snapshot(snapshot, id, &token).unwrap();
-    let fresh_engine = KagariEngine::default();
+    let fresh_engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let fresh = fresh_engine
         .compile_source(SourceFile::new("memory://reuse.kgr", edited))
         .unwrap();
@@ -188,9 +193,7 @@ fn host_artifacts_are_canonical_across_declaration_adoption_histories() {
             ty.external(policy).unwrap();
             ty.finish().unwrap();
         }
-        let engine = KagariEngine::with_native_modules(
-            Default::default(), vec![builder.finish().unwrap()],
-        ).unwrap();
+        let engine = KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap().into_iter().chain(vec![builder.finish().unwrap()]).collect()).unwrap();
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new(
@@ -210,7 +213,8 @@ fn host_artifacts_are_canonical_across_declaration_adoption_histories() {
 
 #[test]
 fn compilation_and_tools_share_overlay_revision_and_profile() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let token = CancellationToken::default();
     let id = engine
         .set_source(
@@ -288,7 +292,8 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
 
 #[test]
 fn unchanged_installed_environment_reuses_analysis_results() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let id = engine
         .set_source(
             "memory://reflect.kgr",
@@ -316,7 +321,8 @@ fn unchanged_installed_environment_reuses_analysis_results() {
 
 #[test]
 fn diagnostics_carry_the_source_revision_that_produced_them() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let id = engine
         .set_source(
             "memory://bad.kgr",
@@ -347,7 +353,8 @@ fn diagnostics_carry_the_source_revision_that_produced_them() {
 
 #[test]
 fn parser_budget_reports_revision_owned_limits_before_codegen() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     engine.set_parse_limits(ParseLimits {
         max_diagnostics: 0,
         ..Default::default()
@@ -391,7 +398,8 @@ fn parser_budget_reports_revision_owned_limits_before_codegen() {
 
 #[test]
 fn nesting_budget_changes_invalidate_same_revision_analysis() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let id = engine
         .set_source(
             "memory://nested.kgr",
@@ -430,7 +438,9 @@ fn nesting_budget_changes_invalidate_same_revision_analysis() {
 #[test]
 fn deep_iterative_source_is_rejected_with_queryable_prefix() {
     for max_tree_depth in [24, ParseLimits::default().max_tree_depth] {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         engine.set_parse_limits(ParseLimits {
             max_tree_depth,
             ..Default::default()
@@ -518,7 +528,9 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
         ),
     ];
     for (index, suffix) in cases.into_iter().enumerate() {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let text = format!("fn good(value: i32) -> i32 {{ value }} {suffix}");
         let id = engine
             .set_source("memory://deep.kgr", text, SourceLayer::Base)
@@ -564,7 +576,8 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
 
 #[test]
 fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let id = engine
         .set_source(
             "memory://const-budget.kgr",
@@ -660,7 +673,8 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
 
 #[test]
 fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     engine.set_const_limits(ConstLimits {
         max_steps: 5,
         max_depth: 2,
@@ -679,7 +693,8 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
             ))
             .is_err()
     );
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut text = String::from("fn good(value: i32) -> i32 { value } ");
     for i in 0..1_000 {
         text.push_str(&format!("const C{i}: i32 = C{}; ", i + 1));
@@ -710,7 +725,8 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
 
 #[test]
 fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     engine.set_const_limits(ConstLimits {
         max_steps: 0,
         max_depth: 0,
@@ -744,7 +760,9 @@ fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
 fn invalid_const_types_cannot_bypass_validation_budget() {
     use kagari_source::diagnostic::DiagnosticKind;
     for max_steps in [0, 1, 3] {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         engine.set_const_limits(ConstLimits {
             max_steps,
             max_depth: 64,

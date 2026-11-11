@@ -5,8 +5,10 @@ use kagari_source::source::SourceFile;
 use {kagari_stdlib as foundation, kagari_stdlib::catalog as foundation_catalog};
 
 #[test]
-fn foundation_algorithms_are_available_from_normal_engine_construction() {
-    let engine = KagariEngine::new(Default::default());
+fn foundation_algorithms_are_available_from_explicit_composition() {
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), foundation::modules().unwrap())
+            .unwrap();
     let sources = engine.native_declaration_sources();
     assert_eq!(sources.len(), foundation_catalog::shared().unwrap().len());
     let program = engine
@@ -37,8 +39,10 @@ fn foundation_algorithms_are_available_from_normal_engine_construction() {
 }
 
 #[test]
-fn explicit_empty_application_modules_keep_the_foundation() {
-    let engine = KagariEngine::with_native_modules(Default::default(), vec![]).unwrap();
+fn explicit_library_composition_keeps_collection_algorithms() {
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), foundation::modules().unwrap())
+            .unwrap();
     assert_eq!(
         engine.native_declaration_sources().len(),
         foundation_catalog::shared().unwrap().len()
@@ -79,7 +83,7 @@ fn explicit_empty_application_modules_keep_the_foundation() {
 }
 
 #[test]
-fn application_installation_cannot_replace_foundation_bindings() {
+fn application_installation_rejects_duplicate_explicit_providers() {
     let module = foundation::modules()
         .unwrap()
         .into_iter()
@@ -87,5 +91,7 @@ fn application_installation_cannot_replace_foundation_bindings() {
             module.declaration().identity == kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
-    assert!(KagariEngine::builder().unwrap().install(module).is_err());
+    let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(foundation::modules().unwrap()).unwrap();
+    assert!(builder.install(module).is_err());
 }

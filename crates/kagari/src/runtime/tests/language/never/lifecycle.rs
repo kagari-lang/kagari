@@ -7,12 +7,14 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::declaration::logging;
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn never_preserves_effects_and_releases_resources_on_traps_and_cancellation() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -53,9 +55,15 @@ pub fn healthy() -> i32 { 42 }
             Ok(Value::Unit)
         })
         .unwrap();
-    let installed =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let installed = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     for encoded in [false, true] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(

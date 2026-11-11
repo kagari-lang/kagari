@@ -2,6 +2,7 @@
 use crate::diagnostics;
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 const SOURCE: &str = r#"
 use std::cmp::Ordering;
@@ -124,7 +125,8 @@ fn changing_application(n: i32) -> i32 {
 "#;
 
 pub(super) fn run() {
-    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let entries = [
         "fixed_interface",
         "changing_interface",

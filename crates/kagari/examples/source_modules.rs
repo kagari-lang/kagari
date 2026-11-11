@@ -2,6 +2,7 @@
 
 use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_stdlib as stdlib;
 use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
 
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
@@ -14,7 +15,8 @@ use kagari_compiler::{bytecode, source::program};
 use kagari_source::source_database::SourceLayer;
 
 fn main() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for (name, text) in [
         (
             "shared",

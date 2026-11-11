@@ -5,6 +5,7 @@
 use kagari::program::native::NativeCompiler;
 use kagari_abi::native::NativeLinkDescription;
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_stdlib as stdlib;
 mod memory;
 
 use kagari::{
@@ -61,7 +62,8 @@ fn context() -> ExecutionContext {
 }
 
 fn sharing(bytes: &[u8], count: usize, shared: bool) {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut runtimes = Vec::with_capacity(count);
     let mut programs = Vec::with_capacity(count);
     let before = live_bytes();
@@ -97,11 +99,13 @@ fn sharing(bytes: &[u8], count: usize, shared: bool) {
 }
 
 fn main() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     sample(
         || {
             black_box(
-                KagariEngine::default()
+                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                    .unwrap()
                     .compile_to_artifact(
                         SourceFile::new("baseline.kgr", SOURCE),
                         Default::default(),

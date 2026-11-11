@@ -3,11 +3,14 @@ use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, p
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source_database::SourceLayer;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn imported_equality_and_hash_use_the_defining_modules_implementations() {
     for downstream_override in [false, true] {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let model = r#"use std::collections::{HashMap};
 use std::hash::{Hash};
 

@@ -6,6 +6,7 @@ use kagari_package::{
     filesystem::FilesystemSources,
     project::{ProjectInputs, ProjectOptions},
 };
+use kagari_stdlib as stdlib;
 use std::path::PathBuf;
 
 fn main() {
@@ -24,7 +25,8 @@ fn main() {
         &cancel,
     )
     .expect("package project");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let checked = engine
         .compile_package(&project.programs()["gameplay"], &cancel)
         .expect("checked package");

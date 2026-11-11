@@ -801,8 +801,10 @@ bindings are products of the same checked registration inputs.
 Standard and application native libraries supply the same kind of module:
 explicit Kagari declarations, documentation, dependencies and checked Rust
 bindings/storage. Engine construction assembles these modules through one
-registration path. Default construction registers the bundled standard library;
-the generic runtime and HIR do not discover or inject another foundation catalog.
+registration path. Engine and Runtime construction start without Native providers;
+the host explicitly installs the bundled standard library when it needs it.
+The SDK has no production stdlib dependency, and HIR does not discover or inject
+another foundation catalog.
 Builder-time registration is the initial integration point. Live mutation of an
 already-used engine's registrations is a separate lifecycle decision.
 
@@ -962,7 +964,9 @@ native libraries. Registration and configuration operations mutate the builder;
 
 | API | Behavior |
 | --- | --- |
-| `KagariEngine::builder() -> NativeResult<KagariEngineBuilder>` | Construct a registration builder and install `kagari_stdlib::modules()` through the ordinary batch installation path; report any failure |
+| `KagariEngine::builder() -> NativeResult<KagariEngineBuilder>` | Construct an empty registration builder; no providers are installed implicitly |
+| `KagariEngine::new(config)` / `default()` | Seal an empty registration set with the selected/default configuration |
+| `KagariEngine::with_native_modules(config, modules)` | Construct with exactly the supplied checked module batch |
 | `builder.declarations() -> &DeclarationCatalog` | Read the checked providers already registered with this builder; no global foundation fallback |
 | `ModuleBuilder::new(identity, providers)` | Construct one native module using an explicit provider catalog; existing `with_modules` supports additional explicit providers |
 | `ModuleBuilder::from_declaration(...)` | Adopt independently authored scoped declarations for ordinary checked binding/storage registration |
@@ -983,11 +987,13 @@ completed modules for `install`/`install_all`; they need not depend on the SDK.
 Stdlib exposes `modules() -> NativeResult<Vec<NativeModule>>` using runtime's
 registration types and internally staged declarations, with no SDK dependency.
 
-`KagariEngine::new(config)` remains the default-library convenience, implemented
-through this builder path rather than through a separate foundation constructor.
-The builder is the explicit fallible entrypoint. An empty staging builder used
-internally is not a new no_std engine mode. Generic Runtime construction starts
-with execution services only; Engine installs its sealed modules into each runtime.
+`KagariEngine::new(config)` and `default()` seal an empty provider set through
+the same builder path. The builder is the explicit fallible entrypoint. A host
+that needs the standard library adds a direct `kagari-stdlib` dependency and calls
+`builder.install_all(kagari_stdlib::modules()?)?` before authoring application
+modules against `builder.declarations()`. `with_native_modules` also accepts an
+explicitly composed complete batch. Engine installs exactly its sealed modules
+into each Runtime; there is no hidden standard bundle or reserved library flag.
 
 `NativeInstallation` owns the checked native registration closure and prepared
 host type/path maps in the same definition scope. Creating a runtime copies these
@@ -1039,7 +1045,8 @@ boundaries; this migration does not create one crate per type or verifier.
 
 The concrete stdlib crate owns the existing declarations and implementations,
 rather than forwarding another crate's catalog. It depends on types and the
-runtime registration API. Embed depends on stdlib. HIR, compiler, bytecode and
+runtime registration API. CLI, web and hosts that select stdlib depend on it
+explicitly; the SDK uses it only for tests/examples. HIR, compiler, bytecode and
 generic runtime have no production dependency on stdlib. Source-only tooling
 receives declaration records from its caller; it does not install an execution
 runtime to discover APIs. Runtime context operations needed by stdlib must remain
@@ -1047,8 +1054,8 @@ generic checked operations; moving code cannot expose unchecked heap internals.
 
 LR01 moved the declaration recipes, library-owned namespace inventory, native
 bindings and bundled collection algorithms to `kagari-stdlib`. Runtime construction
-is empty until modules are installed explicitly; Engine construction selects and
-installs standard modules through the mutable registration builder. Namespace
+is empty until modules are installed explicitly; hosts select standard modules
+through the mutable registration builder, and Engine construction itself is empty. Namespace
 ownership follows consumer responsibility: public
 library paths belong to stdlib, while executable ownership validation consumes
 checked declaration/representation bindings. Semantic language-role metadata
@@ -1676,7 +1683,7 @@ releases records after their actual owners end; namespace completion does not cl
 that split. Immutable products and optional MIR are shared across independent
 Runtime installations; local bindings, statics, heaps and authority remain local.
 
-The ownership precedents are [JVMS 25 §5.3](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-5.html#jvms-5.3)
+The ownership precedents are [JVMS 25 搂5.3](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-5.html#jvms-5.3)
 (defining owner plus name), the [Rust Reference's public aliases](https://doc.rust-lang.org/reference/items/use-declarations.html)
 (canonical item authority distinct from its containing path), reviewed on 2026-10-24. The
 [reload ownership references](architecture/runtime/reload.md#reference-mechanisms)

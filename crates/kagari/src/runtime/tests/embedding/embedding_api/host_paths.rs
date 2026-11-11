@@ -40,6 +40,7 @@ use kagari_runtime::{
     native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
     value::Value,
 };
+use kagari_stdlib as stdlib;
 
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -353,7 +354,11 @@ fn host_path_artifact(
 fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![embedding_host_path_module(PathAccess::ReadWrite)],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![embedding_host_path_module(PathAccess::ReadWrite)])
+            .collect(),
     )
     .unwrap();
     let context = ExecutionContext::default();
@@ -441,7 +446,11 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
 fn installed_host_path_mutation_uses_declared_access() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![embedding_host_path_module(PathAccess::ReadWrite)],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![embedding_host_path_module(PathAccess::ReadWrite)])
+            .collect(),
     )
     .unwrap();
     let context = ExecutionContext::default();
@@ -503,7 +512,11 @@ fn installed_host_path_mutation_uses_declared_access() {
 fn installed_host_path_reads_need_no_permission_flags() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![embedding_host_path_module(PathAccess::ReadOnly)],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![embedding_host_path_module(PathAccess::ReadOnly)])
+            .collect(),
     )
     .unwrap();
     let context = ExecutionContext::default();

@@ -2,10 +2,12 @@ use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, p
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source_database::SourceLayer;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn imported_generic_conversions_and_iterators_link_to_their_defining_module() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut root = None;
     for (name, source) in [
         (

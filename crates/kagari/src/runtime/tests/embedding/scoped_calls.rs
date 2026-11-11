@@ -20,6 +20,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::reference::ReferenceAccess;
 use std::sync::{
     Arc,
@@ -45,6 +46,7 @@ struct Player {
 #[test]
 fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
     let mut engine = KagariEngine::builder().unwrap();
+    engine.install_all(stdlib::modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::reload", engine.declarations()).unwrap();
     module.register_type::<Stats>().unwrap();
     let stats = module.declarations().rust_type::<Stats>().unwrap();
@@ -163,6 +165,7 @@ impl ExecutionObserver for ContextObserver {
 #[test]
 fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
     let mut engine = KagariEngine::builder().unwrap();
+    engine.install_all(stdlib::modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::scoped", engine.declarations()).unwrap();
     module.register_type::<Player>().unwrap();
     let stats = module.declarations().rust_type::<Stats>().unwrap();

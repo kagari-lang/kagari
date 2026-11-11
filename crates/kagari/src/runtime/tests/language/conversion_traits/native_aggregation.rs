@@ -1,10 +1,12 @@
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
-    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for source in [
         "fn main()->i8 {[127i8,1i8].sum()}",
         "fn main()->u8 {[128u8,2u8].product()}",

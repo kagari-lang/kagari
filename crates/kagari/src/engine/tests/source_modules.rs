@@ -11,6 +11,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::{identity::FileId, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{HostCallPolicy, HostPassingStyle};
 use std::sync::{Arc, Mutex};
@@ -65,9 +66,15 @@ fn host_fixture() -> (
             Ok(args[0])
         })
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     insert(
         &engine,
         "shared",

@@ -5,6 +5,7 @@ use crate::{
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[path = "../../../../../tests/support/try_carrier.rs"]
 mod native_provider;
@@ -13,6 +14,7 @@ mod native_provider;
 fn native_carriers_link_into_a_fresh_artifact_only_runtime() {
     fn engine() -> KagariEngine {
         let mut builder = KagariEngine::builder().unwrap();
+        builder.install_all(stdlib::modules().unwrap()).unwrap();
         let mut config = EngineConfig::default();
         config.default_runtime.gc.collection_threshold = Some(1);
         builder.config(config);

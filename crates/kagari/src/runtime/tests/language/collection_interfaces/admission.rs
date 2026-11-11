@@ -2,11 +2,13 @@ use crate::engine::KagariEngine;
 use kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn iterator_view_adaptation_rejects_forged_output_types() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

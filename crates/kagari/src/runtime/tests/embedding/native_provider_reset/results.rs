@@ -16,6 +16,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
@@ -91,6 +92,7 @@ fn engine() -> KagariEngine {
     config.default_runtime.gc.collection_threshold = Some(1);
     {
         let mut builder = KagariEngine::builder().unwrap();
+        builder.install_all(stdlib::modules().unwrap()).unwrap();
         builder.config(config);
         builder.install(module).unwrap();
         builder.build().unwrap()

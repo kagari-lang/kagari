@@ -6,6 +6,7 @@ use kagari_hir::{
     resolver::resolved::ResolvedName,
     types::TypeId,
 };
+use kagari_stdlib as stdlib;
 use {
     kagari_common::identity::{ModuleIdentity, PackageId},
     kagari_source::{
@@ -18,7 +19,8 @@ use kagari::engine::KagariEngine;
 use kagari_types::declaration::names::NameNamespace;
 
 fn main() -> kagari::CompileResult<()> {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     // Bound parser recovery for incomplete editor input. A limit error prevents
     // compilation while retaining the parsed prefix for navigation.
     engine.set_parse_limits(ParseLimits {
@@ -430,7 +432,7 @@ fn main() -> kagari::CompileResult<()> {
     assert!(original.diagnostics().is_empty());
     engine.set_source(
         source_name,
-        format!("// 文档 😀\r\n{clean}"),
+        format!("// 鏂囨。 馃榾\r\n{clean}"),
         SourceLayer::Overlay,
     )?;
     let moved = engine

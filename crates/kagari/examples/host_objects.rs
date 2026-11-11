@@ -8,6 +8,7 @@ use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lowe
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::native::{interfaces::Interface, objects::Object};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_stdlib::{modules, namespaces};
 use std::{
     future::{Future, poll_fn},
@@ -100,7 +101,8 @@ fn prepare(hp: i32) -> Program {
 }
 
 pub fn main() {
-    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let prepared = prepare(100);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();

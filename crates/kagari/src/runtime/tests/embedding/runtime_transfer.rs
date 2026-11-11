@@ -4,12 +4,14 @@ use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use std::thread;
 use tokio::{runtime::Builder, sync::mpsc, task};
 
 #[test]
 fn task_owns_a_live_runtime_across_message_receive_awaits() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let artifact = engine
         .compile_to_artifact(

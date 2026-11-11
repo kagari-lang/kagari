@@ -6,6 +6,7 @@ use crate::{
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 const SOURCE: &str = include_str!("../../../../../../examples/numeric-sampling.kgr");
 const EXPECTED_CHECKSUM: u64 = 0x396d_503b_b05c_761a;
@@ -13,7 +14,7 @@ const EXPECTED_CHECKSUM: u64 = 0x396d_503b_b05c_761a;
 fn engine() -> KagariEngine {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::new(config)
+    KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap()
 }
 
 fn reference_checksum() -> u64 {

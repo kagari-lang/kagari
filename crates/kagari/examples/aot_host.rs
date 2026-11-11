@@ -9,6 +9,7 @@ use kagari_runtime::{
     native::builder::ModuleBuilder,
     value::Value,
 };
+use kagari_stdlib as stdlib;
 use kagari_types::declaration::logging;
 use kagari_vm::vm::JitExecutionStatus;
 use std::{env, path::PathBuf};
@@ -31,6 +32,7 @@ fn main() {
     // The CLI producer installs host::log. Loading validates all carried native
     // declarations, including services unused by the selected scalar entry.
     let mut engine = KagariEngine::builder().expect("engine registrations");
+    engine.install_all(stdlib::modules().unwrap()).unwrap();
     let mut logging = ModuleBuilder::from_declaration(
         logging::declaration().expect("logging declaration"),
         engine.declarations(),

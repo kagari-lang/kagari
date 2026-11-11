@@ -7,6 +7,7 @@ use crate::{
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -27,7 +28,7 @@ fn ordinary_execution(
 fn run(source: &str, expected_error: Option<&str>) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(SourceFile::new("strings.kgr", source), Default::default())
         .unwrap();

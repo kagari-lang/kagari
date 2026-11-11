@@ -13,11 +13,13 @@ use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{error_trace::MAX_ERROR_FRAMES, value::Value};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_vm::vm::native::PreparedNativeEntry;
 
 #[test]
 fn interpreter_traps_capture_frames_and_original_source_locations() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for (source, line, column, caller_line) in [
         (
             "fn fail()->i32 {\n    42/0\n}\nfn middle()->i32 {fail()}\nfn main()->i32 {middle()}\n",
@@ -68,7 +70,8 @@ fn interpreter_traps_capture_frames_and_original_source_locations() {
 
 #[test]
 fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -121,7 +124,7 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
 fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected_message: &str) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
+    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("result-origin.kgr", source),
@@ -263,7 +266,8 @@ fn main()->Result<i32,String>{
 
 #[test]
 fn failure_stacks_are_bounded_without_losing_the_innermost_origin() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -299,7 +303,9 @@ fn none_and_handled_errors_do_not_become_execution_failures() {
         "fn main()->Result<i32,String>{Ok(42)}",
         "fn main()->i32{val r:Result<i32,String> = Err(\"handled\");match r {Ok(n)=>n,Err(_)=>42}}",
     ] {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         let artifact = engine
             .compile_to_artifact(SourceFile::new("handled.kgr", source), Default::default())
             .unwrap();
@@ -322,7 +328,8 @@ fn none_and_handled_errors_do_not_become_execution_failures() {
 
 #[test]
 fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let compile = |source| {
         engine
             .compile_to_artifact(SourceFile::new("changing.kgr", source), Default::default())
@@ -389,7 +396,8 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
 
 #[test]
 fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let prefix = "    /* 中文😀 */ ";
     let artifact = engine
         .compile_to_artifact(
@@ -432,7 +440,8 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
 
 #[test]
 fn cancellation_keeps_the_failing_frame_and_releases_resources() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -509,7 +518,8 @@ fn main()->Result<i32,Problem>{Err(Problem {code:7})}
 
 #[test]
 fn imported_error_frames_keep_their_own_source_locations() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut root = None;
     for (name, source) in [
         (

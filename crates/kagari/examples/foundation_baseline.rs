@@ -21,7 +21,9 @@ fn main() {
 
     let mut compile_samples = Vec::new();
     for _ in 0..5 {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+                .unwrap();
         let start = Instant::now();
         let artifact = engine
             .compile_to_artifact(
@@ -38,7 +40,9 @@ fn main() {
         compile_samples[2]
     );
 
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+            .unwrap();
     let file = engine
         .set_source("baseline.kgr", source.clone(), SourceLayer::Base)
         .unwrap();

@@ -9,6 +9,7 @@ use crate::{
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -28,7 +29,8 @@ fn ordinary_execution(
             path.display()
         )
     });
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("constants.kgr", &source),

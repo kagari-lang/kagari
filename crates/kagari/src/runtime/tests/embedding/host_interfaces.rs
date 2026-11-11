@@ -1,5 +1,6 @@
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use kagari_stdlib as stdlib;
 mod common;
 
 use crate::{
@@ -457,9 +458,15 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
             })
         })
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![module.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let file = engine.bind_module(common::URI, source_identity).unwrap();
     engine
         .set_source(common::URI, source.into(), SourceLayer::Base)

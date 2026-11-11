@@ -11,6 +11,7 @@ name = "kg"
 path = "src/main.rs"
 
 [dependencies]
+kagari-stdlib.workspace = true
 kagari-lint.workspace = true
 kagari-format.workspace = true
 serde.workspace = true

@@ -305,9 +305,11 @@ For example, a tooling host configures file materialization before sealing:
 
 ```rust
 use kagari::engine::KagariEngine;
+use kagari_stdlib as stdlib;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = KagariEngine::builder()?;
+    builder.install_all(stdlib::modules()?)?;
     // Construct application modules against builder.declarations(), then install them.
     builder.declaration_cache("target/kagari-declarations");
     let engine = builder.build().map_err(|error| format!("{error:?}"))?;

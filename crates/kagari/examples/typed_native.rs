@@ -5,9 +5,11 @@ use kagari_runtime::native::{
     declarations::FunctionDecl, typed::NativeContext,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 fn main() {
     let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     let mut text = ModuleBuilder::new("application::text", builder.declarations()).unwrap();
     text.documentation("# Text utilities\n\nApplication-owned Unicode text functions.");
     let string = String::kagari_type(text.declarations()).unwrap();

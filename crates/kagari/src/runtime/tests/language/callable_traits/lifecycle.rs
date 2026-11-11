@@ -1,10 +1,12 @@
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn callable_traps_release_roots_and_allow_subsequent_execution() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

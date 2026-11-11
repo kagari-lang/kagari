@@ -9,6 +9,7 @@ use kagari_runtime::{
     host::{HostCallContext, HostError, HostPathAdapter, PreparedHostPathWrite},
     native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
 };
+use kagari_stdlib as stdlib;
 
 use kagari_types::ty::Ty;
 use kagari_types::{
@@ -101,7 +102,15 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         trace.lock().unwrap().clear();
         let unbound_engine = KagariEngine::with_native_modules(
             Default::default(),
-            vec![providers[0].clone(), providers[1].clone(), unbound.clone()],
+            stdlib::modules()
+                .unwrap()
+                .into_iter()
+                .chain(vec![
+                    providers[0].clone(),
+                    providers[1].clone(),
+                    unbound.clone(),
+                ])
+                .collect(),
         )
         .unwrap();
         assert!(
@@ -317,7 +326,15 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         )
         .unwrap();
     let module = builder.finish().unwrap();
-    let engine = KagariEngine::with_native_modules(Default::default(), vec![module]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module])
+            .collect(),
+    )
+    .unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("multi-index.kgr",
         "use game::objects as api; fn main() -> i32 { var player = api::make(); player[api::first()][api::second()].selected.score += api::rhs(); player[1][2].selected.score }"), Default::default()).unwrap();
     let root_module = &artifact.records().program.modules[artifact.records().program.root.index()];

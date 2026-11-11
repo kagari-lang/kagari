@@ -173,7 +173,7 @@ Complete CI remains pending under the [existing workflow](../.github/workflows/c
 workspace tests, complete ignored formatter and editor/syntax inventories,
 standalone SDK feature/source-free consumers, JIT/AOT and Windows/platform
 contracts. Browser/feature coverage also remains in its existing CI scope. Local
-acceptance does not claim these matrices ran or passed. The completed TA1鈥揟A4 plan
+acceptance does not claim these matrices ran or passed. The completed TA1閳ユ彑A4 plan
 and its phase ledger are retained in Git history. Incremental parsing, LSP
 expansion and broader HIR/runtime redesign were outside this replacement.
 
@@ -1513,7 +1513,7 @@ The [2026-11-11 detachment inventory and D00-D05 plan](runtime-refactor-design.m
 records the concrete coupling in collection layouts/types, packed array sharing,
 heap services, Native codecs/primitives, cursors, Rust adapters/Serde and automatic
 SDK composition. The user activated D00-D05 on 2026-11-11; D00 core-only baseline is complete
-and D01-D05 are pending. Establish a core-only
+and committed. D01 explicit SDK composition is complete; D02-D05 are pending. Establish a core-only
 witness, make installation explicit, separate builtin storage, perform one coherent
 contract cut, remove library adapters and hand off the Runtime baseline. This is
 detach-first; complete old library availability is not promised during backend

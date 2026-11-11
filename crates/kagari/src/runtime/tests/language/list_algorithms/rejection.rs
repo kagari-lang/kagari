@@ -1,9 +1,11 @@
 use crate::engine::KagariEngine;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn ordering_and_equality_bounds_are_required_at_the_method_call() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for source in [
         "use std::collections::{List};\nstruct Item { val key: i32 } fn main() { val list: List<Item> = Vec::from([Item { key: 1 }]); list.sorted(); }",
         "use std::collections::{List};\nfn main() { val list: List<f32> = Vec::from([1.0f32]); list.distinct(); }",

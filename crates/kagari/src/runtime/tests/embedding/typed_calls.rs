@@ -35,6 +35,7 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib as stdlib;
 use kagari_types::language::{self, Protocol};
 use std::{
     future::Future,
@@ -413,7 +414,8 @@ impl ExecutionObserver for Observer {
 
 #[test]
 fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
-    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

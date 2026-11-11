@@ -17,6 +17,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{HostCallPolicy, HostPassingStyle};
 use std::sync::{Arc, Mutex};
@@ -56,8 +57,15 @@ fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
 fn offline_host_facades_preserve_linking_and_backend_call_traces() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let module = echo_module(Type::i32(), calls.clone());
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![module.clone()]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module.clone()])
+            .collect(),
+    )
+    .unwrap();
     let mut root = None;
     for (name, source) in [
         ("facade", "pub use demo::echo as call; pub use demo as api;"),
@@ -148,7 +156,11 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         let wrong_calls = Arc::new(Mutex::new(Vec::new()));
         let incompatible_engine = KagariEngine::with_native_modules(
             Default::default(),
-            vec![echo_module(Type::bool(), wrong_calls.clone())],
+            stdlib::modules()
+                .unwrap()
+                .into_iter()
+                .chain(vec![echo_module(Type::bool(), wrong_calls.clone())])
+                .collect(),
         )
         .unwrap();
         let mut incompatible = incompatible_engine.runtime(context.clone());
@@ -166,7 +178,10 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                 .is_err()
         );
         assert!(wrong_calls.lock().unwrap().is_empty());
-        let mut missing = KagariEngine::default().runtime(context.clone());
+        let mut missing =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .runtime(context.clone());
         assert!(
             missing
                 .load_program(
@@ -223,8 +238,15 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
 fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let module = echo_module(Type::i32(), calls.clone());
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![module.clone()]).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module.clone()])
+            .collect(),
+    )
+    .unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("host.kgr", "use demo::echo as call; use demo as api; fn main() -> i32 { call(api::echo(api::echo(39))) }"),  ArtifactOptions::default()).unwrap();
     let comparison = DefinitionContext::new().unwrap();
     let artifact = artifact
@@ -249,7 +271,10 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let context = ExecutionContext {
         ..Default::default()
     };
-    let mut missing = KagariEngine::default().runtime(context.clone());
+    let mut missing =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
+            .runtime(context.clone());
     assert!(
         missing
             .load_program(
@@ -283,7 +308,11 @@ fn declared_host_calls_compile_but_cannot_run_in_scalar_constants() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        vec![echo_module(Type::i32(), calls.clone())],
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![echo_module(Type::i32(), calls.clone())])
+            .collect(),
     )
     .unwrap();
     assert!(

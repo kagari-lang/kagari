@@ -22,6 +22,7 @@ use kagari_runtime::{
         builder::ModuleBuilder, context::CallContext, declarations::FunctionDecl, types::Type,
     },
 };
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::{
     fs,
@@ -133,7 +134,8 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
     let memory = capture(&virtual_inputs(42), "app");
     assert_eq!(inputs.root(), memory.root());
     assert_eq!(inputs.fingerprint(), memory.fingerprint());
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let cancel = CancellationToken::default();
     let initial = PackageBuildSet::capture(&engine, &project, &cancel).unwrap();
     let original = engine.compile_package(inputs, &cancel).unwrap();
@@ -354,9 +356,15 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
     builder
         .bind(number, |_: &mut CallContext<'_>| Ok(1i32))
         .unwrap();
-    let configured =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let configured = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let configured_fingerprint = configured.package_fingerprint(inputs, &cancel).unwrap();
     assert_ne!(
         fingerprint, configured_fingerprint,
@@ -377,7 +385,8 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
 
 #[test]
 fn selected_root_changes_follow_transitive_inputs_and_provider_contracts() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let capture = |files: Vec<(&str, String)>| {
         let input = VirtualSources::new(
             files

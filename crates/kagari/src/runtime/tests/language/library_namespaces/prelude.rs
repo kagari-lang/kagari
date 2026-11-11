@@ -1,9 +1,11 @@
 use crate::engine::KagariEngine;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn explicit_prelude_requires_imports_and_local_names_shadow_defaults() {
-    let engine = KagariEngine::new(Default::default());
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     for name in [
         "Hash",
         "Debug",

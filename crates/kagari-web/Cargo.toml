@@ -12,6 +12,7 @@ default = ["source"]
 source = ["kagari/source", "dep:kagari-source"]
 
 [dependencies]
+kagari-stdlib.workspace = true
 kagari = { workspace = true, default-features = false, features = ["web"] }
 kagari-runtime.workspace = true
 kagari-vm.workspace = true

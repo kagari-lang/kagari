@@ -111,7 +111,9 @@ fn main() {
         "fn identity<T>(value: T) -> T { value }\nfn main() -> i32 { f31(Player { hp: 31 }).hp }\n",
     );
     let analyzed = measure("fresh_analysis", || {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+                .unwrap();
         let file = engine
             .set_source("identity-benchmark.kgr", source.clone(), SourceLayer::Base)
             .unwrap();
@@ -130,7 +132,8 @@ fn main() {
     });
     drop(analyzed);
     let artifact = measure("compile_artifact", || {
-        KagariEngine::default()
+        KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+            .unwrap()
             .compile_to_artifact(
                 SourceFile::new("identity-benchmark.kgr", source.clone()),
                 ArtifactOptions::default(),

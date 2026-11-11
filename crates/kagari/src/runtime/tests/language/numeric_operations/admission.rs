@@ -2,11 +2,13 @@ use crate::engine::KagariEngine;
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::scalar::BuiltinType;
 
 #[test]
 fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("conversion.kgr", "fn main() -> u8 { 256u16 as u8 }"),

@@ -9,6 +9,7 @@ use kagari::{
 };
 use kagari_runtime::{module::ExecutableModule, session::owned::OwnedExecution, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_vm::vm::owned::DriveResult;
 use std::{hint::black_box, num::NonZeroUsize, time::Instant};
 
@@ -132,7 +133,8 @@ fn release_order(population: usize, order: &str) -> Vec<usize> {
 }
 
 pub(super) fn run(options: &Options) {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("execution-controls.kgr", SOURCE),

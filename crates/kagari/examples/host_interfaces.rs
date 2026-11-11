@@ -16,6 +16,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::SourceLayer;
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{
     HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
@@ -28,7 +29,8 @@ const SOURCE_URI: &str = "mem://host-interface";
 fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
     // Read the trait's checked ABI independently of its host implementation.
     // The source owns this private trait; Rust does not declare or export it.
-    let author = KagariEngine::default();
+    let author =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let contract_source = SOURCE
         .split("\nfn read<")
         .next()
@@ -118,9 +120,15 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
         .unwrap();
     // One checked installation owns both declarations and callbacks. Compilation
     // consumes the cold declarations and never executes either callback.
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![module.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![module.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let file = engine.bind_module(SOURCE_URI, path.module).unwrap();
     engine
         .set_source(SOURCE_URI, SOURCE.into(), SourceLayer::Base)

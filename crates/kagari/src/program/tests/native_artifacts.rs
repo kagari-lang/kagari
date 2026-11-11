@@ -23,10 +23,12 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib as stdlib;
 
 #[test]
 fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let checked = engine
         .compile_source(SourceFile::new("native-export", "fn main() -> i32 { 42 }"))
         .unwrap();
@@ -92,7 +94,8 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
 
 #[test]
 fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     // Author a provider-free ABI fixture and admit only its verified artifact.
     let prepare = |source: &str| {
         let mut sources = SourceDatabase::default();

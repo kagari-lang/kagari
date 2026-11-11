@@ -177,7 +177,7 @@ inside Runtime and executable contracts, not a missing Cargo feature. Adding a
 
 | Mechanism and current owner | Evidence | Disposition |
 | --- | --- | --- |
-| Automatic complete library composition | [SDK builder](../crates/kagari/src/engine/builder.rs), `KagariEngineBuilder::standard` installs `stdlib::modules()` | Supply an empty-provider construction route; library selection belongs to host/SDK consumers. Runtime already has an empty native-registry constructor. |
+| Automatic complete library composition | [SDK builder](../crates/kagari/src/engine/builder.rs), formerly `KagariEngineBuilder::standard` | D01 removes implicit installation: `empty` constructs the provider-free builder, and host/CLI/web consumers explicitly select library modules. Runtime already has an empty native-registry constructor. |
 | Nominal Vec storage and core recognition | [Vec declaration](../crates/kagari-stdlib/src/foundation/vector.rs), [native layout families](../crates/kagari-types/src/declaration/native.rs), [NativeStorage](../crates/kagari-runtime/src/native/storage.rs) | Remove Sequence/Map/Set/Iterator as privileged library storage families; later library types use ordinary nominal native payload declarations. Future/Task/TaskScope are separate execution mechanisms. |
 | Packed array and Vec implementation sharing | [sequence storage](../crates/kagari-runtime/src/native/sequence.rs), [buffer kernels](../crates/kagari-runtime/src/gc/buffers.rs), [fixed arrays](../crates/kagari-runtime/src/gc/arrays.rs), `gc/sequences.rs`, `gc/sequence_ops.rs`, `gc/sequence_edit.rs` | First give fixed arrays a Runtime-owned storage boundary; remove nominal Vec constructors/edit policy without discarding scalar packing or changing fixed-length array semantics. |
 | Hash storage and key policy | [hash payloads](../crates/kagari-runtime/src/native/hashed.rs), [table storage](../crates/kagari-runtime/src/native/hash_storage.rs), [heap operations](../crates/kagari-runtime/src/gc/maps_sets.rs), [custom keys](../crates/kagari-runtime/src/gc/custom_keys.rs) | Retire concrete tables, collision/lookup policy and stored Hash/Eq selections from Runtime. Preserve ordinary checked Hash/Eq calls and current-version selection. |
@@ -248,7 +248,7 @@ through it before deleting old paths. That is broader work than detach-first.
 #### Activated execution and D00 baseline
 
 Activated by the user on 2026-11-11, starting from `204e7276`. D00 is complete;
-D01-D05 remain pending. Phase commits use `Plan: docs/runtime-refactor-design.md`
+D01 is complete; D02-D05 remain pending. Phase commits use `Plan: docs/runtime-refactor-design.md`
 and `Plan-Phase: DNN`. This activation covers detachment only; later Runtime/Host,
 VM, frame and collector proposals remain design inputs.
 
@@ -333,6 +333,28 @@ result conversion and cleanup, with one separate warmed allocation sample.
 These are baseline observations, not a speedup or zero-allocation claim. Reuse the
 same workload at D05 and diagnose repeatable regressions before introducing local
 optimizations; this detachment stage does not activate the compact-frame design.
+
+D01 implements explicit SDK composition. `KagariEngine::builder`, `new` and
+`default` begin with no providers; `with_native_modules` installs exactly its
+argument batch. The SDK stdlib dependency is dev-only. CLI, web and the existing
+Lua-comparison benchmark own direct stdlib dependencies and explicitly install it;
+library examples, test preparation and standard-declaration navigation do the same.
+There is one batch registration path, without a compatibility constructor or hidden
+feature bundle. Generic SDK session witnesses retain only their custom application
+provider, and all four empty constructor routes execute an artifact independently.
+The current collection backend remains available at this checkpoint.
+
+D01 local validation passes: five selected SDK tests cover all four empty
+constructor routes, application-only session/provider isolation, explicit full
+library sorting and Vec/Map/Set composition, and duplicate explicit registration.
+`cargo check -p kagari --lib --no-default-features` and the serde-enabled SDK
+all-target check pass. `cargo tree -p kagari --no-default-features --edges normal`
+contains no stdlib. Workspace Clippy checks all default targets, including CLI,
+web, examples and benchmark consumers. Structure (1881 files, no violations,
+three existing exceptions), formatting, documentation links and diff checks pass.
+No integration failures are carried. Full-workspace tests, feature/platform
+matrices and aot-build-only examples remain unrun locally/CI scope. D02-D05 remain
+pending; no collection backend has been removed yet.
 
 #### Validation and deferred work
 

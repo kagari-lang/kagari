@@ -1,5 +1,6 @@
 //! Artifact-only entrypoint selected by scripts/check_features.py --numeric-only.
 //! Kept outside the workspace test targets so a disposable product is never optional.
+use kagari_stdlib as stdlib;
 use kagari::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -20,6 +21,7 @@ fn source_free_numeric_sampling_executes_and_releases_roots() {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     builder.config(config);
     let engine = builder.build().unwrap();
     let context = ExecutionContext::default();

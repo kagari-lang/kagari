@@ -18,6 +18,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::declaration::module::ModuleDecl;
 use kagari_vm::vm::Vm;
 use rstest::rstest;
@@ -66,7 +67,8 @@ static var STATE: u32 = 97u32;
 pub fn read() -> u32 { u32::from(STATE) }
 pub fn write() { STATE = 128578u32; }
 "#;
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let changed_initializer =
         prepare_static_program(&engine, &source.replace("'a'", "'z'"), decoded);
@@ -118,7 +120,8 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     );
     assert_eq!(source.matches("value: 1,").count(), 1);
     assert_eq!(source.matches("value: 90,").count(), 1);
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let changed_initializer =
         prepare_static_program(&engine, &source.replace("value: 1,", "value: 2,"), decoded);
@@ -165,7 +168,8 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
     // Explicit assignment still replaces cells without changing their saved aliases.
     let replacement =
         include_str!("../../../../tests/fixtures/embedding/reload/static-callbacks-v2.kgr");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let second = prepare_static_program(&engine, replacement, decoded);
     let mut runtime = engine.runtime(Default::default());
@@ -203,7 +207,8 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         include_str!("../../../../tests/fixtures/embedding/reload/static-hash-bodies-v2.kgr");
     let helpers =
         include_str!("../../../../tests/fixtures/embedding/reload/static-hash-helpers-v3.kgr");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let mut runtime = engine.runtime(Default::default());
     let old = runtime.load_program(&first, Default::default()).unwrap();
@@ -302,7 +307,8 @@ fn decode_program(
 #[test]
 fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     let source = include_str!("../../../../tests/fixtures/embedding/reload/local-functions-v1.kgr");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let program = prepare(&engine, source);
     let replacement = prepare(
         &engine,
@@ -312,7 +318,7 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     config.gc.collection_threshold = Some(1);
     config.limits.max_call_depth = Some(32);
     let mut runtime = CoreRuntime::new(config);
-    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime.load_program("local-reload", program).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -383,7 +389,8 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
     #[case] source: &str,
     #[case] replacement: &str,
 ) {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let program = prepare(&engine, source);
     let replacement = prepare(&engine, replacement);
     let mut config = RuntimeConfig::default();
@@ -391,7 +398,7 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
     let mut runtime = {
         let mut registered = CoreRuntime::new(config);
         kagari_runtime::native::module::NativeModule::install_all(
-            &kagari_stdlib::modules().unwrap(),
+            &stdlib::modules().unwrap(),
             &mut registered,
         )
         .unwrap();
@@ -489,7 +496,8 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
 #[test]
 fn retained_generic_try_calls_use_current_carrier_operations() {
     let source = include_str!("../../../../tests/fixtures/embedding/reload/try-carrier-v1.kgr");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let program = prepare(&engine, source);
     let replacement = prepare(
         &engine,
@@ -499,7 +507,7 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
     kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
+        &stdlib::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -580,7 +588,8 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
 fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let source =
         include_str!("../../../../tests/fixtures/embedding/reload/interface-iteration-v1.kgr");
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let original = prepare(&engine, source);
     let replacement = prepare(
         &engine,
@@ -589,7 +598,7 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
-    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime.load_program("receiver-reload", original).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -659,12 +668,13 @@ fn shared_collection_comparison_selects_current_operations(
     #[case] replacement_source: &str,
     #[case] preparation: ReloadPreparation,
 ) {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let original = prepare(&engine, source);
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
-    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime
         .load_program("shared-comparison-reload", original)
         .unwrap();

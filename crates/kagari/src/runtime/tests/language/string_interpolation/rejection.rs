@@ -4,6 +4,7 @@ use crate::{
     test_support::execution,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn interpolation_rejects_missing_protocols_and_invalid_formats() {
@@ -15,8 +16,10 @@ fn interpolation_rejects_missing_protocols_and_invalid_formats() {
         r#"fn main() { "{missing}"; }"#,
         r#"const NUMBER: i32 = 1; const VALUE: String = "{NUMBER}"; fn main() {}"#,
     ] {
-        let result = KagariEngine::default()
-            .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default());
+        let result =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default());
         assert!(result.is_err(), "{source}");
     }
 }

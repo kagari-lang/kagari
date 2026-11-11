@@ -23,6 +23,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -229,7 +230,8 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let program =
             Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert!(
-            KagariEngine::default()
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
                 .runtime(context.clone())
                 .load_program(&program, Default::default())
                 .is_err()
@@ -410,7 +412,8 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
     let program =
         Program::from_artifact(artifact.clone(), &Default::default(), &Default::default()).unwrap();
     assert!(
-        KagariEngine::default()
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+            .unwrap()
             .runtime(Default::default())
             .load_program(&program, Default::default())
             .is_err()

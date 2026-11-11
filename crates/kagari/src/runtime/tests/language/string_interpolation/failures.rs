@@ -1,10 +1,12 @@
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn formatter_traps_keep_the_origin_and_release_execution_roots() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let source = include_str!(
         "../../../../../tests/fixtures/language/string_interpolation/traps/formatter_traps_keep_the_origin_and_release_execution_roots.kgr"
     );

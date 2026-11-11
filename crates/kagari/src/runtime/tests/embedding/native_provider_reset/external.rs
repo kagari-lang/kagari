@@ -9,6 +9,7 @@ use crate::{
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
+use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::sync::{
     Arc,
@@ -79,6 +80,7 @@ fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown
     .unwrap();
     let drops = Arc::new(AtomicUsize::new(0));
     let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     builder.install(provider::module(drops.clone())).unwrap();
     let engine = builder.build().unwrap();
     let context = ExecutionContext::default();

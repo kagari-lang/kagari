@@ -1,5 +1,6 @@
 use crate::engine::KagariEngine;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn readonly_operations_cannot_recover_write_access() {
@@ -29,10 +30,13 @@ fn readonly_operations_cannot_recover_write_access() {
         "use std::collections::{Set};\nfn main() { val a: Set<i32> = std::set::new(); }",
     ];
     for source in cases {
-        let result = KagariEngine::default().compile_to_artifact(
-            SourceFile::new("readonly-negative.kgr", source),
-            Default::default(),
-        );
+        let result =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .compile_to_artifact(
+                    SourceFile::new("readonly-negative.kgr", source),
+                    Default::default(),
+                );
         assert!(result.is_err(), "must reject: {source}");
     }
 }

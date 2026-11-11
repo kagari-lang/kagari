@@ -4,6 +4,7 @@
 use kagari::{engine::KagariEngine, runtime::Runtime};
 use kagari_runtime::module::InstalledProgram;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 const V1: &str = r#"
 struct Box { var value: i32 }
@@ -30,7 +31,8 @@ fn call(runtime: &Runtime, module: &InstalledProgram, entry: &str) -> i32 {
 }
 
 fn main() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let first = engine
         .compile_to_program(
             SourceFile::new("persistent-static.kgr", V1),

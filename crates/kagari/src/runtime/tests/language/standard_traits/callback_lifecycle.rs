@@ -3,6 +3,7 @@ use crate::{BytecodeArtifact, engine::KagariEngine, test_support::cancellation a
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_vm::vm::Vm;
 
 #[test]
@@ -45,7 +46,8 @@ pub fn make()->(Test,HashSet<Key>) {
  (tester,set)
 }
 "#;
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("callback-cleanup.kgr", source),
@@ -71,7 +73,7 @@ pub fn make()->(Test,HashSet<Key>) {
     config.gc.collection_threshold = Some(1);
     let mut runtime = {
         let mut registered = Runtime::new(config);
-        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut registered).unwrap();
+        NativeModule::install_all(&stdlib::modules().unwrap(), &mut registered).unwrap();
         registered
     };
     let (definitions, artifact) = artifact.into_parts();

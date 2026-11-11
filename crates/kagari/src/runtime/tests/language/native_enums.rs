@@ -7,6 +7,7 @@ use crate::{
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -17,6 +18,7 @@ mod rejection;
 
 fn engine() -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     builder.config(config);

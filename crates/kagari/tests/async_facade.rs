@@ -31,6 +31,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use std::{
     cell::Cell,
     future::{Future, poll_fn},
@@ -74,6 +75,7 @@ impl Fixture {
         let cancels = Arc::new(AtomicUsize::new(0));
         let sent = Arc::new(Mutex::new(Vec::new()));
         let mut engine = KagariEngine::builder().unwrap();
+        engine.install_all(stdlib::modules().unwrap()).unwrap();
         let mut provider = ModuleBuilder::new("test::typed", engine.declarations()).unwrap();
         let touch = provider
             .define_function(

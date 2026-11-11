@@ -3,11 +3,13 @@ use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_contract::types::PublicItem;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn forged_access_upgrades_are_rejected_before_loading() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -77,7 +79,8 @@ fn main() { val values = Vec::from([1, 2]); inspect(values); }
 
 #[test]
 fn boxed_interface_dispatch_requires_an_interface_value_without_collection_markers() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

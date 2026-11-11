@@ -9,6 +9,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::sync::{
     Arc, Mutex,
@@ -78,6 +79,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             )
             .unwrap();
         let mut builder = KagariEngine::builder().unwrap();
+        builder.install_all(stdlib::modules().unwrap()).unwrap();
         builder.install(module.finish().unwrap()).unwrap();
         let engine = builder.build().unwrap();
         let source = format!(

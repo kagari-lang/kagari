@@ -24,6 +24,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as stdlib;
 
 use kagari_types::{
     declaration::{
@@ -182,9 +183,15 @@ fn assert_source_index_path(field_prefix: bool) {
                 }),
         )
         .unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
-            .unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        stdlib::modules()
+            .unwrap()
+            .into_iter()
+            .chain(vec![builder.finish().unwrap()])
+            .collect(),
+    )
+    .unwrap();
     let prefix = if field_prefix { ".scores" } else { "" };
     let artifact = engine.compile_to_artifact(SourceFile::new("host-index.kgr", format!(
         "use game as api; fn main() -> i32 {{ var player = api::make(); player{prefix}[api::index()] += api::rhs(); player{prefix}[1] }}"

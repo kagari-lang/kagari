@@ -1,5 +1,6 @@
 use crate::engine::KagariEngine;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_numeric_literals_are_rejected_before_execution() {
@@ -13,7 +14,9 @@ fn invalid_numeric_literals_are_rejected_before_execution() {
         "1wat",
         "1e999f64",
     ] {
-        let engine = KagariEngine::default();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         assert!(
             engine
                 .compile_source(SourceFile::new(
@@ -42,7 +45,8 @@ fn invalid_explicit_arguments_and_unresolved_holes_are_rejected() {
         "fn main() { val x: Result<bool, String> = Ok::<i32, String>(1); }",
     ] {
         assert!(
-            KagariEngine::default()
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
                 .compile_source(SourceFile::new("invalid-inference.kgr", source))
                 .is_err(),
             "unexpectedly accepted: {source}"

@@ -1,5 +1,6 @@
 use crate::engine::KagariEngine;
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_conversion_implementations_are_diagnostics() {
@@ -12,7 +13,8 @@ fn invalid_conversion_implementations_are_diagnostics() {
         "struct X{} impl From<i32> for X {fn from(v:i32)->X {X{}}} fn main(){X{}.from(1);}",
     ] {
         assert!(
-            KagariEngine::default()
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
                 .compile_to_artifact(SourceFile::new("bad.kgr", source), Default::default())
                 .is_err(),
             "{source}"
@@ -40,7 +42,9 @@ fn construction_contracts_reject_invalid_signatures_and_bounds() {
         "fn main()->i32 {i32::sum([true])}",
         "fn main(){val x:Result<i32,String> = i32::try_from(1);}",
     ] {
-        let engine = KagariEngine::builder().unwrap().build().unwrap();
+        let engine =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap();
         assert!(
             engine
                 .compile_to_artifact(

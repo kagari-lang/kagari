@@ -5,6 +5,7 @@ use kagari::{
     program::Program,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use std::{collections::HashSet, env, fmt::Write, sync::Arc, time::Instant};
 
 #[cfg(feature = "diagnostics")]
@@ -98,7 +99,9 @@ fn lifecycle(engine: &KagariEngine, program: &Program, options: &Options) -> Mea
     for _ in 0..options.runtimes {
         let runtime = if options.fresh_domain {
             // The temporary engine is dropped before the empty-runtime snapshot.
-            KagariEngine::default().runtime(context.clone())
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .runtime(context.clone())
         } else {
             engine.runtime(context.clone())
         };
@@ -166,7 +169,8 @@ fn print_sample(index: usize, value: &Measurement) {
 pub(super) fn run() {
     let options = Options::parse();
     let preparation = Instant::now();
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let engine_ns = preparation.elapsed().as_nanos();
     let preparation = Instant::now();
     let checked = engine

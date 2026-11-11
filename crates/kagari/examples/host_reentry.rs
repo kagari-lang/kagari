@@ -11,6 +11,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
@@ -40,6 +41,7 @@ impl ExecutionObserver for StackDepth {
 
 fn main() {
     let mut builder = KagariEngine::builder().unwrap();
+    builder.install_all(stdlib::modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("example::reentry", builder.declarations()).unwrap();
     let notify = module
         .define_function(

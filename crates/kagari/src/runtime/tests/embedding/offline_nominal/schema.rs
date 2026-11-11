@@ -10,6 +10,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use kagari_stdlib as stdlib;
 use kagari_types::{
     declaration::{
         FieldDef, TypeDeclaration,
@@ -195,7 +196,11 @@ impl NominalSchema {
         let [right, unused] = self.providers;
         KagariEngine::with_native_modules(
             Default::default(),
-            vec![right, unused, self.builder.finish().unwrap()],
+            stdlib::modules()
+                .unwrap()
+                .into_iter()
+                .chain(vec![right, unused, self.builder.finish().unwrap()])
+                .collect(),
         )
         .unwrap()
     }

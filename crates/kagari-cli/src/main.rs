@@ -1,5 +1,6 @@
 #[cfg(feature = "jit")]
 use kagari::program::native::NativeCompiler;
+use kagari_stdlib as stdlib;
 mod aot;
 mod args;
 mod checking;
@@ -272,6 +273,9 @@ fn read_source(path: &Path) -> Result<SourceFile, CliError> {
 fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
     let registration = |error: RuntimeError| CliError::message(1, error.to_string());
     let mut engine = KagariEngine::builder().map_err(registration)?;
+    engine
+        .install_all(stdlib::modules().map_err(registration)?)
+        .map_err(registration)?;
     let mut module = ModuleBuilder::from_declaration(
         logging::declaration().map_err(|error| CliError::message(1, error.to_string()))?,
         engine.declarations(),

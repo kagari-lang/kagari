@@ -2,10 +2,12 @@ use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, p
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source_database::SourceLayer;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn imported_defaults_keep_the_trait_module_constant_resolution() {
-    let engine = KagariEngine::default();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let mut root = None;
     for (name, source) in [
         (

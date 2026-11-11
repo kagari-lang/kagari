@@ -1,5 +1,6 @@
 use crate::{engine::KagariEngine, error::EmbeddingError};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_protocols_and_residuals_fail_during_analysis() {
@@ -30,12 +31,14 @@ fn invalid_protocols_and_residuals_fail_during_analysis() {
             "KG_TYPE_INVALID_TRAIT_IMPL",
         ),
     ] {
-        let error = KagariEngine::default()
-            .compile_to_artifact(
-                SourceFile::new("memory://invalid-try.kgr", format!("{prefix}{source}")),
-                Default::default(),
-            )
-            .unwrap_err();
+        let error =
+            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                .unwrap()
+                .compile_to_artifact(
+                    SourceFile::new("memory://invalid-try.kgr", format!("{prefix}{source}")),
+                    Default::default(),
+                )
+                .unwrap_err();
         let EmbeddingError::Diagnostics { diagnostics } = error else {
             panic!("{error:?}")
         };

@@ -1,12 +1,14 @@
 use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
+use kagari_stdlib as stdlib;
 
 mod prelude;
 
 #[test]
 fn reexports_preserve_trait_type_and_constructor_identity_in_artifacts() {
-    let engine = KagariEngine::new(Default::default());
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let source = include_str!(
         "../../../../tests/fixtures/language/library_namespaces/reexports_preserve_trait_type_and_constructor_identity_in_artifacts.kgr"
     );

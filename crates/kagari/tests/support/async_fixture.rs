@@ -34,6 +34,7 @@ use kagari_runtime::{
         types::Type,
     },
 };
+use kagari_stdlib as stdlib;
 use kagari_stdlib::catalog;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -368,6 +369,7 @@ impl Fixture {
         ) -> Program,
     ) -> Self {
         let mut engine = KagariEngine::builder().unwrap();
+        engine.install_all(stdlib::modules().unwrap()).unwrap();
         engine.config(config);
         let catalog = engine.declarations().clone();
         let starts = Arc::new(AtomicUsize::new(0));
