@@ -1,5 +1,10 @@
 # Test preparation, scheduling and source ownership
 
+CM00-CM04 subsequently moved the VM package/tests into kagari-runtime. Historical
+target counts and timing labels below retain their recorded names; current test
+owners and commands are in the [testing guide](testing.md).
+
+
 This finite task improves test preparation boundaries and selected contract owners.
 The initial three SDK pilots and TP04's six additional SDK runners are complete.
 TP04 also removes invariant preparation from compiler ABI, provider cancellation

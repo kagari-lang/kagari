@@ -17,7 +17,7 @@ An embedding host may explicitly call functions during a restricted candidate se
 Each load creates an independent installation, even for the same prepared code or
 diagnostic label. `InstalledProgram` and its `Module` handles identify a live installation;
 `ExecutableModule` is an exact executable-version owner. Detached source preparation returns an immutable `Program` candidate; SDK
-`Runtime::replace_program` returns `ReloadResult<()>`, advancing the installation
+`Runtime::replace_program` returns `Result<(), ReloadValidationError>`, advancing the installation
 rather than returning replacement handles. Runtime ownership, installation identity and
 retirement checks remain mandatory; labels confer no authority. Runtime owns the
 installation: dropping InstalledProgram/Module handles does not unload it, cancel tasks or

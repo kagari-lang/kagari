@@ -68,7 +68,7 @@ and admission slots retire independently of retained Task handles.
 Create the SDK runtime with its default `ExecutionContext`, load a program, then use:
 
 - `runtime.create_task_scope(&loaded)` or
-  `create_task_scope_with_context(&loaded, &context)` -> `RunResult<TaskScopeOwner>`.
+  `create_task_scope_with_context(&loaded, &context)` -> `Result<TaskScopeOwner, RuntimeError>`.
 - `runtime.function::<(TaskScope, ...), R>(&loaded, name)` to bind the handler.
   `TaskScope` here is `kagari_runtime::task::value::TaskScope`; pass `scope.handle()`
   as an ordinary typed argument. The outer tuple represents the argument list.

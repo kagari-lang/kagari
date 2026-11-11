@@ -220,7 +220,7 @@ Use the existing owners as templates, not a new universal runner:
   after fresh provider installation; it does not load a discarded synthetic program
   before source preparation. The synthetic source-free constructor remains a
   separate public-consumer proof, not an interchangeable source route.
-- VM source data under `kagari-vm/tests/fixtures` keeps its original execution,
+- VM source data under `kagari-runtime/tests/fixtures` keeps its original execution,
   GC, native-boundary and owned-drive Rust observations. Standard runtime setup has
   one owner, but reflection's unverified loader remains distinct from verified
   module admission. Stdlib runtime-boundary support shares compilation only across
@@ -341,8 +341,8 @@ The workspace keeps eight integration targets for concrete boundaries:
 | `kagari` / `async_facade` | External consumer of public typed async calls, direct await and externally driven execution; keeps public API visibility and lifecycle checks outside the library harness. |
 | `kagari-analyzer` / `stdio` | Launches the actual analyzer process to verify framed stdio messages, synchronization, bounded transport and shutdown. |
 | `kagari-runtime` / `native_schema` | External derive, `native_data!` and Serde expansion against ordinary runtime visibility. Manual rollback cases live beside schema registration. |
-| `kagari-vm` / `allocation_contracts` | A single custom global allocator with thread-local measurement windows for the existing native/interface allocation assertions. |
-| `kagari-vm` / `library_measurements` | Ignored manual timing workload with a separate allocator process; ordinary test success is not a performance result. |
+| `kagari-runtime` / `allocation_contracts` | A single custom global allocator with thread-local measurement windows for the existing native/interface allocation assertions. |
+| `kagari-runtime` / `library_measurements` | Ignored manual timing workload with a separate allocator process; ordinary test success is not a performance result. |
 
 Lifetime/compile-fail doctests, standalone AOT deployment and executable examples
 retain their separate purposes. The feature script uses standalone manifests;
@@ -382,7 +382,7 @@ Select by package, library and qualified test filter, for example:
 
 ```text
 cargo test -p kagari --lib -- runtime::tests::language::syntax_examples::source_examples::path_01__UP__UP_examples_syntax_array_operations_kgr
-cargo test -p kagari-vm --test allocation_contracts -- native_allocations::
+cargo test -p kagari-runtime --test allocation_contracts -- native_allocations::
 ```
 
 Do not combine these examples into a routine workspace sweep.

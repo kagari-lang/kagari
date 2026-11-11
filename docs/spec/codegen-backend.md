@@ -147,16 +147,17 @@ presence in MIR does not imply support by the current scalar backend.
 
 ## Preparation, Installation and Execution
 
-Immutable SDK `Program` retains shared verified bytecode and optional verified MIR.
+Canonical Runtime `Program` retains shared verified bytecode and executable history.
+SDK `Compilation` separately retains optional verified MIR and source inputs.
 A separate `NativeCompiler` owns the bounded native cache (at most 4096 exact
 revision/function/configuration/runtime-ABI/helper-ABI decisions). Successful
 products and unsupported decisions are reusable; cancellation/compiler errors and
 Runtime-specific authority are not cached. Keys retain opaque revision tokens,
 not source/MIR/bytecode payloads.
 
-`NativeCompiler::prepare(&Program, entry, backend, cancellation)` compiles or reuses
+`NativeCompiler::prepare(&Compilation, entry, backend, cancellation)` compiles or reuses
 an immutable NativeCode product without Runtime access. The host can distribute it
-after compiler/backend drop. `Runtime::install_native(&mut self, installed, &code)`
+after compiler/backend drop. `NativeCode::install(&self, &mut Runtime, &InstalledProgram)`
 checks the exact recipient revision, entry and local policy/authority before
 creating a Runtime-specific prepared entry.
 `Runtime::install_native_function` is unsafe for direct callers; it checks
@@ -167,7 +168,7 @@ that contract using the unsafe backend guarantee and verified correspondence.
 `InstalledNativeFunction` retains its code owner, loaded version and dependency
 closure. Runtime invocation creates ordinary sessions/frames, checks authority and
 ownership and shares GC, cancellation and trace behavior with the VM.
-`Vm::execute_prepared` accepts an installed entry or an explicit unsupported decision.
+`Runtime::execute_prepared` accepts an installed entry or an explicit unsupported decision.
 It never compiles. Only a pre-entry unsupported/policy decision may fall back;
 a native failure after entry is returned with its trace and never restarted.
 

@@ -81,7 +81,7 @@ The repository contains bytecode-first implementation components:
 
 - `crates/kagari-bytecode/src/lib.rs`
 - `crates/kagari-mir/src/lib.rs`
-- `crates/kagari-vm/src/lib.rs`
+- `crates/kagari-runtime/src/lib.rs`
 - `crates/kagari-runtime/src/backend.rs`
 - `crates/kagari-codegen-cranelift/src/lib.rs`
 
@@ -439,7 +439,7 @@ The backend VM exposes `start` and `drive` for verified script entries, includin
 resume bodies. Start validates and retains arguments without executing script. An `OwnedExecution` token contains
 a checked session identity and retirement/cancellation notification state, not a
 Runtime borrow. `drive` borrows the runtime for one exclusive activation and returns
-`Runnable`, `Waiting` or `Complete(Result<RootedValue, VmError>)`. Its nonzero
+`Runnable`, `Waiting` or `Complete(Result<RootedValue, RuntimeError>)`. Its nonzero
 instruction slice is a scheduling interval; native calls remain cooperative and a slice may overrun
 until all transient resources have left. Synchronous execute/reentry uses the same
 frame store and interpreter without host-visible slice exits. The slice counts

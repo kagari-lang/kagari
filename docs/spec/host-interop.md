@@ -207,7 +207,7 @@ results are rejected before their scope ends. The public registry/function invok
 bypasses are removed; host invocation goes through Runtime effect, cancellation,
 signature and heap validation.
 
-`kagari_vm::reenter(context, loaded, function, args)` drives the existing explicit
+`kagari_runtime::execution::reentry::reenter(context, loaded, function, args)` drives the existing explicit
 frame executor synchronously. The loaded handle and FunctionRef select a linked
 version, which must belong to the current root program.
 Reentry does not switch to the latest epoch. Argument and
@@ -563,11 +563,10 @@ Send + 'static, without NativePayload or a blanket Sync requirement. Runtime-own
 creation still requires its storage proof.
 The original host loan lasts until scope exit even if its branded view is dropped.
 Scope/view values cannot transfer between threads. Execution stays within the scope;
-the interpreter's `Vm::execute_scoped` requires explicit ExecutionOptions, uses the
-ordinary checked public entry and validates its concrete parameters before execution.
-The SDK facade uses Runtime::with_host_scope and its static execute_scoped
-with explicit ExecutionContext; it forwards cancellation, inputs and observation,
-and rejects unsupported JIT policies before entering the interpreter. Heap results remain rooted
+`Runtime::with_host_scope` and static `Runtime::execute_scoped` use explicit
+ExecutionContext and the ordinary checked public entry, validating concrete parameters
+before execution. They forward cancellation, inputs and observation, and reject
+unsupported JIT policies before entering the interpreter. Heap results remain rooted
 until scope exit; an owning handle is required to retain them beyond that scope.
 
 External addresses live in the existing host borrow frame owner. GC view headers
@@ -1306,7 +1305,7 @@ layer run only when scheduled. Future-valued outputs are not implicitly flattene
 See [typed async calls](embedding-api.md#typed-async-calls-scheduling-and-native-waits)
 for bounds, context and cleanup guarantees.
 
-Backend `Vm::start_future` remains a lower-level primitive: it queues a supplied
+Backend `Runtime::start_future` remains a lower-level primitive: it queues a supplied
 script or native Future, which the first drive claims. Cancelling that queued owner
 before its first drive releases its root without claiming the cold Future. Backend
 owner wakers and retirement draining retain their low-level contracts; they are not
@@ -1322,7 +1321,7 @@ outcomes are cached in the sealed Task payload. Managed terminal records retire
 automatically, independently of retained Task handles and diagnostic event consumption.
 Completion detaches registrations before waking waiters; wakes never execute script.
 
-Core runtime manual scopes retain `spawn_task`, explicit `Vm::drive_task` and host
+Custom `create_dispatched_task_scope` scopes retain `spawn_task`, explicit `Runtime::drive_task` and host
 report consumption as a distinct backend integration. They are not the managed SDK
 scope API. Structured `join`/`try_join` branches use the same native-wait lifecycle;
 closing a branch detaches its Task wait without cancelling the shared producer.

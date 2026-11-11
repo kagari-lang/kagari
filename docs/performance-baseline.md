@@ -3,7 +3,9 @@
 Historical commands below describe the test layout at their recorded revisions.
 TP05-TP09 moved ordinary integration suites into source; use the qualified library
 filters in [the testing guide](testing.md) for current code. Old timing samples
-are not measurements of the consolidated harnesses.
+are not measurements of the consolidated harnesses. CM00-CM04 also moved VM
+execution/tests into kagari-runtime; historical kagari-vm labels below refer to
+their recorded revisions, not a current workspace package.
 
 This page retains measurements needed for the open test-cost, interpreter
 performance and architecture follow-up work. Each result applies to its recorded revision and environment,
@@ -20,6 +22,92 @@ The latest interpreter result is [BO17-BO19 scalar dispatch on the i9-12900K](#b
 It includes all 19 original/forms timings and arithmetic machine-code attribution.
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
+
+## Runtime consolidation core-call comparison, Windows 2026-11-11
+
+CM00-CM04 compares baseline implementation `a656554a` with `03a9be95` plus the
+CM04 synchronous default-context borrow cleanup. The candidate's production change
+borrows the immutable default context instead of cloning the context left over
+from the mutable SDK wrapper. Its existing context/cancellation/retained-result
+contract passes. Frame layout, scalar dispatch and Native adapters are unchanged.
+
+### Comparable preparation and reproduction
+
+The frozen CM00 binary used the old raw loader, which verified/imported code into
+the recipient Runtime's identity context. The migrated instruction-fixture helper
+prepares VerifiedProgram in an independent context before loading. That is a
+meaningful setup difference: detached code has recipient/product identity
+correspondence even before any reload. A first comparison reported roughly 5-10%
+Native-call differences, with large run variation. Instruction-pointer sampling
+of the two child processes exposed identity-remapping work in the detached route;
+this is not evidence of a new per-call version lookup. Scope and timing variability
+prevent attributing that initial difference solely to crate consolidation.
+
+For the matched comparison, build a detached worktree at `a656554a`, changing only
+`crates/kagari-vm/tests/core_calls.rs` preparation to match the current helper:
+
+```text
+let context = DefinitionContext::new().unwrap();
+let verified = VerifiedProgram::new(bytecode.into_unverified(), &context).unwrap();
+let program = runtime.load_verified_program("core", verified).unwrap();
+```
+
+Here DefinitionContext is `kagari_common::identity::map::DefinitionContext` and
+VerifiedProgram is `kagari_runtime::module::VerifiedProgram`. The baseline retains
+its existing Vm construction/call path; no baseline production code changes.
+Build its `kagari-vm --release --test library_measurements` target and the current
+`kagari-runtime --release --test library_measurements` target separately, sharing
+the repository's normal Cargo target/cache. Invoke each test executable with
+`core_only_script_and_native_calls --ignored --nocapture --test-threads=1`.
+Preparation, compilation, loading and typed binding remain outside timed calls.
+This is a complete bound host call, not a lookup-only or inner-loop measurement.
+
+Environment: Windows x64 MSVC, Intel Core i7-10700F (16 logical processors),
+Rust 1.99.1 `58cf8f9c3` / LLVM 23.1.1, workspace release/default features and default
+Cargo target/parallelism. All builds/tests finish before timing. Each child uses
+one test thread, the same logical CPU 8 affinity and AboveNormal process priority;
+these settings affect only the benchmark children. Runtime/binding caches are warm.
+Each shape has three warm-up and eleven measured batches of 10,000 calls, plus a
+separate allocation sample. No standard library is installed. Build costs were
+excluded and were not benchmarked. Sampling runs are excluded from timing evidence.
+
+The SHA-256 images are: frozen local-scope baseline
+`3b4fcf44779781e2e9b71e5be5bed5fe3b81c2eb3f4856a3e367cfe4e548e635`,
+matched detached baseline
+`8ee65bc98f5b247655ea552e135344db4c2153e3212294316ec1deeef41a9e4b`,
+and candidate
+`cb1f1dfad0959fc5043853166c70f0c0b3c467f52b25e0b62a27bf8484ef6e7a`.
+The source, preparation sketch and commands above reproduce the method without
+requiring ignored local probe files; compiler/build paths can change image hashes.
+
+### Observations and limits
+
+Two sets of three sequential pairs alternate baseline/candidate order. The table
+uses the median of each image's six run medians; percentages compare those medians.
+
+| Shape | Matched baseline ns/call | Candidate ns/call | Observed change | Allocations / bytes, baseline -> candidate |
+| --- | ---: | ---: | ---: | --- |
+| empty | 5355.92 | 5324.29 | -0.59% | 38 / 1808 -> 37 / 1752 |
+| script forwarding | 6101.51 | 6216.17 | +1.88% | 38 / 1808 -> 37 / 1752 |
+| Native forwarding | 12630.21 | 12312.67 | -2.51% | 103 / 4688 -> 102 / 4632 |
+
+Variation matters: paired changes span -18.18% to +9.92% for empty, -1.28% to
++7.25% for script and -4.14% to +6.38% for Native. Median paired changes are
++1.58%, +1.15% and +1.12%, respectively. The final three-pair confirmation has
+baseline/candidate medians 5000.45/5078.21, 5726.98/5775.35 and
+11694.14/11860.85 ns/call (+1.56%, +0.84%, +1.43%). Whole-process wall/CPU
+observations also expose scheduling variation; no samples were silently discarded.
+This bounded comparison did not reproduce a median regression above 5% with
+matched preparation. It does not establish a speedup or eliminate machine noise.
+
+Every allocation sample agrees: one fewer request and 56 fewer requested bytes per
+call, zero reallocations, and matching deallocations. The old Vm default call creates
+a fresh cancellation token; canonical Runtime uses its persistent invocation context.
+The separate warmed scalar/array Native-boundary oracle still observes zero
+allocator requests. These are whole-call/allocation observations, not RSS, compact
+frame results, compiler throughput, whole-interpreter performance or restored NC
+collection coverage. Current ownership and deferred work live in the
+[Runtime map](architecture/runtime.md#single-runtime-and-preparation-boundary).
 
 ## Runtime detachment core-call comparison, Windows 2026-11-11
 
@@ -1469,7 +1557,7 @@ additional). [Option construction](../crates/kagari-stdlib/src/foundation/enumer
 allocates a heap enum and payload buffer for every successful get. The workload
 allocates 2,001 script objects and collects six times, then separately executes
 2,000 variant tests and 2,000 payload reads through
-[canonical VM handlers](../crates/kagari-vm/src/executor/aggregate_ops.rs).
+[canonical VM handlers](../crates/kagari-runtime/src/executor/aggregate_ops.rs).
 Repeated searches and result protocol are concrete excess work; their separate
 elapsed shares are unknown. IP11 previously rejected an insertion-only prototype
 after it missed its timing target, so that experiment is not a promised solution.
@@ -4222,7 +4310,7 @@ script Hash/Eq per lookup or allocate a key vector. Each get nevertheless constr
 an ordinary heap-backed Some with a payload buffer. The 2,000 successful gets explain
 2,000 enum objects in addition to the map. They then execute exactly 2,000
 TestEnumVariant and 2,000 ReadEnumPayload instructions. These remain canonical
-[VM boundary handlers](../crates/kagari-vm/src/executor/aggregate_ops.rs), separately
+[VM boundary handlers](../crates/kagari-runtime/src/executor/aggregate_ops.rs), separately
 borrowing/validating the enum. They are not in-region prepared enum operations.
 Maps' 8,001 slow boundaries cover 4,001 native operations and 4,000 enum operations;
 GC transitions add their own duties. This is a multi-stage result protocol, not
@@ -7021,7 +7109,7 @@ execute_admitted_region and excludes complete_transition. Scope owners are
 [Native binding](../crates/kagari-runtime/src/native/binding.rs),
 [conversion](../crates/kagari-runtime/src/native/conversion/context.rs),
 [type preparation](../crates/kagari-runtime/src/native/context/enums.rs),
-[driver](../crates/kagari-vm/src/executor/driver.rs) and
+[driver](../crates/kagari-runtime/src/executor/driver.rs) and
 [cursor](../crates/kagari-runtime/src/frame/cursor.rs).
 
 | Image | SHA-256 |

@@ -480,7 +480,7 @@ events. Ignoring events never delays admission-slot retirement. Manual backend
 scopes instead retain explicit terminal reports and report-consumption ownership.
 Both preserve original dependency failure provenance and logical spawn/await
 locations without requiring source text. Scope close/drop requests cancellation;
-`is_closed` acknowledges cleanup, while SDK Runtime close performs it synchronously.
+`is_closed` acknowledges cleanup, while canonical Runtime close performs it synchronously.
 
 Root cancellation is sticky across all nested async calls and native operations.
 It prevents further script execution, invalidates completion endpoints and releases
@@ -800,8 +800,8 @@ State replacement remains outside this contract.
 ## Contract coverage
 
 The [SDK async tests](../crates/kagari/tests/async_execution.rs) cover source,
-artifact and host-driven execution. [Session tests](../crates/kagari-vm/src/tests/sessions.rs)
-and [native boundaries](../crates/kagari-vm/src/tests/native_boundary.rs) own cleanup,
+artifact and host-driven execution. [Session tests](../crates/kagari-runtime/src/interpreter_tests/sessions.rs)
+and [native boundaries](../crates/kagari-runtime/src/interpreter_tests/native_boundary.rs) own cleanup,
 reentry and runtime safety. Use deterministic host completion/dispatch fixtures;
 preserve cold-effect timing, single Future drive, shared Task results, cancellation,
 GC, exact admitted-body retention/current ordinary-call selection across reload

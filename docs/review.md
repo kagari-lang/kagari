@@ -557,7 +557,7 @@ more optimization passes.
 The chapter assessment combines the book with source and test inspection at the
 reviewed baseline. R15 is resolved in the current tree: scalar constant reuse is
 block-local, with no cross-block hoisting. The focused
-[debugger test](../crates/kagari-vm/src/tests/execution/debugger.rs),
+[debugger test](../crates/kagari-runtime/src/interpreter_tests/execution/debugger.rs),
 `optimized_breakpoints_preserve_branch_paths_and_binding_state`, passed for taken
 and untaken branches, binding state and overflow origins, both directly and after
 retained-debug artifact round-trip. It compares optimized and unoptimized lowering;
@@ -782,7 +782,7 @@ supplied native-input MIR against the bytecode before installing a product.
 | Phase | Work actually owned there | Lifetime and remaining obligations |
 | --- | --- | --- |
 | Source/checking | Parsing, recoverable HIR, name/type/trait checks, source identities and dependency analysis | Analysis sessions retain their caches; no corresponding CST/HIR owner was found through a loaded runtime descriptor. R7 now retains lowering state and processes demand deltas; inline modules share physical parse storage. |
-| Lowering/verification | Instantiate bounded generic demands, lower checked facts, verify MIR and bytecode, retain executable declarations/layout contracts | Source-free type/witness information is not automatically redundant. Immutable SDK Program owns optional MIR and compilation inputs; installed exact code now shares that whole owner without a cycle. |
+| Lowering/verification | Instantiate bounded generic demands, lower checked facts, verify MIR and bytecode, retain executable declarations/layout contracts | Source-free type/witness information is not automatically redundant. Canonical Runtime Program owns executable backing/history; SDK Compilation separately retains optional MIR and source inputs. Installed code shares only the canonical executable owner without a cycle. |
 | Preparation | `VerifiedProgram::from_bytecode` builds reusable execution layouts, scalar/managed locations and call placements | Immutable verified bytecode and prepared execution records coexist. These are an intentional execution representation, not source reanalysis. Exact version identity is now payload-independent; R13 concerns type-only holders of current descriptors. |
 | Runtime link/install | Adopt product/local identity correspondence without copying the executable image; validate local native contracts and prepare final layouts/call targets | Runtime-specific authority and installed host identity cannot be established only by compile-time verification. Cold dependent layouts may be prepared later. |
 | Call admission | Check current runtime/generation, type/environment, depth and arguments; reserve/populate frame windows transactionally | Only successful admission publishes a frame. Host callbacks and reentry retain the same pinned session and termination state. |
@@ -824,7 +824,7 @@ Identity and release boundaries:
    admits a cursor, runs closed scalar operations and logical cancellation polls,
    and exits on a prepared call. Runtime admission reserves the callee's window;
    return transfers the value without a collecting gap. Overflow remains a trap,
-   not wraparound. Evidence: [driver](../crates/kagari-vm/src/executor/driver.rs),
+   not wraparound. Evidence: [driver](../crates/kagari-runtime/src/executor/driver.rs),
    [kernel](../crates/kagari-runtime/src/frame/cursor/kernel.rs),
    [callee layouts](../crates/kagari-runtime/src/module/execution/frames.rs),
    [admission](../crates/kagari-runtime/src/frame/admission.rs) and
@@ -850,7 +850,7 @@ Identity and release boundaries:
    name resolution or consider all retained generic contracts dead artifact data.
    Owners: [program lowering](../crates/kagari-compiler/src/source/program.rs),
    [type arguments](../crates/kagari-runtime/src/frame/types/arguments.rs) and
-   [executor interface entry](../crates/kagari-vm/src/executor.rs).
+   [executor interface entry](../crates/kagari-runtime/src/executor.rs).
 4. **Script → host → script.** A linked native binding validates/narrows arguments,
    protects conversion inputs/results and invokes a callback without a live cursor
    storage borrow. Reentry adds a suffix to the same session stack, sharing depth,
@@ -908,7 +908,7 @@ Current memory risks span different owners:
 | Native buffers/collection capacity | Committed `HeapCharge` separates logical occupancy from attributed retained capacity. Its partial byte ledger is not allocator usable size, external host memory or RSS. |
 | Frame/closure/async state | Typed banks and captures are real retained state; parked stacks keep live windows and code. No fresh maximum-frame or suspension-liveness benchmark was run. |
 | Temporary peak | Conversion protection, grow-before-commit and prepare-before-remove deliberately retain old and new values together. Removing this peak without an alternative commit protocol would weaken failure semantics. |
-| Runtime metadata/code | Exact version tokens no longer retain original code/snapshots. Installation-scoped identity retention is measured and retained; R13 remains type-only provenance retaining retired code. The historical review found no source/MIR owner there; since the immutable Program migration, installed code deliberately retains the shared product, including optional source inputs/MIR. R13 can therefore keep that whole owner alive. |
+| Runtime metadata/code | Exact version tokens no longer retain original code/snapshots. Installation-scoped identity retention is measured and retained; R13 remains type-only provenance retaining retired code. Installed code retains the canonical executable Program; optional MIR/source-analysis inputs are separate SDK Compilation data. R13 can still keep a whole executable product alive. |
 | Historical capacity | Root registration drains releases and object discovery visits occupied stores. Free indices and generation tombstones can still outlive most objects; root snapshots and metadata scans retain separate costs. |
 
 Do not introduce generations, incremental tracing, concurrent collection or raw
@@ -951,8 +951,8 @@ This is not an endorsement of infinite cheap name/snapshot retention, a measured
 append-time peak/RSS result or a source-session compiler-cache study. No new writer
 model or process-global leak is established; domain redesign is not queued by R13.
 
-**Current sharing boundary.** Installed exact code retains the SDK Program owner
-with optional immutable source inputs/MIR. This deliberate whole-version association
+**Current sharing boundary.** Installed exact code retains the canonical Runtime
+Program owner, without SDK Compilation inputs/MIR. This deliberate whole-version association
 does not form a predecessor chain, but inherited static/type provenance can retain
 an initial whole product even after Futures finish. Shared product ownership does
 not complete the separate type/code split. See the
@@ -964,7 +964,7 @@ not complete the separate type/code split. See the
 [associated bindings](../crates/kagari-runtime/src/frame/types/bindings.rs) retain
 supplying provenance. For example, a host keeps only each old Record layout while
 reloading: registry collection revokes executable admission, but the descriptor
-still owns the old program's instructions and preparation records. The
+still owns the old program's instructions and executable metadata. The
 [type-only probe](performance-baseline.md#type-only-provenance-observations-and-decision)
 observes zero retired registry entries but 1/16/128 old payloads alive with layout
 or nominal-type holders, versus none without holders. Actual native holders
@@ -1280,7 +1280,7 @@ scalar case does not need GC protection.
 
 Keep owned conversion, scoped borrowing and explicit raw/primitive implementations
 behind one validated binding entrypoint without forcing one data-movement path.
-The [VM allocation tests](../crates/kagari-vm/tests/allocation_contracts/native_allocations.rs) establish
+The [VM allocation tests](../crates/kagari-runtime/tests/allocation_contracts/native_allocations.rs) establish
 warm zero-allocation scalar/SequenceHandle paths; they do not establish that the
 general typed adapter is allocation-free. The completed
 [module-owned registration](native-registration.md) refactor preserves these
@@ -1598,7 +1598,7 @@ references to that generated implementation. Even changing only an element's `eq
 body can then fail source-update preparation with `Identity(InvalidContract)`.
 
 The [SDK source-update path](../crates/kagari/src/program/update.rs) uses
-`Compilation::lower_with_demands`, so this gap affects `Program::prepare_update(...)` when
+`Compilation::lower_with_demands`, so this gap affects `Compilation::prepare_update(...)` when
 its retained demands contain the affected generated identities. Failure occurs
 before publication; the installed program remains unchanged. This is not the
 removed Hash/Eq protection graph or an intentional compatibility rejection.

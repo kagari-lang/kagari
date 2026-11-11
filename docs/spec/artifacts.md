@@ -585,8 +585,8 @@ Artifact export uses `ArtifactOptions::retain_source`, default `false`; hosts mu
 explicitly opt in to distributing source. Source-free artifacts remain valid.
 `Program::from_artifact` preserves a supplied verified source package even
 without the SDK `source` feature, but does not gain an immutable compilation capsule.
-Source text alone cannot enable `Program::prepare_update`; it requires that exact
-product's captured immutable compilation context.
+Source text alone cannot enable `Compilation::prepare_update`; it requires that exact
+Compilation's captured immutable compilation context.
 
 The optional package carries physical documents, logical module mappings, complete
 authored declaration extents/fingerprints and executable-to-authored associations.

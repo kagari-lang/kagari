@@ -263,13 +263,12 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | kagari-bytecode | Interpreter model, independent verification, codec and artifact envelope |
 | kagari-codegen | Compilation-only verified MIR interface |
 | kagari-codegen-cranelift | Shared scalar JIT/object emission and executable code ownership |
-| kagari-runtime | Values, GC, host state, sessions, native registration/calls and reload |
-| kagari-vm | Interpreter/frame driver, debugger and prepared tier selection |
-| kagari | Host SDK, preparation and execution orchestration |
+| kagari-runtime | Canonical Program/Runtime, interpreter/debugger, sessions/tasks, values, GC, Host/Native APIs and reload |
+| kagari | Source/MIR/backend preparation, artifacts and SDK composition; exact Runtime facade |
 | kagari-cli | Arguments, filesystem IO and presentation |
 | kagari-analyzer | Stdio LSP lifecycle, URI adaptation and document synchronization over source-owned text/identities |
 
-Runtime, bytecode and VM have no production dependency on MIR, source/syntax/HIR or
+Runtime and bytecode have no production dependency on MIR, source/syntax/HIR or
 codegen. Types depends only on common among workspace crates. MIR depends on
 contract/ABI/types/common. Contract depends on ABI/types/common; ABI
 depends only on Serde and has no semantic model, foundation catalog or renderer.
@@ -706,10 +705,9 @@ while these boundaries define continuing ownership.
 | `kagari-bytecode` | Interpreter instructions/programs, bounded artifact encoding and independent verification |
 | `kagari-codegen` | Compilation-only backend interface over verified MIR and owned native products |
 | `kagari-codegen-cranelift` | Cranelift machine-code emission |
-| `kagari-runtime` | Values, GC, roots, host state/borrows, native builders/bindings, linking, versions and execution services |
-| `kagari-vm` | Interpreter/frame driver, call dispatch and debugger control |
+| `kagari-runtime` | Canonical executable Program, Runtime, interpreter/debugger, scheduling, values, GC, Host/Native APIs, linking and versions |
 | `kagari-stdlib` | Concrete core/alloc/std declarations, docs, exports, Rust bindings and algorithms |
-| `kagari` | Engine/SDK composition of registrations, compilation, loading, preparation and execution |
+| `kagari` | Source/MIR/backend preparation, artifacts and Engine composition over the canonical Runtime |
 | `kagari-cli` | Arguments, filesystem IO and presentation |
 
 The names identify responsibilities; reducing dependency count is not an
@@ -2366,10 +2364,10 @@ Source-only builds can emit portable MIR for native-only consumers.
 
 Prepare reusable checked products, then link them in each runtime. `execute`
 interprets; `NativeCompiler::prepare` compiles/caches outside Runtime and
-`Runtime::install_native` checks/binds exact-version products locally;
+`NativeCode::install` checks/binds exact-version products locally;
 `execute_prepared` consumes that decision. Reload validates a prepared candidate
 before serialized publication and retains exact bodies needed by existing computations.
-The typed facade binds `function`/`async_function` and member descriptors once;
+The typed facade binds `bind_function`/`bind_async_function` and member descriptors once;
 ordinary named calls use current implementations. `call` returns typed results;
 `call_async` returns a borrowed driving `Call`, while `submit_async` returns a result-only `PendingCall`.
 Both async modes use one runtime-owned scheduler. `poll` supports external host
@@ -2957,12 +2955,12 @@ submission and post-poll checks remain independent, and later transitions rechec
 mutable aliases rather than cache safety. See the [parking contract](spec/execution.md#owned-interpreter-driving)
 and [RL02 evidence](performance-baseline.md#rl02-transition-owned-parking-2026-10-23).
 
-VM `vm::owned` supplies start/drive orchestration over the existing executor. The
+Runtime `execution::owned` supplies start/drive orchestration over its private executor. The
 cursor yields after the requested instruction interval; the executor defers the
 exit through non-suspendable synchronous operations. Native bodies cannot be forcibly
 preempted. Completion roots its output and releases frames; a wake requests host
 attention without entering script. `native::future` and `frame::waiting` connect
-typed cold producers to durable completion reservations. A session owns its pending consumer/destination; the VM
+typed cold producers to durable completion reservations. A session owns its pending consumer/destination; Runtime
 returns Waiting and resumes the same PC after checked driver-side conversion.
 Heap Future state is claimed once, so aliases cannot repeat submission. Ordinary
 entry and native installation reject resume bodies. MIR Await lowers into the same
@@ -2972,8 +2970,8 @@ retains computed await liveness, which physical allocation maps to retained mana
 locations. The runtime discards dead slots before its resource check, preserving
 live aliases and debugger-visible locals. These facts are rebuilt after decoding,
 never trusted from an artifact flag. The foundation owns `core::future::Future<T>`;
-the SDK's `runtime::call` exposes borrowed driving calls and nonborrowing result
-receivers over the shared runtime scheduler, using `RunResult` diagnostics. Per-execution cancellation is separate
+Runtime's `execution::call` exposes borrowed driving calls and nonborrowing result
+receivers over the shared scheduler, using typed `RuntimeError` diagnostics. Per-execution cancellation is separate
 from the host's shared context signal. Native preparation rejects resume bodies
 before invoking a backend. Source async functions and explicit async closures lower
 to ordinary factories plus private resume functions. An async block shares capture

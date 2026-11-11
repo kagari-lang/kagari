@@ -54,7 +54,7 @@ alone cannot preserve an origin that was discarded by the host.
 
 Returning Err is successful VM execution, with an ordinary `return_value` and an
 optional `ExecutionReport::failure`. `Runtime::result_failure(&value)` inspects a
-returned or rooted Err; `RuntimeError::trace`, `VmError::trace` and embedding
+returned or rooted Err; `RuntimeError::trace` and preparation-layer embedding
 `EmbeddingError::error_trace` expose runtime-failure snapshots. These accessors do
 not print, invoke script code, or require a third-party error library.
 

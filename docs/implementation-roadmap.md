@@ -371,7 +371,7 @@ compatible hot update. Execution-strategy configuration and trusted deployment
 artifact loading remain distinct from managing individual callable code products.
 
 The current [SDK preparation](../crates/kagari/src/program/native.rs) exposes
-`NativeCompiler::prepare` and `Runtime::install_native`, while [SDK execution](../crates/kagari/src/runtime.rs)
+`NativeCompiler::prepare` and `NativeCode::install`, while [SDK execution](../crates/kagari/src/runtime.rs)
 accepts an explicit `PreparedNativeEntry` through `execute_prepared`.
 [AOT installation](../crates/kagari/src/aot.rs) also returns that product-specific
 entry. The runtime selects a current function but rejects an explicitly supplied
@@ -1259,7 +1259,7 @@ Lasting contracts belong to [async execution](async-execution-design.md),
 [host task scopes](host-task-scope-design.md) and the
 [typed embedding API](spec/embedding-api.md#typed-async-calls-scheduling-and-native-waits).
 
-The SDK Runtime supports pinned function/member bindings, object access, driving
+The canonical Runtime supports pinned function/member bindings, object access, driving
 call_async and result-only submit_async. Both use one single-threaded scheduler;
 normal scope Tasks retire internally. Borrowed Call drop cleans local descendants
 without another poll; ticket drop requests cancellation through runtime driving.
@@ -1521,25 +1521,23 @@ behavioral fixtures remain. Full-workspace tests and exhaustive matrices remain
 CI scope and are not claimed passing. No Runtime/VM consolidation, new collector,
 full-library reconstruction or compact-frame migration is activated by completion.
 
-The [proposed crate consolidation](runtime-refactor-design.md#proposed-crate-consolidation-and-single-runtime)
-merges `kagari-vm` execution into `kagari-runtime`, removes Vm and the SDK Runtime
-wrapper, and makes the facade expose the canonical Runtime. It also assigns the
-source-free executable Program to runtime-side preparation and removes SDK owner
-downcasting; source/MIR preparation stays outside Runtime. Keep independent stdlib
-and the existing `kagari-gc`, whose Runtime integration is still pending. This is
-the recorded ownership direction, now activated through CM00-CM04.
+The [CM00-CM04 consolidation](architecture/runtime.md#single-runtime-and-preparation-boundary)
+is complete on 2026-11-11. Canonical Program/Runtime, interpretation, debug/async
+and prepared-native driving now share kagari-runtime. The VM package, SDK Runtime
+wrapper, type-erased SDK product recovery and duplicate execution-error mapping
+are removed. Compilation inputs/MIR and backend preparation remain outside Runtime.
+The exact SDK facade shares these types; standalone artifact execution and audited
+production dependency graphs exclude source/compiler/backend tools.
 
-The [CM00-CM04 consolidation plan](runtime-refactor-design.md#crate-consolidation-implementation-plan-cm00-cm04)
-was requested and activated on 2026-11-11. CM00-CM01 are complete; CM02-CM04 remain pending. CM00 freezes
-entry/error/context and Program/preparation ownership plus focused baselines;
-CM01 relocates the canonical executable Program and separates source/MIR inputs;
-CM02 merges interpreter/Runtime entrypoints and removes Vm, the SDK Runtime wrapper
-and VM crate; CM03 closes async/debug/native, tooling and unique-test integration;
-CM04 audits dependencies, performance and final acceptance. CM02/CM03 may share
-one coherent checkpoint. The existing scalar interpreter, frame layout, collector,
-Host capability model and NC library gaps remain unchanged. GC integration,
-compact frames, new stack limits and tail recursion are explicitly outside this
-finite merge. The activated goal covers consolidation only.
+Required local Clippy/structure/format/diff checks and selected source-update,
+reload/current-inner-call, native-wait, debug/reentry, scoped-loan, async cleanup,
+artifact, Serde and actual Cranelift/AOT contracts pass. The
+[isolated call comparison](performance-baseline.md#runtime-consolidation-core-call-comparison-windows-2026-11-11)
+records allocation/timing evidence and its limits. Full-workspace tests and
+exhaustive feature/backend/platform matrices remain CI-only. Existing NC library
+gaps remain separate and are not claimed passing. Completed phase ledgers live in
+Git history. Compact frames, Host redesign, kagari-gc integration, new stack limits
+and tail recursion remain unstarted; consolidation does not activate them.
 
 The [compact frame/storage refinement](runtime-refactor-design.md#compact-frame-and-stack-storage)
 uses Lua 5.4.9, pinned Wasmi v0.51.1 and Rust 1.99.1 as mechanism references.

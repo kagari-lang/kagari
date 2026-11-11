@@ -1,7 +1,7 @@
 # Reading the Runtime Execution Model
 
-This map describes implemented ownership after the immutable Program and prepared
-reload migration. The [architecture overview](../architecture.md),
+This map describes implemented ownership after immutable Program/prepared reload
+and the single-Runtime consolidation. The [architecture overview](../architecture.md),
 [execution specification](../spec/execution.md) and
 [activation specification](../spec/module-activation.md) own the contracts.
 Read the [call walkthrough](runtime/calls.md) for entry/return costs and the
@@ -21,8 +21,8 @@ distinguishes completed detachment from deferred full-library acceptance.
 ```mermaid
 flowchart TD
     PREP["SDK Compilation<br/>source inputs and optional verified MIR"] --> PRODUCT["Immutable Runtime Program<br/>Arc ProgramState, Send + Sync"] --> CODE["Verified bytecode, execution/layout facts<br/>checked source/debug metadata"]
-    SDK["SDK Runtime"] --> VM["Vm"]
-    VM --> RT["Core Runtime<br/>Send, not Sync"]
+    SDK["SDK facade and Engine composition"] -.-> RT["Canonical Runtime<br/>Send, not Sync"]
+    RT --> EXEC["Borrowed Executor<br/>interpreter, debug and native driving"]
     RT --> STORE["ModuleStore<br/>local current map and declaration allocator"]
     STORE --> RECORD["Local records, statics, final call bindings<br/>host/native authority and native eligibility"]
     STORE --> DESC["Current and retained exact ProgramDescriptors"]
@@ -51,11 +51,59 @@ object/metadata traversal determine script reachability.
 
 Sources: [Runtime Program](../../crates/kagari-runtime/src/program.rs),
 [SDK Compilation](../../crates/kagari/src/program.rs),
-[SDK Runtime](../../crates/kagari/src/runtime.rs), [Vm](../../crates/kagari-vm/src/vm.rs),
+[SDK facade](../../crates/kagari/src/runtime.rs), [execution entry](../../crates/kagari-runtime/src/execution.rs),
 [core Runtime](../../crates/kagari-runtime/src/lib.rs),
 [ModuleStore](../../crates/kagari-runtime/src/module.rs),
 [Installation](../../crates/kagari-runtime/src/module/installation.rs),
 [ResourceState](../../crates/kagari-runtime/src/resource.rs).
+
+## Single Runtime and preparation boundary
+
+`kagari-runtime::Runtime` is the sole persistent execution owner. Its `execution`
+modules own typed/scoped calls, owned driving, scheduler orchestration, reentry and
+prepared-native invocation; `executor` is a private activation borrowing that Runtime.
+`debug` and `debug_protocol` observe the same frames and sessions. Public installed
+entrypoints admit context/root authority once; internal stack/session guards reuse
+that root and preserve loans, cancellation, trace and cleanup. The existing scalar
+kernels and frame/value banks remain in place. This consolidation changes ownership,
+not the frame layout, collector, stack limits or tail-call semantics.
+
+The `kagari` SDK exposes exact intentional facades: `runtime.rs` exports Runtime
+and loading options, `context.rs` exports invocation policy, and `program.rs`
+exports Program/preparation errors alongside SDK Compilation. SDK, CLI, web and
+embedding examples consume the same types; none owns a second Runtime or uses a
+backend/runtime accessor to reach one. These exact declarations are the narrow
+re-export-whitelist exceptions. Compilation retains optional source/MIR inputs;
+NativeCompiler prepares/cache-checks products outside Runtime. NativeCode::install
+checks a recipient and transfers finalized pages/evidence, after which execution
+needs neither compiler nor frontend. Programs are Send + Sync; Runtime is Send and
+not Sync, transferable only between exclusive synchronous activations.
+
+For `runtime.call(&add, (1, 2))`, bind_function first checks the exported signature.
+Invocation borrows the immutable default context, admits host values into one
+session and enters the borrowed executor.
+Script calls continue through its prepared bindings and frame transitions; Native
+callbacks/reentry preserve that same active root. The returned value leaves through
+the canonical RuntimeError/result path, without SDK-to-VM-to-Runtime forwarding.
+Checked-module entry remains a distinct capability for candidate initialization
+and backend work; raw instruction-slot fixtures are test-only.
+
+Ordinary inner calls select current implementations; created closures/Futures and
+admitted work retain exact bodies/environments. Publication and retirement retain
+their existing ownership checks. No cross-version lookup is added to new code.
+An artifact host can use Runtime/Program directly; the SDK without source/native
+features composes that same runtime with no compiler dependency. Runtime neither
+depends on nor installs stdlib. The in-crate GcHeap is unchanged; integration with
+the independent kagari-gc and the compact execution proposal remain separate work.
+
+Mechanism reference: Lua 5.4.9 keeps [API entry](https://github.com/lua/lua/blob/v5.4.9/lapi.c),
+[execution state](https://github.com/lua/lua/blob/v5.4.9/lstate.h) and
+[interpreter driving](https://github.com/lua/lua/blob/v5.4.9/lvm.c) under one runtime
+owner. Kagari adopts cohesive state/activation ownership, preserving its own typed
+contracts, precise roots, Rust cleanup and exclusive publication. This does not
+establish that crate removal improves speed. The
+[paired call measurements](../performance-baseline.md#runtime-consolidation-core-call-comparison-windows-2026-11-11)
+record the observed costs and limits.
 
 ## Error reasons and diagnostic context
 
@@ -89,10 +137,10 @@ Field, variant and element coordinates own their labels/data. Positions attach
 from inner to outer and display in reverse order. Core builtin bridges append a
 RuntimePrimitive coordinate to the original error. Reflective read/write wrapping
 preserves the original RuntimeError as a typed source, including its positions and
-execution provenance. VM builtin admission normalizes directly to its RuntimeError
-route; obsolete BuiltinError/ReflectionError variants are removed from VmError.
-The internal Runtime helper wrappers and SDK diagnostic mapping still exist; this
-is not the queued VM/crate consolidation.
+execution provenance. Interpreter/builtin/backend boundaries preserve the canonical
+RuntimeError reason, trace and task origin. There is no VmError or SDK execution-kind
+translation. Compact internal operation failures remain local until their cold exit;
+separate source/artifact/backend preparation errors stay with their preparation owner.
 
 Trace capture stays at the failing program point, independently of eventual text
 formatting. The first populated trace/task origin survives annotation and transport;
@@ -120,7 +168,7 @@ for these types and the former field record; no ignored probe file is required.
 1. Source services check/lower a package, or artifact preparation independently
    verifies portable executable contracts. Optional retained source is diagnostic
    metadata; it does not replace verification or supply a compilation capsule.
-2. SDK `Program` shares immutable bytecode, checked call/layout facts, bounded
+2. Runtime `Program` shares immutable bytecode, checked call/layout facts, bounded
    historical demands, optional immutable checked source/debug metadata.
    Preparation has no Runtime, script effects or installed Rust captures.
 3. Loading adopts declaration identities into the recipient scope without remapping
@@ -174,8 +222,10 @@ PreparedSelection { owner: ModuleKey, target, mapping: Arc<PublicationMapping> }
 These sketches omit fields and are not binary layout promises. `ExecutableModule`
 retains an exact descriptor; physical registration, owner/generation and installation
 liveness still govern execution. A surviving descriptor cannot revive a closed
-Runtime. `Runtime::program(&InstalledProgram)` recovers the exact shared SDK product;
-a low-level publication without that owner cannot fabricate source preparation.
+Runtime. `Runtime::program(&InstalledProgram)` clones its exact canonical product.
+Staging bare VerifiedProgram backing adopts the already checked history once and
+saves that owner, so repeated queries preserve identity and exact-base replacement.
+It never fabricates Compilation inputs or an SDK preparation owner.
 
 Product DefinitionIds remain lexical. `DefinitionAdmission` supplies checked
 product/local correspondence; closed Runtime types and lexical binders keep explicit
@@ -380,7 +430,7 @@ transition. Closed scalar regions reuse admitted bank borrows and release them
 before allocating preparation or callbacks. This is existing optimization to
 preserve, not another universal entry check to introduce.
 
-Sources: [VM driver](../../crates/kagari-vm/src/executor/driver.rs),
+Sources: [VM driver](../../crates/kagari-runtime/src/executor/driver.rs),
 [runtime actions](../../crates/kagari-runtime/src/frame/driver.rs),
 [closed regions](../../crates/kagari-runtime/src/frame/cursor.rs),
 [parking](../../crates/kagari-runtime/src/frame/owned.rs),

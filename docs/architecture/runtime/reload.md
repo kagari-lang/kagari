@@ -14,8 +14,8 @@ sequenceDiagram
     participant Prep as Source / artifact / native preparation
     participant Runtime as Exclusive Runtime owner
     participant Store as Local records and current map
-    Host->>Product: prepare_update(edits), or prepare_replacement(B)
-    Product->>Prep: Check/lower/verify complete candidate with retained demands
+    Host->>Prep: Compilation.prepare_update(edits), or Program.prepare_replacement(B)
+    Prep->>Product: Read checked code/history and exact base identity
     Prep-->>Host: Shared immutable Program B, weak exact base A
     Host->>Runtime: replace_program(installed, B, options), mutable borrow
     Runtime->>Runtime: Admit idle synchronous publication boundary
@@ -29,7 +29,8 @@ sequenceDiagram
 ```
 
 Preparation parses/checks/lowers source independently of Runtime. The resulting
-Program shares bytecode, checked source inputs and optional verified MIR. Its
+Runtime Program shares bytecode and checked source/debug metadata; SDK Compilation
+separately retains source inputs and optional verified MIR. Program's
 bounded cumulative demands and semantic declaration/binder history contain metadata,
 not strong predecessor code owners. The expected base is exact opaque product
 identity, not a label, hash or source position. Preparing against a different base
@@ -48,8 +49,8 @@ an explicit separate operation; ordinary SDK replacement executes no initializer
 or callback. Staged handles cannot escape candidate execution authority.
 
 Sources: [detached edits](../../../crates/kagari/src/program/update.rs),
-[product preparation](../../../crates/kagari/src/program.rs),
-[SDK replacement](../../../crates/kagari/src/runtime.rs),
+[product preparation](../../../crates/kagari-runtime/src/program.rs),
+[Runtime replacement](../../../crates/kagari-runtime/src/loading.rs),
 [staging and commit](../../../crates/kagari-runtime/src/module/staging.rs),
 [loading and validation](../../../crates/kagari-runtime/src/loading.rs).
 
@@ -131,7 +132,7 @@ work; shared products do not impose a fixed version-count or memory bound. Hosts
 own indefinitely retained computations. Bounded metadata history avoids executable
 ancestry, but does not turn whole-version retention into per-body reclamation.
 
-The descriptor attaches the SDK Program owner without a cycle: ProgramState's own
+The descriptor attaches the Runtime Program owner without a cycle: ProgramState's own
 bytecode has no back-reference. Revision tokens, source observations and historical
 demand/correspondence records carry no executable payload. Whole-version retention
 is deliberate; [R13 type/layout provenance](../../review.md#r13--type-and-layout-provenance-retains-retired-code)

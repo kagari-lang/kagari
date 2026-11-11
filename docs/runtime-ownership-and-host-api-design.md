@@ -742,14 +742,14 @@ Function and method invocation share one conversion, rooting and execution path.
 The normal API returns typed data or retained handles instead of a mandatory raw
 ExecutionReport. Observers provide optional execution statistics.
 
-For the SDK Runtime and an installed `Program`:
+For the canonical Runtime and an installed `Program`:
 
 ```rust
-let make = runtime.function::<(), Object>(&program.root(), "make_player")?;
+let make = runtime.bind_function::<(), Object>(&program.root(), "make_player")?;
 let player = runtime.call(&make, ())?;
 ```
 
-SDK `function` delegates to core `bind_function` and returns `Function<A, R>`.
+Canonical `bind_function` returns `Function<A, R>` directly.
 Sync/async binding follows the supplied Module's current public namespace under the
 [relative path rules](spec/embedding-api.md#installed-programs-and-public-paths).
 For `pub use internal::calculate as damage`, binding `damage` in that namespace
@@ -868,7 +868,7 @@ leaves existing handles and the source baseline usable.
 `AsyncFunction<A, R>` retains the same checked target and the lexical output scope
 of exactly one installed `Future<R>` layer. Admission converts and roots arguments
 without running the factory; completion conversion uses that original session and
-output scope. A Call exclusively borrows the SDK Runtime and drives the shared
+output scope. A Call exclusively borrows the canonical Runtime and drives the shared
 scheduler; a PendingCall retains only synchronized result/cancellation state, not a
 runtime borrow. Invocation and structured-child cleanup precede result publication.
 Dropping an unfinished Call before its first poll never runs its factory; dropping
@@ -883,7 +883,7 @@ objects keep identity and state, not an immutable old ordinary-call dependency s
 | Owner | Responsibility |
 | --- | --- |
 | kagari-runtime | Stores, identities, tracing, leases, object access, conversion context, native binding validation and call services |
-| kagari-vm | Drive checked executable calls using runtime-owned frames; preserve return/unwind ordering |
+| kagari-runtime execution/executor | Drive checked executable calls using the same Runtime frames; preserve return/unwind ordering |
 | kagari | Ergonomic registration and typed call/binding entrypoints composed from runtime mechanisms |
 | kagari-types | Existing source-independent declarations, nominal schemas, bounds, member access and documentation |
 | contract, MIR and bytecode | Checked member/call evidence, scoped signatures and bounded executable validation |

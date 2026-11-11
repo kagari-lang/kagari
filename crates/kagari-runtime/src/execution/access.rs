@@ -39,7 +39,7 @@ impl Runtime {
         function: &Function<A, R>,
         arguments: A,
     ) -> NativeResult<R> {
-        self.call_with_context(function, arguments, &self.default_context.clone())
+        self.call_with_context(function, arguments, &self.default_context)
     }
 
     pub fn call_with_context<A: IntoKagariArguments, R: FromKagari>(

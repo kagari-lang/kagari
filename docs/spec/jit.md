@@ -63,7 +63,7 @@ validation and mutation commit guarantees through shared runtime services.
 ## Preparation and Fallback
 
 Hosts explicitly call detached `NativeCompiler::prepare`, then local
-`Runtime::install_native`, then `execute_prepared`. Compilation has no Runtime,
+`NativeCode::install`, then `execute_prepared`. Compilation has no Runtime,
 script effects or local JIT policy. It validates exact product/entry, backend
 configuration, cancellation and the compiler product. Source and artifact routes
 share this flow; immutable finalized products may be distributed to recipients.

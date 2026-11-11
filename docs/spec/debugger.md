@@ -494,18 +494,17 @@ Debugger support is complete when:
 
 ## Adapter boundary
 
-Kagari exposes debugger control through the VM debugger protocol boundary, not through script-visible APIs.
+Kagari exposes debugger control through the Runtime debugger protocol boundary, not through script-visible APIs.
 IDE integrations, DAP servers, and host tools should translate their own protocol messages into `DebugAdapterRequest` values and forward emitted `DebugAdapterEvent` values back to the tool.
 
 ### Session Flow
 
-1. Create a runtime and attach a DebugSession.
-2. Create a `Vm` for that runtime.
-3. Create a `DebugProtocolAdapter` with an event sink.
-4. Send `DebugAdapterRequest::Attach`.
-5. Send breakpoint, stepping, pause, continue, run-to-cursor, or watch-evaluation requests.
-6. Execute the module through the VM.
-7. Call `FlushEvents` or `flush_events` after execution steps to deliver resolved breakpoint and pause events to the host tool.
+1. Create a Runtime and attach a DebugSession.
+2. Create a `DebugProtocolAdapter` with an event sink.
+3. Send `DebugAdapterRequest::Attach`.
+4. Send breakpoint, stepping, pause, continue, run-to-cursor, or watch-evaluation requests.
+5. Execute the module through that Runtime.
+6. Call `FlushEvents` or `flush_events` after execution steps to deliver resolved breakpoint and pause events to the host tool.
 
 The adapter boundary owns protocol translation only.
 Runtime semantics remain in the parser, checker, bytecode verifier, VM, runtime security checks, and debug session hooks.
