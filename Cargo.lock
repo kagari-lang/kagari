@@ -790,6 +790,7 @@ dependencies = [
  "kagari-compiler",
  "kagari-contract",
  "kagari-derive",
+ "kagari-gc",
  "kagari-hir",
  "kagari-mir",
  "kagari-source",

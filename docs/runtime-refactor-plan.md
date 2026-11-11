@@ -1,6 +1,7 @@
 # Runtime, Host and GC Execution Plan
 
-Status: RR00 completed locally on 2026-11-12; RR01 is next. RR02-RR06 are pending.
+Status: RR00 and RR01 completed locally on 2026-11-12; RR02 is next.
+RR03-RR06 are pending.
 Production call/storage/collector migration has not started.
 
 This is the single execution plan for the coordinated Runtime/Host/GC refactor.
@@ -587,4 +588,107 @@ protocol only. No old/new graph crossing or production collector replacement.
 Validation: Focused carrier/source/reentry/cycle oracles, sizes, structure/fmt,
 workspace all-target Clippy and diff checks. Source-free production proof is RR03.
 Known intermediate errors: None. RR02-RR06 and CI matrices remain pending.
+```
+
+### RR01 proof and checkpoint (2026-11-12)
+
+The test-only `execution/model` owner compiles the selected source/carrier/service
+records against kagari-gc, added as a dev dependency. No old Value, object or
+metadata reference crosses into the proof heap. The current production collector
+and public Native APIs are unchanged. The bounded carriers exercise Unit/i64/
+erased managed transport; full language variants/nominal admission remain cutover
+work, not a new physical-tag type system. No missing collector protocol has yet
+been identified.
+
+The source scans managed, local, dependency and pending banks for all live
+executions. Stable execution coordinates/generations and captured bank frontiers
+survive relocation, truncation and reuse; all incoming edges publish before slot
+commit. Scalar banks/initialization and logical records contain no hidden edges.
+A checked slot facade lends only branded handles; no stored edge/source can be
+extracted. The field proof uses the existing EdgeField publication protocol.
+
+NativeCall borrows short exclusive services and stores locations/marks/pending
+status. Source/payload loans end before nested callbacks or collect. The lending
+probe calls a real prepared scalar script through the existing interpreter, then
+enters a nested Native callback which stages a new managed result and collects
+before returning. Only scalars cross between the independent heaps; it is not a
+second bytecode interpreter or production collector integration claim. The
+code-cycle proof stores real immutable Program backing in managed revision state
+and exercises a retained closure plus compatible publication in the existing
+interpreter: old closure/current helper returns 120, fresh closure returns 220. RR03 must
+replace proof scaffolding with the same oracles on the single production graph,
+including actual Native -> script -> collection and retained-old/current-inner-call
+selection. Existing production reload/reentry regressions remain independent
+oracles; the proof does not silently declare their future integration complete.
+
+The selected mechanism follows [JNI 25 local/global references](https://docs.oracle.com/en/java/javase/25/docs/specs/jni/design.html#global-and-local-references):
+call-local protection retires with its boundary; escaping retention is explicit.
+Kagari uses a nonmoving, single-owner collector and Rust scoped borrows, rather
+than JNI thread-affine handles or moving-reference indirection. The existing
+library source publication/cursor contracts, not the analogy, define correctness.
+No callback-wide Scope, field extraction, raw Runtime pointer or new RefCell is
+introduced. The three model tests pass in debug and release; existing GC
+`frame_reuse_new_frontiers_and_reentry_preserve_all_live_roots` and
+`scoped_graph_edits_and_frame_slots_need_no_per_object_roots` also pass. No missing
+GC protocol or carried build error was found. Full-graph/call integration remains
+RR03 and does not follow from these bounded proofs.
+
+Measured aarch64 record sizes: ScopedValue/StoredValue/RootedValue are 16 bytes
+each for the bounded Unit/i64/managed variants; scalar bank entries stay 8 bytes.
+PendingReturn is 16, NativeStatus is 8, NativeMark is 24, NativeCall is 128,
+Location is 40 and ExecutionRoots is 32 bytes. These are actual compiled proof
+records, not final full-language Value/frame claims. The reentry witness grows
+to 4096 managed slots and 1024 scalar/initialization cells and reports 74864
+reserved bytes across its banks/logical records, excluding source directory,
+code and collector backing. Location currently carries a complete external
+execution identity; compact internal locations remain RR04 work rather than an
+unmeasured packing claim.
+
+The cleanup oracle verifies a second finish cannot republish, post-call
+cancellation wins over a converter error, completed effects survive, nested cleanup
+preserves outer locals, failed destinations stay unchanged, and error/unwind
+retires every local/logical suffix. An explicitly retained Host value is the only
+Host root in the transfer proof; the reentry proof enforces max_roots=0. Payload
+destruction counts and final object counts are asserted, including independent
+pending retention and the entire code/static cycle.
+
+Workspace all-target Clippy, structure (1860 Rust files, zero violations), fmt,
+fixture formatting and diff checks pass. Changed imports, unsafe proofs,
+visibility, ordinary modules and effective LOC were reviewed; no reexport or
+structure exception was added. The transfer/cursor/foreign-root proof also passes strict-provenance Miri on
+nightly-2026-10-22 (1.101.0-nightly, aarch64-apple-darwin):
+
+```text
+MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-22 miri test --locked -p kagari-runtime --lib execution::model::tests::tagged_transfers_publish_before_releasing_sources_and_survive_cursor_reuse -- --exact
+```
+
+This selected run checks executed unsafe paths, not arbitrary providers or the
+full platform matrix. Miri reports the expected ignored-opt-level warning and
+a future-incompatible auto-trait recursion-depth warning while evaluating the
+existing Runtime: Send graph (rust-lang/rust#159228). Stable workspace Clippy
+remains clean. RR02's service/ownership split owns reviewing that recursive owner;
+no blanket recursion allowance or manual Send assertion is added to hide it.
+The library's pinned Linux graph-model/CI matrix remains separate.
+
+RR01 exit is satisfied: the bounded records, root mutation/retirement, exclusive
+service lending and code-cycle oracles compile and pass, with measured sizes and
+no production graph bridge. RR03 must promote/replace the proof records and rerun
+these same assertions through actual single-heap Runtime transitions; it cannot
+retain this separate graph as an implementation fallback. RR02 has not started.
+
+**Next task (RR02):**
+
+```text
+Task: Establish exclusive Runtime services and one prepared Native call protocol.
+Context: RR02 Runtime execution/Host owners; existing collector remains production.
+Expected behavior: Mutable public entry/prepare/drive/collect; fixed binding or
+closed-application mappings prepared once; callbacks consume protected locations
+and stage results, retaining post-call precedence and exactly-once commit.
+Scope: Replace raw/typed invocation protocols and actual consumers; remove unused
+PanicPolicy; retain NativeTake/old-heap roots only until RR03 cutover. Preserve
+existing scalar dispatch, final current targets, borrowing, reentry and unwind.
+Validation: Selected source-free/Host/SDK and actual-native contracts plus ordinary
+vs instrumented RR00 workloads, structure/fmt/workspace all-target Clippy/diff.
+Known intermediate errors: None. New nightly auto-trait recursion warning requires
+ownership review; exhaustive CI and inherited NC gaps remain separately owned.
 ```

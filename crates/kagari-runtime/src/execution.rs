@@ -18,6 +18,8 @@ pub(crate) mod fixtures;
 mod invocation;
 mod managed;
 mod members;
+#[cfg(test)]
+mod model;
 pub mod native;
 pub mod owned;
 pub mod reentry;
