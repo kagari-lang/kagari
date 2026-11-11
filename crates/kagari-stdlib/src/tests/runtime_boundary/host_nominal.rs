@@ -1,5 +1,6 @@
 //! Nominal host identity and path validation retain one shared declaration owner.
 use super::support;
+use crate::tests::bytecode::load_bytecode;
 
 use crate::declarations::StandardDeclarations;
 use kagari_bytecode::{
@@ -304,10 +305,10 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     let mut runtime = Runtime::default();
     NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
     assert!(module.install(&mut runtime).is_err());
-    assert!(runtime.load_program("nominal", program.clone()).is_err());
+    assert!(load_bytecode(&mut runtime, "nominal", program.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
     NativeModule::install_all(&[owner, module], &mut runtime).unwrap();
-    runtime.load_program("nominal", program).unwrap();
+    load_bytecode(&mut runtime, "nominal", program).unwrap();
 }
 
 #[test]
@@ -361,7 +362,7 @@ fn roots_and_borrows_match_nominal_declarations_instead_of_names_or_categories()
     let (b_ty, b_value) = root(&mut runtime, "second::Player", 2);
     assert_ne!(a_ty, b_ty);
     *wrong.lock().unwrap() = b_value;
-    let loaded = runtime.load_program("nominal", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "nominal", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     invoke(&runtime, &loaded, 0, &[a_value]).unwrap();
@@ -460,7 +461,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     assert_eq!(a.schema_epoch(), b.schema_epoch());
     assert_eq!(a.abi_fingerprint(), b.abi_fingerprint());
     assert_ne!(a, b);
-    let loaded = local.load_program("owner", program).unwrap();
+    let loaded = load_bytecode(&mut local, "owner", program).unwrap();
     let _loaded_program = loaded;
     let loaded = local.select_program(&_loaded_program).unwrap();
     invoke(

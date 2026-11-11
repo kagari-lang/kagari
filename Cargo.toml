@@ -24,7 +24,6 @@ members = [
     "crates/kagari-gc",
     "crates/kagari-derive",
     "crates/kagari-syntax",
-    "crates/kagari-vm",
     "crates/kagari-web",
 ]
 resolver = "3"
@@ -55,7 +54,6 @@ kagari-runtime = { path = "crates/kagari-runtime" }
 kagari-gc = { path = "crates/kagari-gc" }
 kagari-derive = { path = "crates/kagari-derive" }
 kagari-syntax = { path = "crates/kagari-syntax" }
-kagari-vm = { path = "crates/kagari-vm" }
 cranelift-codegen = "0.137.0"
 cranelift-frontend = "0.137.0"
 cranelift-jit = "0.137.0"

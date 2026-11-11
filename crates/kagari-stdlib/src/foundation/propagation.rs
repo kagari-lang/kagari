@@ -1,4 +1,6 @@
 //! Carrier owners bind propagation bodies directly; trait signatures remain authoritative.
+// Preserve module children during Runtime-only test source sharing.
+#[cfg_attr(test, path = "propagation/operations.rs")]
 pub(super) mod operations;
 use crate::foundation::{
     bound, enumeration,

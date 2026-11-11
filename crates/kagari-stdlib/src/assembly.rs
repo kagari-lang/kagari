@@ -8,10 +8,16 @@
 //!
 //! Production recipes and composition paths share one seal and this cache.
 //! Declaration-only consumers retain the immutable catalog projection, never adapters.
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "assembly/composition.rs")]
 mod composition;
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "assembly/initialization.rs")]
 mod initialization;
 
 #[cfg(test)]
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "assembly/tests.rs")]
 mod tests;
 
 use crate::{

@@ -122,7 +122,6 @@ pub(super) fn decode(runtime: &CoreRuntime, value: &RootedValue) -> NativeResult
 pub(super) fn scheduled(f: &Fixture, entry: &str, arguments: &[Value]) -> ScheduledResult<i32> {
     let future = f.invoke(entry, arguments);
     f.runtime
-        .runtime()
         .schedule_execution(f.start_future(&future), decode)
         .unwrap()
 }
@@ -200,7 +199,6 @@ fn scheduler_shared_budget_and_driver_handoff() {
     let mut right = scheduled(&f, "io", &[Value::I32(10)]);
     let driver = f
         .runtime
-        .runtime()
         .borrow_scheduler_driver(&borrowed.context())
         .unwrap();
     let budget = TurnBudget {
@@ -247,9 +245,8 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     options.inputs.unix_time_millis = 123;
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "value",
             &[],
             options.interpreter_options().unwrap(),
@@ -258,7 +255,6 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     let id = execution.execution_id();
     let mut ticket = f
         .runtime
-        .runtime()
         .schedule_execution(execution, move |runtime, value| {
             assert_eq!(runtime.execution_time_millis()?, 123);
             assert!(runtime.execution_root().is_some());
@@ -274,15 +270,12 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     host.until(&mut f.runtime, || ticket.is_finished());
     waiter.receive.recv_timeout(Duration::from_secs(2)).unwrap();
     assert!(
-        f.runtime.runtime().execution_root().is_none(),
+        f.runtime.execution_root().is_none(),
         "published only after activation exit"
     );
     assert_eq!(result(&mut ticket).unwrap().get(), 42);
     let mut before = scheduled(&f, "io", &[Value::I32(10)]);
-    f.runtime
-        .runtime()
-        .cancel_scheduled_execution(&before)
-        .unwrap();
+    f.runtime.cancel_scheduled_execution(&before).unwrap();
     assert_eq!(
         result(&mut before).unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
@@ -298,10 +291,7 @@ fn scheduler_conversion_context_results_and_local_cancellation() {
     let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 1);
     let late = f.sent.lock().unwrap().pop().unwrap();
-    f.runtime
-        .runtime()
-        .cancel_scheduled_execution(&pending)
-        .unwrap();
+    f.runtime.cancel_scheduled_execution(&pending).unwrap();
     // No subsequent scheduler poll is necessary for provider cancellation.
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
     assert_eq!(late.complete(Ok(1)), CompletionStatus::Stale);
@@ -348,7 +338,7 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 1);
     let late = f.sent.lock().unwrap().pop().unwrap();
-    let selected = f.runtime.runtime().select_program(&f.module).unwrap();
+    let selected = f.runtime.select_program(&f.module).unwrap();
     f.runtime.close().unwrap();
     f.runtime.close().unwrap();
     assert!(matches!(
@@ -363,7 +353,6 @@ fn scheduler_failure_overflow_shutdown_and_ticket_teardown() {
     assert!(scope.is_closed());
     assert!(
         f.runtime
-            .backend()
             .start(&selected, "value", &[], Default::default())
             .is_err()
     );
@@ -394,9 +383,8 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
     let (abandoned, dropped) = mpsc::sync_channel(1);
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
@@ -404,7 +392,6 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
         .unwrap();
     let ticket = f
         .runtime
-        .runtime()
         .schedule_execution(execution, move |runtime, value| {
             assert_eq!(decode(runtime, value)?, 42);
             converting.send(()).unwrap();
@@ -424,8 +411,8 @@ fn scheduler_receiver_drop_during_conversion_retires_output() {
     );
     worker.join().unwrap();
     assert_eq!(drops.load(Ordering::SeqCst), 1);
-    assert!(!f.runtime.runtime().is_quarantined());
-    assert!(f.runtime.runtime().execution_root().is_none());
+    assert!(!f.runtime.is_quarantined());
+    assert!(f.runtime.execution_root().is_none());
     f.runtime.close().unwrap();
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
@@ -483,22 +470,17 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
         } else {
             let execution = f
                 .runtime
-                .backend()
                 .start(
-                    &f.runtime.runtime().select_program(&f.module).unwrap(),
+                    &f.runtime.select_program(&f.module).unwrap(),
                     "value",
                     &[],
                     Default::default(),
                 )
                 .unwrap();
-            f.runtime
-                .runtime()
-                .schedule_execution(execution, decode)
-                .unwrap()
+            f.runtime.schedule_execution(execution, decode).unwrap()
         };
         let mut sibling = scheduled(&f, "long", &[]);
         f.runtime
-            .runtime()
             .set_execution_observer(RejectEntry(Some(RuntimeError::module_validation(
                 "scheduler entry rejected",
             ))))
@@ -524,7 +506,7 @@ fn scheduler_entry_failure_is_an_outcome_and_preserves_other_work() {
             assert!(!error.trace().unwrap().frames.is_empty());
         }
         assert_eq!(result(&mut sibling).unwrap(), 200);
-        assert!(!f.runtime.runtime().is_quarantined());
+        assert!(!f.runtime.is_quarantined());
         assert_eq!(f.cancels.load(Ordering::SeqCst), 0);
         assert_eq!(late.complete(Ok(9)), CompletionStatus::Accepted);
         host.until(&mut f.runtime, || pending.is_finished());
@@ -569,21 +551,16 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
         } else {
             let execution = f
                 .runtime
-                .backend()
                 .start(
-                    &f.runtime.runtime().select_program(&f.module).unwrap(),
+                    &f.runtime.select_program(&f.module).unwrap(),
                     "value",
                     &[],
                     Default::default(),
                 )
                 .unwrap();
-            f.runtime
-                .runtime()
-                .schedule_execution(execution, decode)
-                .unwrap()
+            f.runtime.schedule_execution(execution, decode).unwrap()
         };
         f.runtime
-            .runtime()
             .set_execution_observer(RejectEntry(Some(RuntimeError::from(
                 EngineFault::HostInvariant("fatal scheduler entry"),
             ))))
@@ -592,7 +569,7 @@ fn scheduler_fatal_entry_failure_drains_other_work() {
             f.runtime.poll(&mut Context::from_waker(Waker::noop())),
             Poll::Ready(Err(_))
         ));
-        assert!(f.runtime.runtime().is_quarantined());
+        assert!(f.runtime.is_quarantined());
         assert!(rejected.is_finished() && pending.is_finished());
         assert_eq!(
             result(&mut pending).unwrap_err().kind(),
@@ -628,9 +605,8 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
     let host = HostLoop::new();
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
@@ -638,7 +614,6 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
         .unwrap();
     let completed = f
         .runtime
-        .runtime()
         .schedule_execution(execution, |_, _| Ok(CleanupFault))
         .unwrap();
     let mut pending = scheduled(&f, "io", &[Value::I32(10)]);
@@ -657,7 +632,7 @@ fn scheduler_off_driver_result_drop_fault_wakes_io_driver() {
         f.runtime.poll(&mut host.context()),
         Poll::Ready(Err(_))
     ));
-    assert!(f.runtime.runtime().is_quarantined());
+    assert!(f.runtime.is_quarantined());
     assert_eq!(
         result(&mut pending).unwrap_err().kind(),
         RuntimeErrorKind::EngineFault
@@ -680,9 +655,8 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
         let late = f.sent.lock().unwrap().pop().unwrap();
         let execution = f
             .runtime
-            .backend()
             .start(
-                &f.runtime.runtime().select_program(&f.module).unwrap(),
+                &f.runtime.select_program(&f.module).unwrap(),
                 "value",
                 &[],
                 Default::default(),
@@ -691,7 +665,6 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
         let fault = CleanupFault;
         let mut cancelled = f
             .runtime
-            .runtime()
             .schedule_execution(execution, move |runtime, value| {
                 let _held = &fault;
                 decode(runtime, value)
@@ -699,7 +672,6 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
             .unwrap();
         if entry_failure {
             f.runtime
-                .runtime()
                 .set_execution_observer(RejectEntry(Some(RuntimeError::module_validation(
                     "rejected before cleanup fault",
                 ))))
@@ -709,14 +681,9 @@ fn scheduler_cleanup_fault_drains_without_later_poll() {
                 Poll::Ready(Err(_))
             ));
         } else {
-            assert!(
-                f.runtime
-                    .runtime()
-                    .cancel_scheduled_execution(&cancelled)
-                    .is_err()
-            );
+            assert!(f.runtime.cancel_scheduled_execution(&cancelled).is_err());
         }
-        assert!(f.runtime.runtime().is_quarantined());
+        assert!(f.runtime.is_quarantined());
         assert!(pending.is_finished() && cancelled.is_finished());
         assert_eq!(
             result(&mut pending).unwrap_err().kind(),
@@ -735,9 +702,8 @@ fn scheduler_conversion_fault_drains_other_invocations() {
     let mut f = Fixture::source(SOURCE);
     let execution = f
         .runtime
-        .backend()
         .start(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+            &f.runtime.select_program(&f.module).unwrap(),
             "value",
             &[],
             Default::default(),
@@ -745,7 +711,6 @@ fn scheduler_conversion_fault_drains_other_invocations() {
         .unwrap();
     let mut broken = f
         .runtime
-        .runtime()
         .schedule_execution(execution, |_, _| -> NativeResult<i32> {
             panic!("host conversion failed")
         })
@@ -755,7 +720,7 @@ fn scheduler_conversion_fault_drains_other_invocations() {
         f.runtime.poll(&mut Context::from_waker(Waker::noop())),
         Poll::Ready(Err(_))
     ));
-    assert!(f.runtime.runtime().is_quarantined());
+    assert!(f.runtime.is_quarantined());
     assert!(broken.is_finished() && remaining.is_finished());
     assert_eq!(
         result(&mut broken).unwrap_err().kind(),

@@ -1,5 +1,9 @@
 //! Canonical standard trait schemas; required methods use ordinary MethodDecl lowering.
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "protocols/collections.rs")]
 mod collections;
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "protocols/conversion.rs")]
 mod conversion;
 use crate::{
     catalog::documentation,

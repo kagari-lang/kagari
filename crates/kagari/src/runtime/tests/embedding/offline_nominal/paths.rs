@@ -89,14 +89,8 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
-        let ty = runtime
-            .runtime()
-            .types()
-            .get_by_name("left::Item")
-            .unwrap()
-            .id;
+        let ty = runtime.types().get_by_name("left::Item").unwrap().id;
         runtime
-            .runtime_mut()
             .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(7))
             .unwrap();
         trace.lock().unwrap().clear();
@@ -143,7 +137,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -153,13 +147,13 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
         assert_eq!(*trace.lock().unwrap(), ["root", "read"]);
         drop(report);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }
 
@@ -360,16 +354,14 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         };
         let mut runtime = engine.runtime(context.clone());
         let player = runtime
-            .runtime()
             .types()
             .get_by_name("game::objects::Player")
             .unwrap()
             .id;
         runtime
-            .runtime_mut()
             .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
             .unwrap();
-        assert_eq!(runtime.runtime().host().path_descriptors().count(), 1);
+        assert_eq!(runtime.host().path_descriptors().count(), 1);
         let loaded_program =
             Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
@@ -384,7 +376,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -392,7 +384,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         }
         .unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report.return_value.value(runtime.gc()).unwrap(),
             Value::I32(13)
         );
         assert_eq!(state.load(Ordering::SeqCst), 13);
@@ -402,7 +394,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                 "make", "first", "second", "rhs", "read", "prepare", "commit", "read"
             ]
         );
-        let dirty = runtime.runtime().host_dirty_paths();
+        let dirty = runtime.host_dirty_paths();
         assert_eq!(dirty.len(), 1);
         assert_eq!(dirty[0].old_value, Some(Value::I32(10)));
         assert_eq!(dirty[0].new_value, Value::I32(13));
@@ -545,18 +537,11 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                 state.store(10, Ordering::SeqCst);
                 removed.store(false, Ordering::SeqCst);
                 root_calls.store(0, Ordering::SeqCst);
-                let ty = runtime
-                    .runtime()
-                    .types()
-                    .get_by_name("left::Item")
-                    .unwrap()
-                    .id;
+                let ty = runtime.types().get_by_name("left::Item").unwrap().id;
                 runtime
-                    .runtime_mut()
                     .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
                     .unwrap();
                 runtime
-                    .runtime_mut()
                     .register_host_root(HostObjectId(8), ty, HostSchemaEpoch::new(0))
                     .unwrap();
                 let loaded_program =
@@ -575,7 +560,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                             &context.cancellation,
                         );
                         native_code
-                            .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                            .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                     }
                     .unwrap();
                     runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
@@ -593,7 +578,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                             vec!["root", "rhs", "read", "prepare", "commit"]
                         }
                     );
-                    let records = runtime.runtime().host_dirty_paths();
+                    let records = runtime.host_dirty_paths();
                     assert_eq!(records.len(), 1);
                     assert_eq!(records[0].old_value, Some(Value::I32(after_rhs)));
                     assert_eq!(records[0].new_value, Value::I32(expected));
@@ -608,9 +593,9 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                             vec!["root", "rhs", "read"]
                         }
                     );
-                    assert!(runtime.runtime().host_dirty_paths().is_empty());
+                    assert!(runtime.host_dirty_paths().is_empty());
                 }
-                assert_eq!(runtime.runtime().gc().active_roots(), 0);
+                assert_eq!(runtime.gc().active_roots(), 0);
             }
         }
     }

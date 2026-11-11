@@ -3,7 +3,6 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::KagariEngine,
-    error::EmbeddingError,
     program::Program,
     runtime::{LoadOptions, ReloadOptions, Runtime},
 };
@@ -31,6 +30,7 @@ use kagari_contract::{
         named::{NamedContract, NamedDeclaration},
     },
 };
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     host::{
         HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptor,
@@ -150,24 +150,12 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
 }
 
 fn register_embedding_host_path_runtime(runtime: &mut Runtime) -> HostPathDescriptorId {
-    let player = runtime
-        .runtime()
-        .types()
-        .get_by_name("game::Player")
-        .unwrap()
-        .id;
+    let player = runtime.types().get_by_name("game::Player").unwrap().id;
     runtime
-        .runtime_mut()
         .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
         .unwrap();
     let descriptor = HostPathDescriptorId::new(0);
-    assert!(
-        runtime
-            .runtime()
-            .host()
-            .path_descriptor(descriptor)
-            .is_some()
-    );
+    assert!(runtime.host().path_descriptor(descriptor).is_some());
     descriptor
 }
 
@@ -365,7 +353,6 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let mut runtime = engine.runtime(context.clone());
     register_embedding_host_path_runtime(&mut runtime);
     let contract = runtime
-        .runtime()
         .host()
         .path_descriptor(HostPathDescriptorId::new(0))
         .unwrap()
@@ -380,7 +367,6 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
         vec![],
     );
     let changed = runtime
-        .runtime()
         .host()
         .path_descriptor(HostPathDescriptorId::new(1))
         .unwrap()
@@ -404,19 +390,19 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
             },
         )
         .expect("module should load");
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
-    let before_count = runtime.runtime().modules().loaded_count();
-    let before_epoch = runtime.runtime().select_program(&loaded).unwrap().epoch;
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
+    let before_count = runtime.modules().loaded_count();
+    let before_epoch = runtime.select_program(&loaded).unwrap().epoch;
 
     let error = runtime
         .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
         .and_then(|base| {
             base.prepare_replacement(
                 &Program::from_artifact(candidate, &Default::default(), &Default::default())
                     .unwrap(),
                 &Default::default(),
             )
-            .map_err(Into::into)
         })
         .and_then(|candidate| {
             runtime.replace_program(
@@ -431,16 +417,14 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
         })
         .expect_err("changed typed path fingerprints should reject reload");
 
-    let EmbeddingError::ReloadValidation { code, message } = error else {
-        panic!("expected reload validation error");
-    };
-    assert_eq!(code, "KG_RELOAD_PATH_FINGERPRINT_MISMATCH");
-    assert!(message.contains("typed path fingerprints"));
-    assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
-    assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().epoch,
-        before_epoch
-    );
+    assert!(matches!(
+        error,
+        ReloadValidationError::PathFingerprintMismatch
+    ));
+    assert_eq!(error.code(), "KG_RELOAD_PATH_FINGERPRINT_MISMATCH");
+    assert!(error.to_string().contains("typed path fingerprints"));
+    assert_eq!(runtime.modules().loaded_count(), before_count);
+    assert_eq!(runtime.select_program(&loaded).unwrap().epoch, before_epoch);
 }
 
 #[test]
@@ -458,7 +442,6 @@ fn installed_host_path_mutation_uses_declared_access() {
     let mut runtime = engine.runtime(context.clone());
     register_embedding_host_path_runtime(&mut runtime);
     let contract = runtime
-        .runtime()
         .host()
         .path_descriptor(HostPathDescriptorId::new(0))
         .unwrap()
@@ -503,7 +486,7 @@ fn installed_host_path_mutation_uses_declared_access() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::Unit
     );
@@ -524,7 +507,6 @@ fn installed_host_path_reads_need_no_permission_flags() {
     let mut runtime = engine.runtime(context.clone());
     register_embedding_host_path_runtime(&mut runtime);
     let contract = runtime
-        .runtime()
         .host()
         .path_descriptor(HostPathDescriptorId::new(0))
         .unwrap()
@@ -565,7 +547,7 @@ fn installed_host_path_reads_need_no_permission_flags() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(10)
     );

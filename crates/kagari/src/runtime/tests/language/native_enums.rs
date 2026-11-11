@@ -63,14 +63,14 @@ fn native_registered_enums_execute_from_serialized_artifacts_with_traced_payload
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42),
             "{body}"
         );
         drop(report);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc().allocated_objects(), 0);
     }
 }

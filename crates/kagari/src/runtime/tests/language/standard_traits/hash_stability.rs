@@ -32,7 +32,7 @@ fn explicit_enum_hash_is_stable_across_variant_reordering() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
         );
     }

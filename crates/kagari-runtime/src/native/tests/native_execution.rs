@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
@@ -166,7 +168,7 @@ fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Arc<NativeC
 }
 
 fn install(runtime: &mut Runtime, entry: JitCompiledFunction) -> InstalledNativeFunction {
-    let module_program = runtime.load_program("native", program()).unwrap();
+    let module_program = load_bytecode(runtime, "native", program()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     // Static fixtures implement the current ABI; fault probes intentionally test
     // malformed status/results without violating Rust memory safety.
@@ -207,7 +209,7 @@ fn native_traps_capture_the_frame_before_cleanup_and_never_request_fallback() {
 #[test]
 fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
     let mut runtime = runtime();
-    let module_program = runtime.load_program("native", program()).unwrap();
+    let module_program = load_bytecode(&mut runtime, "native", program()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let code = product(execute, dropped.clone());
@@ -281,7 +283,7 @@ fn malformed_native_results_quarantine_and_clean_up() {
 #[test]
 fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
     let mut runtime = runtime();
-    let module_program = runtime.load_program("native", program()).unwrap();
+    let module_program = load_bytecode(&mut runtime, "native", program()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let mut code = product(execute, Arc::default());
     Arc::get_mut(&mut code).unwrap().artifact.code.entry = ExecutableEntryPoint::Unresolved;
@@ -301,7 +303,7 @@ fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
 #[test]
 fn installation_retains_descriptors_and_rejects_unknown_functions_without_leaking_owners() {
     let mut runtime = runtime();
-    let module_program = runtime.load_program("native", program()).unwrap();
+    let module_program = load_bytecode(&mut runtime, "native", program()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let mut code = product(execute, dropped.clone());
@@ -364,7 +366,7 @@ fn installation_retains_descriptors_and_rejects_unknown_functions_without_leakin
 #[test]
 fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
     let mut runtime = runtime();
-    let module_program = runtime.load_program("native", program()).unwrap();
+    let module_program = load_bytecode(&mut runtime, "native", program()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let installed =
@@ -465,9 +467,9 @@ fn cancellation_of_an_active_session_prevents_native_progress() {
 fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
     let mut first = runtime();
     let mut second = runtime();
-    let a_program = first.load_program("native", program()).unwrap();
+    let a_program = load_bytecode(&mut first, "native", program()).unwrap();
     let a = first.select_program(&a_program).unwrap();
-    let b_program = second.load_program("native", program()).unwrap();
+    let b_program = load_bytecode(&mut second, "native", program()).unwrap();
     let b = second.select_program(&b_program).unwrap();
     let dropped = Arc::new(AtomicUsize::new(0));
     let code = product(execute, dropped.clone());
@@ -489,7 +491,7 @@ fn executable_memory_can_be_shared_without_sharing_runtime_instances() {
 #[case::helper_abi(true)]
 fn incompatible_native_abis_are_rejected_before_installation(#[case] helper: bool) {
     let mut runtime = runtime();
-    let module_program = runtime.load_program("native", program()).unwrap();
+    let module_program = load_bytecode(&mut runtime, "native", program()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let mut code = product(execute, Arc::default());
     let artifact = &mut Arc::get_mut(&mut code).unwrap().artifact;
@@ -527,7 +529,7 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
         .metadata(definitions, &Default::default())
         .unwrap();
     let mut runtime = runtime();
-    let module_program = runtime.load_program("native", graph.clone()).unwrap();
+    let module_program = load_bytecode(&mut runtime, "native", graph.clone()).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let old_dependency = module.member(ModuleRef::new(0)).unwrap();
     let installed =

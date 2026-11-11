@@ -10,7 +10,6 @@ use kagari_runtime::{
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as standard;
-use kagari_vm::vm::Vm;
 
 fn main() {
     let mut source = String::new();
@@ -105,14 +104,14 @@ fn main() {
         Arc::strong_count(&first_loaded.bytecode)
     );
 
-    let vm = Vm::new(first_runtime);
+    let vm = first_runtime;
     const CALLS: u32 = 10_000;
     for _ in 0..100 {
         black_box(
-            vm.execute(&first_loaded, ProgramEntry::Main)
+            vm.execute_module(&first_loaded, ProgramEntry::Main, vm.execution_options())
                 .unwrap()
                 .return_value
-                .value(vm.runtime().gc())
+                .value(vm.gc())
                 .expect("retained execution result"),
         );
     }
@@ -120,10 +119,10 @@ fn main() {
     let mut checksum = 0_i64;
     for _ in 0..CALLS {
         let Value::I32(value) = vm
-            .execute(&first_loaded, ProgramEntry::Main)
+            .execute_module(&first_loaded, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .value(vm.gc())
             .expect("retained execution result")
         else {
             unreachable!("benchmark entry returns i32")

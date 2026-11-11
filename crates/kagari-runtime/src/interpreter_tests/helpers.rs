@@ -1,0 +1,276 @@
+use crate::{
+    Runtime,
+    interpreter_tests::common::{
+        compile_test_bytecode, load_bytecode_module, load_bytecode_program, load_test_module,
+        standard_runtime, test_function_module,
+    },
+};
+use crate::{
+    RuntimeConfig,
+    error::RuntimeErrorKind,
+    host::{
+        HostCallContext, HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
+        HostSchemaEpoch, PreparedHostPathWrite,
+    },
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule},
+    value::Value,
+};
+use kagari_abi::representation::ValueType;
+use kagari_bytecode::{
+    instruction::{
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, PathId, RuntimeHelper, Slot,
+        StructId,
+    },
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
+};
+use kagari_common::identity::{
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+};
+use kagari_contract::ids::FunctionRef;
+
+use kagari_types::{
+    declaration::{
+        FieldDef,
+        host::{
+            HostCallPolicy, HostFieldPolicy, HostFunctionEffects, HostReflectionPolicy,
+            HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
+    },
+    scalar::BuiltinType,
+    ty::Ty,
+    visibility::Visibility,
+};
+use std::sync::{Arc, Mutex};
+
+// Share the cold declaration-to-program fixture with runtime boundary tests.
+use crate::test_support::native::program as native_program;
+
+fn player_module() -> NativeModule {
+    let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
+    let mut player = module.define_type("Player").unwrap();
+    player
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::ReadWrite,
+        })
+        .unwrap();
+    player
+        .field(
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                FieldDef {
+                    name: "hp".into(),
+                    ty: Ty::Builtin(BuiltinType::I32),
+                    visibility: Visibility::Public,
+                    mutable: true,
+                    host_policy: Some(HostFieldPolicy {
+                        readable: true,
+                        path_access: PathAccess::ReadWrite,
+                    }),
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let player = player.finish().unwrap();
+    let entry = module
+        .define_function(
+            FunctionDecl::new("player")
+                .returns(player.apply([]).unwrap())
+                .host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: HostFunctionEffects {
+                        may_allocate: true,
+                        ..Default::default()
+                    },
+                }),
+        )
+        .unwrap();
+    module
+        .bind(entry, |cx: &HostCallContext<'_>, _: &[Value]| {
+            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+            Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+        })
+        .unwrap();
+    module.finish().unwrap()
+}
+
+fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {
+    let mut runtime = standard_runtime(RuntimeConfig::default());
+    let module = player_module();
+    let declaration = module.to_declaration();
+    let player = declaration
+        .records()
+        .definition(DefinitionKind::Struct, "Player", declaration.definitions())
+        .unwrap();
+    let field = declaration
+        .definitions()
+        .lookup_child(player, DefinitionKind::Field, "hp", 0)
+        .unwrap();
+    let field = declaration.definitions().resolve(field).unwrap().to_path();
+    module.install(&mut runtime).unwrap();
+    let player_id = runtime.types().get_by_name("game::Player").unwrap().id;
+    let i32_id = runtime.types().get_by_name("i32").unwrap().id;
+    runtime
+        .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
+        .unwrap();
+    let definitions = runtime.host().definitions();
+    let field = definitions.lookup(&field).unwrap();
+    let descriptor_id = runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions,
+            root_type: player_id,
+            result_type: i32_id,
+            segments: vec![HostPathSegmentDeclaration::Field(field)],
+            access,
+            schema_epoch: HostSchemaEpoch::new(0),
+        })
+        .unwrap();
+    assert_eq!(descriptor_id.index(), 0);
+
+    let hp = Arc::new(Mutex::new(10));
+    let read_hp = Arc::clone(&hp);
+    let write_hp = Arc::clone(&hp);
+    runtime
+        .register_host_path_adapter(
+            descriptor_id,
+            HostPathAdapter::new()
+                .with_read(move |_, _| Ok(Value::I32(*read_hp.lock().unwrap())))
+                .with_prepare_write(move |_, _, record| {
+                    let Value::I32(value) = record.new_value else {
+                        return Err(HostError::new("hp expects i32"));
+                    };
+                    let write_hp = write_hp.clone();
+                    Ok(PreparedHostPathWrite::new(move || {
+                        *write_hp.lock().unwrap() = value;
+                    }))
+                }),
+        )
+        .unwrap();
+
+    (runtime, hp)
+}
+
+fn path_module(
+    name: &str,
+    instructions: Vec<BytecodeInstruction>,
+    return_type: ValueType,
+    constants: Vec<ConstantOperand>,
+) -> DefinitionMetadata<BytecodeModule> {
+    let provider = player_module();
+    let context = DefinitionContext::new().unwrap();
+    let (_, mut program) = native_program::free_function_program(&provider.to_declaration())
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_parts();
+    let module = program.modules.remove(0);
+    let metadata = FunctionMetadata {
+        slots: [
+            vec![
+                ValueType::HostHandle,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::HostHandle,
+            ],
+            vec![].clone(),
+        ]
+        .concat(),
+        return_type,
+        ..Default::default()
+    };
+    let root = module.external_types[0].declaration;
+    let field = context
+        .intern_child(root, DefinitionKind::Field, "hp", 0)
+        .unwrap();
+    let definitions = context.snapshot();
+    let path = HostPathDeclaration {
+        root,
+        segments: vec![HostPathSegmentDeclaration::Field(field)],
+        access: PathAccess::ReadWrite,
+        schema_epoch: 0,
+    };
+    let fingerprint = path
+        .contract(&module.external_types, &definitions)
+        .unwrap()
+        .fingerprint(&definitions)
+        .unwrap();
+    let module = BytecodeModule {
+        path_declarations: vec![path],
+        module_slots: vec![],
+        constants,
+        types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
+        paths: vec![PathRecord {
+            contract_fingerprint: fingerprint,
+            id: PathId::new(0),
+            root_ty: ValueType::HostHandle,
+            result_ty: ValueType::I32,
+            read_only: false,
+            debug_name: "game.Player.hp".to_owned(),
+        }],
+        function_table: vec![FunctionRecord {
+            id: FunctionRef::new(0),
+            identity: None,
+            name: name.to_owned(),
+            params: metadata.params.clone(),
+            return_type: metadata.return_type,
+            effects: metadata.effects,
+        }],
+        functions: vec![{
+            let fixture_instructions = instructions;
+            let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = metadata;
+
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
+            BytecodeFunction {
+                id: FunctionRef::new(0),
+                identity: None,
+                name: name.to_owned(),
+                parameter_count: 0,
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
+            }
+        }],
+        ..module
+    };
+    DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap()
+}
+
+/// Select an explicit portable path requirement; physical records derive from its contract.
+fn with_path_contract(
+    module: DefinitionMetadata<BytecodeModule>,
+    path: DefinitionMetadata<HostPathDeclaration>,
+) -> DefinitionMetadata<BytecodeModule> {
+    let context = DefinitionContext::new().unwrap();
+    let mut module = module
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let path = path
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let definitions = context.snapshot();
+    let contract = path.contract(&module.external_types, &definitions).unwrap();
+    module.paths[0].contract_fingerprint = contract.fingerprint(&definitions).unwrap();
+    module.paths[0].read_only = path.access == PathAccess::ReadOnly;
+    module.path_declarations = vec![path];
+    DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap()
+}
+
+mod host_paths;
+mod reflection;
+mod standard;

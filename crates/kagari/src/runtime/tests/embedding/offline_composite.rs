@@ -7,6 +7,7 @@ use crate::{
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_runtime::execution::reentry::reenter;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
@@ -21,7 +22,6 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_vm::reentry::reenter;
 use std::sync::{Arc, Mutex};
 
 fn array() -> Type {
@@ -152,7 +152,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -160,11 +160,11 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         }
         .unwrap();
         let retained = report.return_value;
-        runtime.runtime().collect_garbage().unwrap();
-        let Value::Tuple(values) = retained.value(runtime.runtime().gc()).unwrap() else {
+        runtime.collect_garbage().unwrap();
+        let Value::Tuple(values) = retained.value(runtime.gc()).unwrap() else {
             panic!("composite return")
         };
-        let values = runtime.runtime().gc().tuple(values).unwrap().to_vec();
+        let values = runtime.gc().tuple(values).unwrap().to_vec();
         let [
             Value::Array(array),
             Value::Tuple(record),
@@ -175,7 +175,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         else {
             panic!("composite shapes")
         };
-        let heap = runtime.runtime().gc();
+        let heap = runtime.gc();
         assert_eq!(heap.array_snapshot(*array).unwrap(), [Value::I32(7)]);
         let fields = heap.tuple(*record).unwrap();
         let [Value::Str(key), Value::Bool(true)] = fields.as_ref() else {
@@ -315,8 +315,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
                         &mut backend,
                         &context.cancellation,
                     );
-                    native_code
-                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                    native_code.and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 }
                 .unwrap();
                 runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
@@ -327,7 +326,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             assert_eq!(
                 report
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .value(runtime.gc())
                     .expect("retained execution result"),
                 Value::I32(42)
             );

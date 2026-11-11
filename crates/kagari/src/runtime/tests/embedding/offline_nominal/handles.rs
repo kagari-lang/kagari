@@ -12,6 +12,7 @@ use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::{PackageId, map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{representation::semantic_representation, types::PublicItem};
 use kagari_hir::declarations::DeclarationId;
+use kagari_runtime::execution::reentry::reenter;
 use kagari_runtime::{
     host::{HostCallContext, HostObjectId, HostSchemaEpoch},
     module::entry::ProgramEntry,
@@ -33,7 +34,6 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_vm::reentry::reenter;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicI32, Ordering},
@@ -238,14 +238,8 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         );
         assert!(trace.lock().unwrap().is_empty());
         let mut runtime = engine.runtime(context.clone());
-        let ty = runtime
-            .runtime()
-            .types()
-            .get_by_name("left::Item")
-            .unwrap()
-            .id;
+        let ty = runtime.types().get_by_name("left::Item").unwrap().id;
         runtime
-            .runtime_mut()
             .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
             .unwrap();
         let loaded = runtime
@@ -261,8 +255,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                         backend,
                         &context.cancellation,
                     );
-                    native_code
-                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                    native_code.and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 }
                 .unwrap();
                 runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
@@ -271,7 +264,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             }
             .unwrap();
             assert_eq!(
-                result.return_value.value(runtime.runtime().gc()).unwrap(),
+                result.return_value.value(runtime.gc()).unwrap(),
                 Value::I32(expected)
             );
         }
@@ -281,7 +274,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 "receiver", "argument", "method", "receiver", "argument", "method"
             ]
         );
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }
 
@@ -352,14 +345,8 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         trace.lock().unwrap().clear();
         let context = context(jit);
         let mut runtime = engine.runtime(context.clone());
-        let ty = runtime
-            .runtime()
-            .types()
-            .get_by_name("left::Item")
-            .unwrap()
-            .id;
+        let ty = runtime.types().get_by_name("left::Item").unwrap().id;
         runtime
-            .runtime_mut()
             .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
             .unwrap();
         let program = Compilation::from_artifact(
@@ -381,7 +368,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -389,12 +376,12 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         }
         .unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report.return_value.value(runtime.gc()).unwrap(),
             Value::I32(42)
         );
         assert_eq!(*trace.lock().unwrap(), ["make", "take"]);
         drop(report);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }
 
@@ -432,7 +419,7 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .unwrap(),
         Value::I32(7)
     );

@@ -22,7 +22,7 @@ OUTPUT = ROOT / "target" / "architecture-features"
 def check_crate_boundaries(output: Path = OUTPUT) -> None:
     source = {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
     compiling = {"kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
-    execution = {"kagari-runtime", "kagari-vm", "kagari", "kagari-bytecode"}
+    execution = {"kagari-runtime", "kagari", "kagari-bytecode"}
     constraints = {
         "common": source | compiling | execution | {"kagari-types", "kagari-abi", "kagari-contract"},
         "types": source | compiling | execution | {"kagari-abi", "kagari-contract"},
@@ -32,15 +32,14 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
         "mir": source | execution | {"kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"},
         "bytecode": source | compiling,
         "runtime": source | compiling,
-        "vm": source | compiling,
-        "compiler": source | {"kagari-runtime", "kagari-vm", "kagari", "kagari-codegen-cranelift"},
+        "compiler": source | {"kagari-runtime", "kagari", "kagari-codegen-cranelift"},
         "codegen": source | execution | {"kagari-compiler", "kagari-codegen-cranelift"},
         "codegen-cranelift": source | execution | {"kagari-compiler"},
     }
     tools = {"kagari-format", "kagari-lint"}
     for forbidden in constraints.values():
-        forbidden.update(tools | {"kagari-stdlib"})
-    constraints["stdlib"] = source | compiling | {"kagari-vm", "kagari"}
+        forbidden.update(tools | {"kagari-stdlib", "kagari-vm"})
+    constraints["stdlib"] = source | compiling | {"kagari"}
     constraints["stdlib"].update(tools)
     constraints["format"] = (source - {"kagari-source", "kagari-syntax"}) | compiling | execution | {"kagari-lint", "kagari-stdlib"}
     constraints["lint"] = compiling | execution | {"kagari-format", "kagari-stdlib"}
@@ -82,7 +81,7 @@ def run(async_only: bool = False, numeric_only: bool = False) -> None:
     dependencies = ["kagari", "kagari-runtime"] if numeric_only else [
         "kagari", "kagari-source", "kagari-abi", "kagari-contract", "kagari-types",
         "kagari-stdlib", "kagari-bytecode", "kagari-common", "kagari-runtime",
-        "kagari-vm", "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift",
+        "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift",
     ]
     for name in dependencies:
         options = [f'path = {json.dumps(str(ROOT / "crates" / name))}']

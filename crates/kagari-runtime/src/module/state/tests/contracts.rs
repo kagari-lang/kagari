@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::{ProgramFixture, certify};
 use crate::{
     module::dispatch::CallRouteKind,
@@ -217,7 +219,7 @@ fn source_free_verification_rejects_forged_static_contracts_and_initializer_auth
 fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
     let mut runtime = Runtime::default();
     let code = callback_program();
-    let old_program = runtime.load_program("callbacks", code.clone()).unwrap();
+    let old_program = load_bytecode(&mut runtime, "callbacks", code.clone()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     let closure = retained_callback(&runtime, &old);
     ready(&runtime, &old, 0, closure);
@@ -249,7 +251,7 @@ fn persistent_cell_callback_cycles_follow_joint_graph_edges_and_retirement() {
     // Loading the same label preserves the previous installation. Explicit
     // retirement removes its current root; the retained value still owns the cycle.
     runtime.modules.retire_installations();
-    let fresh_program = runtime.load_program("callbacks", code).unwrap();
+    let fresh_program = load_bytecode(&mut runtime, "callbacks", code).unwrap();
     let fresh = runtime.select_program(&fresh_program).unwrap();
     assert!(
         !runtime
@@ -326,13 +328,12 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
         exports: Default::default(),
     }
     .build(&context);
-    let old_program = runtime
-        .load_program(
-            "choice",
-            DefinitionMetadata::checked(context.snapshot(), code.clone(), &Default::default())
-                .unwrap(),
-        )
-        .unwrap();
+    let old_program = load_bytecode(
+        &mut runtime,
+        "choice",
+        DefinitionMetadata::checked(context.snapshot(), code.clone(), &Default::default()).unwrap(),
+    )
+    .unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     let empty_value = Value::Enum(
         runtime
@@ -385,7 +386,7 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
 fn allocation_failure_invalidates_candidate_records_without_touching_published_cells() {
     let mut runtime = Runtime::default();
     let code = program(scalar(), true);
-    let old_program = runtime.load_program("exhaustion", code.clone()).unwrap();
+    let old_program = load_bytecode(&mut runtime, "exhaustion", code.clone()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     ready(&runtime, &old, 0, Value::I32(42));
     runtime.modules.inner.borrow_mut().next_cell = u64::MAX;
@@ -424,9 +425,9 @@ fn allocation_failure_invalidates_candidate_records_without_touching_published_c
 fn cycles_between_retired_installation_cells_are_collectible_together() {
     let mut runtime = Runtime::default();
     let code = callback_program();
-    let left_program = runtime.load_program("left", code.clone()).unwrap();
+    let left_program = load_bytecode(&mut runtime, "left", code.clone()).unwrap();
     let left = runtime.select_program(&left_program).unwrap();
-    let right_program = runtime.load_program("right", code.clone()).unwrap();
+    let right_program = load_bytecode(&mut runtime, "right", code.clone()).unwrap();
     let right = runtime.select_program(&right_program).unwrap();
     let from_left = retained_callback(&runtime, &left);
     let from_right = retained_callback(&runtime, &right);

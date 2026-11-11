@@ -21,7 +21,7 @@ pub(super) fn measure(
     for _ in 0..2 {
         let report = runtime.execute(module, entry, args, context).unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()),
+            report.return_value.value(runtime.gc()),
             Some(Value::I32(expected))
         );
     }
@@ -37,16 +37,16 @@ fn count(
     expected: i32,
     phase: &str,
 ) {
-    let before = runtime.runtime().gc().stats();
+    let before = runtime.gc().stats();
     let ((report, execution), allocations) = allocations::measure(|| {
         diagnostics::measure(|| runtime.execute(module, entry, args, context))
     });
     let report = report.unwrap();
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
+        report.return_value.value(runtime.gc()),
         Some(Value::I32(expected))
     );
-    let after = runtime.runtime().gc().stats();
+    let after = runtime.gc().stats();
     let entry = entry.label();
     println!(
         "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},interface_call_preparations={},shared_preparations={},operation_preparations={},native_preparations={},layout_scope_preparations={},layout_operand_preparations={},layout_comparisons={},environment_allocations={},metadata_validations={},slow_boundaries={},driver_admissions={},await_polls={}",

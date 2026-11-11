@@ -32,7 +32,6 @@ kagari-hir = { workspace = true, optional = true }
 kagari-bytecode.workspace = true
 kagari-runtime.workspace = true
 kagari-syntax = { workspace = true, optional = true }
-kagari-vm.workspace = true
 smallvec = { workspace = true, optional = true }
 
 [dev-dependencies]

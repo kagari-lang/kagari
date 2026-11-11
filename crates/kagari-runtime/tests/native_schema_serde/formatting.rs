@@ -1,5 +1,6 @@
 //! Custom serializers preserve work limits and validation-before-child effects.
 use super::{Transformed, module, program_for_source};
+use crate::bytecode_fixture::load_bytecode;
 use kagari_runtime::{
     Runtime,
     module::ExecutableModule,
@@ -82,7 +83,7 @@ fn fixture() -> (Runtime, ExecutableModule) {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner_program = runtime.load_program("serde", program).unwrap();
+    let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     (runtime, owner)
 }

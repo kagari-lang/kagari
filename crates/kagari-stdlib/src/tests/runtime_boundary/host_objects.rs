@@ -1,3 +1,4 @@
+use crate::tests::bytecode::load_bytecode;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -82,7 +83,7 @@ fn runtime() -> Runtime {
 
 fn fixture() -> (Runtime, InstalledProgram) {
     let mut runtime = runtime();
-    let owner = runtime.load_program("objects", program(SOURCE)).unwrap();
+    let owner = load_bytecode(&mut runtime, "objects", program(SOURCE)).unwrap();
     (runtime, owner)
 }
 

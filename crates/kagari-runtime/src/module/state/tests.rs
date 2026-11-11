@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use rstest::rstest;
 mod compatibility;
@@ -186,13 +188,14 @@ fn array(runtime: &Runtime, owner: &ExecutableModule, value: i32) -> Value {
 #[test]
 fn checked_writes_preserve_cells_on_semantic_access_bounds_and_owner_errors() {
     let mut runtime = Runtime::default();
-    let module_program = runtime
-        .load_program("state", program(scalar(), true))
-        .unwrap();
+    let module_program = load_bytecode(&mut runtime, "state", program(scalar(), true)).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
-    let readonly_program = runtime
-        .load_program("readonly", program(Ty::Builtin(BuiltinType::Unit), false))
-        .unwrap();
+    let readonly_program = load_bytecode(
+        &mut runtime,
+        "readonly",
+        program(Ty::Builtin(BuiltinType::Unit), false),
+    )
+    .unwrap();
     let readonly = runtime.select_program(&readonly_program).unwrap();
     let slot = ModuleSlot::new(0);
     assert!(matches!(
@@ -263,9 +266,7 @@ fn checked_writes_preserve_cells_on_semantic_access_bounds_and_owner_errors() {
 #[test]
 fn replacement_updates_gc_edges_and_rejects_foreign_stale_and_wrong_semantic_values() {
     let mut runtime = Runtime::default();
-    let module_program = runtime
-        .load_program("state", program(array_type(), true))
-        .unwrap();
+    let module_program = load_bytecode(&mut runtime, "state", program(array_type(), true)).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let slot = ModuleSlot::new(0);
     let first = array(&runtime, &module, 7);
@@ -273,9 +274,8 @@ fn replacement_updates_gc_edges_and_rejects_foreign_stale_and_wrong_semantic_val
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().validate_value(&first));
     let mut other = Runtime::default();
-    let other_module_program = other
-        .load_program("state", program(array_type(), true))
-        .unwrap();
+    let other_module_program =
+        load_bytecode(&mut other, "state", program(array_type(), true)).unwrap();
     let other_module = other.select_program(&other_module_program).unwrap();
     let foreign = array(&other, &other_module, 9);
     assert_eq!(
@@ -333,7 +333,7 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
             .is_err()
     );
     let other_runtime = &mut Runtime::default();
-    let foreign_program = other_runtime.load_program("state", code.clone()).unwrap();
+    let foreign_program = load_bytecode(other_runtime, "state", code.clone()).unwrap();
     let foreign = other_runtime.select_program(&foreign_program).unwrap();
     let (definitions, mut updated) = code.into_parts();
     let module = &mut updated.modules[0];
@@ -440,7 +440,7 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
             .reclaimed_modules
             .contains(&baseline.key())
     );
-    let fresh_program = runtime.load_program("state", code).unwrap();
+    let fresh_program = load_bytecode(&mut runtime, "state", code).unwrap();
     let fresh = runtime.select_program(&fresh_program).unwrap();
     let StaticState::Uninitialized(fresh_recipe) = runtime
         .module_instance_snapshot(&fresh)
@@ -474,7 +474,7 @@ fn reload_shares_cells_preserves_recipe_and_isolates_candidate_and_new_installat
 fn additions_reordering_and_stale_publication_are_transactional_and_deletion_is_rejected() {
     let mut runtime = Runtime::default();
     let original = program(scalar(), true);
-    let baseline_program = runtime.load_program("state", original.clone()).unwrap();
+    let baseline_program = load_bytecode(&mut runtime, "state", original.clone()).unwrap();
     let baseline = runtime.select_program(&baseline_program).unwrap();
     ready(&runtime, &baseline, 0, Value::I32(7));
     let context = DefinitionContext::new().unwrap();
@@ -550,7 +550,7 @@ enum StaticContractChange {
 fn private_contract_changes_remain_rejected(#[case] mutation: StaticContractChange) {
     let mut runtime = Runtime::default();
     let code = program(scalar(), true);
-    let baseline_program = runtime.load_program("state", code.clone()).unwrap();
+    let baseline_program = load_bytecode(&mut runtime, "state", code.clone()).unwrap();
     let baseline = runtime.select_program(&baseline_program).unwrap();
     ready(&runtime, &baseline, 0, Value::I32(7));
     let (definitions, mut candidate) = code.into_parts();
@@ -598,7 +598,7 @@ fn public_constant_additions_preserve_contracts_and_lazy_static_state_source_fre
 ) {
     let mut runtime = Runtime::default();
     let code = program(scalar(), true);
-    let baseline_program = runtime.load_program("state", code.clone()).unwrap();
+    let baseline_program = load_bytecode(&mut runtime, "state", code.clone()).unwrap();
     let baseline = runtime.select_program(&baseline_program).unwrap();
     if initialized {
         ready(&runtime, &baseline, 0, Value::I32(7));
@@ -681,7 +681,7 @@ fn failed_and_initializing_are_not_values_and_failed_state_releases_the_recipe()
     assert_eq!(diagnostic.origin(), Some(Span::default()));
     let mut runtime = Runtime::default();
     let code = program(Ty::Builtin(BuiltinType::Unit), false);
-    let old_program = runtime.load_program("state", code.clone()).unwrap();
+    let old_program = load_bytecode(&mut runtime, "state", code.clone()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     let candidate = runtime
         .stage_reload_program(&old_program, None, code)
@@ -750,14 +750,11 @@ enum StorageCorruption {
 #[case::missing_binding(StorageCorruption::MissingBinding)]
 fn corrupt_storage_quarantines_and_cleans_frame_resources(#[case] corruption: StorageCorruption) {
     let mut runtime = Runtime::default();
-    let module_program = runtime
-        .load_program("state", program(scalar(), true))
-        .unwrap();
+    let module_program = load_bytecode(&mut runtime, "state", program(scalar(), true)).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     ready(&runtime, &module, 0, Value::I32(7));
-    let independent_program = runtime
-        .load_program("independent", program(scalar(), true))
-        .unwrap();
+    let independent_program =
+        load_bytecode(&mut runtime, "independent", program(scalar(), true)).unwrap();
     let independent = runtime.select_program(&independent_program).unwrap();
     ready(&runtime, &independent, 0, Value::I32(9));
     let other_cell = cell(&runtime.modules, &independent, 0);
@@ -807,14 +804,11 @@ fn corrupt_storage_quarantines_and_cleans_frame_resources(#[case] corruption: St
 #[test]
 fn corrupted_collection_root_quarantines_the_runtime() {
     let mut runtime = Runtime::default();
-    let module_program = runtime
-        .load_program("state", program(array_type(), true))
-        .unwrap();
+    let module_program = load_bytecode(&mut runtime, "state", program(array_type(), true)).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let mut foreign = Runtime::default();
-    let owner_program = foreign
-        .load_program("foreign", program(array_type(), true))
-        .unwrap();
+    let owner_program =
+        load_bytecode(&mut foreign, "foreign", program(array_type(), true)).unwrap();
     let owner = foreign.select_program(&owner_program).unwrap();
     let value = array(&foreign, &owner, 7);
     let id = cell(&runtime.modules, &module, 0);
@@ -838,9 +832,7 @@ fn corrupted_collection_root_quarantines_the_runtime() {
 #[test]
 fn borrowed_storage_rejects_writes_before_changing_edges() {
     let mut runtime = Runtime::default();
-    let module_program = runtime
-        .load_program("state", program(scalar(), true))
-        .unwrap();
+    let module_program = load_bytecode(&mut runtime, "state", program(scalar(), true)).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     ready(&runtime, &module, 0, Value::I32(7));
     let id = cell(&runtime.modules, &module, 0);

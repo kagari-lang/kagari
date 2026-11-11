@@ -36,13 +36,13 @@ pub fn healthy()->i32{42}
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .is_err()
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(
         runtime
             .execute(&loaded, "healthy", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );

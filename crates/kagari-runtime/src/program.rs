@@ -90,13 +90,26 @@ impl Program {
                 ProgramPreparationError::History(error)
             }
         })?;
-        Ok(Self {
+        Ok(Self::with_checked_history(bytecode, history))
+    }
+
+    /// Adopt history already checked by detached preparation or local admission.
+    /// The backing must not own a product, preventing a reverse owning cycle.
+    pub(crate) fn with_checked_history(
+        bytecode: VerifiedProgram,
+        history: Arc<RetainedDemands>,
+    ) -> Self {
+        assert!(
+            bytecode.product().is_none(),
+            "product backing cannot own itself"
+        );
+        Self {
             state: Arc::new(ProgramState {
                 bytecode,
                 history,
                 expected_base: None,
             }),
-        })
+        }
     }
 
     /// Transfer verified code with its typed executable lifetime owner.

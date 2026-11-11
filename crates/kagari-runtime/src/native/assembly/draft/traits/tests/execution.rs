@@ -1,5 +1,7 @@
 //! Execute the selected native operation carried by an implementation-local fact.
 use super::{owner, path};
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     frame::driver::ReturnAction,
@@ -173,7 +175,7 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
             .unwrap();
         let mut runtime = Runtime::default();
         NativeModule::install_all(&modules, &mut runtime).unwrap();
-        let loaded_program = runtime.load_program("forward-call", bytecode).unwrap();
+        let loaded_program = load_bytecode(&mut runtime, "forward-call", bytecode).unwrap();
         let loaded = runtime.select_program(&loaded_program).unwrap();
         let (owner, slot) = loaded
             .members()

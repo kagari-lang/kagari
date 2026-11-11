@@ -20,12 +20,12 @@ use kagari::{
     runtime::Runtime,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_runtime::execution::{JitExecutionStatus, native::PreparedNativeEntry};
 use kagari_runtime::{
     module::{InstalledProgram, entry::ProgramEntry},
     value::Value,
 };
 use kagari_source::source::SourceFile;
-use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 use mlua::{Function, Lua};
 use workloads::{WORKLOADS, Workload};
 
@@ -182,7 +182,7 @@ impl ExecutionRoutes {
         }
         let Value::I32(value) = report
             .return_value
-            .value(self.runtime.runtime().gc())
+            .value(self.runtime.gc())
             .expect("retained execution result")
         else {
             panic!("expected i32 result")
@@ -321,7 +321,7 @@ fn run(workload: &Workload, options: &Options) {
                 &mut backend,
                 &Default::default(),
             )
-            .and_then(|native_code| runtime.install_native(&module, &native_code))
+            .and_then(|native_code| native_code.install(&mut runtime, &module))
             .expect("native preparation");
         let elapsed = start.elapsed().as_nanos();
         let phase = match &native {

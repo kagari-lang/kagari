@@ -45,11 +45,7 @@ fn main()->i32 {Number{value:42}+1}
     for entry in ["fail_add", "fail_index", "exhaust"] {
         let options = context.clone();
         let cancellation = (entry == "exhaust").then(|| {
-            support::cancel_after(
-                runtime.runtime(),
-                &runtime.runtime().select_program(&loaded).unwrap(),
-                30,
-            )
+            support::cancel_after(&runtime, &runtime.select_program(&loaded).unwrap(), 30)
         });
         let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
         assert!(
@@ -63,14 +59,14 @@ fn main()->i32 {Number{value:42}+1}
         };
         assert_eq!(error.code(), expected, "{entry}: {error:?}");
         drop(cancellation);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert!(!runtime.runtime().is_quarantined());
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(!runtime.is_quarantined());
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );

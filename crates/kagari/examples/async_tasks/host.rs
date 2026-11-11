@@ -19,7 +19,8 @@ use std::{
 
 type HostResult<T> = Result<T, Box<dyn Error>>;
 
-fn diagnostic(error: EmbeddingError) -> Box<dyn Error> {
+fn diagnostic(error: impl Into<EmbeddingError>) -> Box<dyn Error> {
+    let error = error.into();
     format!("{error:?}").into()
 }
 
@@ -76,17 +77,17 @@ pub fn run(engine: KagariEngine, program: Program, io: FakeIo) -> HostResult<()>
     assert!(runtime.poll(&mut Context::from_waker(&wake)).is_pending());
     let scope = runtime.create_task_scope(&module).map_err(diagnostic)?;
     let make = runtime
-        .function::<(), Object>(&module.root(), "job")
+        .bind_function::<(), Object>(&module.root(), "job")
         .map_err(diagnostic)?;
     let handler = runtime
-        .function::<(TaskScope, Object), bool>(&module.root(), "handle")
+        .bind_function::<(TaskScope, Object), bool>(&module.root(), "handle")
         .map_err(diagnostic)?;
     let ping = runtime
-        .function::<(), i32>(&module.root(), "ping")
+        .bind_function::<(), i32>(&module.root(), "ping")
         .map_err(diagnostic)?;
     let job = runtime.call(&make, ()).map_err(diagnostic)?;
     let total = runtime
-        .field::<i32>(job.object_type(), "total")
+        .bind_field::<i32>(job.object_type(), "total")
         .map_err(diagnostic)?;
     assert!(
         runtime
@@ -158,9 +159,9 @@ pub fn run(engine: KagariEngine, program: Program, io: FakeIo) -> HostResult<()>
     assert_eq!(late.completion.complete(Ok(999)), CompletionStatus::Stale);
     println!("Task cancelled by scope close; late reply rejected");
     drop((scope, job));
-    runtime.runtime().collect_garbage()?;
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    runtime.collect_garbage()?;
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.gc().allocated_objects(), 0);
     runtime.close().map_err(diagnostic)?;
     Ok(())
 }

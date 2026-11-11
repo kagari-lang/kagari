@@ -26,7 +26,7 @@ use std::{
 };
 
 impl Runtime {
-    pub fn create_task_scope(
+    pub fn create_dispatched_task_scope(
         &self,
         owner: &ExecutableModule,
         options: ExecutionOptions,

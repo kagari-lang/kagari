@@ -1,4 +1,6 @@
 //! Collection comparison contracts bind the shared algorithms by semantic operation.
+// Preserve module children during Runtime-only test source sharing.
+#[cfg_attr(test, path = "comparison/operations.rs")]
 pub(super) mod operations;
 use crate::foundation::{
     comparison::operations::{self as comparison, Shape},

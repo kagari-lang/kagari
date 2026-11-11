@@ -1,11 +1,7 @@
 #![cfg(feature = "source")]
 //! Public typed calls: no raw values, factory staging or per-Task driving.
-use kagari::{
-    context::ExecutionContext,
-    engine::KagariEngine,
-    error::{EmbeddingError, RuntimeFailureKind},
-    runtime::Runtime,
-};
+use kagari::{context::ExecutionContext, engine::KagariEngine, runtime::Runtime};
+use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
     gc::roots::RootSet,
@@ -160,13 +156,10 @@ fn notice() -> (Waker, Receiver<()>) {
     (Waker::from(Arc::new(Notice(send))), receive)
 }
 
-fn cancelled<T>(result: Result<T, EmbeddingError>) {
+fn cancelled<T>(result: Result<T, kagari_runtime::error::RuntimeError>) {
     assert!(matches!(
         result,
-        Err(EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::Cancelled,
-            ..
-        })
+        Err(ref error) if error.kind() == RuntimeErrorKind::Cancelled
     ));
 }
 
@@ -247,18 +240,21 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<PanickingArguments, i32>(&f.module.root(), "factory")
+        .bind_async_function::<PanickingArguments, i32>(&f.module.root(), "factory")
         .unwrap();
     let make = f
         .runtime
-        .function::<(), Interface>(&f.module.root(), "loader")
+        .bind_function::<(), Interface>(&f.module.root(), "loader")
         .unwrap();
     let loader = f.runtime.call(&make, ()).unwrap();
-    let method = f
-        .runtime
-        .async_interface_method::<(PanickingInput,), i32>(&loader, "load")
+    let method = loader
+        .member(&f.runtime, "load")
+        .and_then(|member| {
+            f.runtime
+                .bind_async_interface_method::<(PanickingInput,), i32>(&member)
+        })
         .unwrap();
-    let roots = f.runtime.runtime().gc().active_roots();
+    let roots = f.runtime.gc().active_roots();
     let mut retired = Vec::new();
     for interface in [false, true] {
         let panic = catch_unwind(AssertUnwindSafe(|| {
@@ -275,10 +271,10 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
             panic.downcast_ref::<&str>(),
             Some(&"argument converter panic")
         );
-        assert!(f.runtime.runtime().execution_root().is_none());
-        assert_eq!(f.runtime.runtime().gc().active_roots(), roots);
+        assert!(f.runtime.execution_root().is_none());
+        assert_eq!(f.runtime.gc().active_roots(), roots);
         // This must be an empty observation, not the operation that performs cleanup.
-        retired.push(f.runtime.runtime().drain_retired_executions().unwrap());
+        retired.push(f.runtime.drain_retired_executions().unwrap());
     }
     assert_eq!(
         retired,
@@ -287,7 +283,7 @@ fn panicking_async_admission_retires_without_another_driver_turn() {
     );
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     assert_eq!(f.touches.load(Ordering::SeqCst), 0);
-    assert!(f.runtime.runtime().check_scheduler_health().is_ok());
+    assert!(f.runtime.check_scheduler_health().is_ok());
 }
 
 #[test]
@@ -295,7 +291,7 @@ fn typed_direct_await_drives_tasks_without_a_pump_and_preserves_context() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<(Input,), Output>(&f.module.root(), "factory")
+        .bind_async_function::<(Input,), Output>(&f.module.root(), "factory")
         .unwrap();
     let mut context = ExecutionContext::default();
     context.inputs.unix_time_millis = 123;
@@ -320,7 +316,7 @@ fn typed_direct_await_drives_tasks_without_a_pump_and_preserves_context() {
     let scope = f.runtime.create_task_scope(&f.module).unwrap();
     let scoped = f
         .runtime
-        .async_function::<(TaskScope,), i32>(&f.module.root(), "scoped")
+        .bind_async_function::<(TaskScope,), i32>(&f.module.root(), "scoped")
         .unwrap();
     assert_eq!(
         executor
@@ -336,7 +332,7 @@ fn typed_call_drop_cleans_up_without_another_poll() {
     let mut f = Fixture::new();
     let function = f
         .runtime
-        .async_function::<(i32,), i32>(&f.module.root(), "factory")
+        .bind_async_function::<(i32,), i32>(&f.module.root(), "factory")
         .unwrap();
     drop(f.runtime.call_async(&function, (10,)).unwrap());
     assert_eq!(f.touches.load(Ordering::SeqCst), 0);
@@ -354,7 +350,7 @@ fn typed_call_drop_cleans_up_without_another_poll() {
 
     let pair = f
         .runtime
-        .async_function::<(), (i32, i32)>(&f.module.root(), "pair")
+        .bind_async_function::<(), (i32, i32)>(&f.module.root(), "pair")
         .unwrap();
     let mut call = f.runtime.call_async(&pair, ()).unwrap();
     for _ in 0..100 {
@@ -384,7 +380,7 @@ fn typed_pending_lifetime_contract() {
     let mut f = Fixture::new();
     let factory = f
         .runtime
-        .async_function::<(i32,), Output>(&f.module.root(), "factory")
+        .bind_async_function::<(i32,), Output>(&f.module.root(), "factory")
         .unwrap();
     drop(f.runtime.submit_async(&factory, (10,)).unwrap());
     assert!(
@@ -438,17 +434,17 @@ fn typed_submission_teardown_and_external_driver_handoff() {
     let scope = f.runtime.create_task_scope(&f.module).unwrap();
     let launch = f
         .runtime
-        .function::<(TaskScope,), ()>(&f.module.root(), "launch")
+        .bind_function::<(TaskScope,), ()>(&f.module.root(), "launch")
         .unwrap();
     f.runtime.call(&launch, (scope.handle(),)).unwrap();
     let load = f
         .runtime
-        .async_function::<(i32,), i32>(&f.module.root(), "load")
+        .bind_async_function::<(i32,), i32>(&f.module.root(), "load")
         .unwrap();
     let mut submitted = f.runtime.submit_async(&load, (11,)).unwrap();
     let long = f
         .runtime
-        .async_function::<(), i32>(&f.module.root(), "long")
+        .bind_async_function::<(), i32>(&f.module.root(), "long")
         .unwrap();
     let executor = tokio::runtime::Builder::new_current_thread()
         .build()

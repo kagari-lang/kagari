@@ -1,9 +1,7 @@
 //! Shared waits, directional cancellation, cached outputs and dependency cycles.
 use super::{Fixture, Value, slice};
-use crate::{
-    engine::EngineConfig,
-    error::{EmbeddingError, RuntimeFailureKind},
-};
+use crate::engine::EngineConfig;
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::roots::RootedValue,
@@ -11,7 +9,6 @@ use kagari_runtime::{
         CancellationCause, TaskId, TaskReport, control::TaskScopeOwner, drive::TaskDriveResult,
     },
 };
-use kagari_vm::vm::owned::DriveResult;
 use std::{
     num::NonZeroUsize,
     sync::{Arc, atomic::Ordering},
@@ -38,15 +35,10 @@ impl Tasks {
         let mut config = EngineConfig::default();
         config.default_runtime.async_limits.max_task_waiters = NonZeroUsize::new(2).unwrap();
         let fixture = Fixture::configured_source(SOURCE, config);
-        let selected = fixture
-            .runtime
-            .runtime()
-            .select_program(&fixture.module)
-            .unwrap();
+        let selected = fixture.runtime.select_program(&fixture.module).unwrap();
         let scope = fixture
             .runtime
-            .runtime()
-            .create_task_scope(&selected, Default::default(), Arc::new(|_| Ok(())))
+            .create_dispatched_task_scope(&selected, Default::default(), Arc::new(|_| Ok(())))
             .unwrap();
         Self { fixture, scope }
     }
@@ -56,20 +48,18 @@ impl Tasks {
         let factory = f.invoke(entry, args);
         let task = f
             .runtime
-            .runtime()
             .spawn_task(&f.value(self.scope.capability()), &f.value(&factory))
             .unwrap()
             .unwrap();
-        (f.runtime.runtime().task_id(&f.value(&task)).unwrap(), task)
+        (f.runtime.task_id(&f.value(&task)).unwrap(), task)
     }
 
     fn drive(&self, id: TaskId) -> TaskDriveResult {
         let f = &self.fixture;
         for _ in 0..1000 {
-            f.runtime.runtime().collect_garbage().unwrap();
+            f.runtime.collect_garbage().unwrap();
             let result = f
                 .runtime
-                .backend()
                 .drive_task(&self.scope, id, NonZeroUsize::new(1).unwrap())
                 .unwrap();
             if result != TaskDriveResult::Runnable {
@@ -82,7 +72,6 @@ impl Tasks {
     fn report(&self, id: TaskId) -> TaskReport {
         self.fixture
             .runtime
-            .runtime()
             .take_task_report(&self.scope, id)
             .unwrap()
             .unwrap()
@@ -93,7 +82,7 @@ impl Tasks {
 fn scoped_task_shared_wait_contract() {
     let tasks = Tasks::new();
     let f = &tasks.fixture;
-    let runtime = f.runtime.runtime();
+    let runtime = &f.runtime;
     let (producer, handle) = tasks.spawn("producer", &[]);
     assert_eq!(tasks.drive(producer), TaskDriveResult::Waiting);
     let (left, left_handle) = tasks.spawn("observe", &[f.value(&handle), Value::I32(1)]);
@@ -200,7 +189,7 @@ fn scoped_task_shared_wait_contract() {
     assert_eq!(f.value(&inner), f.value(&alias));
     let owned = f.start_future(&inner);
     assert!(matches!(
-        f.runtime.backend().drive(&owned, slice()).unwrap(),
+        f.runtime.drive(&owned, slice()).unwrap(),
         DriveResult::Waiting
     ));
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(55));
@@ -208,11 +197,8 @@ fn scoped_task_shared_wait_contract() {
     let repeated = f.start_future(&alias);
     assert!(
         matches!(
-            f.runtime.backend().drive(&repeated, slice()).unwrap(),
-            DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
-                kind: RuntimeFailureKind::ScriptTrap,
-                ..
-            })
+            f.runtime.drive(&repeated, slice()).unwrap(),
+            DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::ScriptTrap)
         ),
         "shared Task output does not duplicate a Future's single-drive state"
     );
@@ -222,29 +208,25 @@ fn scoped_task_shared_wait_contract() {
 fn scoped_task_dependency_failure_contract() {
     let tasks = Tasks::new();
     let f = &tasks.fixture;
-    let runtime = f.runtime.runtime();
+    let runtime = &f.runtime;
     let (producer, handle) = tasks.spawn("producer", &[]);
     assert_eq!(tasks.drive(producer), TaskDriveResult::Waiting);
     let ordinary = f.invoke("direct", &[f.value(&handle)]);
     let owned = f.start_future(&ordinary);
     assert!(matches!(
-        f.runtime.backend().drive(&owned, slice()).unwrap(),
+        f.runtime.drive(&owned, slice()).unwrap(),
         DriveResult::Waiting
     ));
     owned.cancel();
     assert!(matches!(
-        f.runtime.backend().drive(&owned, slice()).unwrap(),
-        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::Cancelled,
-            ..
-        })
+        f.runtime.drive(&owned, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::Cancelled)
     ));
     assert_eq!(f.cancels.load(Ordering::SeqCst), 0);
     let other_scope = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Ok(())),
         )
@@ -257,7 +239,6 @@ fn scoped_task_dependency_failure_contract() {
     let other_id = runtime.task_id(&f.value(&other)).unwrap();
     assert_eq!(
         f.runtime
-            .backend()
             .drive_task(&other_scope, other_id, slice())
             .unwrap(),
         TaskDriveResult::Waiting
@@ -302,11 +283,10 @@ fn scoped_task_dependency_failure_contract() {
     }
     let ordinary = f.invoke("direct", &[f.value(&handle)]);
     let owned = f.start_future(&ordinary);
-    let DriveResult::Complete(Err(error)) = f.runtime.backend().drive(&owned, slice()).unwrap()
-    else {
+    let DriveResult::Complete(Err(error)) = f.runtime.drive(&owned, slice()).unwrap() else {
         panic!("cached Task failure");
     };
-    let error = EmbeddingError::from(error);
+
     assert_eq!(error.task_origin().unwrap().task, producer);
     for size in [1, 2, 3] {
         let collection = f.invoke("tasks", &[]);
@@ -339,19 +319,16 @@ fn scoped_task_dependency_failure_contract() {
     let ordinary = f.invoke("direct", &[f.value(&handle)]);
     let owned = f.start_future(&ordinary);
     assert!(matches!(
-        f.runtime.backend().drive(&owned, slice()).unwrap(),
+        f.runtime.drive(&owned, slice()).unwrap(),
         DriveResult::Waiting
     ));
     owned.set_waker(&Waker::from(Arc::new(FailingWake)));
     assert!(matches!(
         f.runtime
-            .backend()
+
             .drive_task(&tasks.scope, target, slice())
-            .map_err(EmbeddingError::from),
-        Err(EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::EngineInvariant,
-            ..
-        })
+            ,
+        Err(ref error) if error.kind() == RuntimeErrorKind::EngineFault
     ));
     assert!(runtime.is_quarantined());
     assert_eq!(

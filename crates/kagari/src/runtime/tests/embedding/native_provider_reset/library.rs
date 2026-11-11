@@ -32,7 +32,7 @@ fn foundation_algorithms_are_available_from_explicit_composition() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(1)
     );
@@ -76,7 +76,7 @@ fn explicit_library_composition_keeps_collection_algorithms() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );

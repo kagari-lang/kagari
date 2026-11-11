@@ -1,4 +1,3 @@
-#[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
 use crate::test_support::cancellation as support;
 use crate::{
@@ -10,11 +9,13 @@ use crate::{
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_runtime::execution::native::PreparedNativeEntry;
 use kagari_runtime::module::entry::ProgramEntry;
+#[cfg(feature = "native")]
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{error_trace::MAX_ERROR_FRAMES, value::Value};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as stdlib;
-use kagari_vm::vm::native::PreparedNativeEntry;
 
 #[test]
 fn interpreter_traps_capture_frames_and_original_source_locations() {
@@ -51,7 +52,7 @@ fn interpreter_traps_capture_frames_and_original_source_locations() {
         let error = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err();
-        let trace = error.error_trace().unwrap();
+        let trace = error.trace().unwrap();
         assert_eq!(
             trace
                 .frames
@@ -64,7 +65,7 @@ fn interpreter_traps_capture_frames_and_original_source_locations() {
         assert_eq!(trace.frames[0].line, Some(line));
         assert_eq!(trace.frames[0].column, Some(column));
         assert_eq!(trace.frames[1].line, Some(caller_line));
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }
 
@@ -107,7 +108,7 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
@@ -115,7 +116,7 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
             runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
         }
         .unwrap_err();
-        traces.push(error.error_trace().unwrap().clone());
+        traces.push(error.trace().unwrap().clone());
     }
     assert_eq!(traces[0].frames[0].line, Some(3));
     assert_eq!(traces[0], traces[1]);
@@ -163,7 +164,7 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -174,19 +175,18 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         assert_eq!(failure.message, expected_message);
         assert_eq!(failure.trace.frames[0].function_name, expected_origin);
         assert_eq!(failure.trace.frames[0].line, Some(expected_line));
-        assert_eq!(runtime.runtime().gc().active_roots(), 1);
+        assert_eq!(runtime.gc().active_roots(), 1);
         let root = report.return_value;
-        runtime.runtime().collect_garbage().unwrap();
+        runtime.collect_garbage().unwrap();
         assert_eq!(
             runtime
-                .runtime()
-                .result_failure(&root.value(runtime.runtime().gc()).unwrap())
+                .result_failure(&root.value(runtime.gc()).unwrap())
                 .unwrap(),
             failure
         );
         drop(root);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
         assert_eq!(failure.trace.frames[0].function_name, expected_origin);
     }
 }
@@ -351,6 +351,7 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
     let failure = report.failure.unwrap();
     runtime
         .program(&old)
+        .map_err(ReloadValidationError::Runtime)
         .and_then(|base| {
             base.prepare_replacement(
                 (Compilation::from_artifact(second, &Default::default(), &Default::default())
@@ -358,7 +359,6 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
                 .program(),
                 &Default::default(),
             )
-            .map_err(Into::into)
         })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
@@ -378,23 +378,22 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
         failure.trace.frames[0].code_fingerprint,
         new_report.trace.frames[0].code_fingerprint
     );
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime
-            .runtime()
-            .result_failure(&root.value(runtime.runtime().gc()).unwrap())
+            .result_failure(&root.value(runtime.gc()).unwrap())
             .unwrap(),
         failure
     );
-    let raw = root.value(runtime.runtime().gc()).unwrap();
+    let raw = root.value(runtime.gc()).unwrap();
     drop(root);
     drop(old);
     drop(new);
-    runtime.runtime().collect_garbage().unwrap();
-    assert!(!runtime.runtime().gc().validate_value(&raw));
-    assert!(runtime.runtime().result_failure(&raw).is_none());
+    runtime.collect_garbage().unwrap();
+    assert!(!runtime.gc().validate_value(&raw));
+    assert!(runtime.result_failure(&raw).is_none());
     assert_eq!(failure.message, "old");
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
@@ -462,11 +461,8 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
     let loaded = runtime
         .load_program(loaded_program.program(), Default::default())
         .unwrap();
-    let cancellation = support::cancel_after(
-        runtime.runtime(),
-        &runtime.runtime().select_program(&loaded).unwrap(),
-        10,
-    );
+    let cancellation =
+        support::cancel_after(&runtime, &runtime.select_program(&loaded).unwrap(), 10);
     let error = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_err();
@@ -474,7 +470,7 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
     assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");
     assert_eq!(
         error
-            .error_trace()
+            .trace()
             .unwrap()
             .frames
             .iter()
@@ -482,13 +478,10 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
             .collect::<Vec<_>>(),
         ["deep", "main"]
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    assert!(runtime.runtime().execution_root().is_none());
-    assert!(!runtime.runtime().is_quarantined());
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert!(runtime.execution_root().is_none());
+    assert!(!runtime.is_quarantined());
     assert_eq!(
         runtime
             .execute(
@@ -499,7 +492,7 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(1000)
     );

@@ -1,12 +1,17 @@
 use crate::{
     PreparedReload, Runtime, StagedLoad, StagedReload,
-    error::{RuntimeError, fault::EngineFault, reason::StaleHandleReason},
+    error::{
+        RuntimeError,
+        fault::EngineFault,
+        reason::{CancellationReason, StaleHandleReason},
+    },
     module::{
         ExecutableModule, Installation, InstalledProgram, LinkedHostBindings,
         LinkedProgramBindings, ModuleEpochRetention, VerifiedProgram,
         admission::DefinitionAdmission, retention::ProgramLease, staging::StagedProgram,
     },
     native::registry::DependencyValidation,
+    program::Program,
     publication::PublicationGuard,
     reload::{
         ModuleEpoch, ReloadValidationError, updates::ReloadAdmission, validate_load_candidate,
@@ -166,15 +171,6 @@ impl Runtime {
             return Ok(());
         }
         self.modules.validate_executable_installation(module)
-    }
-
-    pub fn load_program(
-        &mut self,
-        name: impl Into<String>,
-        bytecode: DefinitionMetadata<BytecodeProgram>,
-    ) -> Result<InstalledProgram, RuntimeError> {
-        let verified = VerifiedProgram::new(bytecode, self.definition_context())?;
-        self.load_verified_program(name, verified)
     }
 
     /// Stage and publish shared verified code with this runtime's bindings and state.
@@ -479,5 +475,93 @@ impl Runtime {
             .map_err(ReloadValidationError::Runtime)?;
         invalidation.commit();
         Ok(())
+    }
+}
+
+/// Local installation naming; executable code remains shared by the Program.
+#[derive(Debug, Clone, Default)]
+pub struct LoadOptions {
+    pub program_name: Option<String>,
+}
+
+/// Local replacement naming and cooperative publication cancellation.
+#[derive(Debug, Clone, Default)]
+pub struct ReloadOptions {
+    pub program_name: Option<String>,
+    pub cancellation: CancellationToken,
+}
+
+impl Runtime {
+    /// Link and publish an immutable product with this Runtime's providers and state.
+    /// Does not compile, run script code or initialize statics; failed admission
+    /// leaves no live installation. Use staged loading for precommit host associations.
+    pub fn load_program(
+        &mut self,
+        program: &Program,
+        options: LoadOptions,
+    ) -> Result<InstalledProgram, RuntimeError> {
+        let program_name = options.program_name.unwrap_or_else(|| {
+            program.bytecode().modules()[program.bytecode().root().index()]
+                .source_name
+                .clone()
+        });
+        let candidate =
+            self.stage_load_verified_program(program_name, program.clone().into_verified())?;
+        let loaded = self.publish_staged_load(candidate)?;
+        Ok(loaded)
+    }
+
+    /// Publish a candidate checked against this installation's exact current
+    /// shared base. No compiler/query cache or source preparation is accessed.
+    /// Cancellation or any admission failure leaves current code/state unchanged.
+    pub fn replace_program(
+        &mut self,
+        previous: &InstalledProgram,
+        program: &Program,
+        options: ReloadOptions,
+    ) -> Result<(), ReloadValidationError> {
+        options.cancellation.check().map_err(|_| {
+            ReloadValidationError::Runtime(RuntimeError::from(
+                CancellationReason::ExecutionCancelled,
+            ))
+        })?;
+        let base = self
+            .program(previous)
+            .map_err(ReloadValidationError::Runtime)?;
+        if !program.expects_base(&base) {
+            return Err(ReloadValidationError::Runtime(RuntimeError::from(
+                StaleHandleReason::InstallationPublicationBaselineChangedOrClosed,
+            )));
+        }
+        let guard = self
+            .begin_publication(previous)
+            .map_err(ReloadValidationError::Runtime)?;
+        let candidate = guard
+            .stage_reload_verified_program(options.program_name, program.clone().into_verified())?;
+        options.cancellation.check().map_err(|_| {
+            ReloadValidationError::Runtime(RuntimeError::from(
+                CancellationReason::ExecutionCancelled,
+            ))
+        })?;
+        guard.publish(candidate)?;
+        Ok(())
+    }
+}
+
+impl Runtime {
+    /// Acquire the stable shared executable owner of the current installation.
+    /// Clones retain code and checked history, without compiler inputs or live state.
+    /// Rejects foreign or retired installations before exposing their product.
+    pub fn program(&self, installed: &InstalledProgram) -> Result<Program, RuntimeError> {
+        let current = self.select_program(installed)?;
+        current
+            .verified_program()
+            .product()
+            .cloned()
+            .ok_or_else(|| {
+                self.quarantine_execution_invariant(EngineFault::HostInvariant(
+                    "installed code has no canonical Program owner",
+                ))
+            })
     }
 }

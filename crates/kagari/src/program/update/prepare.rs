@@ -9,7 +9,7 @@ use crate::{
             copy_source_text, replaced_source_len, source_text_buffer,
         },
     },
-    error::{EmbeddingError, RuntimeFailureKind},
+    error::EmbeddingError,
     program::Compilation,
     update::{Edit, FunctionUpdateTarget, Update},
 };
@@ -26,6 +26,7 @@ use kagari_contract::{
     source::{AuthoredDeclaration, AuthoredKind, MAX_SOURCE_BYTES},
 };
 use kagari_hir::{source_inspection::collect_authored_sources, update_source::SourceBodyKind};
+use kagari_runtime::error::RuntimeError;
 use kagari_runtime::module::VerifiedProgram;
 use kagari_source::{identity::FileId, source::SourceFile};
 use kagari_syntax::{lexer::lex_with_cancellation, token::TokenKind};
@@ -266,10 +267,11 @@ fn public_function(
         current
             .exported_function_declaration(path)
             .map_err(|error| match error {
-                PublicPathError::InvalidGraph => EmbeddingError::runtime(
-                    RuntimeFailureKind::EngineInvariant,
-                    "invalid verified public function graph during source update",
-                ),
+                PublicPathError::InvalidGraph => {
+                    EmbeddingError::from(RuntimeError::module_validation(
+                        "invalid verified public function graph during source update",
+                    ))
+                }
                 error => source_error(format!(
                     "invalid public function update target {path:?}: {error:?}"
                 )),

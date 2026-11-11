@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
@@ -160,31 +162,31 @@ fn explicit_roots_trace_script_objects_without_crossing_host_boundaries() {
 fn same_name_loads_have_independent_installations_and_runtime_instances() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
-    let first_program = runtime
-        .load_program(
-            "game.player",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let first_program = load_bytecode(
+        &mut runtime,
+        "game.player",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let first = runtime.select_program(&first_program).unwrap();
-    let second_program = runtime
-        .load_program(
-            "game.player",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let second_program = load_bytecode(
+        &mut runtime,
+        "game.player",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let second = runtime.select_program(&second_program).unwrap();
 
     assert_ne!(first.id, second.id);

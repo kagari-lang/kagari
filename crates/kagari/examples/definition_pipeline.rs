@@ -7,7 +7,6 @@ use kagari_runtime::{
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib as standard;
-use kagari_vm::vm::Vm;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     hint::black_box,
@@ -174,12 +173,12 @@ fn main() {
         "independent_runtime_shared_module={}",
         Arc::ptr_eq(&first.bytecode, &second.bytecode)
     );
-    let vm = Vm::new(first_runtime);
+    let vm = first_runtime;
     assert!(matches!(
-        vm.execute(&first, ProgramEntry::Main)
+        vm.execute_module(&first, ProgramEntry::Main, vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .value(vm.gc())
             .expect("retained execution result"),
         Value::I32(31)
     ));

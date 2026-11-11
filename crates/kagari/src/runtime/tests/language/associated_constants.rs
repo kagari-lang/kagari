@@ -69,7 +69,7 @@ fn ordinary_execution(
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -79,7 +79,7 @@ fn ordinary_execution(
         assert_eq!(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );

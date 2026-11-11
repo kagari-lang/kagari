@@ -44,15 +44,14 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
         let worker = task::spawn(async move {
             while receive.recv().await.is_some() {
                 assert_ne!(thread::current().id(), origin);
-                runtime.runtime().collect_garbage().unwrap();
-                let Value::Array(array) = root.value(runtime.runtime().gc()).unwrap() else {
+                runtime.collect_garbage().unwrap();
+                let Value::Array(array) = root.value(runtime.gc()).unwrap() else {
                     panic!("rooted array");
                 };
-                let Some(Value::I32(previous)) = runtime.runtime().gc().array_get(array, 0) else {
+                let Some(Value::I32(previous)) = runtime.gc().array_get(array, 0) else {
                     panic!("retained scalar");
                 };
                 runtime
-                    .runtime()
                     .gc()
                     .array_set(array, 0, Value::I32(previous + 1))
                     .unwrap();
@@ -60,17 +59,14 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
                 assert_eq!(
                     report
                         .return_value
-                        .value(runtime.runtime().gc())
+                        .value(runtime.gc())
                         .expect("retained execution result"),
                     Value::I32(42)
                 );
-                assert!(runtime.runtime().execution_root().is_none());
-                assert_eq!(
-                    runtime.runtime().resources().counters().current_call_depth,
-                    0
-                );
+                assert!(runtime.execution_root().is_none());
+                assert_eq!(runtime.resources().counters().current_call_depth, 0);
                 responses
-                    .send(runtime.runtime().gc().array_get(array, 0).unwrap())
+                    .send(runtime.gc().array_get(array, 0).unwrap())
                     .await
                     .unwrap();
             }
@@ -83,22 +79,19 @@ fn task_owns_a_live_runtime_across_message_receive_awaits() {
         drop(commands);
         worker.await.unwrap()
     });
-    let Value::Array(array) = root.value(runtime.runtime().gc()).unwrap() else {
+    let Value::Array(array) = root.value(runtime.gc()).unwrap() else {
         panic!("rooted array");
     };
-    assert_eq!(
-        runtime.runtime().gc().array_get(array, 0),
-        Some(Value::I32(42))
-    );
+    assert_eq!(runtime.gc().array_get(array, 0), Some(Value::I32(42)));
     assert_eq!(
         runtime
             .execute(&loaded, "healthy", &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
     drop(root);
-    assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }

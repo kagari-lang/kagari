@@ -42,7 +42,7 @@ fn main() {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -63,7 +63,7 @@ fn main() {
             .execute(&loaded, ProgramEntry::Main, &[], &fresh)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );

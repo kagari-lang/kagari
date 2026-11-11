@@ -3,7 +3,7 @@ use crate::{
         KagariEngine,
         source::{ArtifactOptions, CheckedModule, PreparationOptions, analysis::SourceAnalysis},
     },
-    error::{EmbeddingError, RuntimeFailureKind},
+    error::EmbeddingError,
     program::{Compilation, Program, update::SourceEditTarget},
     runtime::{ReloadOptions, Runtime},
     update::Update,
@@ -12,6 +12,8 @@ use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use kagari_contract::source::AuthoredKind;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_package::{modules::VirtualSources, project::ProjectInputs};
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     module::InstalledProgram,
     native::function_handle::Function,
@@ -64,7 +66,7 @@ fn publish_update(
     program: &InstalledProgram,
     prepared: &mut Compilation,
     update: Update,
-) -> crate::ReloadResult<()> {
+) -> Result<(), EmbeddingError> {
     let cancellation = update.cancel.clone();
     let candidate = prepared.prepare_update(update)?;
     runtime.replace_program(
@@ -176,11 +178,8 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
     runtime
         .replace_program(&program, candidate.program(), Default::default())
         .unwrap();
-    let recipient_before = recipient
-        .runtime()
-        .publication_token(&recipient_program)
-        .unwrap();
-    let published_before = runtime.runtime().publication_token(&program).unwrap();
+    let recipient_before = recipient.publication_token(&recipient_program).unwrap();
+    let published_before = runtime.publication_token(&program).unwrap();
     let local_cancellation = CancellationToken::default();
     local_cancellation.cancel();
     assert!(matches!(
@@ -192,17 +191,14 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
                 ..Default::default()
             }
         ),
-        Err(EmbeddingError::Cancelled)
+        Err(ReloadValidationError::Runtime(ref error)) if error.kind() == RuntimeErrorKind::Cancelled
     ));
     assert_eq!(
-        recipient
-            .runtime()
-            .publication_token(&recipient_program)
-            .unwrap(),
+        recipient.publication_token(&recipient_program).unwrap(),
         recipient_before
     );
     assert_eq!(
-        runtime.runtime().publication_token(&program).unwrap(),
+        runtime.publication_token(&program).unwrap(),
         published_before
     );
     assert_eq!(call(&recipient, &recipient_program, "answer"), 40);
@@ -214,8 +210,8 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
     assert_eq!(call(&runtime, &program, "bump"), 2);
     assert_eq!(call(&recipient, &recipient_program, "answer"), 42);
     assert_eq!(call(&recipient, &recipient_program, "bump"), 1);
-    runtime.runtime().collect_garbage().unwrap();
-    recipient.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
+    recipient.collect_garbage().unwrap();
     assert!(
         old_capsule.upgrade().is_none(),
         "installed executable/type provenance must not retain compiler inputs"
@@ -224,17 +220,14 @@ fn complete_package_batch_adds_modules_and_preserves_state_and_failed_baseline()
         matches!(old.function(&answer), SourceQuery::Available(source) if source.text.contains("rules::value()"))
     );
     let successful = text(&runtime, &program, &answer);
-    let published = runtime.runtime().publication_token(&program).unwrap();
+    let published = runtime.publication_token(&program).unwrap();
     let mut invalid = Update::new();
     invalid.replace_function("answer", "pub fn answer() -> bool { true }");
     assert!(matches!(
         publish_update(&mut runtime, &program, &mut prepared, invalid),
         Err(EmbeddingError::ReloadValidation { .. })
     ));
-    assert_eq!(
-        runtime.runtime().publication_token(&program).unwrap(),
-        published
-    );
+    assert_eq!(runtime.publication_token(&program).unwrap(), published);
     assert_eq!(text(&runtime, &program, &answer), successful);
     assert_eq!(call(&runtime, &program, "bump"), 3);
     let mut next = Update::new();
@@ -304,7 +297,7 @@ fn opaque_private_method_and_named_local_targets_preserve_context_and_locator_id
     assert_eq!(call(&runtime, &program, "answer"), 22);
     assert!(
         runtime
-            .function::<(), i32>(&program.root(), "hidden")
+            .bind_function::<(), i32>(&program.root(), "hidden")
             .is_err()
     );
 }
@@ -319,7 +312,7 @@ fn retained_old_closure_demands_recompile_generic_applications_removed_from_new_
         .load_program(prepared.program(), Default::default())
         .unwrap();
     let factory = runtime
-        .function::<(), Function<(), i32>>(&program.root(), "factory")
+        .bind_function::<(), Function<(), i32>>(&program.root(), "factory")
         .unwrap();
     let old_closure = runtime.call(&factory, ()).unwrap();
     assert_eq!(runtime.call(&old_closure, ()).unwrap(), 1);
@@ -327,7 +320,7 @@ fn retained_old_closure_demands_recompile_generic_applications_removed_from_new_
     update.replace_function("retained", "pub fn retained<T>(value: T) -> i32 { 2 }");
     update.replace_function("factory", "pub fn factory() -> fn() -> i32 { || 100 }");
     publish_update(&mut runtime, &program, &mut prepared, update).unwrap();
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(runtime.call(&old_closure, ()).unwrap(), 2);
     let fresh = runtime.call(&factory, ()).unwrap();
     assert_eq!(runtime.call(&fresh, ()).unwrap(), 100);
@@ -348,7 +341,7 @@ fn malformed_duplicate_overlapping_and_foreign_updates_leave_source_unchanged() 
     let structure = edit_target(&prepared, "NotAFunction");
     assert_eq!(structure.kind(), AuthoredKind::Declaration);
     let foreign = edit_target(&prepare(&engine, source), "answer");
-    let token = runtime.runtime().publication_token(&program).unwrap();
+    let token = runtime.publication_token(&program).unwrap();
     let mut failures = vec![Update::new()];
     for definition in [
         "{ 2 }",
@@ -391,10 +384,7 @@ fn malformed_duplicate_overlapping_and_foreign_updates_leave_source_unchanged() 
     failures.push(names);
     for update in failures {
         assert!(publish_update(&mut runtime, &program, &mut prepared, update).is_err());
-        assert_eq!(
-            runtime.runtime().publication_token(&program).unwrap(),
-            token
-        );
+        assert_eq!(runtime.publication_token(&program).unwrap(), token);
         assert_eq!(call(&runtime, &program, "answer"), 1);
         assert!(text(&runtime, &program, &answer).contains("nested_target()"));
     }
@@ -421,7 +411,7 @@ fn admission_bounds_and_request_cancellation_precede_compilation() {
     let program = runtime
         .load_program(prepared.program(), Default::default())
         .unwrap();
-    let guard = runtime.runtime_mut().begin_publication(&program).unwrap();
+    let guard = runtime.begin_publication(&program).unwrap();
     let mut detached = Update::new();
     detached.replace_function("answer", "pub fn answer() -> i32 { 2 }");
     let candidate = prepared.prepare_update(detached).unwrap();
@@ -492,17 +482,13 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
         .unwrap();
     if low_level {
         let candidate = runtime
-            .runtime()
             .stage_reload_verified_program(
                 &program,
                 None,
                 artifact.program().clone().into_verified(),
             )
             .unwrap();
-        runtime
-            .runtime_mut()
-            .publish_staged_reload(candidate)
-            .unwrap();
+        runtime.publish_staged_reload(candidate).unwrap();
     } else {
         let candidate = direct
             .program()
@@ -531,10 +517,7 @@ fn artifact_source_is_opt_in_and_low_level_or_artifact_reload_never_reuses_old_c
     let candidate = direct.prepare_update(update).unwrap();
     assert!(matches!(
         runtime.replace_program(&program, candidate.program(), Default::default()),
-        Err(EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::StaleModuleOrHostRoot,
-            ..
-        })
+        Err(ReloadValidationError::Runtime(ref error)) if error.kind() == RuntimeErrorKind::StaleHandle
     ));
     assert_eq!(call(&runtime, &program, "answer"), 1);
     let current = runtime.program(&program).unwrap();
@@ -565,14 +548,14 @@ fn generic_alias_retargeting_compares_binders_bounds_and_results_without_instanc
     let second = declaration(&runtime, &program, "second");
     assert!(
         runtime
-            .function::<(i32,), i32>(&program.root(), "alias")
+            .bind_function::<(i32,), i32>(&program.root(), "alias")
             .is_err()
     );
     let redirected = source.replace("crate::first as alias", "crate::second as alias");
     let mut update = Update::new();
     update.replace_file("app.kgr", &redirected);
     publish_update(&mut runtime, &program, &mut prepared, update).unwrap();
-    let token = runtime.runtime().publication_token(&program).unwrap();
+    let token = runtime.publication_token(&program).unwrap();
     for incompatible in ["other_bound", "other_result"] {
         let mut update = Update::new();
         update.replace_file(
@@ -588,10 +571,7 @@ fn generic_alias_retargeting_compares_binders_bounds_and_results_without_instanc
             "KG_RELOAD_PUBLIC_EXPORT_MISMATCH",
             "{error:?}"
         );
-        assert_eq!(
-            runtime.runtime().publication_token(&program).unwrap(),
-            token
-        );
+        assert_eq!(runtime.publication_token(&program).unwrap(), token);
     }
     let mut update = Update::new();
     update.replace_function(
@@ -621,17 +601,14 @@ fn standard_foundation_accepts_body_updates_and_advances_live_handles_and_source
         .unwrap();
     let answer = declaration(&runtime, &program, "answer");
     let function = runtime
-        .function::<(), i32>(&program.root(), "answer")
+        .bind_function::<(), i32>(&program.root(), "answer")
         .unwrap();
     let original = runtime.source_snapshot(&program).unwrap();
-    let token = runtime.runtime().publication_token(&program).unwrap();
+    let token = runtime.publication_token(&program).unwrap();
     let mut update = Update::new();
     update.replace_function("answer", "pub fn answer() -> i32 { 2 }");
     publish_update(&mut runtime, &program, &mut prepared, update).unwrap();
-    assert_ne!(
-        runtime.runtime().publication_token(&program).unwrap(),
-        token
-    );
+    assert_ne!(runtime.publication_token(&program).unwrap(), token);
     assert!(text(&runtime, &program, &answer).contains("{ 2 }"));
     assert!(
         matches!(original.function(&answer), SourceQuery::Available(source) if source.text.contains("{ 1 }"))
@@ -647,18 +624,12 @@ fn rejected_initial_publication_releases_its_precommit_capsule() {
     let capsule = Arc::downgrade(prepared.compilation.as_ref().unwrap());
     let mut runtime = engine.runtime(Default::default());
     let candidate = runtime
-        .runtime_mut()
         .stage_load_verified_program("rejected", prepared.program().clone().into_verified())
         .unwrap();
     drop(prepared);
     let mut foreign = engine.runtime(Default::default());
-    assert!(
-        foreign
-            .runtime_mut()
-            .publish_staged_load(candidate)
-            .is_err()
-    );
-    runtime.runtime().collect_garbage().unwrap();
+    assert!(foreign.publish_staged_load(candidate).is_err());
+    runtime.collect_garbage().unwrap();
     assert!(capsule.upgrade().is_none());
     // Abandonment must release both SDK ownership and core admission/storage.
     let prepared = prepare(&engine, "pub fn answer() -> i32 { 2 }");
@@ -680,22 +651,18 @@ fn stale_publication_releases_candidate_capsule_and_preserves_current_source() {
     let stale = prepare(&engine, "pub fn answer() -> i32 { 99 }");
     let capsule = Arc::downgrade(stale.compilation.as_ref().unwrap());
     let candidate = runtime
-        .runtime()
         .stage_reload_verified_program(&program, None, stale.program().clone().into_verified())
         .unwrap();
     drop(stale);
     let mut update = Update::new();
     update.replace_function("answer", "pub fn answer() -> i32 { 2 }");
     publish_update(&mut runtime, &program, &mut prepared, update).unwrap();
-    let token = runtime.runtime().publication_token(&program).unwrap();
-    let guard = runtime.runtime_mut().begin_publication(&program).unwrap();
+    let token = runtime.publication_token(&program).unwrap();
+    let guard = runtime.begin_publication(&program).unwrap();
     assert!(guard.publish(candidate).is_err());
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert!(capsule.upgrade().is_none());
-    assert_eq!(
-        runtime.runtime().publication_token(&program).unwrap(),
-        token
-    );
+    assert_eq!(runtime.publication_token(&program).unwrap(), token);
     assert!(text(&runtime, &program, &answer).contains("{ 2 }"));
     let mut next = Update::new();
     next.replace_function("answer", "pub fn answer() -> i32 { 3 }");

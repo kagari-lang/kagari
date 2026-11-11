@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, RuntimeConfig,
     error::{RuntimeErrorKind, fault::EngineFault},
@@ -102,18 +104,18 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
     let context = DefinitionContext::new().unwrap();
     for with_session in [false, true] {
         let mut runtime = runtime();
-        let loaded_program = runtime
-            .load_program(
-                "unwind",
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-            )
-            .unwrap();
+        let loaded_program = load_bytecode(
+            &mut runtime,
+            "unwind",
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+        )
+        .unwrap();
         let loaded = runtime.select_program(&loaded_program).unwrap();
         let value = Value::Array(
             runtime
@@ -176,18 +178,18 @@ fn unwinding_host_scopes_releases_roots_borrows_and_session_retention() {
 fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
-    let loaded_program = runtime
-        .load_program(
-            "scope",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let loaded_program = load_bytecode(
+        &mut runtime,
+        "scope",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let options = runtime.execution_options();
 
@@ -317,7 +319,7 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
         .unwrap();
     let object = runtime.gc().alloc_host_root(object).unwrap();
-    let loaded_program = runtime.load_program("borrows", program).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "borrows", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
         invoke(&runtime, &loaded, 0, std::slice::from_ref(&object))
@@ -368,18 +370,18 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
 fn quarantine_does_not_block_host_scope_cleanup() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = runtime();
-    let loaded_program = runtime
-        .load_program(
-            "quarantine",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let loaded_program = load_bytecode(
+        &mut runtime,
+        "quarantine",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let session = runtime
         .begin_execution(&loaded, runtime.execution_options())
@@ -462,7 +464,7 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
     let program = free_function_program(&module.to_declaration());
     let mut runtime = runtime();
     module.install(&mut runtime).unwrap();
-    let loaded_program = runtime.load_program("temporaries", program).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "temporaries", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
         invoke(&runtime, &loaded, 0, &[]).unwrap_err().kind(),
@@ -498,7 +500,7 @@ fn host_callbacks_observe_replayable_root_inputs() {
     let program = free_function_program(&module.to_declaration());
     let mut runtime = runtime();
     module.install(&mut runtime).unwrap();
-    let loaded_program = runtime.load_program("inputs", program).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "inputs", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let mut options = runtime.execution_options();
     options.inputs.unix_time_millis = 987_654;
@@ -559,7 +561,7 @@ fn host_trace_keeps_invocation_order_across_reentry() {
     let program = free_function_program(&declarations.to_declaration());
     let mut runtime = runtime();
     declarations.install(&mut runtime).unwrap();
-    let module_program = runtime.load_program("trace", program).unwrap();
+    let module_program = load_bytecode(&mut runtime, "trace", program).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let mut options = runtime.execution_options();
     options.record_host_calls = true;

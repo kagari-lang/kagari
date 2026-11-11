@@ -2,6 +2,7 @@
 use crate::diagnostics::Diagnostic;
 use kagari::error::EmbeddingError;
 use kagari_runtime::{
+    error::RuntimeError,
     gc::{GcHeap, roots::RootedValue},
     value::Value,
 };
@@ -57,6 +58,10 @@ impl WebError {
             message: buffer.text,
             truncated: buffer.truncated || code.len() > 128,
         }
+    }
+
+    pub(crate) fn runtime(error: &RuntimeError) -> Self {
+        Self::new(error.code(), error)
     }
 
     pub(crate) fn sdk(error: &EmbeddingError) -> Self {

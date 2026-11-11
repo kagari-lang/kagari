@@ -128,16 +128,13 @@ fn assert_checks(program: &Compilation, route: &str, source: &str, checks: &Nume
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{route}: {error:?}\n{source}"));
-    let value = result.return_value.value(runtime.runtime().gc()).unwrap();
+    let value = result.return_value.value(runtime.gc()).unwrap();
     let Value::I32(marker) = value else {
         panic!("{route}: expected numeric check marker, got {value:?}\n{source}");
     };
     checks.assert_result(marker, route, source);
     drop(result);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0, "{route}");
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    assert!(!runtime.runtime().is_quarantined());
+    assert_eq!(runtime.gc().active_roots(), 0, "{route}");
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert!(!runtime.is_quarantined());
 }

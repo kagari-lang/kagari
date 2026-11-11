@@ -1,4 +1,5 @@
 #![cfg(feature = "source")]
+use crate::test_support::bytecode::{load_bytecode, reload_bytecode};
 use crate::test_support::cancellation as support;
 use crate::{
     BytecodeArtifact,
@@ -11,6 +12,7 @@ use crate::{
 };
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     Runtime as CoreRuntime, RuntimeConfig,
     module::{ExecutableModule, InstalledProgram},
@@ -20,7 +22,6 @@ use kagari_runtime::{
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use kagari_types::declaration::module::ModuleDecl;
-use kagari_vm::vm::Vm;
 use rstest::rstest;
 
 pub(super) fn prepare_static_program(
@@ -49,7 +50,7 @@ fn static_call(runtime: &Runtime, module: &InstalledProgram, entry: &str) -> Val
         .execute(module, entry, &[], &Default::default())
         .unwrap()
         .return_value
-        .value(runtime.runtime().gc())
+        .value(runtime.gc())
         .unwrap()
 }
 
@@ -87,9 +88,10 @@ pub fn write() { STATE = 128578u32; }
     assert_eq!(
         runtime
             .program(&old)
-            .and_then(|base| base
-                .prepare_replacement(changed_initializer.program(), &Default::default())
-                .map_err(Into::into))
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(
+                |base| base.prepare_replacement(changed_initializer.program(), &Default::default())
+            )
             .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap_err()
             .code(),
@@ -97,19 +99,16 @@ pub fn write() { STATE = 128578u32; }
     );
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(second.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(second.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     assert!(
         runtime
             .program(&current)
-            .and_then(|base| base
-                .prepare_replacement(incompatible.program(), &Default::default())
-                .map_err(Into::into))
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(incompatible.program(), &Default::default()))
             .and_then(|candidate| runtime.replace_program(&current, &candidate, Default::default()))
             .is_err()
     );
@@ -147,9 +146,10 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     assert_eq!(
         runtime
             .program(&old)
-            .and_then(|base| base
-                .prepare_replacement(changed_initializer.program(), &Default::default())
-                .map_err(Into::into))
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(
+                |base| base.prepare_replacement(changed_initializer.program(), &Default::default())
+            )
             .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap_err()
             .code(),
@@ -157,10 +157,8 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     );
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(second.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(second.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
@@ -198,10 +196,8 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
     assert_eq!(static_call(&runtime, &old, "function"), Value::I32(10));
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(second.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(second.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
@@ -246,10 +242,8 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         let candidate = prepare_static_program(&engine, updated, decoded);
         runtime
             .program(&old)
-            .and_then(|base| {
-                base.prepare_replacement(candidate.program(), &Default::default())
-                    .map_err(Into::into)
-            })
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(candidate.program(), &Default::default()))
             .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap();
         for entry in ["map_lookup", "set_lookup"] {
@@ -279,10 +273,8 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
     let candidate = prepare_static_program(&engine, changed_hash, decoded);
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(candidate.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(candidate.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     for entry in ["map_lookup", "set_lookup"] {
@@ -348,7 +340,7 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
     config.limits.max_call_depth = Some(32);
     let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
-    let old = runtime.load_program("local-reload", program).unwrap();
+    let old = load_bytecode(&mut runtime, "local-reload", program).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let contract = old
@@ -359,18 +351,29 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
         .unwrap();
     let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
     let old_key = old.key();
-    let mut vm = Vm::new(runtime);
-    let saved_root = vm.execute(&old, "make").unwrap().return_value;
-    let saved = saved_root.value(vm.runtime().gc()).unwrap();
-    vm.reload_program(&_old_program, Some("local-reload".into()), replacement)
-        .unwrap();
+    let mut vm = runtime;
+    let saved_root = vm
+        .execute_module(&old, "make", vm.execution_options())
+        .unwrap()
+        .return_value;
+    let saved = saved_root.value(vm.gc()).unwrap();
+    reload_bytecode(
+        &mut vm,
+        &_old_program,
+        Some("local-reload".into()),
+        replacement,
+    )
+    .unwrap();
     let _current_program = _old_program.clone();
-    let current = vm.runtime().select_program(&_current_program).unwrap();
+    let current = vm.select_program(&_current_program).unwrap();
     drop(old);
-    vm.runtime().collect_garbage().unwrap();
-    assert!(vm.runtime().modules().loaded(old_key).is_some());
-    let fresh_root = vm.execute(&current, "make").unwrap().return_value;
-    let fresh = fresh_root.value(vm.runtime().gc()).unwrap();
+    vm.collect_garbage().unwrap();
+    assert!(vm.modules().loaded(old_key).is_some());
+    let fresh_root = vm
+        .execute_module(&current, "make", vm.execution_options())
+        .unwrap()
+        .return_value;
+    let fresh = fresh_root.value(vm.gc()).unwrap();
     for (value, expected) in [(&saved, 43), (&fresh, 43)] {
         assert_eq!(
             vm.invoke_interface_method(value, &run, &[Value::I32(0)])
@@ -383,32 +386,26 @@ fn retained_local_function_values_call_current_bodies_and_clean_up_all_exits() {
             .invoke_interface_method(&saved, &run, &[Value::I32(mode)])
             .unwrap_err();
         assert!(format!("{error:?}").contains(expected), "{error:?}");
-        assert_eq!(vm.runtime().gc().active_roots(), 2);
-        assert!(!vm.runtime().is_quarantined());
+        assert_eq!(vm.gc().active_roots(), 2);
+        assert!(!vm.is_quarantined());
     }
-    let session = support::cancel_after(vm.runtime(), &current, 48);
+    let session = support::cancel_after(&vm, &current, 48);
     let error = vm
         .invoke_interface_method(&fresh, &run, &[Value::I32(3)])
         .unwrap_err();
     drop(session);
     assert!(format!("{error:?}").contains("cancel"), "{error:?}");
-    assert_eq!(vm.runtime().gc().active_roots(), 2);
-    assert!(!vm.runtime().is_quarantined());
+    assert_eq!(vm.gc().active_roots(), 2);
+    assert!(!vm.is_quarantined());
     assert_eq!(
         vm.invoke_interface_method(&saved, &run, &[Value::I32(0)])
             .unwrap(),
         Value::I32(43)
     );
     drop((saved_root, fresh_root));
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values,
-        0
-    );
+    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
 }
 
 #[rstest]
@@ -433,7 +430,7 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
         .unwrap();
         registered
     };
-    let old = runtime.load_program("generic-reload", program).unwrap();
+    let old = load_bytecode(&mut runtime, "generic-reload", program).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let contract = old
@@ -450,28 +447,33 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
     let late_constructed =
         ModuleDecl::method_id(contract.declaration, "late_constructed", old.definitions()).unwrap();
     let old_key = old.key();
-    let mut vm = Vm::new(runtime);
+    let mut vm = runtime;
     let saved = vm
-        .execute(&old, "make")
+        .execute_module(&old, "make", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(saved).unwrap();
-    vm.reload_program(&_old_program, Some("generic-reload".into()), replacement)
-        .unwrap();
+    let root = vm.root_value(saved).unwrap();
+    reload_bytecode(
+        &mut vm,
+        &_old_program,
+        Some("generic-reload".into()),
+        replacement,
+    )
+    .unwrap();
     let _current_program = _old_program.clone();
-    let current = vm.runtime().select_program(&_current_program).unwrap();
+    let current = vm.select_program(&_current_program).unwrap();
     drop(old);
-    vm.runtime().collect_garbage().unwrap();
-    assert!(vm.runtime().modules().loaded(old_key).is_some());
+    vm.collect_garbage().unwrap();
+    assert!(vm.modules().loaded(old_key).is_some());
     let fresh = vm
-        .execute(&current, "make")
+        .execute_module(&current, "make", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let fresh_root = vm.runtime().root_value(fresh).unwrap();
+    let fresh_root = vm.root_value(fresh).unwrap();
     assert_eq!(
         vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
         Value::Bool(false)
@@ -511,15 +513,9 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
         Value::Bool(false)
     );
     drop((root, fresh_root));
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values,
-        0
-    );
+    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
 }
 
 #[test]
@@ -540,7 +536,7 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
         &mut runtime,
     )
     .unwrap();
-    let old = runtime.load_program("try-reload", program).unwrap();
+    let old = load_bytecode(&mut runtime, "try-reload", program).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let contract = old
@@ -551,42 +547,47 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
         .unwrap();
     let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
     let old_key = old.key();
-    let mut vm = Vm::new(runtime);
+    let mut vm = runtime;
     let saved = vm
-        .execute(&old, "make")
+        .execute_module(&old, "make", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(saved).unwrap();
+    let root = vm.root_value(saved).unwrap();
     let stopped = vm
-        .execute(&old, "make_stopped")
+        .execute_module(&old, "make_stopped", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let stopped_root = vm.runtime().root_value(stopped).unwrap();
-    vm.reload_program(&_old_program, Some("try-reload".into()), replacement)
-        .unwrap();
+    let stopped_root = vm.root_value(stopped).unwrap();
+    reload_bytecode(
+        &mut vm,
+        &_old_program,
+        Some("try-reload".into()),
+        replacement,
+    )
+    .unwrap();
     let _current_program = _old_program.clone();
-    let current = vm.runtime().select_program(&_current_program).unwrap();
+    let current = vm.select_program(&_current_program).unwrap();
     drop(old);
-    vm.runtime().collect_garbage().unwrap();
-    assert!(vm.runtime().modules().loaded(old_key).is_some());
+    vm.collect_garbage().unwrap();
+    assert!(vm.modules().loaded(old_key).is_some());
     let fresh = vm
-        .execute(&current, "make")
+        .execute_module(&current, "make", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let fresh_root = vm.runtime().root_value(fresh).unwrap();
+    let fresh_root = vm.root_value(fresh).unwrap();
     let fresh_stopped = vm
-        .execute(&current, "make_stopped")
+        .execute_module(&current, "make_stopped", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let fresh_stopped_root = vm.runtime().root_value(fresh_stopped).unwrap();
+    let fresh_stopped_root = vm.root_value(fresh_stopped).unwrap();
     assert_eq!(
         vm.invoke_interface_method(&saved, &run, &[]).unwrap(),
         Value::I32(43)
@@ -602,15 +603,9 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
         );
     }
     drop((root, fresh_root, stopped_root, fresh_stopped_root));
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values,
-        0
-    );
+    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
 }
 
 #[test]
@@ -628,21 +623,35 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
-    let old = runtime.load_program("receiver-reload", original).unwrap();
+    let old = load_bytecode(&mut runtime, "receiver-reload", original).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
-    let mut vm = Vm::new(runtime);
-    let saved = vm.execute(&old, "make").unwrap().return_value;
-    vm.reload_program(&_old_program, Some("receiver-reload".into()), replacement)
-        .unwrap();
+    let mut vm = runtime;
+    let saved = vm
+        .execute_module(&old, "make", vm.execution_options())
+        .unwrap()
+        .return_value;
+    reload_bytecode(
+        &mut vm,
+        &_old_program,
+        Some("receiver-reload".into()),
+        replacement,
+    )
+    .unwrap();
     let _current_program = _old_program.clone();
-    let current = vm.runtime().select_program(&_current_program).unwrap();
+    let current = vm.select_program(&_current_program).unwrap();
     drop(old);
-    vm.runtime().collect_garbage().unwrap();
-    assert!(vm.runtime().modules().loaded(old_key).is_some());
-    let fresh = vm.execute(&current, "make").unwrap().return_value;
-    let probe = vm.execute(&current, "probe").unwrap().return_value;
+    vm.collect_garbage().unwrap();
+    assert!(vm.modules().loaded(old_key).is_some());
+    let fresh = vm
+        .execute_module(&current, "make", vm.execution_options())
+        .unwrap()
+        .return_value;
+    let probe = vm
+        .execute_module(&current, "probe", vm.execution_options())
+        .unwrap()
+        .return_value;
     let contract = current
         .bytecode
         .trait_contracts
@@ -652,27 +661,17 @@ fn content_helper_uses_current_interface_iteration_for_retained_values() {
     let method =
         ModuleDecl::method_id(contract.declaration, "same", current.definitions()).unwrap();
     for (root, expected) in [(&saved, false), (&fresh, false)] {
-        let value = root.value(vm.runtime().gc()).unwrap();
+        let value = root.value(vm.gc()).unwrap();
         assert_eq!(
-            vm.invoke_interface_method(
-                &probe.value(vm.runtime().gc()).unwrap(),
-                &method,
-                &[value, value]
-            )
-            .unwrap(),
+            vm.invoke_interface_method(&probe.value(vm.gc()).unwrap(), &method, &[value, value])
+                .unwrap(),
             Value::Bool(expected)
         );
     }
     drop((saved, fresh, probe));
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values,
-        0
-    );
+    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0);
 }
 
 enum ReloadPreparation {
@@ -704,9 +703,7 @@ fn shared_collection_comparison_selects_current_operations(
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
     NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
-    let old = runtime
-        .load_program("shared-comparison-reload", original)
-        .unwrap();
+    let old = load_bytecode(&mut runtime, "shared-comparison-reload", original).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
@@ -716,20 +713,30 @@ fn shared_collection_comparison_selects_current_operations(
             prepare_with_demands(&engine, replacement_source, &old)
         }
     };
-    let mut vm = Vm::new(runtime);
-    let factory = vm.execute(&old, "make").unwrap().return_value;
-    let old_probe = vm.execute(&old, "probe").unwrap().return_value;
-    vm.reload_program(
+    let mut vm = runtime;
+    let factory = vm
+        .execute_module(&old, "make", vm.execution_options())
+        .unwrap()
+        .return_value;
+    let old_probe = vm
+        .execute_module(&old, "probe", vm.execution_options())
+        .unwrap()
+        .return_value;
+    reload_bytecode(
+        &mut vm,
         &_old_program,
         Some("shared-comparison-reload".into()),
         replacement,
     )
     .unwrap();
     let _current_program = _old_program.clone();
-    let current = vm.runtime().select_program(&_current_program).unwrap();
+    let current = vm.select_program(&_current_program).unwrap();
     drop(old);
-    vm.runtime().collect_garbage().unwrap();
-    let fresh_probe = vm.execute(&current, "probe").unwrap().return_value;
+    vm.collect_garbage().unwrap();
+    let fresh_probe = vm
+        .execute_module(&current, "probe", vm.execution_options())
+        .unwrap()
+        .return_value;
     let contract = current
         .bytecode
         .trait_contracts
@@ -741,22 +748,16 @@ fn shared_collection_comparison_selects_current_operations(
     for (probe, expected) in [(&old_probe, false), (&fresh_probe, false)] {
         assert_eq!(
             vm.invoke_interface_method(
-                &probe.value(vm.runtime().gc()).unwrap(),
+                &probe.value(vm.gc()).unwrap(),
                 &method,
-                &[factory.value(vm.runtime().gc()).unwrap()],
+                &[factory.value(vm.gc()).unwrap()],
             )
             .unwrap(),
             Value::Bool(expected),
         );
     }
     drop((factory, old_probe, fresh_probe));
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
-    assert_eq!(
-        vm.runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values,
-        0,
-    );
+    assert_eq!(vm.gc().active_roots(), 0);
+    assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.modules().retention_counts(old_key).runtime_values, 0,);
 }

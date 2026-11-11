@@ -1,3 +1,4 @@
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::cancellation as support;
 use kagari_stdlib as stdlib;
 
@@ -6,7 +7,6 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::ModuleDecl;
-use kagari_vm::vm::Vm;
 
 #[test]
 fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
@@ -32,9 +32,7 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
     config.limits.max_call_depth = Some(32);
     let mut runtime = Runtime::new(config);
     NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
-    let loaded = runtime
-        .load_program("collection-callbacks", program)
-        .unwrap();
+    let loaded = load_bytecode(&mut runtime, "collection-callbacks", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let declaration = loaded
@@ -45,11 +43,14 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
         .unwrap()
         .declaration;
     let method = |name| ModuleDecl::method_id(declaration, name, loaded.definitions()).unwrap();
-    let vm = Vm::new(runtime);
+    let vm = runtime;
     for helper in [false, true] {
         for mode in 0..=if helper { 4 } else { 6 } {
-            let root = vm.execute(&loaded, "make").unwrap().return_value;
-            let value = root.value(vm.runtime().gc()).unwrap();
+            let root = vm
+                .execute_module(&loaded, "make", vm.execution_options())
+                .unwrap()
+                .return_value;
+            let value = root.value(vm.gc()).unwrap();
             vm.invoke_interface_method(&value, &method("mode"), &[Value::I32(mode)])
                 .unwrap();
             let result = if mode >= 5 {
@@ -74,8 +75,8 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
                     );
                 }
             }
-            assert_eq!(vm.runtime().gc().active_roots(), 1);
-            assert!(!vm.runtime().is_quarantined());
+            assert_eq!(vm.gc().active_roots(), 1);
+            assert!(!vm.is_quarantined());
             let calls = vm
                 .invoke_interface_method(&value, &method("calls"), &[])
                 .unwrap();
@@ -90,23 +91,26 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
                 Value::U64(if matches!(mode, 1 | 2 | 5) { 0 } else { 1 }),
             );
             drop(root);
-            assert_eq!(vm.runtime().gc().active_roots(), 0);
-            assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+            assert_eq!(vm.gc().active_roots(), 0);
+            assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
         }
     }
     for limit in [1, 16, 32] {
-        let root = vm.execute(&loaded, "make").unwrap().return_value;
-        let value = root.value(vm.runtime().gc()).unwrap();
+        let root = vm
+            .execute_module(&loaded, "make", vm.execution_options())
+            .unwrap()
+            .return_value;
+        let value = root.value(vm.gc()).unwrap();
         vm.invoke_interface_method(&value, &method("mode"), &[Value::I32(4)])
             .unwrap();
-        let session = support::cancel_after(vm.runtime(), &loaded, limit);
+        let session = support::cancel_after(&vm, &loaded, limit);
         let error = vm
             .invoke_interface_method(&value, &method("compare"), &[Value::Bool(true)])
             .unwrap_err();
         drop(session);
         assert!(format!("{error:?}").contains("cancel"), "{error:?}");
-        assert_eq!(vm.runtime().gc().active_roots(), 1);
-        assert!(!vm.runtime().is_quarantined());
+        assert_eq!(vm.gc().active_roots(), 1);
+        assert!(!vm.is_quarantined());
         vm.invoke_interface_method(&value, &method("mode"), &[Value::I32(0)])
             .unwrap();
         assert_eq!(
@@ -115,6 +119,6 @@ fn content_callbacks_preserve_effects_and_release_roots_on_all_exits() {
             Value::Bool(true)
         );
         drop(root);
-        assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+        assert_eq!(vm.collect_garbage().unwrap().live_objects, 0);
     }
 }

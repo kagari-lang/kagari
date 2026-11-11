@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, RuntimeConfig, StagedLoad, StagedReload,
     error::{RuntimeErrorKind, fault::EngineFault},
@@ -94,7 +96,7 @@ fn staged_initial_load_abandonment_foreign_owner_and_shutdown_never_publish() {
     assert_ne!(candidate.publication_token(), token);
     let installation = candidate.installation.clone();
     let mut foreign = Runtime::default();
-    let existing = foreign.load_program("initial", program()).unwrap();
+    let existing = load_bytecode(&mut foreign, "initial", program()).unwrap();
     let existing_token = foreign.publication_token(&existing).unwrap();
     assert_eq!(
         foreign.publish_staged_load(candidate).unwrap_err().kind(),
@@ -130,7 +132,7 @@ fn staged_initial_load_admission_rejects_forgotten_scopes_and_publication_guards
     #[case] mode: ForgottenScope,
 ) {
     let mut runtime = Runtime::default();
-    let live = runtime.load_program("existing", program()).unwrap();
+    let live = load_bytecode(&mut runtime, "existing", program()).unwrap();
     let candidate = stage_initial(&mut runtime);
     let installation = candidate.installation.clone();
     let code = VerifiedProgram::new(program(), runtime.definition_context()).unwrap();
@@ -169,7 +171,7 @@ fn staged_initial_load_admission_rejects_forgotten_scopes_and_publication_guards
 #[test]
 fn abandonment_invalidates_access_even_with_a_retention_lease() {
     let mut runtime = Runtime::default();
-    let baseline = runtime.load_program("candidate", program()).unwrap();
+    let baseline = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     let candidate = stage(&mut runtime, &baseline);
     let module = candidate.module().clone();
     let lease = runtime
@@ -212,7 +214,7 @@ fn abandonment_invalidates_access_even_with_a_retention_lease() {
 #[test]
 fn publication_rejects_foreign_stores_and_forged_stage_leases() {
     let mut runtime = Runtime::default();
-    let baseline = runtime.load_program("candidate", program()).unwrap();
+    let baseline = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     let candidate = stage(&mut runtime, &baseline);
     let key = candidate.module().key();
     let forged = StagedProgram {
@@ -231,7 +233,7 @@ fn publication_rejects_foreign_stores_and_forged_stage_leases() {
             .is_ok()
     );
     let mut foreign = Runtime::default();
-    let foreign_baseline = foreign.load_program("candidate", program()).unwrap();
+    let foreign_baseline = load_bytecode(&mut foreign, "candidate", program()).unwrap();
     let foreign_candidate = stage(&mut foreign, &foreign_baseline);
     assert_eq!(foreign_candidate.module().key(), key);
     assert_eq!(
@@ -257,7 +259,7 @@ fn publication_rejects_foreign_stores_and_forged_stage_leases() {
 #[test]
 fn candidate_handles_do_not_keep_runtime_state_alive() {
     let mut runtime = Runtime::default();
-    let baseline = runtime.load_program("candidate", program()).unwrap();
+    let baseline = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     let candidate = stage(&mut runtime, &baseline);
     let resources = runtime.resources().lifetime_probe();
     drop(runtime);
@@ -268,7 +270,7 @@ fn candidate_handles_do_not_keep_runtime_state_alive() {
 #[test]
 fn abandoned_programs_are_retired_at_safepoints_and_before_further_staging() {
     let mut runtime = Runtime::default();
-    let baseline = runtime.load_program("candidate", program()).unwrap();
+    let baseline = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     for _ in 0..32 {
         let candidate = stage(&mut runtime, &baseline);
         assert_eq!(runtime.modules.inner.borrow().records.len(), 2);
@@ -315,7 +317,7 @@ fn disabled_automatic_gc_still_invalidates_candidates_until_explicit_collection(
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = None;
     let mut runtime = Runtime::new(config);
-    let baseline = runtime.load_program("candidate", program()).unwrap();
+    let baseline = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     for _ in 0..4 {
         drop(stage(&mut runtime, &baseline));
     }
@@ -339,7 +341,7 @@ fn safepoints_reject_borrowed_module_storage_without_panicking(#[case] automatic
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = automatic.then_some(1024);
     let mut runtime = Runtime::new(config);
-    let baseline = runtime.load_program("candidate", program()).unwrap();
+    let baseline = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     let view = runtime.modules.inner.borrow_mut();
     // Public safepoints retain borrow validation without pending work too.
     assert_eq!(runtime.gc_safepoint().is_err(), automatic);
@@ -379,8 +381,8 @@ fn same_label_installations_have_independent_current_metadata_and_caches() {
     assert_send_sync::<Module>();
 
     let mut runtime = Runtime::default();
-    let first = runtime.load_program("same", program()).unwrap();
-    let second = runtime.load_program("same", program()).unwrap();
+    let first = load_bytecode(&mut runtime, "same", program()).unwrap();
+    let second = load_bytecode(&mut runtime, "same", program()).unwrap();
     let namespace = first.root();
     let old = runtime.select_program(&first).unwrap();
     let independent = runtime.select_program(&second).unwrap();
@@ -427,7 +429,7 @@ fn same_label_installations_have_independent_current_metadata_and_caches() {
 #[test]
 fn stale_candidates_cannot_overwrite_a_new_publication() {
     let mut runtime = Runtime::default();
-    let target = runtime.load_program("candidate", program()).unwrap();
+    let target = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     let first = stage(&mut runtime, &target);
     let stale = stage(&mut runtime, &target);
     let stale_direct = stage(&mut runtime, &target);
@@ -451,10 +453,10 @@ fn stale_candidates_cannot_overwrite_a_new_publication() {
 #[test]
 fn foreign_and_retired_handles_never_retarget_by_label() {
     let mut runtime = Runtime::default();
-    let target = runtime.load_program("same", program()).unwrap();
+    let target = load_bytecode(&mut runtime, "same", program()).unwrap();
     let namespace = target.root();
     let mut foreign = Runtime::default();
-    foreign.load_program("same", program()).unwrap();
+    load_bytecode(&mut foreign, "same", program()).unwrap();
     assert_eq!(
         foreign.select_program(&target).unwrap_err().kind(),
         RuntimeErrorKind::StaleHandle
@@ -481,7 +483,7 @@ fn foreign_and_retired_handles_never_retarget_by_label() {
     assert!(runtime.publish_staged_reload(candidate).is_err());
     let root_after_retirement = target.root();
     assert_eq!(root_after_retirement.namespace, namespace.namespace);
-    runtime.load_program("same", program()).unwrap();
+    load_bytecode(&mut runtime, "same", program()).unwrap();
     assert_eq!(
         runtime.select_program(&target).unwrap_err().kind(),
         RuntimeErrorKind::StaleHandle
@@ -493,7 +495,7 @@ fn foreign_and_retired_handles_never_retarget_by_label() {
 #[test]
 fn rejected_close_preserves_liveness_but_drop_always_retires_installations() {
     let mut runtime = Runtime::default();
-    let target = runtime.load_program("candidate", program()).unwrap();
+    let target = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     let namespace = target.root();
     let selected = runtime.select_program(&target).unwrap();
     let code = Arc::downgrade(&selected.program);
@@ -519,7 +521,7 @@ fn rejected_close_preserves_liveness_but_drop_always_retires_installations() {
 #[test]
 fn shutdown_fault_retires_handles_even_when_close_returns_an_error() {
     let mut runtime = Runtime::default();
-    let target = runtime.load_program("candidate", program()).unwrap();
+    let target = load_bytecode(&mut runtime, "candidate", program()).unwrap();
     let namespace = target.root();
     let candidate = stage(&mut runtime, &target);
     runtime.quarantine_execution_invariant(EngineFault::ShutdownFaultTest);
@@ -556,7 +558,9 @@ fn installation_and_member_identity_exhaustion_do_not_wrap() {
     let mut runtime = Runtime::default();
     runtime.modules.inner.get_mut().next_installation = u64::MAX;
     assert_eq!(
-        runtime.load_program("full", program()).unwrap_err().kind(),
+        load_bytecode(&mut runtime, "full", program())
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::ResourceLimitExceeded
     );
     assert!(runtime.modules.installations.is_empty());
@@ -565,7 +569,9 @@ fn installation_and_member_identity_exhaustion_do_not_wrap() {
     let mut runtime = Runtime::default();
     runtime.modules.inner.get_mut().next_id = u64::MAX;
     assert_eq!(
-        runtime.load_program("full", program()).unwrap_err().kind(),
+        load_bytecode(&mut runtime, "full", program())
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::ResourceLimitExceeded
     );
     assert_eq!(runtime.modules.inner.get_mut().next_id, u64::MAX);

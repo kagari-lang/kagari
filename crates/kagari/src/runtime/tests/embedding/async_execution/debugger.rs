@@ -1,9 +1,9 @@
 //! Debug observation follows an owned root across slices and observer replacement.
 use super::{Fixture, Value};
-use crate::error::{EmbeddingError, RuntimeFailureKind};
+use kagari_runtime::debug::{DebugPauseReason, DebugSession, SourceBreakpoint};
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{native::completion::CompletionStatus, session::owned::OwnedExecution};
-use kagari_vm::debug::{DebugPauseReason, DebugSession, SourceBreakpoint};
-use kagari_vm::vm::owned::DriveResult;
 use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
 const SOURCE: &str = r#"
@@ -20,10 +20,9 @@ fn drive(f: &Fixture, execution: &OwnedExecution) -> DriveResult {
     for _ in 0..1000 {
         let result = f
             .runtime
-            .backend()
             .drive(execution, NonZeroUsize::new(1).unwrap())
             .unwrap();
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         if !matches!(result, DriveResult::Runnable) {
             return result;
         }
@@ -36,30 +35,21 @@ fn async_debugger_drive_contract() {
     let mut f = Fixture::source(SOURCE);
     let left_future = f.invoke("left", &[]);
     let right_future = f.invoke("right", &[]);
-    let mut debug = DebugSession::new(f.runtime.runtime()).unwrap();
+    let mut debug = DebugSession::new(&f.runtime).unwrap();
     let breakpoint = debug
         .add_breakpoint(SourceBreakpoint::at_source_offset(
-            f.runtime
-                .runtime()
-                .select_program(&f.module)
-                .unwrap()
-                .name
-                .clone(),
+            f.runtime.select_program(&f.module).unwrap().name.clone(),
             SOURCE.find("val reply").unwrap(),
         ))
         .unwrap();
-    f.runtime.runtime().set_execution_observer(debug).unwrap();
+    f.runtime.set_execution_observer(debug).unwrap();
     let left = f.start_future(&left_future);
     let right = f.start_future(&right_future);
     assert_ne!(left.execution_id(), right.execution_id());
     drop((left_future, right_future));
     assert!(matches!(drive(&f, &left), DriveResult::Waiting));
     let depth = {
-        let debug = f
-            .runtime
-            .runtime()
-            .execution_observer::<DebugSession>()
-            .unwrap();
+        let debug = f.runtime.execution_observer::<DebugSession>().unwrap();
         let pause = debug.pauses().last().unwrap();
         assert_eq!(pause.execution, left.execution_id());
         assert_eq!(pause.reason, DebugPauseReason::Breakpoint(breakpoint));
@@ -78,18 +68,13 @@ fn async_debugger_drive_contract() {
         pause.frames.len()
     };
     f.runtime
-        .runtime_mut()
         .execution_observer_mut::<DebugSession>()
         .unwrap()
         .step_over(depth)
         .unwrap();
     assert!(matches!(drive(&f, &right), DriveResult::Waiting));
     {
-        let debug = f
-            .runtime
-            .runtime()
-            .execution_observer::<DebugSession>()
-            .unwrap();
+        let debug = f.runtime.execution_observer::<DebugSession>().unwrap();
         assert!(
             debug
                 .pauses()
@@ -129,11 +114,7 @@ fn async_debugger_drive_contract() {
     };
     assert_eq!(f.value(&result.unwrap()), Value::I32(5));
     {
-        let debug = f
-            .runtime
-            .runtime()
-            .execution_observer::<DebugSession>()
-            .unwrap();
+        let debug = f.runtime.execution_observer::<DebugSession>().unwrap();
         let step = debug
             .pauses()
             .iter()
@@ -142,46 +123,34 @@ fn async_debugger_drive_contract() {
         assert_eq!(step.execution, left.execution_id());
     }
     // Detaching between activations must not leave a sticky observer-attached flag.
-    f.runtime.runtime().clear_execution_observer().unwrap();
+    f.runtime.clear_execution_observer().unwrap();
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(7));
     let DriveResult::Complete(result) = drive(&f, &right) else {
         panic!("right completes after detach")
     };
     assert_eq!(f.value(&result.unwrap()), Value::I32(8));
-    assert!(!f.runtime.runtime().is_quarantined());
+    assert!(!f.runtime.is_quarantined());
     drop((left, right));
     let future = f.invoke("left", &[]);
     let resumed = f.start_future(&future);
     drop(future);
     assert!(matches!(drive(&f, &resumed), DriveResult::Waiting));
     // Attaching to an already parked root resolves its pinned code before resumption.
-    let mut replacement = DebugSession::new(f.runtime.runtime()).unwrap();
+    let mut replacement = DebugSession::new(&f.runtime).unwrap();
     let after = replacement
         .add_breakpoint(SourceBreakpoint::at_source_offset(
-            f.runtime
-                .runtime()
-                .select_program(&f.module)
-                .unwrap()
-                .name
-                .clone(),
+            f.runtime.select_program(&f.module).unwrap().name.clone(),
             SOURCE.find("reply + 1").unwrap(),
         ))
         .unwrap();
-    f.runtime
-        .runtime()
-        .set_execution_observer(replacement)
-        .unwrap();
+    f.runtime.set_execution_observer(replacement).unwrap();
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(8));
     let DriveResult::Complete(result) = drive(&f, &resumed) else {
         panic!("reattached root completes")
     };
     assert_eq!(f.value(&result.unwrap()), Value::I32(9));
     {
-        let debug = f
-            .runtime
-            .runtime()
-            .execution_observer::<DebugSession>()
-            .unwrap();
+        let debug = f.runtime.execution_observer::<DebugSession>().unwrap();
         assert!(
             debug
                 .pauses()
@@ -190,7 +159,7 @@ fn async_debugger_drive_contract() {
                     && pause.reason == DebugPauseReason::Breakpoint(after))
         );
     }
-    f.runtime.runtime().clear_execution_observer().unwrap();
+    f.runtime.clear_execution_observer().unwrap();
     drop(resumed);
     let future = f.invoke("right", &[]);
     let cancelled = f.start_future(&future);
@@ -198,22 +167,18 @@ fn async_debugger_drive_contract() {
     assert!(matches!(drive(&f, &cancelled), DriveResult::Waiting));
     let late = f.sent.lock().unwrap().pop().unwrap();
     f.runtime
-        .runtime()
-        .set_execution_observer(DebugSession::new(f.runtime.runtime()).unwrap())
+        .set_execution_observer(DebugSession::new(&f.runtime).unwrap())
         .unwrap();
     cancelled.cancel();
     assert!(matches!(
         drive(&f, &cancelled),
-        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::Cancelled,
-            ..
-        })
+        DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::Cancelled)
     ));
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
     assert_eq!(late.complete(Ok(10)), CompletionStatus::Stale);
-    assert!(!f.runtime.runtime().is_quarantined());
-    f.runtime.runtime().clear_execution_observer().unwrap();
+    assert!(!f.runtime.is_quarantined());
+    f.runtime.clear_execution_observer().unwrap();
     drop(cancelled);
-    f.runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(f.runtime.runtime().gc().active_roots(), 0);
+    f.runtime.collect_garbage().unwrap();
+    assert_eq!(f.runtime.gc().active_roots(), 0);
 }

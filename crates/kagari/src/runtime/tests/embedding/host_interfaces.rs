@@ -1,5 +1,6 @@
-#[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+#[cfg(feature = "native")]
+use crate::test_support::bytecode::load_bytecode;
 use kagari_stdlib as stdlib;
 mod common;
 
@@ -18,6 +19,7 @@ use kagari_common::identity::{
     ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_contract::types::{InterfaceBridge, PublicItem};
+use kagari_runtime::execution::reentry::reenter;
 use kagari_runtime::{
     host::{HostCallContext, HostError, HostObjectId},
     module::entry::ProgramEntry,
@@ -34,7 +36,6 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_vm::{reentry::reenter, vm::Vm};
 use std::sync::{Arc, Mutex};
 
 const SOURCE: &str = concat!(
@@ -81,7 +82,7 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
         };
         let context = context(jit);
         let mut runtime = fixture.engine.runtime(context.clone());
-        common::register_root(runtime.runtime_mut());
+        common::register_root(&mut runtime);
         let loaded_program =
             Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
@@ -96,7 +97,7 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -104,12 +105,12 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
         }
         .unwrap();
         assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
+            result.return_value.value(runtime.gc()).unwrap(),
             Value::I32(42)
         );
         assert_eq!(*fixture.trace.lock().unwrap(), [0, 20, 0, 22]);
         drop(result);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }
 
@@ -135,7 +136,7 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
     .unwrap();
     let context = context(false);
     let mut runtime = fixture.engine.runtime(context.clone());
-    common::register_root(runtime.runtime_mut());
+    common::register_root(&mut runtime);
     let program =
         Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
@@ -145,12 +146,12 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
     assert_eq!(
-        result.return_value.value(runtime.runtime().gc()).unwrap(),
+        result.return_value.value(runtime.gc()).unwrap(),
         Value::I32(42)
     );
     assert_eq!(*fixture.trace.lock().unwrap(), [0, 20, 22]);
     drop(result);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
@@ -275,37 +276,38 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
             Ok(args[1])
         },
     );
-    let mut vm = Vm::new(fixture.runtime());
-    let root = common::register_root(vm.runtime_mut());
-    let loaded = vm
-        .runtime_mut()
-        .load_program(
-            "host-interfaces",
-            artifact_program(fixture.artifact.clone()),
-        )
-        .unwrap();
+    let mut vm = fixture.runtime();
+    let root = common::register_root(&mut vm);
+    let loaded = load_bytecode(
+        &mut vm,
+        "host-interfaces",
+        artifact_program(fixture.artifact.clone()),
+    )
+    .unwrap();
     let _loaded_program = loaded;
-    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
+    let loaded = vm.select_program(&_loaded_program).unwrap();
     let value = vm
-        .execute(&loaded, "boxed")
+        .execute_module(&loaded, "boxed", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let rooted = vm.runtime().root_value(value).unwrap();
-    vm.runtime().collect_garbage().unwrap();
+    let rooted = vm.root_value(value).unwrap();
+    vm.collect_garbage().unwrap();
     let method = fixture.method(&loaded);
     assert_eq!(
         vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
             .unwrap(),
         Value::I32(42)
     );
-    assert!(vm.execute(&loaded, "fail").is_err());
-    assert_eq!(vm.runtime().gc().active_roots(), 1);
+    assert!(
+        vm.execute_module(&loaded, "fail", vm.execution_options())
+            .is_err()
+    );
+    assert_eq!(vm.gc().active_roots(), 1);
     {
         let scope = vm
-            .runtime()
-            .host_scope(&[vm.runtime().gc().alloc_host_root(root).unwrap()])
+            .host_scope(&[vm.gc().alloc_host_root(root).unwrap()])
             .unwrap();
         assert!(
             scope
@@ -330,22 +332,23 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .engine
         .emit_artifact(&checked, Default::default())
         .unwrap();
-    vm.reload_artifact(
+    vm.stage_reload_artifact(
         &_loaded_program,
         Some("host-interfaces".into()),
         artifact,
         &Default::default(),
     )
+    .and_then(|candidate| vm.publish_staged_reload(candidate))
     .unwrap();
     let _new_program = _loaded_program.clone();
-    let new = vm.runtime().select_program(&_new_program).unwrap();
+    let new = vm.select_program(&_new_program).unwrap();
     let new_value = vm
-        .execute(&new, "boxed")
+        .execute_module(&new, "boxed", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let new_root = vm.runtime().root_value(new_value).unwrap();
+    let new_root = vm.root_value(new_value).unwrap();
     assert_eq!(
         vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
             .unwrap(),
@@ -357,51 +360,39 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         Value::I32(43)
     );
     let table_owner = fixture.table_owner(&loaded);
-    vm.runtime()
-        .make_interface(
-            &table_owner,
-            0,
-            vm.runtime().gc().alloc_host_root(root).unwrap(),
-        )
+    vm.make_interface(&table_owner, 0, vm.gc().alloc_host_root(root).unwrap())
         .unwrap();
     let mut foreign = fixture.runtime();
     let foreign_root = common::register_root(&mut foreign);
     assert!(
-        vm.runtime()
-            .make_interface(
-                &table_owner,
-                0,
-                vm.runtime().gc().alloc_host_root(foreign_root).unwrap()
-            )
-            .is_err()
+        vm.make_interface(
+            &table_owner,
+            0,
+            vm.gc().alloc_host_root(foreign_root).unwrap()
+        )
+        .is_err()
     );
     {
         let scope = vm
-            .runtime()
-            .host_scope(&[vm.runtime().gc().alloc_host_root(root).unwrap()])
+            .host_scope(&[vm.gc().alloc_host_root(root).unwrap()])
             .unwrap();
         let token = scope
             .borrows()
             .borrow_shared(root.object_id(), root.type_id())
             .unwrap();
         assert!(
-            vm.runtime()
-                .make_interface(
-                    &table_owner,
-                    0,
-                    vm.runtime().gc().alloc_host_ref(token).unwrap()
-                )
+            vm.make_interface(&table_owner, 0, vm.gc().alloc_host_ref(token).unwrap())
                 .is_err()
         );
     }
     drop(rooted);
     drop(new_root);
-    vm.runtime().collect_garbage().unwrap();
+    vm.collect_garbage().unwrap();
     assert!(
         vm.invoke_interface_method(&value, &method, &[Value::I32(21)])
             .is_err()
     );
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.gc().active_roots(), 0);
 }
 
 #[test]
@@ -551,7 +542,7 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
     .unwrap();
     let context = context(false);
     let mut runtime = fixture.engine.runtime(context.clone());
-    common::register_root(runtime.runtime_mut());
+    common::register_root(&mut runtime);
     let program =
         Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
@@ -561,12 +552,12 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
     assert_eq!(
-        result.return_value.value(runtime.runtime().gc()).unwrap(),
+        result.return_value.value(runtime.gc()).unwrap(),
         Value::I32(42)
     );
     assert_eq!(*fixture.trace.lock().unwrap(), [0, 42]);
     drop(result);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
@@ -577,34 +568,32 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         *recorded.lock().unwrap() += 1;
         Ok(args[1])
     });
-    let mut vm = Vm::new(fixture.runtime());
-    common::register_root(vm.runtime_mut());
-    let loaded = vm
-        .runtime_mut()
-        .load_program("permissions", artifact_program(fixture.artifact.clone()))
-        .unwrap();
+    let mut vm = fixture.runtime();
+    common::register_root(&mut vm);
+    let loaded = load_bytecode(
+        &mut vm,
+        "permissions",
+        artifact_program(fixture.artifact.clone()),
+    )
+    .unwrap();
     let _loaded_program = loaded;
-    let loaded = vm.runtime().select_program(&_loaded_program).unwrap();
+    let loaded = vm.select_program(&_loaded_program).unwrap();
     let value = vm
-        .execute(&loaded, "boxed")
+        .execute_module(&loaded, "boxed", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .unwrap();
-    let rooted = vm.runtime().root_value(value).unwrap();
+    let rooted = vm.root_value(value).unwrap();
     let method = fixture.method(&loaded);
     assert_eq!(
-        vm.invoke_interface_method(
-            &rooted.value(vm.runtime().gc()).unwrap(),
-            &method,
-            &[Value::I32(42)]
-        )
-        .unwrap(),
+        vm.invoke_interface_method(&rooted.value(vm.gc()).unwrap(), &method, &[Value::I32(42)])
+            .unwrap(),
         Value::I32(42)
     );
     assert_eq!(*calls.lock().unwrap(), 1);
     drop(rooted);
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.gc().active_roots(), 0);
 
     // Same source-owned trait ABI, different installed associated output. The
     // portable requirement rejects it before any callback can run.
@@ -621,12 +610,12 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
         let registered = common::Fixture::new(config, |_, _| panic!("load called Rust"));
         let mut runtime = registered.runtime();
         assert_eq!(
-            runtime
-                .load_program(
-                    "registered-outputs",
-                    artifact_program(fixture.artifact.clone())
-                )
-                .is_err(),
+            load_bytecode(
+                &mut runtime,
+                "registered-outputs",
+                artifact_program(fixture.artifact.clone())
+            )
+            .is_err(),
             mismatch
         );
     }
@@ -660,7 +649,7 @@ fn interface_method_results_validate_nested_host_roots() {
     });
     let context = context(false);
     let mut runtime = fixture.engine.runtime(context.clone());
-    let root = common::register_root(runtime.runtime_mut());
+    let root = common::register_root(&mut runtime);
     let loaded_program = Compilation::from_artifact(
         fixture.artifact.clone(),
         &Default::default(),
@@ -675,7 +664,7 @@ fn interface_method_results_validate_nested_host_roots() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -683,24 +672,21 @@ fn interface_method_results_validate_nested_host_roots() {
         .execute(&loaded, "boxed", &[], &context)
         .unwrap()
         .return_value
-        .value(runtime.runtime().gc())
+        .value(runtime.gc())
         .expect("retained execution result");
     let method = runtime
-        .runtime()
         .resolve_interface_method(
             &value,
-            &fixture.method(&runtime.runtime().select_program(&loaded).unwrap()),
+            &fixture.method(&runtime.select_program(&loaded).unwrap()),
         )
         .unwrap();
     runtime
-        .runtime()
         .validate_interface_method_result(
             &method,
             &runtime
-                .runtime()
                 .gc()
                 .alloc_tuple(vec![
-                    runtime.runtime().gc().alloc_host_root(root).unwrap(),
+                    runtime.gc().alloc_host_root(root).unwrap(),
                     Value::I32(42),
                 ])
                 .unwrap(),
@@ -710,14 +696,12 @@ fn interface_method_results_validate_nested_host_roots() {
     let invalid = common::register_root(&mut foreign);
     assert!(
         runtime
-            .runtime()
             .validate_interface_method_result(
                 &method,
                 &runtime
-                    .runtime()
                     .gc()
                     .alloc_tuple(vec![
-                        runtime.runtime().gc().alloc_host_root(invalid).unwrap(),
+                        runtime.gc().alloc_host_root(invalid).unwrap(),
                         Value::I32(42)
                     ])
                     .unwrap()

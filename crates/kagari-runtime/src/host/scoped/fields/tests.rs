@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
@@ -88,9 +90,7 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
     }
     .metadata(runtime.definition_context().snapshot(), &Default::default())
     .unwrap();
-    let owner_program = runtime
-        .load_program("field-codec-proof", program.clone())
-        .unwrap();
+    let owner_program = load_bytecode(&mut runtime, "field-codec-proof", program.clone()).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     let player_layout = owner.struct_layout(StructId::new(0)).unwrap();
     let stats_layout = owner.struct_layout(StructId::new(1)).unwrap();
@@ -109,7 +109,7 @@ fn executable_inline_field_codecs_keep_paths_current_and_results_rooted() {
     let changed =
         DefinitionMetadata::checked(program.definitions().clone(), changed, &Default::default())
             .unwrap();
-    assert!(runtime.load_program("field-codec-proof", changed).is_err());
+    assert!(load_bytecode(&mut runtime, "field-codec-proof", changed).is_err());
     let staged = runtime
         .stage_reload_program(&owner_program, None, program)
         .unwrap();

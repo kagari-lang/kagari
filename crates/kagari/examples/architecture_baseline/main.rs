@@ -21,9 +21,9 @@ use kagari_compiler::source::program::lower_program_to_mir;
 use kagari_contract::native::NativeCompilationProduct;
 use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_mir::{ids::InstanceId, verify::verify_mir};
+use kagari_runtime::execution::JitExecutionStatus;
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
-use kagari_vm::vm::JitExecutionStatus;
 use memory::{CountingAllocator, live_bytes};
 use std::{hint::black_box, time::Instant};
 
@@ -82,13 +82,9 @@ fn sharing(bytes: &[u8], count: usize, shared: bool) {
         runtimes.push((runtime, loaded));
     }
     let bytes = live_bytes() - before;
-    let first = runtimes[0]
-        .0
-        .runtime()
-        .select_program(&runtimes[0].1)
-        .unwrap();
+    let first = runtimes[0].0.select_program(&runtimes[0].1).unwrap();
     for (index, (runtime, loaded)) in runtimes.iter().enumerate() {
-        let selected = runtime.runtime().select_program(loaded).unwrap();
+        let selected = runtime.select_program(loaded).unwrap();
         assert_eq!(
             selected
                 .verified_program()
@@ -220,7 +216,7 @@ fn main() {
             &mut backend,
             &Default::default(),
         )
-        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+        .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     let cache_and_install_bytes = live_bytes() - before_native;
     drop(native);
@@ -238,8 +234,7 @@ fn main() {
                         &mut backend,
                         &Default::default(),
                     );
-                    native_code
-                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                    native_code.and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 }
                 .unwrap(),
             );
@@ -254,7 +249,7 @@ fn main() {
             &mut backend,
             &Default::default(),
         )
-        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+        .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     for use_native in [false, true] {
         let mut checksum = 0;
@@ -281,7 +276,7 @@ fn main() {
                 assert_eq!(
                     report
                         .return_value
-                        .value(runtime.runtime().gc())
+                        .value(runtime.gc())
                         .expect("retained execution result"),
                     Value::I32(42)
                 );
@@ -289,7 +284,7 @@ fn main() {
                 black_box(
                     report
                         .return_value
-                        .value(runtime.runtime().gc())
+                        .value(runtime.gc())
                         .expect("retained execution result"),
                 );
             },

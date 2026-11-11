@@ -11,12 +11,12 @@ use kagari_codegen::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{ids::FunctionRef, native::NativeCompilationProduct};
 use kagari_mir::ids::InstanceId;
+use kagari_runtime::execution::native::PreparedNativeEntry;
 use kagari_runtime::{
     backend::BackendInvocationError,
     error::RuntimeError,
     module::{InstalledProgram, entry::ProgramEntry, revision::ProgramRevision},
 };
-use kagari_vm::vm::native::PreparedNativeEntry;
 use std::{collections::HashMap, sync::Arc};
 
 const MAX_CACHED_FUNCTIONS: usize = 4096;
@@ -186,55 +186,53 @@ impl NativeCompiler {
     }
 }
 
-impl Runtime {
+impl NativeCode {
     /// Bind a finalized decision to this installation without compiling. Exact
     /// revision and local authority are validated before local policy may choose
-    /// fallback. Installed entries retain pages independently of the compiler/code.
-    pub fn install_native(
-        &mut self,
+    /// fallback. Installed entries retain pages independently of the compiler/self.
+    pub fn install(
+        &self,
+        runtime: &mut Runtime,
         installed: &InstalledProgram,
-        code: &NativeCode,
     ) -> Result<PreparedNativeEntry, NativePreparationError> {
-        let module = self.runtime().select_program(installed)?;
-        if module.verified_program().revision() != code.revision
-            || module.verified_program().root() != code.root
+        let module = runtime.select_program(installed)?;
+        if module.verified_program().revision() != self.revision
+            || module.verified_program().root() != self.root
         {
             return Err(NativePreparationError::WrongVersion);
         }
         let owner = module
-            .member(code.module)
+            .member(self.module)
             .filter(|owner| {
                 owner
                     .bytecode
                     .functions
-                    .get(code.function.index())
+                    .get(self.function.index())
                     .is_some()
             })
             .ok_or(NativePreparationError::InvalidProduct)?;
         let unsupported = |message: String| PreparedNativeEntry::Unsupported {
-            backend: code.backend.clone(),
+            backend: self.backend.clone(),
             diagnostics: vec![message],
         };
-        if let Some(reason) = self.default_context().jit_policy.fallback_reason() {
+        if let Some(reason) = runtime.default_context().jit_policy.fallback_reason() {
             return Ok(unsupported(reason.into()));
         }
-        if let Err(error) = self.runtime().resources().ensure_execution_allowed() {
+        if let Err(error) = runtime.resources().ensure_execution_allowed() {
             return Ok(unsupported(format!(
                 "JIT disabled by runtime policy: {error}"
             )));
         }
-        match &code.compiled {
+        match &self.compiled {
             CachedFunction::Unsupported(diagnostics) => Ok(PreparedNativeEntry::Unsupported {
-                backend: code.backend.clone(),
+                backend: self.backend.clone(),
                 diagnostics: diagnostics.clone(),
             }),
             CachedFunction::Native(product) => {
                 // SAFETY: the trusted backend establishes callable pages; the opaque
                 // revision binds their exact verified body before local installation.
-                let installed = unsafe {
-                    self.runtime()
-                        .install_native_function(&owner, product.clone())?
-                };
+                let installed =
+                    unsafe { runtime.install_native_function(&owner, product.clone())? };
                 Ok(PreparedNativeEntry::Native(installed))
             }
         }

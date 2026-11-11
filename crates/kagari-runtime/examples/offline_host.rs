@@ -20,6 +20,7 @@ use kagari_contract::{
     },
     updates::SourceRecord,
 };
+use kagari_runtime::module::VerifiedProgram;
 use kagari_runtime::{
     Runtime,
     frame::driver::ReturnAction,
@@ -188,9 +189,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         &Default::default(),
     )?;
     let (snapshot, decoded) = decoded.into_parts();
-    let loaded_program = runtime.load_program(
+    let loaded_program = runtime.load_verified_program(
         "offline-demo",
-        DefinitionMetadata::checked(snapshot, decoded.program, &Default::default())?,
+        VerifiedProgram::new(
+            DefinitionMetadata::checked(snapshot, decoded.program, &Default::default())?,
+            &definitions,
+        )?,
     )?;
     let loaded = runtime.select_program(&loaded_program)?;
     let mut options = runtime.execution_options();

@@ -225,14 +225,8 @@ fn assert_source_index_path(field_prefix: bool) {
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
-        let ty = runtime
-            .runtime()
-            .types()
-            .get_by_name("game::Player")
-            .unwrap()
-            .id;
+        let ty = runtime.types().get_by_name("game::Player").unwrap().id;
         runtime
-            .runtime_mut()
             .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
             .unwrap();
         let program =
@@ -249,7 +243,7 @@ fn assert_source_index_path(field_prefix: bool) {
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -257,7 +251,7 @@ fn assert_source_index_path(field_prefix: bool) {
         }
         .unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report.return_value.value(runtime.gc()).unwrap(),
             Value::I32(12)
         );
         assert_eq!(state.load(Ordering::SeqCst), 12);

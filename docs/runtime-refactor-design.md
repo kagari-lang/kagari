@@ -2,7 +2,7 @@
 
 Status: next-scope design recorded at the user's request on 2026-11-09;
 standard-library detachment D00-D05 is complete on 2026-11-11. The user requested
-the crate consolidation implementation plan CM00-CM04 on 2026-11-11; the user activated CM00-CM04 on 2026-11-11. CM00-CM01 are complete; CM02-CM04 remain pending. Other proposed Runtime changes remain unstarted. Current product ownership, final call tables and
+the crate consolidation implementation plan CM00-CM04 on 2026-11-11; the user activated CM00-CM04 on 2026-11-11. CM00-CM03 are complete; CM04 acceptance and handoff are in progress. Other proposed Runtime changes remain unstarted. Current product ownership, final call tables and
 publication are in the
 [Runtime model](architecture/runtime.md) and [reload walkthrough](architecture/runtime/reload.md).
 The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns any
@@ -167,7 +167,7 @@ paged-storage migration or the deferred enum/value representation redesign.
 #### Crate consolidation implementation plan (CM00-CM04)
 
 Status: implementation plan requested and activated on 2026-11-11 against
-`a656554a`. CM00 is complete; CM01-CM04 remain pending. D00-D05 detachment is complete. This section owns the finite next
+`a656554a`. CM00-CM03 are complete; CM04 is in progress. D00-D05 detachment is complete. This section owns the finite next
 migration, checkpoint boundaries and acceptance; it does not activate the other
 Runtime proposals. Do not create another consolidation queue.
 
@@ -255,7 +255,7 @@ Preserve ordinary language behavior and the already recorded NC integration gaps
 
 | Current owner | Required disposition |
 | --- | --- |
-| [VM](../crates/kagari-vm/src/lib.rs), [entrypoints](../crates/kagari-vm/src/vm.rs), [executor](../crates/kagari-vm/src/executor.rs), [reentry](../crates/kagari-vm/src/reentry.rs) | Move implementations under Runtime's execution/interpreter/debug owners; eliminate the VM object/crate rather than relocating it wholesale as another owner. Keep activations borrowing Runtime. |
+| [VM](../crates/kagari-runtime/src/lib.rs), [entrypoints](../crates/kagari-runtime/src/execution.rs), [executor](../crates/kagari-runtime/src/executor.rs), [reentry](../crates/kagari-runtime/src/execution/reentry.rs) | Move implementations under Runtime's execution/interpreter/debug owners; eliminate the VM object/crate rather than relocating it wholesale as another owner. Keep activations borrowing Runtime. |
 | [SDK Runtime](../crates/kagari/src/runtime.rs), [context](../crates/kagari/src/context.rs), runtime call/typed/scheduler/scoped/source modules | Move execution policy/state/orchestration to Runtime and remove translations/forwarding. Source analysis/update compilation stays SDK-side. Preserve Engine configuration and explicit provider installation. |
 | [SDK Program](../crates/kagari/src/program.rs), [updates](../crates/kagari/src/program/update.rs), [NativeCompiler](../crates/kagari/src/program/native.rs), [core verified backing](../crates/kagari-runtime/src/module.rs), `module/owner.rs` (retired by CM01) | Preserve exact revision/history and native/source evidence while separating executable ownership from preparation inputs. Keep installed handles identity-only. Audit ordinary metadata/code holders, cycles and final release, without claiming the deferred R13 type/code lifetime split. |
 | SDK, CLI, web, Lua-comparison benchmark and their examples | Migrate current direct VM dependencies and low-level accessors to canonical owners. Preserve the existing required-feature paths; do not recreate withdrawn collection providers just to run an old workload. |
@@ -363,6 +363,86 @@ setup initially lacked its declared providers; explicitly installing them repair
 the witness without weakening declaration admission. No build/test errors are
 carried at this checkpoint. No execution
 wrapper/interpreter/frame/GC change belongs to CM01; CM02-CM04 remain pending.
+
+##### CM02/CM03 implementation and validation
+
+The coordinated cut is complete. The existing Runtime owns the interpreter/driver,
+reports, default invocation context, typed/scoped entry, reentry and scheduler.
+The SDK exposes that type directly. Source-independent execution returns the
+canonical RuntimeError; SDK preparation diagnostics may retain a typed RuntimeError
+cause, but no longer assign a second execution-kind matrix or copy trace/task
+origin fields. RuntimeErrorKind/code are authoritative, including the existing
+IndexOutOfBounds, ModuleValidation, borrow and EngineFault distinctions that the
+retired SDK wrapper used to collapse. Unsupported entry policy remains explicit.
+This is a breaking unpublished API normalization, not a wire/ABI version change.
+
+Public installed entrypoints admit one session with the supplied context. Raw
+instruction fixtures retain an explicitly test-only slot route. Explicit checked-module
+entry is retained for candidate initialization and backend callers, with declared
+exports, owner checks and explicit ExecutionOptions. Installed entrypoints and
+prepared-native module entry share selection, one session and the same executor;
+this preserves a genuine staged/admitted capability rather than a wrapper owner.
+Custom-dispatch task
+scopes and managed scheduler scopes remain distinct capabilities. NativeCode
+preparation and installation orchestration remain on the SDK preparation product;
+Runtime retains finalized executable pages and exact-version evidence without a
+compiler dependency. The transferred execution loop is unchanged apart from owner
+and typed-error transport; compact frame/GC/collection changes remain out of scope.
+
+Runtime and SDK test targets compile, and the SDK examples compile. The four
+transferred native-wait contracts pass (completion, cancellation, retirement and
+cleanup quarantine). Compiler/provider whitebox fixtures require stdlib sources to
+be compiled against the same test-crate Runtime instance; a normal stdlib dev
+crate supplies a distinct library Runtime type. Narrow test-only source sharing
+preserves the actual provider code and private interpreter assertions without a
+production dependency or duplicated execution implementation. Conditional child
+paths preserve ordinary module ownership in both test consumers. Integration
+targets continue to use the ordinary stdlib package. Unused stdlib facade APIs in
+that specific test consumer have narrow dead-code annotations at their module
+imports, not production/structural blanket exemptions.
+
+The old VM package and workspace/dependency references have been removed; NativeCode
+now installs its finalized decision into Runtime explicitly. SDK execution aliases,
+VmError and the second execution-kind mapping are removed. The private Call cleanup
+oracle moved with its implementation and compiler-only fixture preparation. The
+existing builtin context/trace oracle now exercises canonical error transport too.
+
+Consumer/tooling migration is complete. Default workspace all-target Clippy,
+structure (1846 Rust files, zero violations and six narrow documented exceptions),
+Rust formatting and diff checks pass after the final ownership repair. Optional
+SDK/CLI AOT, serde, JIT and execution-diagnostic consumers compile together.
+Existing NC library gaps remain unchanged. Full workspace tests, exhaustive
+feature/platform matrices and deployment matrices remain CI-only.
+
+The installed root/context is admitted once. Internal stack/session guards still
+share that root and retain cleanup/borrow authority; they do not create another
+Runtime, reconvert host arguments or restart public call preparation.
+
+Acceptance exposed one concrete Program ownership defect: a bare verified-code
+publication had no canonical product association. Repeated Runtime::program queries
+created different ProgramState identities, so a detached replacement prepared from
+one query failed as StaleHandle at the next query. Staging now adopts the already
+checked admission history once for bare proofs and preserves explicitly shared
+products. Runtime::program clones that installed owner instead of rebuilding
+history or preparation state. The existing valid-reload test now crosses from raw
+verified publication into detached Program replacement and checks the publication
+epoch. It failed before the repair and passes afterward, together with native-wait
+and resumed-current-inner-call regressions. No source/MIR input, reverse ownership
+cycle, Runtime dependency or execution lookup was added.
+
+The selected Runtime contracts pass (9 before the ownership repair; the affected
+raw-publication/native-wait/current-inner-call set passes afterward). SDK source
+preparation/update, Native preparation, real Cranelift, scoped host access and group
+failure/reload samples pass (35). The separate async facade contracts pass (6),
+as do default artifact/native/source-free samples (7) and the warm scalar/array
+zero-allocation contract. The no-source artifact route passes after correcting
+feature-scoped test imports and its last retired runtime accessor. Default
+workspace all-target Clippy and the structure check pass after the ownership
+repair. The existing Serde DTO contract passes. Optional AOT/diagnostic consumers
+compile. The actual AOT failure-origin/cleanup/observer contract passes with
+KAGARI_AOT_LINKER pointing to the installed Rust toolchain lld-link; the initial
+run lacked that linker on PATH. Full workspace tests and exhaustive
+feature/platform matrices remain CI-only. CM04 owns the isolated performance comparison and current-document handoff.
 
 ##### Verification, performance and commits
 
@@ -792,7 +872,7 @@ Successful-call, failure-construction and formatting comparisons remain unmeasur
 | Interpreter | ScalarFailure names invariants and carries ScalarError until the cold exit. RegionError and VmError still wrap overlapping runtime/value failures. | Numeric transport is implemented in EN01. Consolidate remaining wrappers with their Runtime owner; keep compact operation failures out of a large uniform hot Result. |
 | Runtime diagnostics | [RuntimeError](../crates/kagari-runtime/src/error.rs) derives kind/code from ErrorReason and keeps optional owned context. | Implemented in EN02. Finer cold validation details remain at their existing owners. |
 | Native/builtin conversion | Builtin and field/variant/element adapters annotate the original RuntimeError; reflective wrapping keeps its typed source. HostError retains custom message/trace data. | Implemented in EN02. Full provider/helper separation remains queued with Runtime/stdlib ownership. |
-| VM/SDK | [VmError](../crates/kagari-vm/src/error.rs) admits builtins through its RuntimeError route. Host/trace/backend variants and SDK diagnostic mapping still remain. | Complete normalization with single-Runtime consolidation; keep compilation/artifact diagnostics distinct. |
+| VM/SDK | [VmError](../crates/kagari-runtime/src/error.rs) admits builtins through its RuntimeError route. Host/trace/backend variants and SDK diagnostic mapping still remain. | Complete normalization with single-Runtime consolidation; keep compilation/artifact diagnostics distinct. |
 
 This inventory describes the migrated numeric boundary and remaining defects. It
 is representative, not a claim

@@ -29,7 +29,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     manifest = ["[workspace]", "[package]", 'name = "kagari-aot-consumer"',
                 'version = "0.0.0"', 'edition = "2024"', "[dependencies]"]
-    for name in ["kagari", "kagari-runtime", "kagari-types", "kagari-vm"]:
+    for name in ["kagari", "kagari-runtime", "kagari-types"]:
         options = f'path = {json.dumps(str(ROOT / "crates" / name))}'
         if name == "kagari":
             options += ', default-features = false, features = ["aot-load"]'

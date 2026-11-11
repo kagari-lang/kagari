@@ -1,5 +1,6 @@
 //! Runtime failures keep typed reasons separate from owned diagnostic context.
 pub mod context;
+mod execution;
 pub mod fault;
 pub mod reason;
 pub mod trap;
@@ -27,6 +28,7 @@ use std::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeErrorKind {
+    UnsupportedExecution,
     Cancelled,
     EngineFault,
     ScriptTrap,
@@ -48,6 +50,7 @@ pub enum RuntimeErrorKind {
 impl RuntimeErrorKind {
     pub fn code(self) -> &'static str {
         match self {
+            Self::UnsupportedExecution => "KG_RUNTIME_UNSUPPORTED_EXECUTION",
             Self::Cancelled => "KG_RUNTIME_CANCELLED",
             Self::EngineFault => "KG_RUNTIME_ENGINE_FAULT",
             Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",

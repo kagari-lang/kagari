@@ -4,6 +4,7 @@ use kagari_common::identity::{
     ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_contract::types::PublicItem;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     module::{EnumVariantRef, ExecutableModule, entry::ProgramEntry},
@@ -65,35 +66,28 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
             Default::default(),
         )
         .unwrap();
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
     let option = variant(&_selected_loaded, "Option");
     let holder = variant(&_selected_loaded, "Holder");
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
         .unwrap();
     let root = report.return_value;
-    let Value::Enum(handle) = root
-        .value(runtime.runtime().gc())
-        .expect("retained execution result")
-    else {
+    let Value::Enum(handle) = root.value(runtime.gc()).expect("retained execution result") else {
         panic!("constructed enum")
     };
     assert_eq!(
-        runtime.runtime().gc().enum_snapshot(handle).unwrap().fields,
+        runtime.gc().enum_snapshot(handle).unwrap().fields,
         [Value::I32(42)]
     );
-    let Value::Str(name) =
-        reflection::type_of(runtime.runtime().gc(), &Value::Enum(handle)).unwrap()
-    else {
+    let Value::Str(name) = reflection::type_of(runtime.gc(), &Value::Enum(handle)).unwrap() else {
         panic!("enum type name")
     };
-    assert_eq!(&*runtime.runtime().gc().string(name).unwrap(), "Option");
+    assert_eq!(&*runtime.gc().string(name).unwrap(), "Option");
     let standard = runtime
-        .runtime()
         .make_enum_member(
             &_selected_loaded,
             &runtime
-                .runtime()
                 .resolve_type_arguments(
                     &_selected_loaded,
                     &[binding::option(
@@ -107,12 +101,11 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
             vec![Value::I32(42)],
         )
         .unwrap();
-    assert!(!script_equal(runtime.runtime().gc(), &Value::Enum(handle), &standard).unwrap());
+    assert!(!script_equal(runtime.gc(), &Value::Enum(handle), &standard).unwrap());
 
     for fields in [vec![], vec![Value::Bool(true)]] {
         assert_eq!(
             runtime
-                .runtime()
                 .alloc_enum(EnumTag::Declared(option.clone()), fields)
                 .unwrap_err()
                 .kind(),
@@ -128,10 +121,9 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         .unwrap();
     assert_eq!(
         runtime
-            .runtime()
             .alloc_enum(
                 EnumTag::Declared(variant(
-                    &foreign_runtime.runtime().select_program(&foreign).unwrap(),
+                    &foreign_runtime.select_program(&foreign).unwrap(),
                     "Option"
                 )),
                 vec![Value::I32(42)]
@@ -142,7 +134,6 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     );
 
     let array = runtime
-        .runtime()
         .alloc_array(
             &_selected_loaded,
             Ty::Builtin(BuiltinType::I32),
@@ -150,7 +141,6 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         )
         .unwrap();
     let wrong = runtime
-        .runtime()
         .alloc_enum(
             EnumTag::Declared(variant(&_selected_loaded, "Other")),
             vec![Value::I32(42)],
@@ -158,7 +148,6 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
         .unwrap();
     assert!(
         runtime
-            .runtime()
             .alloc_enum(
                 EnumTag::Declared(holder.clone()),
                 vec![Value::Enum(wrong), Value::Array(array)]
@@ -167,7 +156,6 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     );
     assert!(
         runtime
-            .runtime()
             .alloc_enum(
                 EnumTag::Declared(holder.clone()),
                 vec![Value::Enum(handle), Value::Array(array)]
@@ -186,27 +174,19 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     assert!(
         runtime
             .program(&loaded)
-            .and_then(|base| base
-                .prepare_replacement(&changed, &Default::default())
-                .map_err(Into::into))
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&changed, &Default::default()))
             .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .is_err()
     );
-    assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().key(),
-        old_key
-    );
+    assert_eq!(runtime.select_program(&loaded).unwrap().key(), old_key);
     // Frozen payload layouts reject publication. An independent installation with
     // the changed schema still cannot consume the retained old values.
     let new = runtime.load_program(&changed, Default::default()).unwrap();
     assert!(
         runtime
-            .runtime()
             .alloc_enum(
-                EnumTag::Declared(variant(
-                    &runtime.runtime().select_program(&new).unwrap(),
-                    "Holder"
-                )),
+                EnumTag::Declared(variant(&runtime.select_program(&new).unwrap(), "Holder")),
                 vec![Value::Enum(handle), Value::Array(array)]
             )
             .is_err()
@@ -214,23 +194,21 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     drop(holder);
     drop(option);
     drop(loaded);
-    runtime.runtime().collect_garbage().unwrap();
-    let snapshot = runtime.runtime().gc().enum_snapshot(handle).unwrap();
+    runtime.collect_garbage().unwrap();
+    let snapshot = runtime.gc().enum_snapshot(handle).unwrap();
     let EnumTag::Declared(retained) = snapshot.tag;
     assert_eq!(retained.module().key(), old_key);
     assert_eq!(snapshot.fields, [Value::I32(42)]);
     assert!(
         runtime
-            .runtime()
             .alloc_enum(EnumTag::Declared(retained.clone()), vec![Value::I32(7)])
             .is_ok()
     );
     drop(root);
-    runtime.runtime().collect_garbage().unwrap();
-    assert!(runtime.runtime().gc().enum_snapshot(handle).is_none());
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc().enum_snapshot(handle).is_none());
     assert!(
         runtime
-            .runtime()
             .alloc_enum(
                 EnumTag::Declared(retained.clone()),
                 vec![Value::Enum(handle)]
@@ -275,7 +253,7 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::Bool(true)
     );
@@ -343,25 +321,22 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         original.records().verification.public_abi_fingerprints,
         changed.records().verification.public_abi_fingerprints
     );
-    let before = runtime.runtime().modules().loaded_count();
-    let before_epoch = runtime.runtime().select_program(&loaded).unwrap().epoch;
+    let before = runtime.modules().loaded_count();
+    let before_epoch = runtime.select_program(&loaded).unwrap().epoch;
     let error = runtime
         .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
         .and_then(|base| {
             base.prepare_replacement(
                 &Program::from_artifact(changed, &Default::default(), &Default::default()).unwrap(),
                 &Default::default(),
             )
-            .map_err(Into::into)
         })
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap_err();
     assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
-    assert_eq!(runtime.runtime().modules().loaded_count(), before);
-    assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().epoch,
-        before_epoch
-    );
+    assert_eq!(runtime.modules().loaded_count(), before);
+    assert_eq!(runtime.select_program(&loaded).unwrap().epoch, before_epoch);
     // The original entry remains usable after rejection.
     assert!(
         runtime
@@ -376,13 +351,12 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     assert!(
         runtime
             .program(&loaded)
-            .and_then(|base| base
-                .prepare_replacement(
-                    &Program::from_artifact(body_edit, &Default::default(), &Default::default())
-                        .unwrap(),
-                    &Default::default()
-                )
-                .map_err(Into::into))
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(
+                &Program::from_artifact(body_edit, &Default::default(), &Default::default())
+                    .unwrap(),
+                &Default::default()
+            ))
             .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .is_ok()
     );

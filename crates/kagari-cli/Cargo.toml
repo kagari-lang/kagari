@@ -28,7 +28,6 @@ kagari-bytecode.workspace = true
 kagari-codegen-cranelift = { workspace = true, optional = true }
 kagari-syntax.workspace = true
 kagari-runtime.workspace = true
-kagari-vm.workspace = true
 
 [features]
 default = []

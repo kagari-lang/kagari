@@ -1,4 +1,6 @@
 //! Owned retirement must release every parked execution despite host destructor faults.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -336,14 +338,14 @@ impl Fixture {
         let mut runtime = NativeInstallation::prepare(&modules)
             .unwrap()
             .runtime(Default::default());
-        let module_program = runtime
-            .load_program(
-                "owned-cleanup",
-                ProgramFixture::from(program)
-                    .metadata(definitions.snapshot(), &Default::default())
-                    .unwrap(),
-            )
-            .unwrap();
+        let module_program = load_bytecode(
+            &mut runtime,
+            "owned-cleanup",
+            ProgramFixture::from(program)
+                .metadata(definitions.snapshot(), &Default::default())
+                .unwrap(),
+        )
+        .unwrap();
         let module = runtime.select_program(&module_program).unwrap();
         Self {
             runtime,

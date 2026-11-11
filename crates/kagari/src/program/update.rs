@@ -5,7 +5,7 @@ mod prepare;
 mod tests;
 
 use crate::{
-    CompileResult, RunResult, engine::source::compilation::Compilation as LoweredCompilation,
+    CompileResult, engine::source::compilation::Compilation as LoweredCompilation,
     error::EmbeddingError, program::Compilation, update::Update,
 };
 use kagari_common::identity::{DefinitionPath, table::DefinitionId};
@@ -42,7 +42,7 @@ impl Compilation {
     /// Copy checked authored locators, including private functions and named locals.
     /// Diagnostic source attachment is sufficient for discovery; preparing edits
     /// additionally requires this product's immutable compilation inputs.
-    pub fn source_declarations(&self) -> RunResult<Vec<SourceEditTarget>> {
+    pub fn source_declarations(&self) -> CompileResult<Vec<SourceEditTarget>> {
         let package = self
             .program
             .bytecode()

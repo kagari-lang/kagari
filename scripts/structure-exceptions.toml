@@ -31,3 +31,17 @@ rule = "reexport-whitelist"
 declaration = "pub use kagari_runtime::program::{Program, ProgramPreparationError};"
 reason = "The SDK facade exposes the canonical Runtime executable product; all SDK/CLI/web consumers share this type rather than a second Program wrapper."
 evidence = "docs/runtime-refactor-design.md"
+
+[[exceptions]]
+path = "crates/kagari/src/runtime.rs"
+rule = "reexport-whitelist"
+declaration = "pub use kagari_runtime::{ Runtime, loading::{LoadOptions, ReloadOptions}, };"
+reason = "SDK users receive the single canonical Runtime and publication options; no SDK execution wrapper remains."
+evidence = "docs/runtime-refactor-design.md"
+
+[[exceptions]]
+path = "crates/kagari/src/context.rs"
+rule = "reexport-whitelist"
+declaration = "pub use kagari_runtime::context::{ExecutionContext, JitPolicy, PanicPolicy};"
+reason = "The SDK facade shares invocation policy with standalone Runtime consumers."
+evidence = "docs/runtime-refactor-design.md"

@@ -45,13 +45,13 @@ fn compile(session: &mut BrowserSession, source: &str) {
 
 #[cfg(feature = "source")]
 fn finish(session: &mut BrowserSession) -> Value {
-    let roots = session.runtime.runtime().gc().active_roots();
+    let roots = session.runtime.gc().active_roots();
     assert_eq!(response(session.start())["status"], "runnable");
     for _ in 0..100 {
         let result = response(session.drive(1000));
         if result["status"] != "runnable" {
-            assert_eq!(session.runtime.runtime().gc().active_roots(), roots);
-            session.runtime.runtime().collect_garbage().unwrap();
+            assert_eq!(session.runtime.gc().active_roots(), roots);
+            session.runtime.collect_garbage().unwrap();
             return result;
         }
     }
@@ -113,7 +113,7 @@ fn source_diagnostics_retain_origin_and_utf16_ranges() {
 fn exclusive_run_cancellation_reset_and_failed_candidates_preserve_state() {
     let mut session = BrowserSession::new().unwrap();
     compile(&mut session, "fn main() { loop {} }");
-    let roots = session.runtime.runtime().gc().active_roots();
+    let roots = session.runtime.gc().active_roots();
     assert_eq!(response(session.start())["status"], "runnable");
     assert_eq!(response(session.drive(10))["status"], "runnable");
     assert_eq!(response(session.start())["error"]["code"], "WEB_BUSY");
@@ -129,7 +129,7 @@ fn exclusive_run_cancellation_reset_and_failed_candidates_preserve_state() {
     let result = response(session.drive(100));
     assert_eq!(result["error"]["code"], "KG_RUNTIME_CANCELLED", "{result}");
     assert!(session.active.is_none());
-    assert_eq!(session.runtime.runtime().gc().active_roots(), roots);
+    assert_eq!(session.runtime.gc().active_roots(), roots);
     assert_eq!(response(session.start())["status"], "runnable");
     assert_eq!(response(session.reset())["status"], "idle");
     assert_eq!(response(session.start())["error"]["code"], "WEB_NO_PROGRAM");

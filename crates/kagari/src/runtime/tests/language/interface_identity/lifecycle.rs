@@ -1,9 +1,9 @@
+use crate::test_support::bytecode::load_bytecode;
 use crate::{BytecodeArtifact, engine::EngineConfig, test_support::execution};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::ModuleDecl;
-use kagari_vm::vm::Vm;
 
 #[test]
 fn identity_operand_traps_preserve_effect_order_and_release_interface_roots() {
@@ -65,7 +65,7 @@ fn alias(state: State, kind: i32) -> bool {
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
-    let loaded = runtime.load_program("interface-identity", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "interface-identity", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let declaration = loaded
@@ -76,9 +76,9 @@ fn alias(state: State, kind: i32) -> bool {
         .unwrap()
         .declaration;
     let method = |name| ModuleDecl::method_id(declaration, name, loaded.definitions()).unwrap();
-    let vm = Vm::new(runtime);
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
-    let baseline = vm.runtime().collect_garbage().unwrap().live_objects;
+    let vm = runtime;
+    assert_eq!(vm.gc().active_roots(), 0);
+    let baseline = vm.collect_garbage().unwrap().live_objects;
     for kind in 1..=1 {
         for (entry, left, right, negated, expected_trace) in [
             ("compare", kind, 0, false, 1),
@@ -86,8 +86,11 @@ fn alias(state: State, kind: i32) -> bool {
             ("compare", kind, kind, true, 1),
             ("alias", kind, kind, false, 1),
         ] {
-            let root = vm.execute(&loaded, "make").unwrap().return_value;
-            let state = root.value(vm.runtime().gc()).unwrap();
+            let root = vm
+                .execute_module(&loaded, "make", vm.execution_options())
+                .unwrap()
+                .return_value;
+            let state = root.value(vm.gc()).unwrap();
             let arguments = if entry == "alias" {
                 vec![Value::I32(kind)]
             } else {
@@ -100,17 +103,17 @@ fn alias(state: State, kind: i32) -> bool {
                 format!("{error:?}").contains("division by zero"),
                 "{error:?}"
             );
-            assert_eq!(vm.runtime().gc().active_roots(), 1);
-            assert!(!vm.runtime().is_quarantined());
+            assert_eq!(vm.gc().active_roots(), 1);
+            assert!(!vm.is_quarantined());
             assert_eq!(
                 vm.invoke_interface_method(&state, &method("trace"), &[])
                     .unwrap(),
                 Value::I32(expected_trace)
             );
             drop(root);
-            assert_eq!(vm.runtime().gc().active_roots(), 0);
+            assert_eq!(vm.gc().active_roots(), 0);
             assert_eq!(
-                vm.runtime().collect_garbage().unwrap().live_objects,
+                vm.collect_garbage().unwrap().live_objects,
                 baseline,
                 "{entry}, kind={kind}, left={left}, right={right}"
             );

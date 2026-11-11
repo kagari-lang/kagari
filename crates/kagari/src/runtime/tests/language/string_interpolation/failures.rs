@@ -28,15 +28,15 @@ fn formatter_traps_keep_the_origin_and_release_execution_roots() {
         .unwrap_err();
     assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
     assert!(format!("{error:?}").contains("division by zero"));
-    assert!(error.error_trace().unwrap().frames.len() >= 2);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert!(runtime.runtime().execution_root().is_none());
+    assert!(error.trace().unwrap().frames.len() >= 2);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert!(runtime.execution_root().is_none());
     assert_eq!(
         runtime
             .execute(&loaded, "healthy", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );

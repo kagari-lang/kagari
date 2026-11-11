@@ -34,7 +34,16 @@ kagari-hir.workspace = true
 kagari-source.workspace = true
 kagari-compiler = { workspace = true, features = ["source"] }
 kagari-mir.workspace = true
+kagari-syntax.workspace = true
 
 [[test]]
 name = "native_schema"
 path = "tests/native_schema.rs"
+
+[[test]]
+name = "allocation_contracts"
+path = "tests/allocation_contracts/main.rs"
+
+[[test]]
+name = "library_measurements"
+path = "tests/library_measurements.rs"

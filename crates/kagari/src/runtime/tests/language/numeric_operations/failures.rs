@@ -31,7 +31,7 @@ fn shifts_reject_negative_and_width_counts() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err();
         assert!(format!("{error:?}").contains("shift out of range"));
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }
 
@@ -92,16 +92,15 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
     let memory = runtime
-        .runtime()
         .alloc_array(
             &_selected_loaded,
             kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
             vec![Value::I32(7), Value::I32(0), Value::I32(0)],
         )
         .unwrap();
-    let root = runtime.runtime().root_value(Value::Array(memory)).unwrap();
+    let root = runtime.root_value(Value::Array(memory)).unwrap();
     *memory_slot.lock().unwrap() = Some(memory);
     let error = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -111,11 +110,11 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         "{error:?}"
     );
     assert_eq!(
-        runtime.runtime().gc().array_snapshot(memory).unwrap(),
+        runtime.gc().array_snapshot(memory).unwrap(),
         vec![Value::I32(7), Value::I32(1), Value::I32(2)]
     );
     drop(root);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]

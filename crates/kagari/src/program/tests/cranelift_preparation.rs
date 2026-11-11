@@ -1,4 +1,3 @@
-#[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
 use crate::{
     BytecodeArtifact,
@@ -7,7 +6,6 @@ use crate::{
         KagariEngine,
         source::{ArtifactOptions, PreparationOptions},
     },
-    error::{EmbeddingError, RuntimeFailureKind},
     program::{Compilation, native::NativePreparationError},
     runtime::Runtime as SdkRuntime,
 };
@@ -17,6 +15,10 @@ use kagari_codegen::{
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_contract::native::NativeCompilationProduct;
+#[cfg(feature = "native")]
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::execution::{JitExecutionStatus, native::PreparedNativeEntry};
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     module::{InstalledProgram, entry::ProgramEntry},
     native::{
@@ -29,7 +31,6 @@ use kagari_runtime::{
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 use rstest::rstest;
 use std::{
     sync::{
@@ -85,7 +86,7 @@ fn scalar(runtime: &SdkRuntime, loaded: &InstalledProgram, entry: &str) -> i32 {
     let report = runtime
         .execute(loaded, entry, &[], &Default::default())
         .unwrap();
-    let Value::I32(value) = report.return_value.value(runtime.runtime().gc()).unwrap() else {
+    let Value::I32(value) = report.return_value.value(runtime.gc()).unwrap() else {
         panic!("scalar player result")
     };
     value
@@ -141,12 +142,13 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         let mut first = engine.runtime(context.clone());
         let mut modules = stdlib::modules().unwrap();
         modules.push(second_provider);
-        let mut second = SdkRuntime::new(
-            NativeInstallation::prepare(&modules)
+        let mut second = {
+            let mut runtime = NativeInstallation::prepare(&modules)
                 .unwrap()
-                .runtime(Default::default()),
-            context.clone(),
-        );
+                .runtime(Default::default());
+            runtime.set_default_context(context.clone());
+            runtime
+        };
         drop(modules);
         let first_program = first
             .load_program(program.program(), Default::default())
@@ -194,8 +196,8 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             2,
             "both bodies must compile through real Cranelift"
         );
-        let prepared = first.install_native(&first_program, &native).unwrap();
-        let independent = second.install_native(&second_program, &native).unwrap();
+        let prepared = (native).install(&mut first, &first_program).unwrap();
+        let independent = (native).install(&mut second, &second_program).unwrap();
         let PreparedNativeEntry::Native(installed) = &prepared else {
             panic!("native first player")
         };
@@ -227,7 +229,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                 )
                 .unwrap();
             assert_eq!(
-                report.return_value.value(first.runtime().gc()).unwrap(),
+                report.return_value.value(first.gc()).unwrap(),
                 Value::I32(42)
             );
             let jit = report.jit.unwrap();
@@ -246,7 +248,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                 assert!(jit.diagnostics.is_empty());
             }
             drop(report.return_value);
-            assert_eq!(first.runtime().gc().active_roots(), 0);
+            assert_eq!(first.gc().active_roots(), 0);
         }
         assert_eq!(scalar(&first, &first_program, "script_next"), 1);
         assert_eq!(scalar(&first, &first_program, "host_value"), 101);
@@ -254,19 +256,19 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         first
             .replace_program(&first_program, &candidate, Default::default())
             .unwrap();
-        let updated = first.install_native(&first_program, &next_native).unwrap();
+        let updated = (next_native).install(&mut first, &first_program).unwrap();
         assert_eq!(scalar(&first, &first_program, "script_next"), 2);
         assert_eq!(scalar(&second, &second_program, "script_next"), 1);
         first_value.store(102, Ordering::SeqCst);
         assert_eq!(scalar(&first, &first_program, "host_value"), 102);
         assert_eq!(scalar(&second, &second_program, "host_value"), 201);
-        let second_before = second.runtime().publication_token(&second_program).unwrap();
+        let second_before = second.publication_token(&second_program).unwrap();
         assert!(matches!(
-            second.install_native(&second_program, &next_native),
+            (next_native).install(&mut second, &second_program),
             Err(NativePreparationError::WrongVersion)
         ));
         assert_eq!(
-            second.runtime().publication_token(&second_program).unwrap(),
+            second.publication_token(&second_program).unwrap(),
             second_before
         );
         for (runtime, loaded, entry, value) in [
@@ -277,7 +279,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                 .execute_prepared(loaded, ProgramEntry::Main, &[], &context, entry)
                 .unwrap();
             assert_eq!(
-                report.return_value.value(runtime.runtime().gc()).unwrap(),
+                report.return_value.value(runtime.gc()).unwrap(),
                 Value::I32(value)
             );
             assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
@@ -314,16 +316,13 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             )
             .unwrap();
         assert_eq!(
-            report.return_value.value(second.runtime().gc()).unwrap(),
+            report.return_value.value(second.gc()).unwrap(),
             Value::I32(42)
         );
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
         drop(report.return_value);
-        assert_eq!(second.runtime().gc().active_roots(), 0);
-        assert_eq!(
-            second.runtime().resources().counters().current_call_depth,
-            0
-        );
+        assert_eq!(second.gc().active_roots(), 0);
+        assert_eq!(second.resources().counters().current_call_depth, 0);
         drop(independent);
         second.close().unwrap();
         drop(second);
@@ -376,7 +375,7 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
             &mut CraneliftBackend::for_host().unwrap(),
             &context.cancellation,
         )
-        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+        .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
 
@@ -386,7 +385,7 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(expected)
     );
@@ -395,12 +394,11 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
         JitExecutionStatus::InterpreterFallback
     );
     drop(report.return_value);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
 fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints() {
-    use crate::runtime::Runtime;
     use kagari_runtime::{Runtime as CoreRuntime, RuntimeConfig, gc::GcHeapConfig};
     let engine =
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
@@ -427,8 +425,8 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         jit_policy: JitPolicy::Enabled,
         ..Default::default()
     };
-    let mut runtime = Runtime::new(
-        {
+    let mut runtime = {
+        let mut runtime = {
             let mut registered = CoreRuntime::new(RuntimeConfig {
                 gc: GcHeapConfig {
                     collection_threshold: Some(1),
@@ -442,9 +440,10 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             )
             .unwrap();
             registered
-        },
-        context.clone(),
-    );
+        };
+        runtime.set_default_context(context.clone());
+        runtime
+    };
     let old = runtime
         .load_program(old_program.program(), Default::default())
         .unwrap();
@@ -456,7 +455,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             &mut backend,
             &Default::default(),
         )
-        .and_then(|native_code| runtime.install_native(&old, &native_code))
+        .and_then(|native_code| (native_code).install(&mut runtime, &old))
         .unwrap();
     let PreparedNativeEntry::Native(installed_old) = &old_native else {
         panic!("scalar entry should compile to native code");
@@ -472,32 +471,32 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             &mut backend,
             &Default::default(),
         )
-        .and_then(|native_code| runtime.install_native(&independent, &native_code))
+        .and_then(|native_code| (native_code).install(&mut runtime, &independent))
         .unwrap();
-    let selected_old = runtime.runtime().select_program(&old).unwrap();
+    let selected_old = runtime.select_program(&old).unwrap();
     let outer = runtime
-        .runtime()
         .begin_execution(&selected_old, context.runtime_options())
         .unwrap();
     // The live session's Runtime borrow statically excludes mutable publication.
     // Dynamic admission for forgotten scopes and callbacks is tested at its owner.
     assert_eq!(
-        runtime.runtime().select_program(&old).unwrap().key(),
+        runtime.select_program(&old).unwrap().key(),
         selected_old.key()
     );
-    assert_eq!(
-        runtime.runtime().execution_root().unwrap().key(),
-        selected_old.key()
-    );
+    assert_eq!(runtime.execution_root().unwrap().key(), selected_old.key());
     // Rejected publication must not replace the admitted function's pages.
     let report = runtime
-        .backend()
-        .execute_prepared(&selected_old, ProgramEntry::Main, &old_native)
+        .execute_prepared_module(
+            &selected_old,
+            ProgramEntry::Main,
+            &old_native,
+            runtime.execution_options(),
+        )
         .unwrap();
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -506,10 +505,8 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     drop(outer);
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(candidate.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(candidate.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
@@ -520,7 +517,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             &mut backend,
             &Default::default(),
         )
-        .and_then(|native_code| runtime.install_native(&current, &native_code))
+        .and_then(|native_code| (native_code).install(&mut runtime, &current))
         .unwrap();
     drop(backend);
     drop(old_program);
@@ -537,46 +534,45 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         let error = runtime
             .execute_prepared(&old, ProgramEntry::Main, &[], &execution, &old_native)
             .unwrap_err();
-        assert!(matches!(error, EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::BytecodeVerification, message, ..
-        } if message.contains("different function or execution version")));
+        assert!(
+            matches!(error, ref error if error.kind() == RuntimeErrorKind::ModuleValidation && error.to_string().contains("different function or execution version"))
+        );
     }
     // The independent installation still selects the old product legitimately;
     // the updated installation selects the new one. Both must run actual native code.
-    let selected_independent = runtime.runtime().select_program(&independent).unwrap();
-    let selected_current = runtime.runtime().select_program(&current).unwrap();
+    let selected_independent = runtime.select_program(&independent).unwrap();
+    let selected_current = runtime.select_program(&current).unwrap();
     for (module, native, value) in [
         (&selected_independent, &independent_native, 42),
         (&selected_current, &current_native, 43),
     ] {
         let _session = runtime
-            .runtime()
             .begin_execution(module, context.runtime_options())
             .unwrap();
         let dead = runtime
-            .runtime()
             .alloc_array(module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
             .unwrap();
-        let collections = runtime.runtime().gc().stats().collections;
+        let collections = runtime.gc().stats().collections;
         let report = runtime
-            .backend()
-            .execute_prepared(module, ProgramEntry::Main, native)
+            .execute_prepared_module(
+                module,
+                ProgramEntry::Main,
+                native,
+                runtime.execution_options(),
+            )
             .unwrap();
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(value)
         );
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
         drop(report.return_value);
-        assert!(runtime.runtime().gc().stats().collections > collections);
-        assert!(runtime.runtime().gc().array_len(dead).is_none());
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert_eq!(
-            runtime.runtime().resources().counters().current_call_depth,
-            0
-        );
+        assert!(runtime.gc().stats().collections > collections);
+        assert!(runtime.gc().array_len(dead).is_none());
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
     }
 }

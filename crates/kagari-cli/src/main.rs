@@ -30,6 +30,7 @@ use kagari_bytecode::artifact::ArtifactCompatibility;
 #[cfg(feature = "jit")]
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_runtime::execution::ExecutionReport;
 use kagari_runtime::{
     error::RuntimeError,
     host::{HostCallContext, HostError},
@@ -43,7 +44,6 @@ use kagari_source::{
 };
 use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::declaration::logging;
-use kagari_vm::vm::ExecutionReport;
 use std::{
     env, fs,
     io::{self, Write},
@@ -243,7 +243,7 @@ fn execute_entry_with_jit(
             &mut backend,
             &context.cancellation,
         )
-        .and_then(|native_code| runtime.install_native(loaded, &native_code))
+        .and_then(|native_code| native_code.install(runtime, loaded))
         .map_err(|error| CliError::message(1, format!("native preparation failed: {error}")))?;
     runtime
         .execute_prepared(loaded, ProgramEntry::Main, &[], context, &prepared)
@@ -364,29 +364,25 @@ fn print_program_error(error: CompilationPreparationError) -> CliError {
     }
 }
 
-fn print_embedding_error(error: EmbeddingError) -> CliError {
-    match error {
+fn print_embedding_error(error: impl Into<EmbeddingError>) -> CliError {
+    match error.into() {
         EmbeddingError::Diagnostics { diagnostics } => {
             print_embedding_diagnostics(&diagnostics, None);
             CliError::message(1, "diagnostics emitted")
         }
-        EmbeddingError::Runtime {
-            kind,
-            message,
-            trace,
-            task_origin,
-        } => CliError::message(
+        EmbeddingError::Runtime { error } => CliError::message(
             1,
             format!(
-                "{}: {message}{}{}",
-                kind.code(),
-                task_origin
+                "{}: {error}{}{}",
+                error.code(),
+                error
+                    .task_origin()
                     .map(|origin| format!(
                         "\n  originating task: {:?}, cancellation: {:?}",
                         origin.task, origin.cancellation
                     ))
                     .unwrap_or_default(),
-                trace.as_ref().map(ToString::to_string).unwrap_or_default()
+                error.trace().map(ToString::to_string).unwrap_or_default()
             ),
         ),
         other => CliError::message(1, format!("{}: {other:?}", other.code())),

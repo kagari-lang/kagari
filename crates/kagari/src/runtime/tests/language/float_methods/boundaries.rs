@@ -112,7 +112,7 @@ fn invalid_clamp_bounds_trap_after_arguments_and_release_roots_without_poisoning
         let retained: Object = runtime
             .execute_typed(&loaded, ProgramEntry::Main, (), &context)
             .unwrap();
-        let baseline_roots = runtime.runtime().gc().active_roots();
+        let baseline_roots = runtime.gc().active_roots();
         assert!(baseline_roots > 0);
         for (name, case) in &failures {
             let error = runtime
@@ -124,16 +124,13 @@ fn invalid_clamp_bounds_trap_after_arguments_and_release_roots_without_poisoning
                 "{route}: {case}: {error:?}"
             );
             assert_eq!(
-                runtime.runtime().gc().active_roots(),
+                runtime.gc().active_roots(),
                 baseline_roots,
                 "{route}: {case}"
             );
-            assert_eq!(
-                runtime.runtime().resources().counters().current_call_depth,
-                0
-            );
-            assert!(!runtime.runtime().is_quarantined(), "{route}: {case}");
-            runtime.runtime().collect_garbage().unwrap();
+            assert_eq!(runtime.resources().counters().current_call_depth, 0);
+            assert!(!runtime.is_quarantined(), "{route}: {case}");
+            runtime.collect_garbage().unwrap();
             let sequence: i32 = runtime
                 .execute_typed(&loaded, "inspect", (retained.clone(),), &context)
                 .unwrap();
@@ -145,11 +142,11 @@ fn invalid_clamp_bounds_trap_after_arguments_and_release_roots_without_poisoning
                 .execute_typed(&loaded, "after", (), &context)
                 .unwrap();
             assert!(after, "{route}: {case}: execution can continue");
-            assert_eq!(runtime.runtime().gc().active_roots(), baseline_roots);
+            assert_eq!(runtime.gc().active_roots(), baseline_roots);
         }
-        assert!(runtime.runtime().gc().stats().collections > 0);
+        assert!(runtime.gc().stats().collections > 0);
         drop(retained);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0, "{route}");
-        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.gc().active_roots(), 0, "{route}");
+        runtime.collect_garbage().unwrap();
     }
 }

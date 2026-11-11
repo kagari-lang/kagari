@@ -87,29 +87,26 @@ pub fn healthy() -> i32 { 42 }
             .unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
         assert_eq!(*effects.lock().unwrap(), vec!["before"]);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert!(runtime.runtime().execution_root().is_none());
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(runtime.execution_root().is_none());
         let limited = context.clone();
 
-        let cancellation = support::cancel_after(
-            runtime.runtime(),
-            &runtime.runtime().select_program(&loaded).unwrap(),
-            20,
-        );
+        let cancellation =
+            support::cancel_after(&runtime, &runtime.select_program(&loaded).unwrap(), 20);
         let error = runtime
             .execute(&loaded, "forever", &[], &limited)
             .unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");
         drop(cancellation);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert!(runtime.runtime().execution_root().is_none());
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert!(runtime.execution_root().is_none());
 
         assert_eq!(
             runtime
                 .execute(&loaded, "healthy", &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );

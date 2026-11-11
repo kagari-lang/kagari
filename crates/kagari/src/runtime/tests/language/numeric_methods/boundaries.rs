@@ -1,4 +1,5 @@
 use super::{WIDTHS, compile, context, engine, execute, execute_checks};
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{module::entry::ProgramEntry, native::objects::Object, value::Value};
 use kagari_source::source::SourceFile;
 use rstest::rstest;
@@ -193,14 +194,14 @@ fn allocating_numeric_results_survive_collection_and_traps_release_execution_roo
     let retained: Object = runtime
         .execute_typed(&loaded, ProgramEntry::Main, (), &context)
         .unwrap();
-    assert!(runtime.runtime().gc().stats().collections > 0);
-    runtime.runtime().collect_garbage().unwrap();
+    assert!(runtime.gc().stats().collections > 0);
+    runtime.collect_garbage().unwrap();
     let inspected: bool = runtime
         .execute_typed(&loaded, "inspect", (retained.clone(),), &context)
         .unwrap();
     assert!(inspected);
     drop(retained);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 
     let error = runtime.execute(&loaded, "fail", &[], &context).unwrap_err();
     assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
@@ -208,27 +209,22 @@ fn allocating_numeric_results_survive_collection_and_traps_release_execution_roo
         format!("{error:?}").contains("division by zero"),
         "{error:?}"
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.collect_garbage().unwrap();
     let after = runtime.execute(&loaded, "after", &[], &context).unwrap();
     assert_eq!(
-        after.return_value.value(runtime.runtime().gc()).unwrap(),
+        after.return_value.value(runtime.gc()).unwrap(),
         Value::Bool(true)
     );
     drop(after);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert!(!runtime.runtime().is_quarantined());
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert!(!runtime.is_quarantined());
     runtime
         .program(&loaded)
-        .and_then(|base| {
-            base.prepare_replacement(&program, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
-    assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }

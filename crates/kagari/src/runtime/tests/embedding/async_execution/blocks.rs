@@ -1,8 +1,8 @@
 //! Async blocks share decoded Future execution, capture roots and one-shot state.
 use super::{Fixture, Value, slice};
-use crate::error::{EmbeddingError, RuntimeFailureKind};
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::native::completion::CompletionStatus;
-use kagari_vm::vm::owned::DriveResult;
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -37,11 +37,8 @@ fn sdk_async_block_capture_and_control_flow_contract() {
     );
     let repeated = f.start_future(&inner);
     assert!(matches!(
-        f.runtime.backend().drive(&repeated, slice()).unwrap(),
-        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::ScriptTrap,
-            ..
-        })
+        f.runtime.drive(&repeated, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::ScriptTrap)
     ));
     assert_eq!(
         f.value(&f.invoke("count", &[f.value(&events)])),
@@ -61,15 +58,15 @@ pub fn cold() -> Future<i32> {
 "#,
     );
     let future = f.invoke("cold", &[]);
-    f.runtime.runtime().collect_garbage().unwrap();
+    f.runtime.collect_garbage().unwrap();
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     let owner = f.start_future(&future);
     drop(future);
     assert!(matches!(
-        f.runtime.backend().drive(&owner, slice()).unwrap(),
+        f.runtime.drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
-    f.runtime.runtime().collect_garbage().unwrap();
+    f.runtime.collect_garbage().unwrap();
     assert_eq!(*f.inputs.lock().unwrap(), [40]);
     assert_eq!(
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(2)),
@@ -77,6 +74,6 @@ pub fn cold() -> Future<i32> {
     );
     assert_eq!(f.value(&f.complete(&owner)), Value::I32(42));
     drop(owner);
-    f.runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(f.runtime.runtime().gc().active_roots(), 0);
+    f.runtime.collect_garbage().unwrap();
+    assert_eq!(f.runtime.gc().active_roots(), 0);
 }

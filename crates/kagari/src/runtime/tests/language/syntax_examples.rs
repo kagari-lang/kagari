@@ -134,7 +134,7 @@ fn nested_inline_modules_resolve_qualified_members() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -204,7 +204,7 @@ pub fn after_trap() -> i32 { 42 }
     assert_eq!(
         result
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -236,11 +236,11 @@ fn closure_trap_releases_execution_resources() {
             .execute(&loaded, "after", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
@@ -273,7 +273,7 @@ pub fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
             .execute(&loaded, "integer", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -282,7 +282,7 @@ pub fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
             .execute(&loaded, "fractional", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::F32(1.5)
     );

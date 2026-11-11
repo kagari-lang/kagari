@@ -1,7 +1,7 @@
 use super::{Fixture, Value, slice};
-use crate::error::{EmbeddingError, RuntimeFailureKind};
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::native::completion::CompletionStatus;
-use kagari_vm::vm::owned::DriveResult;
 use std::sync::atomic::Ordering;
 
 #[test]
@@ -13,7 +13,7 @@ fn sdk_for_await_iterator_control_contract() {
     let owner = f.start_future(&future);
     for (input, count) in [(11, 111), (12, 112)] {
         assert!(matches!(
-            f.runtime.backend().drive(&owner, slice()).unwrap(),
+            f.runtime.drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
@@ -21,7 +21,7 @@ fn sdk_for_await_iterator_control_contract() {
             f.value(&f.invoke("counts", &[f.value(&calls)])),
             Value::I32(count)
         );
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         assert_eq!(
             f.sent.lock().unwrap().pop().unwrap().complete(Ok(7)),
             CompletionStatus::Accepted
@@ -38,14 +38,14 @@ fn sdk_for_await_iterator_control_contract() {
     let owner = f.start_future(&future);
     for (index, input) in [20, 109, 109, 198].into_iter().enumerate() {
         assert!(matches!(
-            f.runtime.backend().drive(&owner, slice()).unwrap(),
+            f.runtime.drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
         if index == 0 {
             drop(f.invoke("replace", &[f.value(&items)]));
         }
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         assert_eq!(
             f.sent.lock().unwrap().pop().unwrap().complete(Ok(42)),
             CompletionStatus::Accepted
@@ -60,7 +60,7 @@ fn sdk_for_await_iterator_control_contract() {
     let future = f.invoke("nested", &[f.value(&invalidated_items)]);
     let invalidated = f.start_future(&future);
     assert!(matches!(
-        f.runtime.backend().drive(&invalidated, slice()).unwrap(),
+        f.runtime.drive(&invalidated, slice()).unwrap(),
         DriveResult::Waiting
     ));
     let starts = f.starts.load(Ordering::SeqCst);
@@ -69,24 +69,19 @@ fn sdk_for_await_iterator_control_contract() {
         f.value(&f.invoke("size", &[f.value(&invalidated_items)])),
         Value::U64(4)
     );
-    f.runtime.runtime().collect_garbage().unwrap();
+    f.runtime.collect_garbage().unwrap();
     assert_eq!(
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(42)),
         CompletionStatus::Accepted
     );
-    let DriveResult::Complete(Err(error)) =
-        f.runtime.backend().drive(&invalidated, slice()).unwrap()
-    else {
+    let DriveResult::Complete(Err(error)) = f.runtime.drive(&invalidated, slice()).unwrap() else {
         panic!("invalidated cursor must trap on resume");
     };
-    let error = EmbeddingError::from(error);
+
     assert!(
         matches!(
             error,
-            EmbeddingError::Runtime {
-                kind: RuntimeFailureKind::ScriptTrap,
-                ..
-            }
+            ref error if error.kind() == RuntimeErrorKind::ScriptTrap
         ),
         "{error:?}"
     );
@@ -99,29 +94,25 @@ fn sdk_for_await_iterator_control_contract() {
     let future = f.invoke("trapping", &[f.value(&items)]);
     let owner = f.start_future(&future);
     assert!(matches!(
-        f.runtime.backend().drive(&owner, slice()).unwrap(),
+        f.runtime.drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(0)),
         CompletionStatus::Accepted
     );
-    let DriveResult::Complete(Err(error)) = f.runtime.backend().drive(&owner, slice()).unwrap()
-    else {
+    let DriveResult::Complete(Err(error)) = f.runtime.drive(&owner, slice()).unwrap() else {
         panic!("division trap after resume");
     };
-    let error = EmbeddingError::from(error);
+
     assert!(
         matches!(
             error,
-            EmbeddingError::Runtime {
-                kind: RuntimeFailureKind::ScriptTrap,
-                ..
-            }
+            ref error if error.kind() == RuntimeErrorKind::ScriptTrap
         ),
         "{error:?}"
     );
-    let trace = error.error_trace().unwrap();
+    let trace = error.trace().unwrap();
     assert!(trace.frames[0].source_uri.ends_with("async-script.kgr"));
     let expected_line = u32::try_from(
         source
@@ -133,14 +124,7 @@ fn sdk_for_await_iterator_control_contract() {
     .unwrap();
     assert_eq!(trace.frames[0].line, Some(expected_line));
     drop(f.invoke("append", &[f.value(&items)]));
-    assert_eq!(
-        f.runtime
-            .runtime()
-            .resources()
-            .counters()
-            .current_call_depth,
-        0
-    );
+    assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
 }
 
 #[test]
@@ -162,9 +146,9 @@ fn sdk_script_future_and_for_await_contract() {
         "queueing must stay cold"
     );
     drop(future);
-    f.runtime.runtime().collect_garbage().unwrap();
+    f.runtime.collect_garbage().unwrap();
     assert!(matches!(
-        f.runtime.backend().drive(&owner, slice()).unwrap(),
+        f.runtime.drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(*f.inputs.lock().unwrap(), [10]);
@@ -175,7 +159,7 @@ fn sdk_script_future_and_for_await_contract() {
             CompletionStatus::Accepted
         );
         assert!(matches!(
-            f.runtime.backend().drive(&owner, slice()).unwrap(),
+            f.runtime.drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(
@@ -183,7 +167,7 @@ fn sdk_script_future_and_for_await_contract() {
             expected,
             "saved cursor must observe later replacement"
         );
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
     }
     assert_eq!(
         f.sent.lock().unwrap().pop().unwrap().complete(Ok(7)),
@@ -206,7 +190,7 @@ fn sdk_script_future_and_for_await_contract() {
     let early = f.invoke("early", &[]);
     let owner = f.start_future(&early);
     assert!(matches!(
-        f.runtime.backend().drive(&owner, slice()).unwrap(),
+        f.runtime.drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(
@@ -214,12 +198,7 @@ fn sdk_script_future_and_for_await_contract() {
         CompletionStatus::Accepted
     );
     let result = f.complete(&owner);
-    assert!(
-        f.runtime
-            .runtime()
-            .result_failure(&f.value(&result))
-            .is_some()
-    );
+    assert!(f.runtime.result_failure(&f.value(&result)).is_some());
     assert_eq!(
         f.starts.load(Ordering::SeqCst),
         4,
@@ -229,7 +208,7 @@ fn sdk_script_future_and_for_await_contract() {
     let owner = f.start_future(&success);
     for (input, reply) in [(50, 21), (21, 42)] {
         assert!(matches!(
-            f.runtime.backend().drive(&owner, slice()).unwrap(),
+            f.runtime.drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
@@ -239,17 +218,12 @@ fn sdk_script_future_and_for_await_contract() {
         );
     }
     let result = f.complete(&owner);
-    assert!(
-        f.runtime
-            .runtime()
-            .result_failure(&f.value(&result))
-            .is_none()
-    );
+    assert!(f.runtime.result_failure(&f.value(&result)).is_none());
     let Value::Enum(id) = f.value(&result) else {
         panic!("business Result");
     };
     assert_eq!(
-        f.runtime.runtime().gc().enum_snapshot(id).unwrap().fields,
+        f.runtime.gc().enum_snapshot(id).unwrap().fields,
         [Value::I32(42)]
     );
 
@@ -259,25 +233,22 @@ fn sdk_script_future_and_for_await_contract() {
         let future = f.invoke("total", &[f.value(&items)]);
         let owner = f.start_future(&future);
         assert!(matches!(
-            f.runtime.backend().drive(&owner, slice()).unwrap(),
+            f.runtime.drive(&owner, slice()).unwrap(),
             DriveResult::Waiting
         ));
         let completion = f.sent.lock().unwrap().pop().unwrap();
         if abandon {
             drop(owner);
-            assert_eq!(f.runtime.runtime().drain_retired_executions().unwrap(), 1);
+            assert_eq!(f.runtime.drain_retired_executions().unwrap(), 1);
         } else {
             owner.cancel();
             assert!(matches!(
-                f.runtime.backend().drive(&owner, slice()).unwrap(),
-                DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
-                    kind: RuntimeFailureKind::Cancelled,
-                    ..
-                })
+                f.runtime.drive(&owner, slice()).unwrap(),
+                DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::Cancelled)
             ));
         }
         assert_eq!(completion.complete(Ok(100)), CompletionStatus::Stale);
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         drop(f.invoke("append", &[f.value(&items)]));
     }
     assert_eq!(f.cancels.load(Ordering::SeqCst), 2);
@@ -306,11 +277,8 @@ fn sdk_script_future_and_for_await_contract() {
     let queued = f.start_future(&future);
     queued.cancel();
     assert!(matches!(
-        f.runtime.backend().drive(&queued, slice()).unwrap(),
-        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::Cancelled,
-            ..
-        })
+        f.runtime.drive(&queued, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::Cancelled)
     ));
     // Cancellation before first drive does not claim the cold value.
     drop(f.complete(&f.start_future(&future)));
@@ -320,11 +288,8 @@ fn sdk_script_future_and_for_await_contract() {
     );
     let repeated = f.start_future(&future);
     assert!(matches!(
-        f.runtime.backend().drive(&repeated, slice()).unwrap(),
-        DriveResult::Complete(Err(error)) if matches!(EmbeddingError::from(error.clone()), EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::ScriptTrap,
-            ..
-        })
+        f.runtime.drive(&repeated, slice()).unwrap(),
+        DriveResult::Complete(Err(error)) if matches!(error.clone(), ref error if error.kind() == RuntimeErrorKind::ScriptTrap)
     ));
     assert_eq!(
         f.value(&f.invoke("size", &[f.value(&items)])),

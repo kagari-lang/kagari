@@ -5,6 +5,7 @@ use crate::{
     program::Program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -41,20 +42,18 @@ fn ordinary_execution(
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::Bool(true)
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
     // Retire materialized module constants before checking execution-root cleanup.
     runtime
         .program(&loaded)
-        .and_then(|base| {
-            base.prepare_replacement(&program, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc().allocated_objects(), 0);
 }

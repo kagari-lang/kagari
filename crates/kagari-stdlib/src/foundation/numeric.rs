@@ -1,9 +1,21 @@
 //! Scalar construction keeps independent declaration targets for shared Rust bodies.
+// Preserve module children during Runtime-only test source sharing.
+#[cfg_attr(test, path = "numeric/aggregation.rs")]
 pub(super) mod aggregation;
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "numeric/binding.rs")]
 mod binding;
+// Preserve module children during Runtime-only test source sharing.
+#[cfg_attr(test, path = "numeric/conversion.rs")]
 pub(super) mod conversion;
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "numeric/float.rs")]
 mod float;
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "numeric/integer.rs")]
 mod integer;
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "numeric/math.rs")]
 mod math;
 use crate::foundation::{
     default_impl, enumeration,

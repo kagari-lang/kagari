@@ -3,6 +3,7 @@
 
 use kagari::{engine::KagariEngine, runtime::Runtime};
 use kagari_runtime::module::InstalledProgram;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
 
@@ -42,7 +43,7 @@ fn main() {
     let mut runtime = engine.runtime(Default::default());
     let old = runtime.load_program(&first, Default::default()).unwrap();
     let retained_current_code = runtime
-        .function::<(), i32>(&old.root(), "current_code")
+        .bind_function::<(), i32>(&old.root(), "current_code")
         .unwrap();
 
     assert_eq!(call(&runtime, &old, "next"), 1);
@@ -69,10 +70,8 @@ fn main() {
         .unwrap();
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(&second, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();

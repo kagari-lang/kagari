@@ -1,4 +1,6 @@
 //! Runtime-owned session records and independently borrowed frame stacks.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     error::RuntimeError,
     frame::ExecutionFrame,
@@ -189,18 +191,18 @@ mod tests {
     fn module() -> (Runtime, ExecutableModule) {
         let context = DefinitionContext::new().unwrap();
         let mut runtime = Runtime::default();
-        let program = runtime
-            .load_program(
-                "sessions",
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-            )
-            .unwrap();
+        let program = load_bytecode(
+            &mut runtime,
+            "sessions",
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+        )
+        .unwrap();
         let module = runtime.select_program(&program).unwrap();
         (runtime, module)
     }

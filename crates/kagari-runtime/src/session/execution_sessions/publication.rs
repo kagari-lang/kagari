@@ -1,4 +1,5 @@
 use super::load;
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, StagedReload,
     closure::{ClosureTarget, ClosureValueSnapshot},
@@ -210,7 +211,7 @@ fn parked_program(runtime: &mut Runtime) -> InstalledProgram {
     }
     .metadata(runtime.host().definitions(), &Default::default())
     .unwrap();
-    runtime.load_program("parked", program).unwrap()
+    load_bytecode(runtime, "parked", program).unwrap()
 }
 
 #[test]
@@ -415,7 +416,7 @@ fn publication_is_rejected_inside_observers_and_native_callbacks() {
     let native = builder.finish().unwrap();
     let program = free_function_program(&native.to_declaration());
     native.install(&mut runtime).unwrap();
-    let caller = runtime.load_program("callback", program).unwrap();
+    let caller = load_bytecode(&mut runtime, "callback", program).unwrap();
     let caller = runtime.select_program(&caller).unwrap();
     runtime
         .set_execution_observer(AdmissionObserver {

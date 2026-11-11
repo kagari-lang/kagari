@@ -86,13 +86,12 @@ fn drive(f: &Fixture, scope: &TaskScopeOwner, task: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
         let result = f
             .runtime
-            .backend()
             .drive_task(scope, task, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
             return result;
         }
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
     }
     panic!("bounded conversion driver");
 }
@@ -142,13 +141,12 @@ fn async_output_publication_contract() {
             engine.install(module.finish().unwrap()).unwrap();
         });
 
-        let runtime = f.runtime.runtime();
+        let runtime = &f.runtime;
         let context = ExecutionContext::default();
         let scope = f
             .runtime
-            .runtime()
-            .create_task_scope(
-                &f.runtime.runtime().select_program(&f.module).unwrap(),
+            .create_dispatched_task_scope(
+                &f.runtime.select_program(&f.module).unwrap(),
                 context.interpreter_options().unwrap(),
                 Arc::new(|_| Ok(())),
             )

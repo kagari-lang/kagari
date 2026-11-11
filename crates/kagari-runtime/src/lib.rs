@@ -4,6 +4,7 @@ use crate::{
         InterpreterCacheId, InterpreterCacheRecord, InterpreterCacheRegistry,
         ReloadDependencySnapshot,
     },
+    context::ExecutionContext,
     error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     frame::ExecutionStack,
     gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, roots::RootedValue},
@@ -36,7 +37,7 @@ use crate::{
 };
 mod authority;
 mod clock;
-mod loading;
+pub mod loading;
 mod objects;
 mod observer;
 
@@ -52,19 +53,62 @@ use std::{
 pub mod error_trace;
 #[cfg(test)]
 extern crate self as kagari_runtime;
+// Unit tests must register providers against this test crate's Runtime, not the
+// separately linked library instance in a cyclic stdlib dev-dependency. Share the
+// actual provider sources at their original crate-root paths; production builds
+// contain none of these modules. Integration targets use the ordinary stdlib crate.
+#[cfg(test)]
+extern crate self as kagari_stdlib;
+#[cfg(test)]
+#[path = "../../kagari-stdlib/src/assembly.rs"]
+mod assembly;
+#[cfg(test)]
+// This shared test consumer does not use every public stdlib catalog API.
+#[allow(dead_code)]
+#[path = "../../kagari-stdlib/src/catalog.rs"]
+mod catalog;
+#[cfg(test)]
+// This shared test consumer does not use every public stdlib catalog API.
+#[allow(dead_code)]
+#[path = "../../kagari-stdlib/src/declarations.rs"]
+mod declarations;
+#[cfg(test)]
+#[path = "../../kagari-stdlib/src/foundation.rs"]
+mod foundation;
+#[cfg(test)]
+#[path = "../../kagari-stdlib/src/identity.rs"]
+mod identity;
+#[cfg(test)]
+// This shared test consumer does not use every public stdlib catalog API.
+#[allow(dead_code)]
+#[path = "../../kagari-stdlib/src/namespaces.rs"]
+mod namespaces;
+
+#[cfg(test)]
+fn modules() -> native::binding::NativeResult<Vec<native::module::NativeModule>> {
+    assembly::modules()
+}
+
 pub mod backend;
 pub mod builtin;
 pub mod cache;
 pub mod closure;
+pub mod context;
+pub mod debug;
+pub mod debug_protocol;
 #[cfg(feature = "execution-diagnostics")]
 pub mod diagnostics;
 pub mod error;
+pub mod execution;
 mod execution_metadata;
 mod execution_state;
+mod executor;
 pub mod frame;
 pub mod gc;
 pub mod host;
 pub mod host_scope;
+#[cfg(test)]
+mod interpreter_tests;
 pub mod jit_abi;
 pub mod metadata;
 pub mod module;
@@ -158,6 +202,7 @@ pub struct RuntimeConfig {
 /// ```
 #[derive(Debug)]
 pub struct Runtime {
+    default_context: ExecutionContext,
     scheduler: Scheduler,
     groups: RefCell<GroupStore>,
     dependencies: Arc<Dependencies>,
@@ -205,6 +250,7 @@ impl Runtime {
         let resources = ResourceState::new(config.limits);
         let types = native_entries.metadata.runtime_registry();
         Self {
+            default_context: ExecutionContext::default(),
             scheduler: Scheduler::new(config.async_limits),
             groups: RefCell::default(),
             dependencies: Arc::new(Dependencies::new(config.async_limits)),

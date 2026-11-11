@@ -35,18 +35,18 @@ pub(super) fn run(
             let lifecycle = || {
                 let mut runtime = engine.runtime(context.clone());
                 let loaded = runtime.load_program(program, Default::default()).unwrap();
-                runtime.runtime().collect_garbage().unwrap();
+                runtime.collect_garbage().unwrap();
                 let snapshot = || Snapshot {
                     allocations: allocations::current().unwrap(),
-                    heap: runtime.runtime().gc().stats(),
-                    storage: runtime.runtime().gc().storage_usage(),
+                    heap: runtime.gc().stats(),
+                    storage: runtime.gc().storage_usage(),
                 };
                 let setup = snapshot();
                 let values: ScriptValue = runtime
                     .execute_typed(&loaded, name, (count,), context)
                     .unwrap();
                 let constructed = snapshot();
-                runtime.runtime().collect_garbage().unwrap();
+                runtime.collect_garbage().unwrap();
                 let live = snapshot();
                 let sparse: Option<ScriptValue> = (name == "points").then(|| {
                     runtime
@@ -54,10 +54,10 @@ pub(super) fn run(
                         .unwrap()
                 });
                 drop(values);
-                runtime.runtime().collect_garbage().unwrap();
+                runtime.collect_garbage().unwrap();
                 let released = snapshot();
                 drop(sparse);
-                runtime.runtime().collect_garbage().unwrap();
+                runtime.collect_garbage().unwrap();
                 let empty = snapshot();
                 // Three equal cycles expose capacity growth after the first reuse.
                 let mut reused = None;
@@ -66,10 +66,10 @@ pub(super) fn run(
                     let again: ScriptValue = runtime
                         .execute_typed(&loaded, name, (count,), context)
                         .unwrap();
-                    runtime.runtime().collect_garbage().unwrap();
+                    runtime.collect_garbage().unwrap();
                     let live = snapshot();
                     drop(again);
-                    runtime.runtime().collect_garbage().unwrap();
+                    runtime.collect_garbage().unwrap();
                     let empty = snapshot();
                     let net = (live.allocations.net_bytes, empty.allocations.net_bytes);
                     if let Some(expected) = plateau {
@@ -79,7 +79,7 @@ pub(super) fn run(
                     reused = Some(live);
                 }
                 assert_eq!(
-                    runtime.runtime().gc().stats().allocated_objects,
+                    runtime.gc().stats().allocated_objects,
                     setup.heap.allocated_objects
                 );
                 [setup, constructed, live, released, empty, reused.unwrap()]

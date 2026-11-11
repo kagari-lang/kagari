@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
@@ -38,18 +40,18 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let owner_program = runtime
-        .load_program(
-            "pack-proof",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let owner_program = load_bytecode(
+        &mut runtime,
+        "pack-proof",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
 
     let player_type = runtime
         .bind_rust_type::<Player>(&owner_program.root())

@@ -3,3 +3,7 @@ pub(crate) mod native;
 pub(crate) mod update_programs;
 #[path = "../tests/support/update_publication.rs"]
 pub(crate) mod update_publication;
+
+// Shared raw-fixture preparation for unit and integration boundaries.
+#[path = "../tests/support/bytecode.rs"]
+pub(crate) mod bytecode;

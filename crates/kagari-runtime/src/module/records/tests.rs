@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
@@ -80,7 +82,7 @@ fn fixture() -> (
         .unwrap();
     let mut runtime = Runtime::default();
     provider.install(&mut runtime).unwrap();
-    let loaded_program = runtime.load_program("records", code.clone()).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "records", code.clone()).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     (runtime, loaded_program, loaded, code)
 }

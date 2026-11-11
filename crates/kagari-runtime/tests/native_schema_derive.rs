@@ -1,4 +1,5 @@
 use super::program_for_source;
+use crate::bytecode_fixture::load_bytecode;
 use kagari_derive::KagariValue;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -54,7 +55,7 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner_program = runtime.load_program("mixed", program).unwrap();
+    let owner_program = load_bytecode(&mut runtime, "mixed", program).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     let Ty::NativeObject(nominal) = mapping.abi() else {
         panic!("opaque mapping")

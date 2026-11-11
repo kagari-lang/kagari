@@ -31,7 +31,7 @@ fn reexports_preserve_trait_type_and_constructor_identity_in_artifacts() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );

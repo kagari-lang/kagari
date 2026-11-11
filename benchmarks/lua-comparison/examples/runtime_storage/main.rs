@@ -67,18 +67,18 @@ fn lifecycle(engine: &KagariEngine, program: &Program, context: &ExecutionContex
         for sample in 0..14 {
             let mut runtime = engine.runtime(context.clone());
             let loaded = runtime.load_program(program, Default::default()).unwrap();
-            let baseline = runtime.runtime().collect_garbage().unwrap().live_objects;
+            let baseline = runtime.collect_garbage().unwrap().live_objects;
             let start = Instant::now();
             let values: ScriptValue = runtime
                 .execute_typed(&loaded, name, (POPULATION,), context)
                 .unwrap();
             let construction = start.elapsed().as_nanos();
             let start = Instant::now();
-            runtime.runtime().collect_garbage().unwrap();
+            runtime.collect_garbage().unwrap();
             let live_gc = start.elapsed().as_nanos();
             drop(values);
             let start = Instant::now();
-            let empty = runtime.runtime().collect_garbage().unwrap();
+            let empty = runtime.collect_garbage().unwrap();
             let release_gc = start.elapsed().as_nanos();
             assert_eq!(empty.live_objects, baseline);
             if sample >= 3 {
@@ -154,7 +154,7 @@ fn main() {
         let numbers: ScriptValue = runtime
             .execute_typed(&loaded, "numbers", (POPULATION,), &context)
             .unwrap();
-        runtime.runtime().collect_garbage().unwrap();
+        runtime.collect_garbage().unwrap();
         sample("scalar", ITERATIONS, || {
             runtime
                 .execute_typed(&loaded, "scalar", (ITERATIONS,), &context)

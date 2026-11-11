@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     RuntimeConfig,
     error::fault::EngineFault,
@@ -34,7 +36,7 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
     for mode in 0..4 {
         let mut runtime = Runtime::default();
         let code = access_program();
-        let old_program = runtime.load_program("state", code.clone()).unwrap();
+        let old_program = load_bytecode(&mut runtime, "state", code.clone()).unwrap();
         let old = runtime.select_program(&old_program).unwrap();
         let staged = runtime
             .stage_reload_program(&old_program, None, code)
@@ -63,7 +65,7 @@ fn initializer_frame_drop_poison_survives_termination_and_releases_recipe_edges(
         );
         assert_eq!(
             runtime
-                .create_task_scope(&current, Default::default(), Arc::new(|_| Ok(())))
+                .create_dispatched_task_scope(&current, Default::default(), Arc::new(|_| Ok(())))
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::ExecutionPhaseViolation
@@ -130,7 +132,7 @@ fn pre_attempt_depth_rejection_leaves_cell_uninitialized() {
         },
         ..Default::default()
     });
-    let loaded_program = runtime.load_program("state", access_program()).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "state", access_program()).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     stack
@@ -155,7 +157,7 @@ fn pre_attempt_depth_rejection_leaves_cell_uninitialized() {
 fn swallowed_cycle_cannot_commit_and_candidate_switch_cannot_escape_marker() {
     let mut runtime = Runtime::default();
     let code = access_program();
-    let loaded_program = runtime.load_program("state", code.clone()).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "state", code.clone()).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let candidate = runtime
         .stage_reload_program(&loaded_program, None, code)
@@ -195,7 +197,7 @@ fn swallowed_cycle_cannot_commit_and_candidate_switch_cannot_escape_marker() {
 #[test]
 fn initializer_return_failure_after_retirement_poison_is_owned_by_the_attempt() {
     let mut runtime = Runtime::default();
-    let loaded_program = runtime.load_program("state", access_program()).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "state", access_program()).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     stack
@@ -234,7 +236,7 @@ fn initializer_return_failure_after_retirement_poison_is_owned_by_the_attempt() 
 fn initializer_return_checks_semantic_type_before_ready_and_retries_access_pc() {
     for valid in [false, true] {
         let mut runtime = Runtime::default();
-        let loaded_program = runtime.load_program("state", access_program()).unwrap();
+        let loaded_program = load_bytecode(&mut runtime, "state", access_program()).unwrap();
         let loaded = runtime.select_program(&loaded_program).unwrap();
         let stack = runtime.enter_execution_stack(&loaded).unwrap();
         stack

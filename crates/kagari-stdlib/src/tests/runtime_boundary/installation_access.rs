@@ -1,4 +1,5 @@
 use super::support;
+use crate::tests::bytecode::load_bytecode;
 use rstest::rstest;
 
 use crate::{declarations::StandardDeclarations, namespaces};
@@ -58,14 +59,10 @@ fn installed_function_needs_no_execution_permissions() {
     let module = builder.finish().unwrap();
     let program = free_function_program(&module.to_declaration());
     let mut runtime = Runtime::default();
-    assert!(
-        runtime
-            .load_program("uninstalled", program.clone())
-            .is_err()
-    );
+    assert!(load_bytecode(&mut runtime, "uninstalled", program.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
     module.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("installed", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "installed", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     assert_eq!(invoke(&runtime, &loaded, 0, &[]).unwrap(), Value::I32(42));
@@ -96,7 +93,7 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     let program = free_function_program(&module.to_declaration());
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
-    let loaded = runtime.load_program("cancel", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "cancel", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let session = runtime
@@ -172,22 +169,17 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls(#[case] priva
     };
     // A plain declaration alone has no native privilege or installation dependency.
     let mut runtime = Runtime::default();
-    runtime
-        .load_program("plain", program(contract.clone(), false))
-        .unwrap();
+    load_bytecode(&mut runtime, "plain", program(contract.clone(), false)).unwrap();
     installed.install(&mut runtime).unwrap();
-    let active = runtime
-        .load_program("registered", program(contract.clone(), false))
-        .unwrap();
+    let active =
+        load_bytecode(&mut runtime, "registered", program(contract.clone(), false)).unwrap();
     let _active_program = active;
-    runtime
-        .load_program("private", program(contract.clone(), true))
-        .unwrap();
+    load_bytecode(&mut runtime, "private", program(contract.clone(), true)).unwrap();
     let mut forged = contract;
     forged.methods[0].params[0].name = "forged_receiver".into();
     let candidate = program(forged.clone(), private);
     VerifiedProgram::new(candidate.clone(), &context).unwrap();
-    assert!(runtime.load_program("forged", candidate.clone()).is_err());
+    assert!(load_bytecode(&mut runtime, "forged", candidate.clone()).is_err());
     assert!(
         runtime
             .stage_reload_program(&_active_program, Some("registered".into()), candidate)
@@ -246,24 +238,14 @@ fn native_declarations_require_exact_installation_without_calls() {
     };
     let mut runtime = Runtime::default();
     VerifiedProgram::new(program(contract.clone()), &context).unwrap();
-    assert!(
-        runtime
-            .load_program("uninstalled", program(contract.clone()))
-            .is_err()
-    );
+    assert!(load_bytecode(&mut runtime, "uninstalled", program(contract.clone())).is_err());
     installed.install(&mut runtime).unwrap();
-    let active = runtime
-        .load_program("registered", program(contract.clone()))
-        .unwrap();
+    let active = load_bytecode(&mut runtime, "registered", program(contract.clone())).unwrap();
     let _active_program = active;
     let mut forged = contract;
     forged.function.return_type = Type::bool().abi().clone();
     VerifiedProgram::new(program(forged.clone()), &context).unwrap();
-    assert!(
-        runtime
-            .load_program("forged", program(forged.clone()))
-            .is_err()
-    );
+    assert!(load_bytecode(&mut runtime, "forged", program(forged.clone())).is_err());
     assert!(
         runtime
             .stage_reload_program(&_active_program, Some("registered".into()), program(forged))
@@ -322,14 +304,9 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
             DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
         };
         let mut runtime = Runtime::default();
-        assert!(
-            runtime
-                .load_program("uninstalled_core", program(base.clone()))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "uninstalled_core", program(base.clone())).is_err());
         NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
-        runtime
-            .load_program("core", program(base.clone()))
+        load_bytecode(&mut runtime, "core", program(base.clone()))
             .unwrap_or_else(|error| panic!("{:?}: {error}", definition.identity));
         let missing_name = base
             .public_items
@@ -345,18 +322,10 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         missing.public_items.retain(
             |item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == missing_name),
         );
-        assert!(
-            runtime
-                .load_program("missing_core", program(missing))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "missing_core", program(missing)).is_err());
         let mut duplicate = base.clone();
         duplicate.public_items.push(base.public_items[0].clone());
-        assert!(
-            runtime
-                .load_program("duplicate_core", program(duplicate))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "duplicate_core", program(duplicate)).is_err());
     }
 
     // Renaming self changes interface eligibility in the complete library closure.
@@ -388,9 +357,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     VerifiedProgram::new(program(base.clone()), &context).unwrap();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
-    let active = runtime
-        .load_program("public_core", program(base.clone()))
-        .unwrap();
+    let active = load_bytecode(&mut runtime, "public_core", program(base.clone())).unwrap();
     let _active_program = active;
     let mut forged = base;
     let contract = forged
@@ -405,9 +372,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let contract = contract.clone();
     let forged = program(forged);
     VerifiedProgram::new(forged.clone(), &context).unwrap();
-    let error = runtime
-        .load_program("forged_core", forged.clone())
-        .unwrap_err();
+    let error = load_bytecode(&mut runtime, "forged_core", forged.clone()).unwrap_err();
     assert!(
         error
             .to_string()
@@ -432,7 +397,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         ..Default::default()
     });
     VerifiedProgram::new(private.clone(), &context).unwrap();
-    let error = runtime.load_program("private_core", private).unwrap_err();
+    let error = load_bytecode(&mut runtime, "private_core", private).unwrap_err();
     assert!(
         error
             .to_string()

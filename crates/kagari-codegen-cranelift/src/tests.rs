@@ -1,4 +1,8 @@
+// Reuse explicit verified-loader fixture preparation at the Runtime boundary.
+#[path = "../../kagari-runtime/tests/support/bytecode.rs"]
+mod bytecode_fixture;
 use super::*;
+use bytecode_fixture::load_bytecode;
 use kagari::engine::KagariEngine;
 use kagari_abi::native::NativeLinkDescription;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -96,9 +100,7 @@ fn finalized_code_and_installed_runtimes_move_execute_and_release_on_other_threa
     drop((backend, mir));
     let spawn = |product: Arc<NativeCompilationProduct>| {
         let mut runtime = runtime();
-        let loaded = runtime
-            .load_program("threaded-native", bytecode.clone())
-            .unwrap();
+        let loaded = load_bytecode(&mut runtime, "threaded-native", bytecode.clone()).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
         // SAFETY: this product was compiled from this exact bytecode's MIR;
@@ -167,14 +169,14 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
     drop(backend);
     for (mir, code, expected, _points) in products {
         let mut runtime = runtime();
-        let module = runtime
-            .load_program(
-                "native",
-                lower_program_to_bytecode(&mir, &Default::default())
-                    .map(|program| program.into_unverified())
-                    .unwrap(),
-            )
-            .unwrap();
+        let module = load_bytecode(
+            &mut runtime,
+            "native",
+            lower_program_to_bytecode(&mir, &Default::default())
+                .map(|program| program.into_unverified())
+                .unwrap(),
+        )
+        .unwrap();
         let _module_program = module;
         let module = runtime.select_program(&_module_program).unwrap();
         let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
@@ -254,7 +256,7 @@ fn checked_i32_traps_keep_the_exact_mir_point(#[case] expression: &str) {
             .unwrap();
         let function = &bytecode.records().modules[bytecode.records().root.index()].functions[0];
         let origin = function.metadata.origins[overflow_offset].clone();
-        let module_program = runtime.load_program("native", bytecode).unwrap();
+        let module_program = load_bytecode(&mut runtime, "native", bytecode).unwrap();
         let module = runtime.select_program(&module_program).unwrap();
         let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
         let failure = runtime.invoke_native_function(&installed).unwrap_err();

@@ -6,6 +6,8 @@ use kagari_runtime::native::{
 };
 
 #[cfg(test)]
+// Keep the same children when this provider is shared by Runtime unit tests.
+#[cfg_attr(test, path = "binding/tests.rs")]
 mod tests;
 
 pub(super) fn unary<A: NativeScalar, R: NativeScalar>(operation: fn(A) -> R) -> NativeBinding {

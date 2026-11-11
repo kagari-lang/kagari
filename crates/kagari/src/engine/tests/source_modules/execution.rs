@@ -6,6 +6,7 @@ use kagari_bytecode::{
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{module::ModuleEpochRetention, session::TraceValue};
 use kagari_stdlib as stdlib;
 
@@ -59,14 +60,14 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
         let loaded = runtime
             .load_program(&loaded_program, Default::default())
             .unwrap();
-        let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+        let _selected_loaded = runtime.select_program(&loaded).unwrap();
         let report = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -122,14 +123,14 @@ fn dependency_bindings_are_checked_before_execution() {
             )
             .is_err()
     );
-    assert_eq!(missing.runtime().modules().loaded_count(), 0);
+    assert_eq!(missing.modules().loaded_count(), 0);
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
         Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&loaded_program, Default::default())
         .unwrap();
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
     assert_eq!(_selected_loaded.epoch.0, 1);
     assert_eq!(
         runtime
@@ -141,7 +142,7 @@ fn dependency_bindings_are_checked_before_execution() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -185,10 +186,8 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
             .unwrap();
         let error = runtime
             .program(&active)
-            .and_then(|base| {
-                base.prepare_replacement(&prepare(&artifacts[1]), &Default::default())
-                    .map_err(Into::into)
-            })
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&prepare(&artifacts[1]), &Default::default()))
             .and_then(|candidate| runtime.replace_program(&active, &candidate, Default::default()))
             .unwrap_err();
         assert_eq!(error.code(), "KG_RELOAD_PUBLIC_EXPORT_MISMATCH");
@@ -197,17 +196,15 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
                 .execute(&active, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
         // Rejection leaves the baseline active, so a valid reload can still publish.
         runtime
             .program(&active)
-            .and_then(|base| {
-                base.prepare_replacement(&prepare(&artifacts[0]), &Default::default())
-                    .map_err(Into::into)
-            })
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&prepare(&artifacts[0]), &Default::default()))
             .and_then(|candidate| runtime.replace_program(&active, &candidate, Default::default()))
             .unwrap();
     }
@@ -238,7 +235,7 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
     let old = runtime
         .load_program(old_program.program(), Default::default())
         .unwrap();
-    let _selected_old = runtime.runtime().select_program(&old).unwrap();
+    let _selected_old = runtime.select_program(&old).unwrap();
     let dependency = _selected_old
         .members()
         .find(|module| {
@@ -250,11 +247,9 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         })
         .unwrap();
     let retention = runtime
-        .runtime()
         .retain_module(&dependency, ModuleEpochRetention::ActiveCall)
         .unwrap();
     let stale = runtime
-        .runtime()
         .stage_reload_verified_program(&old, None, second.program().bytecode().clone())
         .unwrap();
     let staged_members: HashSet<_> = stale
@@ -264,42 +259,36 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         .collect();
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement((second.clone()).program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement((second.clone()).program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let new = old.clone();
     assert!(
         runtime
-            .runtime()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .is_empty()
     );
-    let selected_new = runtime.runtime().select_program(&new).unwrap();
+    let selected_new = runtime.select_program(&new).unwrap();
     for (module, value) in [(&_selected_old, 2), (&selected_new, 2), (&_selected_old, 2)] {
         let _session = runtime
-            .runtime()
             .begin_execution(module, context.runtime_options())
             .unwrap();
         assert_eq!(
             runtime
-                .backend()
-                .execute(module, ProgramEntry::Main)
+                .execute_module(module, ProgramEntry::Main, runtime.execution_options())
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(value)
         );
     }
-    assert!(runtime.runtime_mut().publish_staged_reload(stale).is_err());
+    assert!(runtime.publish_staged_reload(stale).is_err());
     drop(retention);
     let collected: HashSet<_> = runtime
-        .runtime()
         .collect_garbage()
         .unwrap()
         .reclaimed_modules
@@ -316,7 +305,7 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
             .execute(&new, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -427,7 +416,7 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         let encoded = corrupted.to_bytes(artifact.definitions()).unwrap();
         let decoded = BytecodeArtifact::from_bytes(&encoded).unwrap();
         assert!(Program::from_artifact(decoded, &Default::default(), &Default::default()).is_err());
-        assert_eq!(runtime.runtime().modules().loaded_count(), 0);
+        assert_eq!(runtime.modules().loaded_count(), 0);
     }
     let installed = runtime
         .load_program(
@@ -435,13 +424,5 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
             Default::default(),
         )
         .unwrap();
-    assert_eq!(
-        runtime
-            .runtime()
-            .select_program(&installed)
-            .unwrap()
-            .epoch
-            .0,
-        1
-    );
+    assert_eq!(runtime.select_program(&installed).unwrap().epoch.0, 1);
 }

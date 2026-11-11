@@ -31,16 +31,15 @@ fn scoped_task_contract() {
         include_str!("../../../../../tests/fixtures/embedding/async/task-scope.kgr"),
         config,
     );
-    let runtime = f.runtime.runtime();
+    let runtime = &f.runtime;
     let notices = Arc::new(Mutex::new(Vec::<ReadyNotice>::new()));
     let seen = notices.clone();
     let fail = Arc::new(AtomicBool::new(false));
     let failed = fail.clone();
     let scope = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(move |notice| {
                 seen.lock().unwrap().push(notice);
@@ -63,7 +62,6 @@ fn scoped_task_contract() {
             runtime.collect_garbage().unwrap();
             let result = f
                 .runtime
-                .backend()
                 .drive_task(scope, id, NonZeroUsize::new(1).unwrap())
                 .unwrap();
             if result != TaskDriveResult::Runnable {
@@ -103,10 +101,7 @@ fn scoped_task_contract() {
     let report = runtime.take_task_report(&scope, other_id).unwrap().unwrap();
     assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(7));
     assert_eq!(
-        f.runtime
-            .backend()
-            .drive_task(&scope, other_id, slice())
-            .unwrap(),
+        f.runtime.drive_task(&scope, other_id, slice()).unwrap(),
         TaskDriveResult::Stale
     );
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(11));
@@ -225,18 +220,16 @@ fn scoped_task_contract() {
 
     let rejected = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Err(DispatchUnavailable)),
         )
         .unwrap();
     assert!(
         f.runtime
-            .runtime()
-            .create_task_scope(
-                &f.runtime.runtime().select_program(&f.module).unwrap(),
+            .create_dispatched_task_scope(
+                &f.runtime.select_program(&f.module).unwrap(),
                 Default::default(),
                 Arc::new(|_| Ok(()))
             )
@@ -244,7 +237,6 @@ fn scoped_task_contract() {
     );
     assert!(
         f.runtime
-            .backend()
             .drive_task(&rejected, running_id, slice())
             .is_err(),
         "scope ownership is required"
@@ -277,9 +269,8 @@ fn scoped_task_contract() {
     runtime.cancel_task(&f.value(&dropped)).unwrap();
     let replacement = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Ok(())),
         )
@@ -289,7 +280,6 @@ fn scoped_task_contract() {
     assert_ne!(admitted_id, queued_id);
     assert_eq!(
         f.runtime
-            .backend()
             .drive_task(&replacement, queued_id, slice())
             .unwrap(),
         TaskDriveResult::Stale
@@ -352,9 +342,8 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
     );
     let scope = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| panic!("dispatcher fault")),
         )
@@ -362,7 +351,6 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
     let factory = f.invoke("work", &[]);
     assert!(matches!(
         f.runtime
-            .runtime()
             .spawn_task(&f.value(scope.capability()), &f.value(&factory))
             .unwrap(),
         Err(SpawnError::DispatchUnavailable)
@@ -370,13 +358,12 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
     scope.replace_dispatcher(Arc::new(|_| Ok(()))).unwrap();
     let task = f
         .runtime
-        .runtime()
         .spawn_task(&f.value(scope.capability()), &f.value(&factory))
         .unwrap()
         .unwrap();
-    let id = f.runtime.runtime().task_id(&f.value(&task)).unwrap();
+    let id = f.runtime.task_id(&f.value(&task)).unwrap();
     assert_eq!(
-        f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
+        f.runtime.drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Waiting
     );
     let (entered, wait_entered) = mpsc::sync_channel(1);
@@ -404,26 +391,20 @@ pub fn work() -> fn()->Future<i32> { async || request(10).await }
     release.send(()).unwrap();
     producer.join().unwrap();
     assert_eq!(
-        f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
+        f.runtime.drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Complete,
         "old dispatcher failure cannot poison a replacement"
     );
-    let report = f
-        .runtime
-        .runtime()
-        .take_task_report(&scope, id)
-        .unwrap()
-        .unwrap();
+    let report = f.runtime.take_task_report(&scope, id).unwrap().unwrap();
     assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(8));
     let task = f
         .runtime
-        .runtime()
         .spawn_task(&f.value(scope.capability()), &f.value(&factory))
         .unwrap()
         .unwrap();
-    let id = f.runtime.runtime().task_id(&f.value(&task)).unwrap();
+    let id = f.runtime.task_id(&f.value(&task)).unwrap();
     assert_eq!(
-        f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
+        f.runtime.drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Waiting
     );
     let cancels = f.cancels.clone();

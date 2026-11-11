@@ -116,7 +116,7 @@ pub(super) fn run(options: &Options) {
                 .expect("numeric execution");
             let Value::I32(value) = report
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("numeric result")
             else {
                 panic!("numeric result type")

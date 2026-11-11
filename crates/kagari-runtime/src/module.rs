@@ -861,6 +861,13 @@ impl ModuleStore {
                 None,
             ),
         };
+        // Raw verified loaders still install one canonical executable owner.
+        // Reuse admission's checked history and preserve explicitly shared products.
+        let program = if program.product().is_none() {
+            Program::with_checked_history(program, retained_demands.clone()).into_verified()
+        } else {
+            program
+        };
         let previous = expected_base
             .map(|baseline| {
                 let previous = self.capture_current(&installation)?;

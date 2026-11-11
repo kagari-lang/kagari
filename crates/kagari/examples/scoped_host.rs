@@ -75,14 +75,13 @@ fn main() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let selected = runtime.runtime().select_program(&loaded).unwrap();
+    let selected = runtime.select_program(&loaded).unwrap();
     let descriptor = runtime
-        .runtime()
         .bind_native_type::<Player>(&loaded.root(), &player, &[])
         .unwrap();
     let owned: Opaque<Player> = descriptor
         .create(
-            &mut NativeContext::new(runtime.runtime(), &selected).unwrap(),
+            &mut NativeContext::new(&runtime, &selected).unwrap(),
             Player { hp: 60 },
         )
         .unwrap();
@@ -118,7 +117,7 @@ fn main() {
             Ok(())
         })
         .unwrap();
-    let cx = NativeContext::new(runtime.runtime(), &selected).unwrap();
+    let cx = NativeContext::new(&runtime, &selected).unwrap();
     assert_eq!(owned.read(&cx, |player| Ok(player.hp)).unwrap(), 70);
     owned
         .edit(&cx, |player| {

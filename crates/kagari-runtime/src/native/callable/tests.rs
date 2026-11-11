@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     error::RuntimeErrorKind,
     frame::types::EnvironmentRecord,
@@ -38,7 +40,7 @@ fn fixture() -> (Runtime, ExecutableModule, PreparedClosure) {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = Runtime::default();
-    let loaded_program = runtime.load_program("callback", program).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "callback", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(loaded.bytecode.functions.len(), 1);
     let environment = runtime

@@ -1,5 +1,7 @@
 //! Distinct executable descriptor owners, with caller inputs kept outside preparation.
 use super::{Phases, compare, compile, preparation, snapshot};
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     diagnostics::allocations::{self, Counts},
@@ -33,7 +35,7 @@ fn method_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let loaded = runtime.select_program(&program).unwrap();
         let (table, definition) = loaded
             .bytecode
@@ -109,7 +111,7 @@ fn shared_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let loaded = runtime.select_program(&program).unwrap();
         let (function, module, target, contract) = loaded
             .bytecode
@@ -201,7 +203,7 @@ fn witness_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let loaded = runtime.select_program(&program).unwrap();
         let witnesses = loaded
             .bytecode

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
@@ -36,18 +38,18 @@ use std::sync::{Arc, Mutex};
 
 fn allocation_owner(runtime: &mut Runtime) -> ExecutableModule {
     let context = DefinitionContext::new().unwrap();
-    let program = runtime
-        .load_program(
-            "allocation-owner",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let program = load_bytecode(
+        runtime,
+        "allocation-owner",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     runtime.select_program(&program).unwrap()
 }
 

@@ -1,4 +1,6 @@
 //! Small actual-pointer fixtures isolate Miri safety from source compilation cost.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 mod fields;
 use crate::{
@@ -30,18 +32,18 @@ fn external_root_actual_pointer_loans_release_and_revoke_on_all_exits() {
     // This scope uses the real checked descriptor and heap/header owner. No
     // frontend, standard-library declarations or substitute borrow model is needed.
     let context = DefinitionContext::new().unwrap();
-    let owner_program = runtime
-        .load_program(
-            "scope-proof",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let owner_program = load_bytecode(
+        &mut runtime,
+        "scope-proof",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
 
     let descriptor = runtime
         .bind_native_type::<State>(&owner_program.root(), &declaration, &[])
@@ -140,18 +142,18 @@ fn distinct_zero_sized_host_roots_allow_independent_unique_loans() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let owner_program = runtime
-        .load_program(
-            "scope-proof",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let owner_program = load_bytecode(
+        &mut runtime,
+        "scope-proof",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let descriptor = runtime
         .bind_native_type::<Marker>(&owner_program.root(), &declaration, &[])
         .unwrap();

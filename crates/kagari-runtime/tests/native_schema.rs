@@ -1,4 +1,8 @@
 //! Nominal DTO schemas share ordinary declarations and transactional installation.
+// Shared preparation keeps verifier and linker failures observable.
+#[path = "support/bytecode.rs"]
+mod bytecode_fixture;
+use crate::bytecode_fixture::load_bytecode;
 mod native_schema_derive;
 #[cfg(feature = "serde")]
 mod native_schema_serde;
@@ -167,7 +171,7 @@ fn source_free_loading_checks_registered_schema_without_native_calls() {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    runtime.load_program("valid", program.clone()).unwrap();
+    load_bytecode(&mut runtime, "valid", program.clone()).unwrap();
     // Compile a separately valid provider with the same identity but a changed
     // field capability. This reaches installed-contract validation rather than
     // only proving that bytecode rejects an internally inconsistent layout.
@@ -192,9 +196,7 @@ fn source_free_loading_checks_registered_schema_without_native_calls() {
     .unwrap()
     .finish()
     .unwrap();
-    let failure = runtime
-        .load_program("corrupt", self::program(&altered))
-        .unwrap_err();
+    let failure = load_bytecode(&mut runtime, "corrupt", self::program(&altered)).unwrap_err();
     assert!(
         failure.to_string().contains("registered value schema"),
         "{failure}"
@@ -256,7 +258,7 @@ fn conversion_fixture() -> (Runtime, kagari_runtime::module::ExecutableModule) {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner_program = runtime.load_program("dto", program).unwrap();
+    let owner_program = load_bytecode(&mut runtime, "dto", program).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     (runtime, owner)
 }

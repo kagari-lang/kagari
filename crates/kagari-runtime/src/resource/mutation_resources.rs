@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{Runtime, module::ExecutableModule, value::Value};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
@@ -7,18 +9,18 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 fn runtime_with_owner() -> (Runtime, ExecutableModule) {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
-    let owner_program = runtime
-        .load_program(
-            "allocations",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let owner_program = load_bytecode(
+        &mut runtime,
+        "allocations",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     (runtime, owner)
 }

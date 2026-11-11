@@ -1,4 +1,6 @@
 //! Canonical enum owners and their explicit variant/public inventory.
+// Preserve module children during Runtime-only test source sharing.
+#[cfg_attr(test, path = "enumerations/value.rs")]
 pub(super) mod value;
 use crate::{foundation::type_docs, namespaces};
 use kagari_runtime::native::{assembly::draft::ModuleDraft, binding::NativeResult};

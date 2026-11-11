@@ -20,10 +20,9 @@ const SOURCE: &str =
 
 fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         let result = f
             .runtime
-            .backend()
             .drive_task(scope, id, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
@@ -35,10 +34,7 @@ fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
 
 fn task(f: &Fixture, result: &RootedValue) -> (TaskId, RootedValue) {
     let handle = f.invoke("unwrap_i32", &[f.value(result)]);
-    (
-        f.runtime.runtime().task_id(&f.value(&handle)).unwrap(),
-        handle,
-    )
+    (f.runtime.task_id(&f.value(&handle)).unwrap(), handle)
 }
 
 #[test]
@@ -46,12 +42,11 @@ fn scoped_task_handler_contract() {
     let mut config = EngineConfig::default();
     config.default_runtime.async_limits.max_tasks = NonZeroUsize::new(2).unwrap();
     let f = Fixture::configured_source(SOURCE, config);
-    let runtime = f.runtime.runtime();
+    let runtime = &f.runtime;
     let scope = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Ok(())),
         )
@@ -189,9 +184,8 @@ fn scoped_task_handler_contract() {
     );
     let failed_scope = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Err(DispatchUnavailable)),
         )

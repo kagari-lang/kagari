@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
@@ -86,7 +88,7 @@ pub(in crate::frame) fn module(
     let program =
         DefinitionMetadata::checked(runtime.host().definitions(), program, &Default::default())
             .unwrap();
-    let program = runtime.load_program("parking", program).unwrap();
+    let program = load_bytecode(runtime, "parking", program).unwrap();
     runtime.select_program(&program).unwrap()
 }
 

@@ -70,7 +70,7 @@ fn source_free_structured_pair_contract() {
     let mut runtime = engine.runtime(Default::default());
     let module = runtime.load_program(&program, Default::default()).unwrap();
     let run = runtime
-        .async_function::<(), i32>(&module.root(), "run")
+        .bind_async_function::<(), i32>(&module.root(), "run")
         .unwrap();
     let (send, ready) = mpsc::sync_channel(1);
     let wake = Waker::from(Arc::new(Notify(send)));
@@ -82,7 +82,7 @@ fn source_free_structured_pair_contract() {
             .recv_timeout(Duration::from_secs(2))
             .expect("submitted composition must notify its runtime driver");
         assert!(runtime.poll(&mut cx).is_pending());
-        runtime.runtime().collect_garbage().unwrap();
+        runtime.collect_garbage().unwrap();
         if ticket.is_finished() {
             break;
         }

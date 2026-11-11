@@ -92,7 +92,7 @@ fn host_results_preserve_builtin_array_shape_through_artifacts_and_binding_check
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );

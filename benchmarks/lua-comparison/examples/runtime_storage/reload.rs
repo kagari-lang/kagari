@@ -51,7 +51,7 @@ pub(super) fn run() {
     });
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&original, Default::default()).unwrap();
-    let old_key = runtime.runtime().select_program(&loaded).unwrap().key();
+    let old_key = runtime.select_program(&loaded).unwrap().key();
     let saved: Function<(i32,), i32> = runtime
         .execute_typed(&loaded, "saved", (), &context)
         .unwrap();
@@ -69,9 +69,9 @@ pub(super) fn run() {
         .unwrap();
     let publication_ns = start.elapsed().as_nanos();
     drop(candidate);
-    runtime.runtime().collect_garbage().unwrap();
-    assert!(runtime.runtime().modules().loaded(old_key).is_some());
-    let alive_records = runtime.runtime().modules().loaded_count();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(old_key).is_some());
+    let alive_records = runtime.modules().loaded_count();
     sample("reload_current_old_alive", ITERATIONS, || {
         assert_eq!(
             runtime
@@ -87,9 +87,9 @@ pub(super) fn run() {
         ITERATIONS
     });
     drop(saved);
-    runtime.runtime().collect_garbage().unwrap();
-    assert!(runtime.runtime().modules().loaded(old_key).is_none());
-    let collected_records = runtime.runtime().modules().loaded_count();
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.modules().loaded(old_key).is_none());
+    let collected_records = runtime.modules().loaded_count();
     sample("reload_current_old_collected", ITERATIONS, || {
         assert_eq!(
             runtime
@@ -99,7 +99,7 @@ pub(super) fn run() {
         );
         ITERATIONS
     });
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
     println!(
         "reload_setup,original_prepare_ns={original_ns},candidate_prepare_ns={candidate_ns},compatibility_ns={compatibility_ns},fresh_load_ns={fresh_load_ns},publication_ns={publication_ns}"
     );

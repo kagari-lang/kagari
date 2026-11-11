@@ -110,9 +110,9 @@ fn lifecycle(engine: &KagariEngine, program: &Program, options: &Options) -> Mea
     let empty = snapshot(start);
     for runtime in &mut runtimes {
         let loaded = runtime.load_program(program, Default::default()).unwrap();
-        let selected = runtime.runtime().select_program(&loaded).unwrap();
+        let selected = runtime.select_program(&loaded).unwrap();
         // Code keeps product IDs; measure the recipient identity domain independently.
-        domains.insert(runtime.runtime().host().definitions().id());
+        domains.insert(runtime.host().definitions().id());
         backings.insert(Arc::as_ptr(&selected.bytecode) as usize);
         installed.push(loaded);
     }

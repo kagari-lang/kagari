@@ -1,4 +1,6 @@
 //! Sealed canonical locations map into disjoint scalar and managed banks.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     module::execution::{
         OperandSlot,
@@ -357,18 +359,18 @@ mod tests {
     }
 
     fn storage_module(runtime: &mut Runtime) -> ExecutableModule {
-        let program = runtime
-            .load_program(
-                "rl01",
-                ProgramFixture {
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                    exports: Default::default(),
-                }
-                .metadata(runtime.host().definitions(), &Default::default())
-                .unwrap(),
-            )
-            .unwrap();
+        let program = load_bytecode(
+            runtime,
+            "rl01",
+            ProgramFixture {
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+                exports: Default::default(),
+            }
+            .metadata(runtime.host().definitions(), &Default::default())
+            .unwrap(),
+        )
+        .unwrap();
         runtime.select_program(&program).unwrap()
     }
 

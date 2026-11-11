@@ -1,4 +1,6 @@
 //! Scalar declarations own checked targets; Rust algorithm reuse is not target sharing.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     frame::driver::ReturnAction,
@@ -119,7 +121,7 @@ fn distinct_scalar_impls_reuse_one_algorithm_without_merging_checked_or_applied_
         .unwrap();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let loaded_program = runtime.load_program("scalar-targets", bytecode).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "scalar-targets", bytecode).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let mut applied = vec![];
     for (declaration, value) in declarations.iter().zip([Value::I32(7), Value::I64(9)]) {

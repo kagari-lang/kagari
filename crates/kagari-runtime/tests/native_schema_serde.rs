@@ -1,4 +1,5 @@
 //! Serde executes its own representation against static, source-free DTO facts.
+use crate::bytecode_fixture::load_bytecode;
 mod formatting;
 mod snapshot;
 use super::program_for_source;
@@ -105,7 +106,7 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner_program = runtime.load_program("serde", program).unwrap();
+    let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     for (maybe, result, nested) in [
@@ -215,7 +216,7 @@ fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner_program = runtime.load_program("serde", program).unwrap();
+    let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     let mut cx = ConversionContext::with_limits(
         &runtime,

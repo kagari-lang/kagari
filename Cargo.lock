@@ -531,7 +531,6 @@ dependencies = [
  "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
- "kagari-vm",
  "libloading",
  "rstest",
  "serde",
@@ -591,7 +590,6 @@ dependencies = [
  "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
- "kagari-vm",
  "rstest",
  "serde",
  "serde_json",
@@ -747,7 +745,6 @@ dependencies = [
  "kagari-runtime",
  "kagari-source",
  "kagari-stdlib",
- "kagari-vm",
  "mlua",
 ]
 
@@ -797,6 +794,7 @@ dependencies = [
  "kagari-mir",
  "kagari-source",
  "kagari-stdlib",
+ "kagari-syntax",
  "kagari-types",
  "rstest",
  "serde",
@@ -862,26 +860,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kagari-vm"
-version = "0.1.0"
-dependencies = [
- "kagari-abi",
- "kagari-bytecode",
- "kagari-common",
- "kagari-compiler",
- "kagari-contract",
- "kagari-derive",
- "kagari-hir",
- "kagari-mir",
- "kagari-runtime",
- "kagari-source",
- "kagari-stdlib",
- "kagari-syntax",
- "kagari-types",
- "rstest",
-]
-
-[[package]]
 name = "kagari-web"
 version = "0.1.0"
 dependencies = [
@@ -890,7 +868,6 @@ dependencies = [
  "kagari-source",
  "kagari-stdlib",
  "kagari-types",
- "kagari-vm",
  "serde",
  "serde_json",
  "wasm-bindgen",

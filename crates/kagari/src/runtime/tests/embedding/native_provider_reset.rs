@@ -75,17 +75,14 @@ fn execute(source: &str) {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert_eq!(
-            runtime.runtime().resources().counters().current_call_depth,
-            0
-        );
-        runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc().allocated_objects(), 0);
     }
 }
 
@@ -173,11 +170,8 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
         let context = ExecutionContext::default();
         let mut runtime = engine(EngineConfig::default()).runtime(context);
         assert!(runtime.load_program(&program, Default::default()).is_err());
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert_eq!(
-            runtime.runtime().resources().counters().current_call_depth,
-            0
-        );
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
     }
 }
 
@@ -321,7 +315,7 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
     .unwrap();
     let mut runtime = engine.runtime(Default::default());
     assert!(runtime.load_program(&program, Default::default()).is_err());
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
@@ -339,14 +333,11 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .is_err()
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
-    assert!(!runtime.runtime().is_quarantined());
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc().allocated_objects(), 0);
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
@@ -366,30 +357,26 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+        let _selected_loaded = runtime.select_program(&loaded).unwrap();
         let options = kagari_runtime::session::ExecutionOptions {
             cancellation: context.cancellation.clone(),
             ..Default::default()
         };
         runtime
-            .runtime()
             .set_execution_observer(CancelAt {
                 seen: Default::default(),
                 at,
                 token: context.cancellation.clone(),
             })
             .unwrap();
-        let session = runtime
-            .runtime()
-            .begin_execution(&_selected_loaded, options)
-            .unwrap();
-        runtime.runtime().attach_execution_observer().unwrap();
+        let session = runtime.begin_execution(&_selected_loaded, options).unwrap();
+        runtime.attach_execution_observer().unwrap();
         match runtime.execute(&loaded, ProgramEntry::Main, &[], &context) {
             Ok(report) => {
                 assert_eq!(
                     report
                         .return_value
-                        .value(runtime.runtime().gc())
+                        .value(runtime.gc())
                         .expect("retained execution result"),
                     Value::I32(42)
                 );
@@ -400,15 +387,12 @@ fn cancellation_boundaries_unwind_nested_provider_callbacks() {
                 cancelled += 1;
             }
         }
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert_eq!(
-            runtime.runtime().resources().counters().current_call_depth,
-            0
-        );
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
         drop(session);
-        runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
-        assert!(!runtime.runtime().is_quarantined());
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc().allocated_objects(), 0);
+        assert!(!runtime.is_quarantined());
         if finished {
             break;
         }

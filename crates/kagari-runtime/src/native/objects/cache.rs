@@ -239,6 +239,7 @@ fn invalid_export() -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use crate::Runtime;
+    use crate::test_support::bytecode::load_bytecode;
     use kagari_compiler::{
         bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir,
     };
@@ -277,7 +278,7 @@ mod tests {
             .unwrap()
             .into_unverified();
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("objects", bytecode).unwrap();
+        let program = load_bytecode(&mut runtime, "objects", bytecode).unwrap();
         let allocated = runtime.gc().allocated_objects();
         let player = runtime.bind_type(&program.root(), "Player", &[]).unwrap();
         assert!(player.field("visible").is_ok());

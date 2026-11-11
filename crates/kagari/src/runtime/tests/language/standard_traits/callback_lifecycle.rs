@@ -1,10 +1,10 @@
 //! Hash/equality callback guards, reentry, traps and cancellation share one lifecycle.
+use crate::test_support::bytecode::load_bytecode;
 use crate::{BytecodeArtifact, engine::KagariEngine, test_support::cancellation as support};
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
-use kagari_vm::vm::Vm;
 
 #[test]
 fn key_callback_traps_and_reentry_release_guards_without_partial_insertion() {
@@ -80,7 +80,7 @@ pub fn make()->(Test,HashSet<Key>) {
     let (definitions, artifact) = artifact.into_parts();
     let program =
         DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap();
-    let loaded = runtime.load_program("callback-cleanup", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "callback-cleanup", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let declaration = loaded.definitions().lookup(&query).unwrap();
@@ -90,19 +90,19 @@ pub fn make()->(Test,HashSet<Key>) {
             .lookup_child(declaration, DefinitionKind::Method, name, 0)
             .unwrap()
     };
-    let vm = Vm::new(runtime);
+    let vm = runtime;
     for mode in 1..=4 {
         let value = vm
-            .execute(&loaded, "make")
+            .execute_module(&loaded, "make", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .value(vm.gc())
             .expect("retained execution result");
-        let root = vm.runtime().root_value(value).unwrap();
+        let root = vm.root_value(value).unwrap();
         let Value::Tuple(values) = value else {
             panic!("tuple")
         };
-        let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+        let values = vm.gc().tuple(values).unwrap().to_vec();
         vm.invoke_interface_method(&values[0], &method("mode"), &[Value::I32(mode)])
             .unwrap();
         let error = vm
@@ -124,7 +124,7 @@ pub fn make()->(Test,HashSet<Key>) {
                 .unwrap(),
             Value::U64(1)
         );
-        assert_eq!(vm.runtime().gc().active_roots(), 1);
+        assert_eq!(vm.gc().active_roots(), 1);
         if mode <= 2 {
             assert_eq!(
                 vm.invoke_interface_method(&values[0], &method("calls"), &[])
@@ -139,22 +139,22 @@ pub fn make()->(Test,HashSet<Key>) {
                 .unwrap(),
             Value::U64(0)
         );
-        assert!(!vm.runtime().is_quarantined());
+        assert!(!vm.is_quarantined());
         drop(root);
     }
 
     // Nested reads use a second guard; dropping it must preserve the outer guard.
     let value = vm
-        .execute(&loaded, "make")
+        .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
         .return_value
-        .value(vm.runtime().gc())
+        .value(vm.gc())
         .expect("retained execution result");
-    let root = vm.runtime().root_value(value).unwrap();
+    let root = vm.root_value(value).unwrap();
     let Value::Tuple(values) = value else {
         panic!("tuple")
     };
-    let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
+    let values = vm.gc().tuple(values).unwrap().to_vec();
     vm.invoke_interface_method(&values[0], &method("mode"), &[Value::I32(5)])
         .unwrap();
     vm.invoke_interface_method(&values[0], &method("attempt"), &[])
@@ -164,24 +164,24 @@ pub fn make()->(Test,HashSet<Key>) {
             .unwrap(),
         Value::U64(2)
     );
-    assert_eq!(vm.runtime().gc().active_roots(), 1);
+    assert_eq!(vm.gc().active_roots(), 1);
     drop(root);
 
     for limit in [2, 12, 24, 40] {
         let value = vm
-            .execute(&loaded, "make")
+            .execute_module(&loaded, "make", vm.execution_options())
             .unwrap()
             .return_value
-            .value(vm.runtime().gc())
+            .value(vm.gc())
             .expect("retained execution result");
-        let root = vm.runtime().root_value(value).unwrap();
+        let root = vm.root_value(value).unwrap();
         let Value::Tuple(values) = value else {
             panic!("tuple")
         };
-        let values = vm.runtime().gc().tuple(values).unwrap().to_vec();
-        let _options = vm.runtime().execution_options();
+        let values = vm.gc().tuple(values).unwrap().to_vec();
+        let _options = vm.execution_options();
 
-        let session = support::cancel_after(vm.runtime(), &loaded, limit);
+        let session = support::cancel_after(&vm, &loaded, limit);
         let result = vm.invoke_interface_method(&values[0], &method("attempt"), &[]);
         drop(session);
         if result.is_err() {
@@ -191,7 +191,7 @@ pub fn make()->(Test,HashSet<Key>) {
                 Value::U64(1)
             );
         }
-        assert_eq!(vm.runtime().gc().active_roots(), 1);
+        assert_eq!(vm.gc().active_roots(), 1);
         vm.invoke_interface_method(&values[0], &method("clear"), &[])
             .unwrap();
         assert_eq!(
@@ -201,5 +201,5 @@ pub fn make()->(Test,HashSet<Key>) {
         );
         drop(root);
     }
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.gc().active_roots(), 0);
 }

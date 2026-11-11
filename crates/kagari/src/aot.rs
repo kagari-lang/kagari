@@ -13,8 +13,8 @@ use kagari_contract::{
         NativeBundleManifest,
     },
 };
+use kagari_runtime::execution::native::PreparedNativeEntry;
 use kagari_runtime::module::{InstalledProgram, entry::ProgramEntry};
-use kagari_vm::vm::native::PreparedNativeEntry;
 use libloading::Library;
 use std::{
     fs::File,
@@ -158,7 +158,6 @@ impl AotBundle {
         program: &InstalledProgram,
     ) -> Result<PreparedNativeEntry, AotError> {
         let loaded = runtime
-            .runtime()
             .select_program(program)
             .map_err(|error| AotError(error.to_string()))?;
         if !self
@@ -181,12 +180,8 @@ impl AotBundle {
         }
         // SAFETY: load's caller guarantees code correctness; verified correspondence
         // and the retained library owner bind this exact immutable Program and entry.
-        let installed = unsafe {
-            runtime
-                .runtime()
-                .install_native_function(&owner, self.product.clone())
-        }
-        .map_err(|e| AotError(e.to_string()))?;
+        let installed = unsafe { runtime.install_native_function(&owner, self.product.clone()) }
+            .map_err(|e| AotError(e.to_string()))?;
         Ok(PreparedNativeEntry::Native(installed))
     }
 }

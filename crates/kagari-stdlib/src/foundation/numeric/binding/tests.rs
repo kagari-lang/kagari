@@ -90,7 +90,14 @@ pub fn clamp64(value: f64, min: f64, max: f64) -> f64 { value.clamp(min, max) }
         ..Default::default()
     });
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let loaded = runtime.load_program("float-carriers", program).unwrap();
+    let program = kagari_runtime::module::VerifiedProgram::new(
+        program,
+        &kagari_common::identity::map::DefinitionContext::new().unwrap(),
+    )
+    .unwrap();
+    let loaded = runtime
+        .load_verified_program("float-carriers", program)
+        .unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     (runtime, loaded)

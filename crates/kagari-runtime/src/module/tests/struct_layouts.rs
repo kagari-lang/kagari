@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
 use kagari_bytecode::{instruction::StructId, program::ModuleRef};
@@ -40,18 +42,18 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
     for field in &mut foreign.structures[0].fields {
         field.declaration = relocate(field.declaration);
     }
-    let foreign_program = runtime
-        .load_program(
-            "other",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![foreign],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let foreign_program = load_bytecode(
+        &mut runtime,
+        "other",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![foreign],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let foreign = runtime
         .select_program(&foreign_program)
         .unwrap()
@@ -275,18 +277,18 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         }),
         Ty::Builtin(BuiltinType::Bool),
     ])));
-    let module_program = runtime
-        .load_program(
-            "concrete",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![bytecode],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let module_program = load_bytecode(
+        &mut runtime,
+        "concrete",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![bytecode],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let wrapper = module.struct_layout(StructId::new(0)).unwrap();
     let leaf = module.struct_layout(StructId::new(1)).unwrap();

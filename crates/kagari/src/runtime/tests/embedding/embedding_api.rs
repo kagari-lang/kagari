@@ -2,11 +2,13 @@ use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
-    error::{EmbeddingError, RuntimeFailureKind},
+    error::EmbeddingError,
     program::Program,
     runtime::{LoadOptions, ReloadOptions},
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
@@ -82,18 +84,16 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(1)
     );
 
-    let previous = runtime.runtime().select_program(&loaded).unwrap();
+    let previous = runtime.select_program(&loaded).unwrap();
     runtime
         .program(&loaded)
-        .and_then(|base| {
-            base.prepare_replacement(&second, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
         .and_then(|candidate| {
             runtime.replace_program(
                 &loaded,
@@ -106,7 +106,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
             )
         })
         .expect("compatible module should reload");
-    let reloaded = runtime.runtime().select_program(&loaded).unwrap();
+    let reloaded = runtime.select_program(&loaded).unwrap();
     assert_eq!(reloaded.id, previous.id);
     assert_eq!(reloaded.epoch.0, previous.epoch.0 + 1);
 
@@ -116,7 +116,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -194,7 +194,7 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -218,11 +218,11 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
-    assert!(!runtime.runtime().is_quarantined());
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
@@ -253,10 +253,7 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
     assert_eq!(error.code(), "KG_RUNTIME_UNSUPPORTED_EXECUTION");
     assert!(matches!(
         error,
-        EmbeddingError::Runtime {
-            kind: RuntimeFailureKind::UnsupportedExecution,
-            ..
-        }
+        ref error if error.kind() == RuntimeErrorKind::UnsupportedExecution
     ));
 }
 
@@ -273,7 +270,7 @@ fn installed_host_and_reflection_helpers_are_available() {
         .expect("reflection source should compile with reflection profile");
     let mut runtime = engine.runtime(ExecutionContext::default());
     logging_module(|_, _| Ok(Value::Unit))
-        .install(runtime.runtime_mut())
+        .install(&mut runtime)
         .unwrap();
     let print_module = runtime
         .load_program(
@@ -304,13 +301,13 @@ fn installed_host_and_reflection_helpers_are_available() {
             )
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::Unit
     );
     assert!(
         script_equal(
-            runtime.runtime().gc(),
+            runtime.gc(),
             &(runtime
                 .execute(
                     &type_of_module,
@@ -320,9 +317,9 @@ fn installed_host_and_reflection_helpers_are_available() {
                 )
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result")),
-            &(runtime.runtime().gc().alloc_string("i32".into()).unwrap())
+            &(runtime.gc().alloc_string("i32".into()).unwrap())
         )
         .unwrap()
     );

@@ -64,12 +64,12 @@ pub async fn asynchronous() -> i32 {
     ] {
         let result = runtime.execute(&loaded, entry, &[], &context).unwrap();
         assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
+            result.return_value.value(runtime.gc()).unwrap(),
             Value::I32(42),
             "{entry}"
         );
     }
-    let selected = runtime.runtime().select_program(&loaded).unwrap();
+    let selected = runtime.select_program(&loaded).unwrap();
     assert!(selected.exported_function("inner").is_none());
     assert!(selected.exported_function("main::inner").is_none());
     assert!(selected.exported_function("identity").is_none());
@@ -79,7 +79,7 @@ pub async fn asynchronous() -> i32 {
             .is_ok()
     );
     let function = runtime
-        .async_function::<(), i32>(&loaded.root(), "asynchronous")
+        .bind_async_function::<(), i32>(&loaded.root(), "asynchronous")
         .unwrap();
     let executor = tokio::runtime::Builder::new_current_thread()
         .build()

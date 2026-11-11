@@ -200,6 +200,7 @@ impl ExecutableModule {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::bytecode::load_bytecode;
     use crate::{
         Runtime,
         error::RuntimeErrorKind,
@@ -565,8 +566,8 @@ mod tests {
     fn live_navigation_preserves_canonical_prefixes_and_installation_authority() {
         let mut runtime = Runtime::default();
         let input = navigation_program(false);
-        let first = runtime.load_program("same-label", input.clone()).unwrap();
-        let second = runtime.load_program("same-label", input).unwrap();
+        let first = load_bytecode(&mut runtime, "same-label", input.clone()).unwrap();
+        let second = load_bytecode(&mut runtime, "same-label", input).unwrap();
         let prefix = runtime.module(&first.root(), "api").unwrap();
         let alias = runtime.module(&first.root(), "alias").unwrap();
         assert_eq!(prefix.namespace, alias.namespace);

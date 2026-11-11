@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 mod publication;
 
 use crate::test_support as support;
@@ -30,20 +32,20 @@ use support::native::{invoke::invoke, program::free_function_program};
 
 fn load(runtime: &mut Runtime, name: &str) -> InstalledProgram {
     let context = DefinitionContext::new().unwrap();
-    runtime
-        .load_program(
-            name,
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule {
-                    ..Default::default()
-                }],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap()
+    load_bytecode(
+        runtime,
+        name,
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                ..Default::default()
+            }],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -294,7 +296,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     let declarations = builder.finish().unwrap();
     let program = free_function_program(&declarations.to_declaration());
     declarations.install(&mut runtime).unwrap();
-    let module_program = runtime.load_program("main", program).unwrap();
+    let module_program = load_bytecode(&mut runtime, "main", program).unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let mut options = runtime.execution_options();
     options.phase = ExecutionPhase::CandidateInitialization;
@@ -426,7 +428,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
     let declarations = builder.finish().unwrap();
     let program = free_function_program(&declarations.to_declaration());
     declarations.install(&mut runtime).unwrap();
-    let baseline_program = runtime.load_program("main", program).unwrap();
+    let baseline_program = load_bytecode(&mut runtime, "main", program).unwrap();
     let baseline = runtime.select_program(&baseline_program).unwrap();
     let old_object = runtime
         .alloc_array(

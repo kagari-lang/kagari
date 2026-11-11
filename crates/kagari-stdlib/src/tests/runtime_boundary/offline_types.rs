@@ -1,5 +1,6 @@
 //! Cold nominal schemas and explicit trait contracts use common declarations and KBC.
 use crate::declarations::StandardDeclarations;
+use crate::tests::bytecode::load_bytecode;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -268,12 +269,12 @@ fn host_trait_table_requires_bound_method_callbacks_before_linking() {
         "use model::Counter; use model::Readable; pub fn read(c: Counter) -> i32 { c.get() }",
     );
     let mut missing = install(trait_module(None));
-    assert!(missing.load_program("trait", program.clone()).is_err());
+    assert!(load_bytecode(&mut missing, "trait", program.clone()).is_err());
     assert_eq!(missing.modules().loaded_count(), 0);
     let mut mismatched = install(trait_module(Some(HostPassingStyle::UniqueBorrow)));
-    assert!(mismatched.load_program("trait", program.clone()).is_err());
+    assert!(load_bytecode(&mut mismatched, "trait", program.clone()).is_err());
     assert_eq!(mismatched.modules().loaded_count(), 0);
-    install(module).load_program("trait", program).unwrap();
+    load_bytecode(&mut install(module), "trait", program).unwrap();
 }
 
 #[test]
@@ -319,7 +320,7 @@ fn offline_members_generate_runtime_metadata_and_resolve_mutual_references() {
         declaration,
         "use model::Player; pub fn add(p: Player) { p.add_score(1); }",
     );
-    runtime.load_program("mutual", program).unwrap();
+    load_bytecode(&mut runtime, "mutual", program).unwrap();
 }
 
 #[test]
@@ -393,11 +394,7 @@ fn type_contract_changes_reject_artifacts_before_publication_but_documentation_d
         // Each candidate is independently valid and has matching local callbacks;
         // rejection therefore checks the already installed contract, not bad syntax.
         bound(changed.clone()).unwrap();
-        assert!(
-            runtime
-                .load_program("types", program(changed, source))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "types", program(changed, source)).is_err());
         assert_eq!(runtime.modules().loaded_count(), 0);
     }
     let (definitions, mut documented) = original.into_parts();
@@ -434,5 +431,5 @@ fn type_contract_changes_reject_artifacts_before_publication_but_documentation_d
             .unwrap()
     };
     assert!(bytes(baseline) == bytes(documented.clone()));
-    runtime.load_program("types", documented).unwrap();
+    load_bytecode(&mut runtime, "types", documented).unwrap();
 }

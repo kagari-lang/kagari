@@ -10,6 +10,7 @@ use kagari_bytecode::artifact::{
     DependencyFingerprint,
 };
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::value_semantics::script_equal;
 use kagari_stdlib as stdlib;
 
@@ -127,7 +128,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         .load_program(&program, LoadOptions::default())
         .expect("compatible artifact should load");
 
-    let selected = runtime.runtime().select_program(&loaded).unwrap();
+    let selected = runtime.select_program(&loaded).unwrap();
     assert_eq!(selected.name, source_name);
     assert_eq!(selected.epoch.0, 1);
 }
@@ -205,13 +206,12 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
 
     assert!(
         script_equal(
-            runtime.runtime().gc(),
+            runtime.gc(),
             &(report
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result")),
             &(runtime
-                .runtime()
                 .gc()
                 .alloc_tuple(vec![
                     Value::U64(3),
@@ -274,13 +274,13 @@ pub fn main() -> u64 {
         .expect("first standard artifact should load");
     runtime
         .program(&loaded)
+        .map_err(ReloadValidationError::Runtime)
         .and_then(|base| {
             base.prepare_replacement(
                 &Program::from_artifact(second, &Default::default(), &context.cancellation)
                     .unwrap(),
                 &Default::default(),
             )
-            .map_err(Into::into)
         })
         .and_then(|candidate| {
             runtime.replace_program(
@@ -294,14 +294,14 @@ pub fn main() -> u64 {
             )
         })
         .expect("compatible standard artifact should reload");
-    let reloaded = runtime.runtime().select_program(&loaded).unwrap();
+    let reloaded = runtime.select_program(&loaded).unwrap();
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .expect("reloaded standard artifact should execute");
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::U64(2)
     );
@@ -314,7 +314,6 @@ pub fn main() -> u64 {
     assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_HELPER_ABI_MISMATCH");
     assert_eq!(
         runtime
-            .runtime()
             .select_program(&loaded)
             .expect("latest module should remain published")
             .epoch,

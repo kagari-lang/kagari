@@ -57,8 +57,7 @@ fn execute_entries(source: &str, entries: &[(ProgramEntry<'_>, i32)]) {
                         &mut backend,
                         &context.cancellation,
                     );
-                    native_code
-                        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                    native_code.and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 }
                 .unwrap();
                 runtime.execute_prepared(&loaded, entry, &[], &context, &native)
@@ -69,17 +68,14 @@ fn execute_entries(source: &str, entries: &[(ProgramEntry<'_>, i32)]) {
             assert_eq!(
                 result
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .value(runtime.gc())
                     .expect("retained execution result"),
                 Value::I32(expected),
                 "{entry:?}, encoded={encoded}, jit={jit}"
             );
             drop(result);
-            assert_eq!(runtime.runtime().gc().active_roots(), 0);
-            assert_eq!(
-                runtime.runtime().resources().counters().current_call_depth,
-                0
-            );
+            assert_eq!(runtime.gc().active_roots(), 0);
+            assert_eq!(runtime.resources().counters().current_call_depth, 0);
         }
     }
 }

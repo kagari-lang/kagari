@@ -1,8 +1,9 @@
 //! Persistent async values retain code, not a snapshot of mutable module state.
 use super::{Fixture, Value, slice};
 use crate::runtime::tests::embedding::generic_reload::prepare_static_program;
+use kagari_runtime::execution::owned::DriveResult;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::task::drive::TaskDriveResult;
-use kagari_vm::vm::owned::DriveResult;
 use rstest::rstest;
 use std::sync::{Arc, atomic::Ordering};
 
@@ -27,9 +28,8 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
     let _ = f.invoke("save_future", &[]);
     let scope = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Ok(())),
         )
@@ -37,11 +37,10 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
     let factory = f.invoke("factory", &[]);
     let task = f
         .runtime
-        .runtime()
         .spawn_task(&f.value(scope.capability()), &f.value(&factory))
         .unwrap()
         .unwrap();
-    let id = f.runtime.runtime().task_id(&f.value(&task)).unwrap();
+    let id = f.runtime.task_id(&f.value(&task)).unwrap();
     let _ = f.invoke("save_task", &[f.value(&task)]);
     drop((factory, task));
     assert_eq!(
@@ -51,10 +50,8 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
     );
     f.runtime
         .program(&f.module)
-        .and_then(|base| {
-            base.prepare_replacement(replacement.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(replacement.program(), &Default::default()))
         .and_then(|candidate| {
             f.runtime
                 .replace_program(&f.module, &candidate, Default::default())
@@ -65,7 +62,7 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
     let owner = f.start_future(&future);
     drop(future);
     assert!(matches!(
-        f.runtime.backend().drive(&owner, slice()).unwrap(),
+        f.runtime.drive(&owner, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(*f.inputs.lock().unwrap(), vec![20]);
@@ -76,26 +73,21 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
     let waiter = f.invoke("await_task", &[]);
     let waiter = f.start_future(&waiter);
     assert!(matches!(
-        f.runtime.backend().drive(&waiter, slice()).unwrap(),
+        f.runtime.drive(&waiter, slice()).unwrap(),
         DriveResult::Waiting
     ));
     assert_eq!(
-        f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
+        f.runtime.drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Waiting
     );
     assert_eq!(*f.inputs.lock().unwrap(), vec![20, 20]);
     let _ = f.invoke("set_state", &[Value::I32(50)]);
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(30));
     assert_eq!(
-        f.runtime.backend().drive_task(&scope, id, slice()).unwrap(),
+        f.runtime.drive_task(&scope, id, slice()).unwrap(),
         TaskDriveResult::Complete
     );
-    let report = f
-        .runtime
-        .runtime()
-        .take_task_report(&scope, id)
-        .unwrap()
-        .unwrap();
+    let report = f.runtime.take_task_report(&scope, id).unwrap().unwrap();
     assert_eq!(f.value(&report.outcome.unwrap()), Value::I32(101));
     assert_eq!(f.value(&f.complete(&waiter)), Value::I32(121));
     assert_eq!(f.value(&f.invoke("state", &[])), Value::I32(51));

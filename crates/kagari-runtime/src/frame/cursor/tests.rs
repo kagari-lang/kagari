@@ -1,4 +1,6 @@
 //! Region results remain inspectable only after successful publication and released borrows.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind, trap::TrapReason},
@@ -126,7 +128,7 @@ fn native_completion_fixture(
     };
     let mut runtime = Runtime::default();
     native.install(&mut runtime).unwrap();
-    let loaded_program = runtime.load_program("completion", code).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "completion", code).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     (runtime, loaded, calls)
 }
@@ -279,7 +281,7 @@ fn collection_during_an_operand_borrow_quarantines_without_further_execution() {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = Runtime::default();
-    let loaded_program = runtime.load_program("borrow", code).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "borrow", code).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let entry = loaded
         .bytecode

@@ -8,6 +8,7 @@ use crate::{
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::value::Value;
 use kagari_stdlib as stdlib;
 use rstest::rstest;
@@ -45,16 +46,14 @@ pub fn update() { STATE = 5; }
             .execute(module, entry, &[], &Default::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .unwrap()
     };
     assert_eq!(call(&old, "read"), Value::I32(13));
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(second.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(second.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
@@ -67,7 +66,7 @@ pub fn update() { STATE = 5; }
                 .execute(&current, entry, &[], &Default::default())
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .unwrap(),
             Value::I32(expected),
             "{entry}/decoded={decoded}"
@@ -95,21 +94,20 @@ fn retained_host_lease_does_not_keep_native_payload_alive_after_runtime_teardown
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
     let root = runtime
-        .runtime()
         .root_value(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
         )
         .unwrap();
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(drops.load(Ordering::SeqCst), 0);
     drop(runtime);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     let other = engine.runtime(context);
-    assert!(root.value(other.runtime().gc()).is_none());
-    assert!(root.set(other.runtime().gc(), Value::Unit).is_none());
+    assert!(root.value(other.gc()).is_none());
+    assert!(root.set(other.gc(), Value::Unit).is_none());
     drop(root);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
@@ -137,15 +135,12 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc().allocated_objects(), 0);
 }

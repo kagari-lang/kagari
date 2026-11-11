@@ -329,13 +329,11 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     };
     let mut runtime = engine.runtime(context.clone());
     let ty = runtime
-        .runtime()
         .types()
         .get_by_name("demo::counter::Counter")
         .unwrap()
         .id;
     runtime
-        .runtime_mut()
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     let loaded = runtime
@@ -345,7 +343,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
+        report.return_value.value(runtime.gc()),
         Some(Value::I32(42))
     );
     // Public lookup still works without a reference record, but the installed
@@ -903,14 +901,8 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
-        let counter_id = runtime
-            .runtime()
-            .types()
-            .get_by_name("demo::Counter")
-            .unwrap()
-            .id;
+        let counter_id = runtime.types().get_by_name("demo::Counter").unwrap().id;
         runtime
-            .runtime_mut()
             .register_host_root(HostObjectId(7), counter_id, HostSchemaEpoch::new(0))
             .unwrap();
         let loaded_program =
@@ -927,7 +919,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -935,7 +927,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         }
         .unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report.return_value.value(runtime.gc()).unwrap(),
             Value::I32(42)
         );
         assert_eq!(*calls.lock().unwrap(), ["make", "flag", "make", "number"]);

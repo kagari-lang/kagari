@@ -94,7 +94,7 @@ fn execute(
         black_box(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result")
         ),
         Value::I32(expected)
@@ -112,7 +112,7 @@ pub(super) fn run(
     for _ in 0..3 {
         execute(runtime, module, context, entry, expected);
     }
-    let before = runtime.runtime().gc().stats();
+    let before = runtime.gc().stats();
     println!(
         "PROFILE_LAYOUT,value_bytes={},instruction_bytes={},execution_bytes={},return_packet_bytes={}",
         size_of::<Value>(),
@@ -129,7 +129,7 @@ pub(super) fn run(
         calls += 1;
     }
     let elapsed = start.elapsed();
-    let after = runtime.runtime().gc().stats();
+    let after = runtime.gc().stats();
     // allocated_objects counts live objects, so include reclaimed objects to
     // recover cumulative allocations during the window.
     println!(
@@ -154,26 +154,23 @@ pub(super) fn count(
     expected: i32,
 ) {
     runtime
-        .runtime()
         .set_execution_observer(InstructionCounts::default())
         .unwrap();
     {
-        let selected = runtime.runtime().select_program(module).unwrap();
+        let selected = runtime.select_program(module).unwrap();
         let session = runtime
-            .runtime()
             .begin_execution(&selected, Default::default())
             .unwrap();
-        runtime.runtime().attach_execution_observer().unwrap();
+        runtime.attach_execution_observer().unwrap();
         let report = runtime.execute(module, entry, &[], context).unwrap();
         assert_eq!(
-            report.return_value.value(runtime.runtime().gc()).unwrap(),
+            report.return_value.value(runtime.gc()).unwrap(),
             Value::I32(expected)
         );
         drop(report);
         drop(session);
     }
     let mut counts: Vec<_> = runtime
-        .runtime()
         .execution_observer::<InstructionCounts>()
         .unwrap()
         .counts
@@ -182,10 +179,7 @@ pub(super) fn count(
         .cloned()
         .collect();
     {
-        let observer = runtime
-            .runtime()
-            .execution_observer::<InstructionCounts>()
-            .unwrap();
+        let observer = runtime.execution_observer::<InstructionCounts>().unwrap();
         let mut layouts = observer.layouts.iter().collect::<Vec<_>>();
         layouts.sort_by_key(|(name, _)| *name);
         for (name, (logical, physical, scalars, managed)) in layouts {
@@ -196,7 +190,7 @@ pub(super) fn count(
             );
         }
     }
-    runtime.runtime().clear_execution_observer().unwrap();
+    runtime.clear_execution_observer().unwrap();
     counts.sort_by_key(|(_, count)| Reverse(*count));
     println!(
         "INSTRUCTION_TOTAL,{}",

@@ -1,3 +1,4 @@
+use crate::tests::bytecode::load_bytecode;
 use crate::tests::runtime_boundary::support::compile_program;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
@@ -48,7 +49,7 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, Executab
         ..Default::default()
     });
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let loaded = runtime.load_program("conversion", program).unwrap();
+    let loaded = load_bytecode(&mut runtime, "conversion", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     (runtime, loaded)

@@ -1,4 +1,5 @@
 //! Typed failure reasons; diagnostic context is owned by RuntimeError.
+use crate::backend::BackendInvocationError;
 use crate::{
     error::{RuntimeError, RuntimeErrorKind, fault::EngineFault, trap::TrapReason},
     host::HostError,
@@ -120,6 +121,14 @@ impl ReflectiveFailure {
 /// Text details belong to cold validation/provider diagnostics, not numeric transport.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ErrorReason {
+    #[error("missing function: {0}")]
+    MissingFunction(String),
+    #[error("missing field: {0}")]
+    MissingField(String),
+    #[error("unsupported execution: {0}")]
+    UnsupportedExecution(String),
+    #[error(transparent)]
+    BackendInvocation(Box<BackendInvocationError>),
     #[error(transparent)]
     Scalar(#[from] ScalarError),
     #[error(transparent)]
@@ -171,9 +180,13 @@ impl ErrorReason {
     /// Stable outward category; callers cannot independently assign it.
     pub fn kind(&self) -> RuntimeErrorKind {
         match self {
-            Self::Scalar(_) | Self::Trap(_) => RuntimeErrorKind::ScriptTrap,
+            Self::MissingFunction(_) | Self::MissingField(_) | Self::Scalar(_) | Self::Trap(_) => {
+                RuntimeErrorKind::ScriptTrap
+            }
+            Self::UnsupportedExecution(_) => RuntimeErrorKind::UnsupportedExecution,
             Self::Cancelled(_) => RuntimeErrorKind::Cancelled,
             Self::EngineFault(_)
+            | Self::BackendInvocation(_)
             | Self::DebugObservationFailure(_)
             | Self::OwnedBackendFailure(_)
             | Self::InvalidVerifiedPublicTarget { .. } => RuntimeErrorKind::EngineFault,
@@ -198,8 +211,19 @@ impl ErrorReason {
     pub(crate) fn retained_bytes(&self) -> usize {
         match self {
             Self::Trap(reason) => reason.retained_bytes(),
+            Self::BackendInvocation(error) => {
+                mem::size_of::<BackendInvocationError>()
+                    + match error.as_ref() {
+                        BackendInvocationError::RuntimeFailure(error) => error.retained_bytes(),
+                        BackendInvocationError::InternalError(text)
+                        | BackendInvocationError::UnsupportedArtifact(text) => text.capacity(),
+                    }
+            }
             Self::Index(IndexError::Provider(text)) => text.capacity(),
-            Self::ExecutionPhaseViolation(text)
+            Self::MissingFunction(text)
+            | Self::MissingField(text)
+            | Self::UnsupportedExecution(text)
+            | Self::ExecutionPhaseViolation(text)
             | Self::ResourceLimit(text)
             | Self::MetadataConflict(text)
             | Self::ExpiredHostBorrow(text)

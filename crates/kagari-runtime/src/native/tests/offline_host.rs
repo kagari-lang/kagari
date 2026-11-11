@@ -1,5 +1,7 @@
 //! Cold shared contracts, source-free loading and callback ownership boundaries.
 use crate::test_support as support;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 
 use crate::{
     Runtime,
@@ -116,7 +118,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let required = declaration(&context, "game");
     let bytecode = free_function_program(&required);
     let mut runtime = Runtime::default();
-    assert!(runtime.load_program("host", bytecode.clone()).is_err());
+    assert!(load_bytecode(&mut runtime, "host", bytecode.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
     bound(required.clone(), |_, _| {
         panic!("linking must not invoke Rust")
@@ -124,7 +126,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     .unwrap()
     .install(&mut runtime)
     .unwrap();
-    let loaded_program = runtime.load_program("host", bytecode).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "host", bytecode).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let shared = runtime.select_program(&loaded_program).unwrap();
     assert!(std::ptr::eq(&loaded.bytecode, &shared.bytecode));
@@ -169,13 +171,10 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let mut second = Runtime::default();
     module.install(&mut first).unwrap();
     module.install(&mut second).unwrap();
-    let a_program = first
-        .load_program("same", free_function_program(&declaration))
-        .unwrap();
+    let a_program = load_bytecode(&mut first, "same", free_function_program(&declaration)).unwrap();
     let a = first.select_program(&a_program).unwrap();
-    let b_program = second
-        .load_program("same", free_function_program(&declaration))
-        .unwrap();
+    let b_program =
+        load_bytecode(&mut second, "same", free_function_program(&declaration)).unwrap();
     let b = second.select_program(&b_program).unwrap();
     // Native import slot zero exists in both programs, but its owner is mandatory.
     assert_eq!(a.bytecode.native_imports.len(), 1);
@@ -209,9 +208,8 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
     .unwrap();
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
-    let loaded_program = runtime
-        .load_program("host", free_function_program(&declaration))
-        .unwrap();
+    let loaded_program =
+        load_bytecode(&mut runtime, "host", free_function_program(&declaration)).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert!(invoke(&runtime, &loaded, 0, &[]).is_err());
     assert!(invoke(&runtime, &loaded, 0, &[Value::Bool(true)]).is_err());
@@ -262,9 +260,12 @@ fn offline_roundtrip_and_binding_link_do_not_run_callbacks() {
     .install(&mut runtime)
     .unwrap();
     let (definitions, decoded) = imported.into_parts();
-    let loaded_program = runtime
-        .load_program("offline", scoped(&definitions, decoded.program))
-        .unwrap();
+    let loaded_program = load_bytecode(
+        &mut runtime,
+        "offline",
+        scoped(&definitions, decoded.program),
+    )
+    .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_ne!(
@@ -308,11 +309,7 @@ fn linking_checks_identity_signature_borrow_and_effects() {
     }
     for expected in changes {
         assert_ne!(encoded(&expected), encoded(&original));
-        assert!(
-            runtime
-                .load_program("mismatch", free_function_program(&expected))
-                .is_err()
-        );
+        assert!(load_bytecode(&mut runtime, "mismatch", free_function_program(&expected)).is_err());
     }
     let mut text = declaration(&context, "text").into_records();
     text.functions[0].params[0].ty = Ty::Builtin(BuiltinType::String);
@@ -324,12 +321,12 @@ fn linking_checks_identity_signature_borrow_and_effects() {
     let (definitions, mut borrowed) = text.into_parts();
     borrowed.functions[0].host_policy.as_mut().unwrap().passing[0] = HostPassingStyle::SharedBorrow;
     assert!(
-        runtime
-            .load_program(
-                "borrow-mismatch",
-                free_function_program(&scoped(&definitions, borrowed))
-            )
-            .is_err()
+        load_bytecode(
+            &mut runtime,
+            "borrow-mismatch",
+            free_function_program(&scoped(&definitions, borrowed))
+        )
+        .is_err()
     );
     let mut docs = original.records().clone();
     let function = original
@@ -341,9 +338,7 @@ fn linking_checks_identity_signature_borrow_and_effects() {
         .insert(function, "Updated help text".into());
     let docs = scoped(original.definitions(), docs);
     assert_eq!(encoded(&docs), encoded(&original));
-    runtime
-        .load_program("docs", free_function_program(&docs))
-        .unwrap();
+    load_bytecode(&mut runtime, "docs", free_function_program(&docs)).unwrap();
 }
 
 #[test]
@@ -394,11 +389,7 @@ fn invalid_registration_leaves_registry_unchanged() {
     bad.functions[0].host_policy.as_mut().unwrap().passing[0] = HostPassingStyle::UniqueBorrow;
     assert!(bound(scoped(original.definitions(), bad), |_, _| unreachable!()).is_err());
     let mut runtime = Runtime::default();
-    assert!(
-        runtime
-            .load_program("missing", free_function_program(&original))
-            .is_err()
-    );
+    assert!(load_bytecode(&mut runtime, "missing", free_function_program(&original)).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);
     bound(original.clone(), |_, _| Ok(Value::I32(7)))
         .unwrap()
@@ -406,9 +397,8 @@ fn invalid_registration_leaves_registry_unchanged() {
         .unwrap();
     let duplicate = bound(original.clone(), |_, _| Ok(Value::I32(9))).unwrap();
     assert!(duplicate.install(&mut runtime).is_err());
-    let loaded_program = runtime
-        .load_program("original", free_function_program(&original))
-        .unwrap();
+    let loaded_program =
+        load_bytecode(&mut runtime, "original", free_function_program(&original)).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
         invoke(&runtime, &loaded, 0, &[Value::I32(1)]).unwrap(),
@@ -445,12 +435,12 @@ fn immutable_configuration_contracts_are_portable_and_reject_shared_objects() {
         .install(&mut runtime)
         .unwrap();
     assert!(
-        runtime
-            .load_program(
-                "configuration-mismatch",
-                free_function_program(&configuration)
-            )
-            .is_err()
+        load_bytecode(
+            &mut runtime,
+            "configuration-mismatch",
+            free_function_program(&configuration)
+        )
+        .is_err()
     );
     let option = context.intern(&binding::option_declaration()).unwrap();
     let root = context

@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -131,7 +133,7 @@ fn load_source(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = Runtime::default();
-    let loaded_program = runtime.load_program("group", code).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "group", code).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     (runtime, loaded_program, loaded)
 }

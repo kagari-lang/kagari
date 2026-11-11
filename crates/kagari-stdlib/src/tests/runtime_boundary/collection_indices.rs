@@ -1,4 +1,5 @@
 //! Native stdlib contracts keep wide script indices until the storage boundary.
+use crate::tests::bytecode::load_bytecode;
 use crate::tests::runtime_boundary::support::{compile_program, native::invoke::invoke};
 use kagari_runtime::{
     Runtime,
@@ -38,7 +39,7 @@ fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end
         .collect();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime).unwrap();
-    let owner = runtime.load_program("collection_indices", program).unwrap();
+    let owner = load_bytecode(&mut runtime, "collection_indices", program).unwrap();
     let _owner_program = owner;
     let owner = runtime.select_program(&_owner_program).unwrap();
     (runtime, owner, slots)

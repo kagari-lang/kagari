@@ -16,6 +16,7 @@ use kagari_package::{
     snapshot::ProgramInputs,
     workspace::MemberSelection,
 };
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
@@ -236,7 +237,6 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         .load_program(&old_program, Default::default())
         .unwrap();
     let retained = runtime
-        .runtime()
         .bind_function::<(), i32>(&loaded.root(), "answer")
         .unwrap();
     assert_eq!(
@@ -256,22 +256,18 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
             .execute_typed::<(), i32>(&loaded, "rules::plain", (), &Default::default())
             .is_err()
     );
-    let before = runtime.runtime().select_program(&loaded).unwrap().key();
+    let before = runtime.select_program(&loaded).unwrap().key();
     assert_eq!(
         runtime
             .program(&loaded)
-            .and_then(|base| base
-                .prepare_replacement(&constant_program, &Default::default())
-                .map_err(Into::into))
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&constant_program, &Default::default()))
             .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .unwrap_err()
             .code(),
         "KG_RELOAD_DECLARATION_CONTRACT_MISMATCH"
     );
-    assert_eq!(
-        runtime.runtime().select_program(&loaded).unwrap().key(),
-        before
-    );
+    assert_eq!(runtime.select_program(&loaded).unwrap().key(), before);
     assert_eq!(
         runtime
             .call_with_context(&retained, (), &Default::default())
@@ -280,14 +276,12 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
     );
     runtime
         .program(&loaded)
-        .and_then(|base| {
-            base.prepare_replacement(&new_program, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&new_program, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     let reloaded = loaded.clone();
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime
             .execute_typed::<(), i32>(&reloaded, ProgramEntry::Main, (), &Default::default())
@@ -334,10 +328,8 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
     let generic_program = prepare(&engine, &generic);
     runtime
         .program(&reloaded)
-        .and_then(|base| {
-            base.prepare_replacement(&generic_program, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&generic_program, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&reloaded, &candidate, Default::default()))
         .unwrap();
     let generic_loaded = reloaded.clone();

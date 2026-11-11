@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind, reason::CancellationReason},
@@ -90,30 +92,30 @@ fn loaded_function(
     function: BytecodeFunction,
 ) -> (InstalledProgram, ExecutableModule) {
     let context = DefinitionContext::new().unwrap();
-    let program = runtime
-        .load_program(
-            "frames",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule {
-                    types: vec![ValueType::Unit, ValueType::HeapObject],
-                    function_table: vec![FunctionRecord {
-                        id: function.id,
-                        identity: function.identity.clone(),
-                        name: function.name.clone(),
-                        params: function.metadata.params.clone(),
-                        return_type: function.metadata.return_type,
-                        effects: Default::default(),
-                    }],
-                    functions: vec![function],
-                    ..Default::default()
+    let program = load_bytecode(
+        runtime,
+        "frames",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule {
+                types: vec![ValueType::Unit, ValueType::HeapObject],
+                function_table: vec![FunctionRecord {
+                    id: function.id,
+                    identity: function.identity.clone(),
+                    name: function.name.clone(),
+                    params: function.metadata.params.clone(),
+                    return_type: function.metadata.return_type,
+                    effects: Default::default(),
                 }],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+                functions: vec![function],
+                ..Default::default()
+            }],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let selected = runtime.select_program(&program).unwrap();
     (program, selected)
 }

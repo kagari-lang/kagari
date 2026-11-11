@@ -7,7 +7,6 @@ use crate::{
 use kagari_runtime::{Runtime as CoreRuntime, module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
-use kagari_vm::vm::Vm;
 
 #[test]
 fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
@@ -35,15 +34,14 @@ fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
     let installed = direct
         .load_verified_program("direct", program.clone().into_verified())
         .unwrap();
-    let vm = Vm::new(direct);
-    let loaded = vm.runtime().select_program(&installed).unwrap();
-    let result = vm.execute(&loaded, ProgramEntry::Main).unwrap();
-    assert_eq!(
-        result.return_value.value(vm.runtime().gc()).unwrap(),
-        Value::I32(42)
-    );
+    let vm = direct;
+    let loaded = vm.select_program(&installed).unwrap();
+    let result = vm
+        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+        .unwrap();
+    assert_eq!(result.return_value.value(vm.gc()).unwrap(), Value::I32(42));
     drop(result);
-    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.gc().active_roots(), 0);
     for _ in 0..2 {
         // Independent engine installations have independent definition contexts.
         let engine =
@@ -57,7 +55,7 @@ fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .unwrap(),
             Value::I32(42)
         );

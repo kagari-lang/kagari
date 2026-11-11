@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_contract::types::PublicItem;
@@ -200,17 +202,17 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
             fingerprint(&runtime, original)
         );
     }
-    bound
-        .load_program(
-            "cold-paths",
-            DefinitionMetadata::checked(
-                offline.definitions().clone(),
-                offline.records().program.clone(),
-                &Default::default(),
-            )
-            .unwrap(),
+    load_bytecode(
+        &mut bound,
+        "cold-paths",
+        DefinitionMetadata::checked(
+            offline.definitions().clone(),
+            offline.records().program.clone(),
+            &Default::default(),
         )
-        .unwrap();
+        .unwrap(),
+    )
+    .unwrap();
 }
 
 #[test]

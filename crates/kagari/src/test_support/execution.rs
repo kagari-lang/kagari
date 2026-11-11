@@ -116,7 +116,7 @@ fn assert_prepared_returns_i32(
                     &mut backend,
                     &context.cancellation,
                 )
-                .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+                .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
                 .unwrap();
             runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
         } else {
@@ -126,12 +126,12 @@ fn assert_prepared_returns_i32(
         assert_eq!(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(expected),
             "{route:?}"
         );
         drop(result);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0, "{route:?}");
+        assert_eq!(runtime.gc().active_roots(), 0, "{route:?}");
     }
 }

@@ -1,5 +1,7 @@
 //! Pure layout facts and cross-version admission, measured separately from inputs.
 use super::{Phases, compare, compile, preparation, snapshot};
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     diagnostics::allocations::{self, Counts},
@@ -36,7 +38,7 @@ fn layout_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let loaded = runtime.select_program(&program).unwrap();
         let structure = loaded
             .bytecode
@@ -135,7 +137,7 @@ fn admission_lifecycle(
 ) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let old = runtime.select_program(&program).unwrap();
         let structure = StructId::new(
             old.bytecode

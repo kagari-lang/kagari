@@ -5,6 +5,7 @@ use crate::{
     program::Program,
 };
 use kagari_bytecode::artifact::KbcArtifact;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
@@ -46,7 +47,7 @@ fn run(source: &str, expected_error: Option<&str>) {
             result
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::Bool(true)
         ),
@@ -56,21 +57,16 @@ fn run(source: &str, expected_error: Option<&str>) {
             assert!(format!("{error:?}").contains(message), "{error:?}");
         }
     }
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
     // The published version owns its materialized constants. Replace it with an
     // unused version so this assertion still detects leaked execution roots.
     runtime
         .program(&loaded)
-        .and_then(|base| {
-            base.prepare_replacement(&program, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
-    assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
-    assert!(!runtime.runtime().is_quarantined());
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    assert!(!runtime.is_quarantined());
 }

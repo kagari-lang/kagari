@@ -128,7 +128,9 @@ impl KagariEngine {
         let runtime = self
             .installation
             .runtime(self.config.default_runtime.clone());
-        Runtime::new(runtime, context)
+        let mut runtime = runtime;
+        runtime.set_default_context(context);
+        runtime
     }
 }
 

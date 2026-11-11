@@ -4,11 +4,11 @@ use super::{
     scheduler::{HostLoop, decode, result, scheduled},
 };
 use crate::engine::EngineConfig;
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
     error::RuntimeErrorKind, native::completion::CompletionStatus, scheduler::TurnBudget,
     value::Value,
 };
-use kagari_vm::vm::owned::DriveResult;
 use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
 const SOURCE: &str = include_str!("../../../../../tests/fixtures/embedding/async/groups.kgr");
@@ -27,7 +27,6 @@ fn groups_waits_are_nonowning_and_cycles_cross_nested_groups() {
     let future = f.invoke("shared", &[f.value(&task)]);
     let mut joined = f
         .runtime
-        .runtime()
         .schedule_execution(f.start_future(&future), |_, _| Ok(()))
         .unwrap();
     host.until(&mut f.runtime, || joined.is_finished());
@@ -77,7 +76,6 @@ fn groups_pre_admission_cancel_capacity_and_parent_depth() {
     let owner = f.start_future(&composition);
     assert!(matches!(
         f.runtime
-            .backend()
             .drive(&owner, NonZeroUsize::new(256).unwrap())
             .unwrap(),
         DriveResult::Waiting
@@ -90,13 +88,12 @@ fn groups_pre_admission_cancel_capacity_and_parent_depth() {
     let blocked = f.start_future(&f.invoke("cold", &[]));
     assert!(matches!(
         f.runtime
-            .backend()
             .drive(&blocked, NonZeroUsize::new(256).unwrap())
             .unwrap(),
         DriveResult::Complete(Err(_))
     ));
     drop(owner);
-    f.runtime.runtime().drain_retired_executions().unwrap();
+    f.runtime.drain_retired_executions().unwrap();
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let mut ticket = scheduled(&f, "supplied", &[f.value(&left), f.value(&right)]);
@@ -126,7 +123,7 @@ fn groups_cold_dual_io_order_and_result_policy() {
     let host = HostLoop::new();
     assert!(f.runtime.poll(&mut host.context()).is_pending());
     let cold = f.invoke("cold", &[]);
-    f.runtime.runtime().collect_garbage().unwrap();
+    f.runtime.collect_garbage().unwrap();
     host.settle(&mut f.runtime);
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     drop(cold);
@@ -138,7 +135,7 @@ fn groups_cold_dual_io_order_and_result_policy() {
     assert_eq!(right.complete(Ok(2)), CompletionStatus::Accepted);
     host.settle(&mut f.runtime);
     assert!(!ticket.is_finished());
-    f.runtime.runtime().collect_garbage().unwrap();
+    f.runtime.collect_garbage().unwrap();
     f.sent.lock().unwrap().pop().unwrap().complete(Ok(1));
     host.until(&mut f.runtime, || ticket.is_finished());
     assert_eq!(result(&mut ticket).unwrap(), 102);
@@ -170,7 +167,6 @@ fn groups_right_err_cleans_sibling_before_publication_and_keeps_origin() {
     let cancels = f.cancels.clone();
     let mut ticket = f
         .runtime
-        .runtime()
         .schedule_execution(f.start_future(&future), move |runtime, root| {
             assert_eq!(
                 cancels.load(Ordering::SeqCst),
@@ -194,8 +190,8 @@ fn groups_right_err_cleans_sibling_before_publication_and_keeps_origin() {
         .unwrap();
     host.until(&mut f.runtime, || ticket.is_finished());
     let root = result(&mut ticket).unwrap();
-    f.runtime.runtime().collect_garbage().unwrap();
-    assert!(root.value(f.runtime.runtime().gc()).is_some());
+    f.runtime.collect_garbage().unwrap();
+    assert!(root.value(f.runtime.gc()).is_some());
     assert_eq!(f.starts.load(Ordering::SeqCst), 1);
     assert_eq!(f.cancels.load(Ordering::SeqCst), 1);
     let late = f.sent.lock().unwrap().pop().unwrap();
@@ -219,7 +215,6 @@ fn groups_claim_pair_atomically_and_bound_admission() {
     assert_eq!(f.starts.load(Ordering::SeqCst), 0);
     let mut consumed = f
         .runtime
-        .runtime()
         .schedule_execution(f.start_future(&input), decode)
         .unwrap();
     host.until(&mut f.runtime, || consumed.is_finished());
@@ -233,7 +228,6 @@ fn groups_claim_pair_atomically_and_bound_admission() {
     );
     let mut untouched = f
         .runtime
-        .runtime()
         .schedule_execution(f.start_future(&other), decode)
         .unwrap();
     host.until(&mut f.runtime, || untouched.is_finished());
@@ -266,10 +260,7 @@ fn groups_parent_drop_drains_nested_waits_and_shares_turn_budget() {
     let mut ticket = scheduled(&f, "nested", &[]);
     host.until(&mut f.runtime, || f.starts.load(Ordering::SeqCst) == 3);
     host.settle(&mut f.runtime);
-    f.runtime
-        .runtime()
-        .cancel_scheduled_execution(&ticket)
-        .unwrap();
+    f.runtime.cancel_scheduled_execution(&ticket).unwrap();
     assert_eq!(f.cancels.load(Ordering::SeqCst), 3);
     assert_eq!(
         result(&mut ticket).unwrap_err().kind(),

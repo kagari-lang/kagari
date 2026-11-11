@@ -1,4 +1,6 @@
 //! Builtin array contracts and direct native associations belong to core::array.
+// Preserve module children during Runtime-only test source sharing.
+#[cfg_attr(test, path = "arrays/operations.rs")]
 pub(super) mod operations;
 use crate::{
     catalog::documentation,

@@ -52,20 +52,20 @@ pub fn after() -> i32 { 42 }
     );
     assert!(
         error
-            .error_trace()
+            .trace()
             .unwrap()
             .frames
             .iter()
             .any(|frame| frame.function_name.contains("from"))
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "after", &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -103,13 +103,10 @@ pub fn after()->i32 { 42 }
         )
         .unwrap_err();
     assert!(format!("{error:?}").contains("division by zero"));
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
     let limited = ExecutionContext::default();
-    let cancellation = support::cancel_after(
-        runtime.runtime(),
-        &runtime.runtime().select_program(&loaded).unwrap(),
-        1,
-    );
+    let cancellation =
+        support::cancel_after(&runtime, &runtime.select_program(&loaded).unwrap(), 1);
 
     assert_eq!(
         runtime
@@ -118,7 +115,7 @@ pub fn after()->i32 { 42 }
             .code(),
         "KG_RUNTIME_CANCELLED"
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
     drop(cancellation);
     let cancelled = ExecutionContext::default();
     cancelled.cancellation.cancel();
@@ -129,15 +126,15 @@ pub fn after()->i32 { 42 }
             .code(),
         "KG_RUNTIME_CANCELLED"
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(
         runtime
             .execute(&loaded, "after", &[], &ExecutionContext::default())
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
-    assert!(!runtime.runtime().is_quarantined());
+    assert!(!runtime.is_quarantined());
 }

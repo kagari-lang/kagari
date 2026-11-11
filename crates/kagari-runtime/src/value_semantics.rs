@@ -1,4 +1,6 @@
 //! Script equality is independent of Rust's structural Value comparisons.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 pub(crate) mod hashing;
 use crate::{
     error::{RuntimeError, trap::TrapReason},
@@ -369,9 +371,7 @@ mod tests {
             DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap()
         };
         let mut runtime = crate::Runtime::default();
-        let installation = runtime
-            .load_program("enum-equality", program(false))
-            .unwrap();
+        let installation = load_bytecode(&mut runtime, "enum-equality", program(false)).unwrap();
         let old = runtime.select_program(&installation).unwrap();
         let old_tag = crate::value::EnumTag::Declared(old.enum_variant(EnumId::new(0), 0).unwrap());
         let old_value = Value::Enum(runtime.alloc_enum(old_tag, vec![Value::I32(7)]).unwrap());
@@ -389,9 +389,7 @@ mod tests {
         let other_value = Value::Enum(runtime.alloc_enum(other_tag, vec![Value::I32(7)]).unwrap());
         assert!(!script_equal(runtime.gc(), &old_value, &other_value).unwrap());
 
-        let independent = runtime
-            .load_program("enum-equality", program(true))
-            .unwrap();
+        let independent = load_bytecode(&mut runtime, "enum-equality", program(true)).unwrap();
         let independent = runtime.select_program(&independent).unwrap();
         let independent_tag =
             EnumTag::Declared(independent.enum_variant(EnumId::new(0), 1).unwrap());

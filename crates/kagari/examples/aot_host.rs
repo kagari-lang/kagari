@@ -4,6 +4,7 @@ use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
 };
+use kagari_runtime::execution::JitExecutionStatus;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     native::builder::ModuleBuilder,
@@ -11,7 +12,6 @@ use kagari_runtime::{
 };
 use kagari_stdlib as stdlib;
 use kagari_types::declaration::logging;
-use kagari_vm::vm::JitExecutionStatus;
 use std::{env, path::PathBuf};
 
 fn main() {
@@ -73,7 +73,7 @@ fn main() {
         JitExecutionStatus::Native
     );
     assert_eq!(
-        report.return_value.value(runtime.runtime().gc()),
+        report.return_value.value(runtime.gc()),
         Some(Value::I32(42))
     );
     println!("Native: 42 (compiler-free host)");

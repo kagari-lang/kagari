@@ -1,4 +1,6 @@
 //! Manual retained-memory probes: checked inputs, no script execution or VM frames.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 mod applications;
 mod execution;
 mod layouts;
@@ -138,7 +140,7 @@ fn native_lifecycle(
     allocations::measure(|| {
         let mut runtime = Runtime::default();
         provider.install(&mut runtime).unwrap();
-        let program = runtime.load_program("memory", code.clone()).unwrap();
+        let program = load_bytecode(&mut runtime, "memory", code.clone()).unwrap();
         let loaded = runtime.select_program(&program).unwrap();
         let owner = loaded
             .members()

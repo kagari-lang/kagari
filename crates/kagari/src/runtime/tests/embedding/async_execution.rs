@@ -5,13 +5,13 @@ use crate::{
     program::Compilation,
     runtime::Runtime,
 };
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::value::Value;
-use kagari_vm::vm::owned::DriveResult;
 
 // Shared with the source-free standalone consumer; it uses these parent imports.
 #[path = "../../../../tests/support/async_fixture.rs"]
 mod fixture;
-use crate::{BytecodeArtifact, RunResult, engine::EngineConfig, error::EmbeddingError};
+use crate::{BytecodeArtifact, engine::EngineConfig};
 use fixture::{Fixture, slice};
 use kagari_runtime::{gc::roots::RootedValue, session::owned::OwnedExecution};
 use kagari_source::source::SourceFile;
@@ -61,22 +61,26 @@ impl Fixture {
         self.call(entry, arguments).unwrap()
     }
 
-    fn call(&self, entry: &str, arguments: &[Value]) -> RunResult<RootedValue> {
+    fn call(
+        &self,
+        entry: &str,
+        arguments: &[Value],
+    ) -> kagari_runtime::native::binding::NativeResult<RootedValue> {
         if arguments.is_empty() {
             return self
                 .runtime
                 .execute(&self.module, entry, arguments, &Default::default())
                 .map(|report| report.return_value);
         }
-        let owner = self.runtime.backend().start(
-            &self.runtime.runtime().select_program(&self.module).unwrap(),
+        let owner = self.runtime.start(
+            &self.runtime.select_program(&self.module).unwrap(),
             entry,
             arguments,
             Default::default(),
         )?;
         for _ in 0..1000 {
-            match self.runtime.backend().drive(&owner, slice())? {
-                DriveResult::Complete(result) => return result.map_err(EmbeddingError::from),
+            match self.runtime.drive(&owner, slice())? {
+                DriveResult::Complete(result) => return result,
                 DriveResult::Runnable => {}
                 DriveResult::Waiting => panic!("synchronous entry waited"),
             }
@@ -85,12 +89,11 @@ impl Fixture {
     }
 
     fn value(&self, root: &RootedValue) -> Value {
-        root.value(self.runtime.runtime().gc()).unwrap()
+        root.value(self.runtime.gc()).unwrap()
     }
 
     fn start_future(&self, future: &RootedValue) -> OwnedExecution {
         self.runtime
-            .backend()
             .start_future(&self.value(future), Default::default())
             .unwrap()
     }
@@ -99,12 +102,11 @@ impl Fixture {
         for _ in 0..1000 {
             match self
                 .runtime
-                .backend()
                 .drive(owner, NonZeroUsize::new(1).unwrap())
                 .unwrap()
             {
                 DriveResult::Runnable => {
-                    self.runtime.runtime().collect_garbage().unwrap();
+                    self.runtime.collect_garbage().unwrap();
                 }
                 DriveResult::Complete(value) => return value.unwrap(),
                 DriveResult::Waiting => panic!("unexpected native wait"),

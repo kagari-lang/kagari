@@ -6,6 +6,7 @@ use crate::{
     runtime::Runtime,
 };
 use kagari_derive::KagariValue;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     Runtime as CoreRuntime,
     error::RuntimeError,
@@ -103,16 +104,11 @@ fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
     let old = runtime
         .load_program(&prepare(0), Default::default())
         .unwrap();
-    let descriptor = runtime
-        .runtime()
-        .bind_rust_type::<Stats>(&old.root())
-        .unwrap();
+    let descriptor = runtime.bind_rust_type::<Stats>(&old.root()).unwrap();
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(&prepare(100), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&prepare(100), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
@@ -211,13 +207,9 @@ fn scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter() {
         Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let mut runtime = engine.runtime(ExecutionContext::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let player_type = runtime
-        .runtime()
-        .bind_rust_type::<Player>(&loaded.root())
-        .unwrap();
+    let player_type = runtime.bind_rust_type::<Player>(&loaded.root()).unwrap();
     let observations = Arc::new(AtomicUsize::new(0));
     runtime
-        .runtime()
         .set_execution_observer(ContextObserver(observations.clone()))
         .unwrap();
     let mut context = ExecutionContext {

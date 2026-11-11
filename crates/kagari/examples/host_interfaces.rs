@@ -147,14 +147,8 @@ fn main() {
         ..Default::default()
     };
     let mut runtime = engine.runtime(context.clone());
-    let ty = runtime
-        .runtime()
-        .types()
-        .get_by_name("demo::Counter")
-        .unwrap()
-        .id;
+    let ty = runtime.types().get_by_name("demo::Counter").unwrap().id;
     runtime
-        .runtime_mut()
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     let artifact =
@@ -166,7 +160,7 @@ fn main() {
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
-    let value = result.return_value.value(runtime.runtime().gc()).unwrap();
+    let value = result.return_value.value(runtime.gc()).unwrap();
     assert_eq!(value, Value::I32(42));
     println!("static + dynamic host interface result: {value:?}");
 }

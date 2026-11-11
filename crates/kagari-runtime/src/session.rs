@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, StagedReload,
     clock::Instant,
@@ -532,18 +534,18 @@ mod tests {
     fn trace_call_limit_reports_omitted_invocations() {
         let context = DefinitionContext::new().unwrap();
         let mut runtime = crate::Runtime::default();
-        let program = runtime
-            .load_program(
-                "trace-cap",
-                ProgramFixture {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                }
-                .metadata(context.snapshot(), &Default::default())
-                .unwrap(),
-            )
-            .unwrap();
+        let program = load_bytecode(
+            &mut runtime,
+            "trace-cap",
+            ProgramFixture {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![BytecodeModule::default()],
+            }
+            .metadata(context.snapshot(), &Default::default())
+            .unwrap(),
+        )
+        .unwrap();
         let module = runtime.select_program(&program).unwrap();
         let mut options = runtime.execution_options();
         options.record_host_calls = true;

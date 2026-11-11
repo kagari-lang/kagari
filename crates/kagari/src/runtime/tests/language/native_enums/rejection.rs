@@ -25,11 +25,8 @@ fn native_enum_operations_reject_wrong_payloads_members_and_indices(#[case] body
             .is_err(),
         "{body}"
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc().allocated_objects(), 0);
 }

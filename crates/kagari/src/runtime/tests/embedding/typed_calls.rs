@@ -4,7 +4,6 @@ use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::Program,
-    runtime::Runtime as SdkRuntime,
 };
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_compiler::{
@@ -13,6 +12,7 @@ use kagari_compiler::{
 };
 use kagari_contract::source::ExecutableOrigin;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -100,22 +100,26 @@ fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies
         include_str!("../../../../tests/fixtures/embedding/typed/current-handles-v2.kgr"),
         &[],
     );
-    let mut runtime = SdkRuntime::new(Runtime::default(), Default::default());
+    let mut runtime = {
+        let mut runtime = Runtime::default();
+        runtime.set_default_context(Default::default());
+        runtime
+    };
     let program = runtime.load_program(&first, Default::default()).unwrap();
     let function = runtime
-        .function::<(), i32>(&program.root(), "selected")
+        .bind_function::<(), i32>(&program.root(), "selected")
         .unwrap();
     let named_factory = runtime
-        .function::<(), Function<(), i32>>(&program.root(), "named")
+        .bind_function::<(), Function<(), i32>>(&program.root(), "named")
         .unwrap();
     let closure_factory = runtime
-        .function::<(), Function<(), i32>>(&program.root(), "closure")
+        .bind_function::<(), Function<(), i32>>(&program.root(), "closure")
         .unwrap();
     let make = runtime
-        .function::<(), Object>(&program.root(), "make")
+        .bind_function::<(), Object>(&program.root(), "make")
         .unwrap();
     let view = runtime
-        .function::<(), Interface>(&program.root(), "view")
+        .bind_function::<(), Interface>(&program.root(), "view")
         .unwrap();
     let named = runtime.call(&named_factory, ()).unwrap();
     assert!(named.call_route().is_some());
@@ -123,31 +127,30 @@ fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies
     let object = runtime.call(&make, ()).unwrap();
     let interface = runtime.call(&view, ()).unwrap();
     let method = runtime
-        .method::<(), i32>(object.object_type(), "read")
+        .bind_method::<(), i32>(object.object_type(), "read")
         .unwrap();
-    let interface_method = runtime
-        .interface_method::<(), i32>(&interface, "read")
+    let interface_method = interface
+        .member(&runtime, "read")
+        .and_then(|member| runtime.bind_interface_method::<(), i32>(&member))
         .unwrap();
     assert_eq!(runtime.call(&function, ()).unwrap(), 10);
     runtime
         .program(&program)
-        .and_then(|base| {
-            base.prepare_replacement(&second, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(runtime.call(&function, ()).unwrap(), 20);
     let rebound = runtime
-        .function::<(), i32>(&program.root(), "selected")
+        .bind_function::<(), i32>(&program.root(), "selected")
         .unwrap();
     assert_eq!(runtime.call(&rebound, ()).unwrap(), 7);
     assert_eq!(runtime.call(&named, ()).unwrap(), 20);
     assert_eq!(runtime.call(&closure, ()).unwrap(), 120);
     let fresh_closure = runtime.call(&closure_factory, ()).unwrap();
     assert_eq!(runtime.call(&fresh_closure, ()).unwrap(), 220);
-    let current = runtime.runtime().select_program(&program).unwrap();
+    let current = runtime.select_program(&program).unwrap();
     runtime
         .with_context(&current, &Default::default(), |cx| {
             assert_eq!(object.call(cx, &method, ())?, 21);
@@ -162,7 +165,11 @@ fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies
             Ok(())
         })
         .unwrap();
-    let mut foreign = SdkRuntime::new(Runtime::default(), Default::default());
+    let foreign = {
+        let mut runtime = Runtime::default();
+        runtime.set_default_context(Default::default());
+        runtime
+    };
     assert!(foreign.call(&function, ()).is_err());
 }
 
@@ -177,21 +184,23 @@ fn async_typed_admission_retains_selected_factory_before_any_poll() {
     );
     let mut core = Runtime::default();
     NativeModule::install_all(&providers, &mut core).unwrap();
-    let mut runtime = SdkRuntime::new(core, Default::default());
+    let mut runtime = {
+        let mut runtime = core;
+        runtime.set_default_context(Default::default());
+        runtime
+    };
     let program = runtime.load_program(&first, Default::default()).unwrap();
     let function = runtime
-        .async_function::<(), i32>(&program.root(), "run")
+        .bind_async_function::<(), i32>(&program.root(), "run")
         .unwrap();
     let mut admitted = runtime.submit_async(&function, ()).unwrap();
     runtime
         .program(&program)
-        .and_then(|base| {
-            base.prepare_replacement(&second, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     let mut current = runtime.submit_async(&function, ()).unwrap();
     let mut cx = Context::from_waker(Waker::noop());
     let mut results = (None, None);
@@ -225,28 +234,33 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
     );
     let mut core = Runtime::default();
     NativeModule::install_all(&providers, &mut core).unwrap();
-    let mut runtime = SdkRuntime::new(core, Default::default());
+    let mut runtime = {
+        let mut runtime = core;
+        runtime.set_default_context(Default::default());
+        runtime
+    };
     let program = runtime.load_program(&first, Default::default()).unwrap();
-    let old_key = runtime.runtime().select_program(&program).unwrap().key();
+    let old_key = runtime.select_program(&program).unwrap().key();
     let integer = runtime
-        .function::<(), Interface>(&program.root(), "integer")
+        .bind_function::<(), Interface>(&program.root(), "integer")
         .unwrap();
     let boolean = runtime
-        .function::<(), Interface>(&program.root(), "boolean")
+        .bind_function::<(), Interface>(&program.root(), "boolean")
         .unwrap();
     let integer = runtime.call(&integer, ()).unwrap();
     let boolean = runtime.call(&boolean, ()).unwrap();
-    let method = runtime
-        .interface_method::<(), i32>(&integer, "read")
+    let method = integer
+        .member(&runtime, "read")
+        .and_then(|member| runtime.bind_interface_method::<(), i32>(&member))
         .unwrap();
-    let later = runtime
-        .async_interface_method::<(), i32>(&integer, "later")
+    let later = integer
+        .member(&runtime, "later")
+        .and_then(|member| runtime.bind_async_interface_method::<(), i32>(&member))
         .unwrap();
     let unbound = method.source_target();
     let unbound_async = later.source_target();
     for (target, name) in [(&unbound, "read"), (&unbound_async, "later")] {
-        let SourceQuery::Unavailable(info) = runtime.runtime().function_source(target).unwrap()
-        else {
+        let SourceQuery::Unavailable(info) = runtime.function_source(target).unwrap() else {
             panic!("an unbound member must not claim a default or concrete implementation");
         };
         assert_eq!(info.reason, SourceUnavailableReason::NoObservedBody);
@@ -261,17 +275,16 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
         assert!(info.target.is_none());
         assert!(info.executable.is_none());
     }
-    let rooted = integer.prepare_call(runtime.runtime(), &method).unwrap();
-    let target = rooted.source_target(runtime.runtime()).unwrap();
-    let other = boolean.prepare_call(runtime.runtime(), &method).unwrap();
-    let other_target = other.source_target(runtime.runtime()).unwrap();
-    let history = runtime.runtime().source_snapshot(&program).unwrap();
-    let SourceQuery::Available(old) = runtime.runtime().function_source(&target).unwrap() else {
+    let rooted = integer.prepare_call(&runtime, &method).unwrap();
+    let target = rooted.source_target(&runtime).unwrap();
+    let other = boolean.prepare_call(&runtime, &method).unwrap();
+    let other_target = other.source_target(&runtime).unwrap();
+    let history = runtime.source_snapshot(&program).unwrap();
+    let SourceQuery::Available(old) = runtime.function_source(&target).unwrap() else {
         panic!("retained source package must identify the selected implementation");
     };
     assert_eq!(old.text, "fn read(self) -> i32 { 7 }");
-    let SourceQuery::Available(other_source) =
-        runtime.runtime().function_source(&other_target).unwrap()
+    let SourceQuery::Available(other_source) = runtime.function_source(&other_target).unwrap()
     else {
         panic!("second receiver implementation source");
     };
@@ -279,14 +292,11 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
     assert_ne!(old.target, other_source.target);
     runtime
         .program(&program)
-        .and_then(|base| {
-            base.prepare_replacement(&second, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
-    let SourceQuery::Available(current) = runtime.runtime().function_source(&target).unwrap()
-    else {
+    let SourceQuery::Available(current) = runtime.function_source(&target).unwrap() else {
         panic!("retained ordinary method target must observe current code");
     };
     assert_eq!(current.text, "fn read(self) -> i32 { 17 }");
@@ -294,20 +304,17 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
     drop((rooted, other, integer, boolean, method, later));
     assert!(
         runtime
-            .runtime()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old_key)
     );
-    let SourceQuery::Available(after_release) = runtime.runtime().function_source(&target).unwrap()
-    else {
+    let SourceQuery::Available(after_release) = runtime.function_source(&target).unwrap() else {
         panic!("current route must not require its original receiver or executable");
     };
     assert_eq!(after_release.text, current.text);
     assert_eq!(after_release.publication, current.publication);
-    let SourceQuery::Available(other_current) =
-        runtime.runtime().function_source(&other_target).unwrap()
+    let SourceQuery::Available(other_current) = runtime.function_source(&other_target).unwrap()
     else {
         panic!("route must preserve the originally bound receiver's implementation");
     };
@@ -319,7 +326,7 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
     assert_eq!(historical.text, old.text);
     assert_eq!(historical.publication, old.publication);
     assert!(
-        matches!(runtime.runtime().function_source(&unbound).unwrap(), SourceQuery::Unavailable(info)
+        matches!(runtime.function_source(&unbound).unwrap(), SourceQuery::Unavailable(info)
         if info.reason == SourceUnavailableReason::NoObservedBody && info.declaration.is_some())
     );
     assert!(Runtime::default().function_source(&target).is_err());
@@ -351,22 +358,26 @@ fn interface_source_targets_intrinsic_bridges_survive_executable_reclamation() {
     );
     let mut core = Runtime::default();
     NativeModule::install_all(&providers, &mut core).unwrap();
-    let mut runtime = SdkRuntime::new(core, Default::default());
+    let mut runtime = {
+        let mut runtime = core;
+        runtime.set_default_context(Default::default());
+        runtime
+    };
     let program = runtime.load_program(&first, Default::default()).unwrap();
-    let old_key = runtime.runtime().select_program(&program).unwrap().key();
+    let old_key = runtime.select_program(&program).unwrap().key();
     let mut observations = Vec::new();
     for name in ["primitive", "tuple"] {
         let factory = runtime
-            .function::<(), Interface>(&program.root(), name)
+            .bind_function::<(), Interface>(&program.root(), name)
             .unwrap();
         let receiver = runtime.call(&factory, ()).unwrap();
-        let method = runtime
-            .interface_method::<(), i64>(&receiver, "hash")
+        let method = receiver
+            .member(&runtime, "hash")
+            .and_then(|member| runtime.bind_interface_method::<(), i64>(&member))
             .unwrap();
-        let rooted = receiver.prepare_call(runtime.runtime(), &method).unwrap();
-        let target = rooted.source_target(runtime.runtime()).unwrap();
-        let SourceQuery::Unavailable(before) = runtime.runtime().function_source(&target).unwrap()
-        else {
+        let rooted = receiver.prepare_call(&runtime, &method).unwrap();
+        let target = rooted.source_target(&runtime).unwrap();
+        let SourceQuery::Unavailable(before) = runtime.function_source(&target).unwrap() else {
             panic!("intrinsic bridge must not fabricate authored text");
         };
         assert_eq!(before.reason, SourceUnavailableReason::NativeOrigin);
@@ -381,23 +392,19 @@ fn interface_source_targets_intrinsic_bridges_survive_executable_reclamation() {
     }
     runtime
         .program(&program)
-        .and_then(|base| {
-            base.prepare_replacement(&second, &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
         .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     assert!(
         runtime
-            .runtime()
             .collect_garbage()
             .unwrap()
             .reclaimed_modules
             .contains(&old_key)
     );
     for (target, before) in observations {
-        let SourceQuery::Unavailable(after) = runtime.runtime().function_source(&target).unwrap()
-        else {
+        let SourceQuery::Unavailable(after) = runtime.function_source(&target).unwrap() else {
             panic!("intrinsic bridge diagnostic must survive executable reclamation");
         };
         assert_eq!(after.reason, SourceUnavailableReason::NativeOrigin);
@@ -450,16 +457,14 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
     let make = runtime
-        .runtime()
         .bind_function::<(), Object>(&loaded.root(), "make")
         .unwrap();
     let make_callback = runtime
-        .runtime()
         .bind_function::<(), Function<(), i32>>(&loaded.root(), "make_callback")
         .unwrap();
-    let prepared = make.prepare_call(runtime.runtime()).unwrap();
+    let prepared = make.prepare_call(&runtime).unwrap();
     assert!(
         runtime
             .with_context(prepared.owner(), &context, |cx| {
@@ -472,22 +477,19 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     let callback = runtime
         .call_with_context(&make_callback, (), &context)
         .unwrap();
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     assert_eq!(
         runtime.call_with_context(&callback, (), &context).unwrap(),
         42
     );
     let hp = runtime
-        .runtime()
         .bind_field::<i32>(player.object_type(), "hp")
         .unwrap();
     let damage = runtime
-        .runtime()
         .bind_method::<(i32,), i32>(player.object_type(), "damage")
         .unwrap();
     let observations = Arc::new(AtomicUsize::new(0));
     runtime
-        .runtime()
         .set_execution_observer(Observer(observations.clone()))
         .unwrap();
     let remaining = runtime
@@ -528,5 +530,5 @@ fn bound_calls_use_the_sdk_execution_context_and_return_retained_values() {
     );
     drop(callback);
     drop(player);
-    assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }

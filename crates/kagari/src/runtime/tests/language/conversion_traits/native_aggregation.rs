@@ -30,6 +30,6 @@ fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
             format!("{error:?}").contains("integer overflow"),
             "{error:?}"
         );
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }

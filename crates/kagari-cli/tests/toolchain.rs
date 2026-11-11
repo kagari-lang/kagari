@@ -236,6 +236,6 @@ fn execute(engine: &KagariEngine, inputs: &ProgramInputs) -> Value {
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap()
         .return_value
-        .value(runtime.runtime().gc())
+        .value(runtime.gc())
         .unwrap()
 }

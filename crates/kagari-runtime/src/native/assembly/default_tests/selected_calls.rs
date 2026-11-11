@@ -1,4 +1,6 @@
 //! Execute selected calls, including the provenance retained by declared bindings.
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     frame::{
@@ -319,7 +321,7 @@ fn authored_and_sealed_tokens_execute_the_actual_selected_default_call() {
         for module in modules {
             module.install(&mut runtime).unwrap();
         }
-        let loaded_program = runtime.load_program("selected-default", bytecode).unwrap();
+        let loaded_program = load_bytecode(&mut runtime, "selected-default", bytecode).unwrap();
         let loaded = runtime.select_program(&loaded_program).unwrap();
         loaded
             .members()

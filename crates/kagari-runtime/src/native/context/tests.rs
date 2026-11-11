@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
@@ -171,7 +173,7 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
     let code = free_function_program(&native.to_declaration());
     let mut runtime = Runtime::default();
     native.install(&mut runtime).unwrap();
-    let old_program = runtime.load_program("stored", code.clone()).unwrap();
+    let old_program = load_bytecode(&mut runtime, "stored", code.clone()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     let import = |name: &str| {
         NativeImportId::new(
@@ -270,7 +272,7 @@ fn stored_selections_select_current_with_frame_roots_and_checked_calls() {
 
     let mut foreign = Runtime::default();
     native.install(&mut foreign).unwrap();
-    let foreign_owner_program = foreign.load_program("stored", code).unwrap();
+    let foreign_owner_program = load_bytecode(&mut foreign, "stored", code).unwrap();
     let foreign_owner = foreign.select_program(&foreign_owner_program).unwrap();
     {
         let stack = foreign.enter_execution_stack(&foreign_owner).unwrap();

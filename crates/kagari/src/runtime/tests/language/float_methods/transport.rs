@@ -46,7 +46,7 @@ fn exact_bits_survive_locals_gc_fields_native_methods_and_typed_host_entries() {
             .execute_typed(&loaded, ProgramEntry::Main, (), &context)
             .unwrap();
         checks.assert_result(result, route, &source);
-        assert!(runtime.runtime().gc().stats().collections > 0, "{route}");
+        assert!(runtime.gc().stats().collections > 0, "{route}");
         for bits in FLOATS[0].patterns() {
             let value: f32 = runtime
                 .execute_typed(&loaded, "from32", (bits as u32,), &context)
@@ -67,12 +67,9 @@ fn exact_bits_survive_locals_gc_fields_native_methods_and_typed_host_entries() {
                 .unwrap();
             assert_eq!(returned, bits, "{route}: {bits:#x}");
         }
-        assert_eq!(runtime.runtime().gc().active_roots(), 0, "{route}");
-        assert_eq!(
-            runtime.runtime().resources().counters().current_call_depth,
-            0
-        );
-        assert!(!runtime.runtime().is_quarantined());
+        assert_eq!(runtime.gc().active_roots(), 0, "{route}");
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert!(!runtime.is_quarantined());
     }
 }
 

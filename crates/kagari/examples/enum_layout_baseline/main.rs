@@ -105,11 +105,10 @@ fn main() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(&program, Default::default()).unwrap();
-        let owner = runtime.runtime().select_program(&loaded).unwrap();
+        let owner = runtime.select_program(&loaded).unwrap();
         let entry = ProgramEntry::Export(name);
         let length = stored.then(|| {
             runtime
-                .runtime()
                 .bind_function::<(ScriptValue,), u64>(&loaded.root(), &format!("{name}_len"))
                 .unwrap()
         });
@@ -120,11 +119,11 @@ fn main() {
                     .execute_typed::<_, ScriptValue>(&loaded, entry, (count,), &context)
                     .unwrap(),
             );
-            runtime.runtime().collect_garbage().unwrap();
+            runtime.collect_garbage().unwrap();
         }
         let mut times = Vec::with_capacity(samples);
         for sample in 0..samples {
-            let before = runtime.runtime().gc().stats();
+            let before = runtime.gc().stats();
             let (measurement, total) = allocations::measure(|| {
                 let start = Instant::now();
                 let result = runtime
@@ -132,7 +131,7 @@ fn main() {
                     .unwrap();
                 let elapsed = start.elapsed().as_nanos();
                 let counts = allocations::current().unwrap();
-                let after = runtime.runtime().gc().stats();
+                let after = runtime.gc().stats();
                 // allocated_objects is live occupancy, not a cumulative allocation counter.
                 let objects = after.allocated_objects + after.reclaimed_objects
                     - before.allocated_objects
@@ -152,13 +151,13 @@ fn main() {
                     })
                     .unwrap();
                 let start = Instant::now();
-                runtime.runtime().collect_garbage().unwrap();
+                runtime.collect_garbage().unwrap();
                 let collect_ns = start.elapsed().as_nanos();
-                let live = runtime.runtime().gc().stats();
+                let live = runtime.gc().stats();
                 let live_bytes = allocations::current().unwrap().net_bytes;
                 drop(result);
-                runtime.runtime().collect_garbage().unwrap();
-                let retired = runtime.runtime().gc().stats();
+                runtime.collect_garbage().unwrap();
+                let retired = runtime.gc().stats();
                 Sample {
                     elapsed,
                     counts,
@@ -180,7 +179,7 @@ fn main() {
                 collect_ns,
                 live_bytes,
             } = measurement;
-            assert_eq!(runtime.runtime().gc().active_roots(), 0, "{name}");
+            assert_eq!(runtime.gc().active_roots(), 0, "{name}");
             times.push(elapsed);
             println!(
                 "case={name} sample={sample} exec_ns={elapsed} alloc_requests={} requested_bytes={} net_requested_bytes={} gc_objects={objects} auto_collections={collections} ledger_with_result={} retired_ledger={} live_units={} retired_units={} explicit_live_collect_ns={collect_ns} live_requested_delta={live_bytes} retired_requested_delta={}",

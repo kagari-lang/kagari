@@ -1,5 +1,6 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
 use kagari::{context::ExecutionContext, engine::KagariEngine};
+use kagari_runtime::execution::reentry::reenter;
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -17,7 +18,6 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_vm::reentry::reenter;
 use std::{
     cell::Cell,
     slice,
@@ -103,54 +103,47 @@ fn main() {
     let mut runtime = engine.runtime(context.clone());
 
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
+    let _selected_loaded = runtime.select_program(&loaded).unwrap();
     runtime
-        .runtime()
         .set_execution_observer(StackDepth::default())
         .unwrap();
     let session = runtime
-        .runtime()
-        .begin_execution(&_selected_loaded, runtime.runtime().execution_options())
+        .begin_execution(&_selected_loaded, runtime.execution_options())
         .unwrap();
-    runtime.runtime().attach_execution_observer().unwrap();
+    runtime.attach_execution_observer().unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
     assert_eq!(
-        runtime
-            .runtime()
-            .execution_observer::<StackDepth>()
-            .unwrap()
-            .0
-            .get(),
+        runtime.execution_observer::<StackDepth>().unwrap().0.get(),
         2
     );
     assert_eq!(session.counters().current_call_depth, 0);
     assert_eq!(session.host_scope_count(), 0);
     drop(session);
-    runtime.runtime().collect_garbage().unwrap();
+    runtime.collect_garbage().unwrap();
     let Value::Array(id) = retained
         .lock()
         .unwrap()
         .as_ref()
         .unwrap()
-        .value(runtime.runtime().gc())
+        .value(runtime.gc())
         .unwrap()
     else {
         panic!("array result")
     };
     assert_eq!(
-        runtime.runtime().gc().array_snapshot(id).unwrap(),
+        runtime.gc().array_snapshot(id).unwrap(),
         [Value::I32(7), Value::I32(8)]
     );
     retained.lock().unwrap().take();
-    runtime.runtime().collect_garbage().unwrap();
-    assert!(runtime.runtime().gc().array_snapshot(id).is_none());
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc().array_snapshot(id).is_none());
     println!("host reentry returned an array; its explicit root survived collection");
 }

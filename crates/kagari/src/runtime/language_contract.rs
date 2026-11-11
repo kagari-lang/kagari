@@ -1,6 +1,5 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
-#[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
@@ -17,6 +16,11 @@ use kagari_common::{
         DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
         metadata::DefinitionMetadata,
     },
+};
+use kagari_runtime::execution::{
+    ExecutionReport, JitExecutionStatus,
+    native::{PreparedNativeEntry, PreparedNativeExecution},
+    owned::DriveResult,
 };
 use kagari_runtime::{
     Runtime as CoreRuntime, RuntimeConfig,
@@ -37,14 +41,6 @@ use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, host::HostCallPolicy, logging, module::ModuleDecl},
-};
-use kagari_vm::{
-    error::VmError,
-    vm::{
-        ExecutionReport, JitExecutionStatus,
-        native::{PreparedNativeEntry, PreparedNativeExecution},
-        owned::DriveResult,
-    },
 };
 use std::{
     cell::Cell,
@@ -342,9 +338,9 @@ fn assert_outcome(
     case: &Case<'_>,
     route: Route,
     attempt: usize,
-    outcome: Result<ExecutionReport, VmError>,
+    outcome: Result<ExecutionReport, RuntimeError>,
 ) {
-    match (&case.expected, outcome.as_ref().map_err(VmError::cause)) {
+    match (&case.expected, outcome.as_ref()) {
         (Expected::Value(expected), Ok(report)) => {
             let actual = report
                 .return_value
@@ -356,15 +352,13 @@ fn assert_outcome(
                 case.name
             );
         }
-        (Expected::IndexTrap, Err(VmError::InvalidIndex(_))) => {}
-        (Expected::IndexTrap, Err(VmError::RuntimeError(error)))
-            if error.kind() == RuntimeErrorKind::IndexOutOfBounds => {}
-        (Expected::HostFailure, Err(VmError::RuntimeError(error)))
+        (Expected::IndexTrap, Err(error)) if error.kind() == RuntimeErrorKind::IndexOutOfBounds => {
+        }
+        (Expected::HostFailure, Err(error))
             if error.kind() == RuntimeErrorKind::HostCallFailure => {}
-        (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
+        (Expected::ScriptTrap(message), Err(error))
             if error.kind() == RuntimeErrorKind::ScriptTrap && error.to_string() == *message => {}
-        (Expected::Cancelled, Err(VmError::RuntimeError(error)))
-            if error.kind() == RuntimeErrorKind::Cancelled => {}
+        (Expected::Cancelled, Err(error)) if error.kind() == RuntimeErrorKind::Cancelled => {}
         (expected, actual) => panic!(
             "{} ({route:?}, attempt {attempt}): expected {expected:?}, got {actual:?}",
             case.name
@@ -378,8 +372,7 @@ fn execute_route(
     case: &Case<'_>,
     route: Route,
     prepared: Option<&PreparedNativeEntry>,
-) -> Result<ExecutionReport, VmError> {
-    let selected = runtime.runtime().select_program(loaded)?;
+) -> Result<ExecutionReport, RuntimeError> {
     match route {
         Route::Jit | Route::ArtifactJit => {
             let prepared = prepared.expect("native route is prepared before execution admission");
@@ -390,11 +383,14 @@ fn execute_route(
                     case.name
                 );
             }
-            // Retain the VM's exact error variants in this compiler/SDK contract
-            // matrix. Native preparation uses the public SDK's trusted handoff.
-            let outcome = runtime
-                .vm
-                .execute_prepared(&selected, ProgramEntry::Main, prepared);
+            // Both execution routes retain Core's typed reasons and traces.
+            // Native preparation uses the SDK's trusted finalized handoff.
+            let outcome = runtime.execute_prepared_module(
+                &runtime.select_program(loaded)?,
+                ProgramEntry::Main,
+                prepared,
+                runtime.execution_options(),
+            );
             if case.require_native
                 && let Ok(report) = &outcome
             {
@@ -405,7 +401,7 @@ fn execute_route(
             }
             outcome
         }
-        _ => runtime.vm.execute(&selected, ProgramEntry::Main),
+        _ => runtime.execute(loaded, ProgramEntry::Main, &[], runtime.default_context()),
     }
 }
 
@@ -420,7 +416,7 @@ fn prepare_native(
     let code = compiler
         .prepare(program, entry, backend, &Default::default())
         .unwrap();
-    runtime.install_native(loaded, &code).unwrap()
+    code.install(runtime, loaded).unwrap()
 }
 
 fn run(
@@ -525,7 +521,11 @@ fn run(
         },
         ..Default::default()
     };
-    let mut vm = Runtime::new(runtime, context);
+    let mut vm = {
+        let mut runtime = runtime;
+        runtime.set_default_context(context);
+        runtime
+    };
     let mut compiler = NativeCompiler::default();
     let mut backend = CraneliftBackend::for_host().unwrap();
     let prepared = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
@@ -559,19 +559,19 @@ fn run(
         })
     });
     let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
-        let mut options = vm.runtime().execution_options();
+        let mut options = vm.execution_options();
         options.cancellation = cancellation.clone();
-        vm.runtime().begin_execution(&selected, options).unwrap()
+        vm.begin_execution(&selected, options).unwrap()
     });
     if case.cancel_at.is_some() {
-        vm.runtime().attach_execution_observer().unwrap();
+        vm.attach_execution_observer().unwrap();
     }
     for attempt in 0..case.repeat {
         let outcome = execute_route(&vm, &loaded, case, route, prepared.as_ref());
-        assert_outcome(vm.runtime(), case, route, attempt, outcome);
+        assert_outcome(&vm, case, route, attempt, outcome);
     }
     assert_eq!(
-        vm.runtime().resources().counters().current_call_depth,
+        vm.resources().counters().current_call_depth,
         0,
         "{} ({route:?}): call resources must be released before session cleanup",
         case.name
@@ -583,27 +583,18 @@ fn run(
         // Queue the exact old body before publication; no synchronous activation
         // remains while the host publishes. Its ordinary calls still select current.
         let old_execution = vm
-            .vm
-            .start(
-                &selected,
-                ProgramEntry::Main,
-                &[],
-                vm.runtime().execution_options(),
-            )
+            .start(&selected, ProgramEntry::Main, &[], vm.execution_options())
             .unwrap();
         let stale = vm
-            .runtime()
             .stage_reload_verified_program(&loaded, None, program.program().bytecode().clone())
             .unwrap();
         vm.program(&loaded)
-            .and_then(|base| {
-                base.prepare_replacement(program.program(), &Default::default())
-                    .map_err(Into::into)
-            })
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(program.program(), &Default::default()))
             .and_then(|candidate| vm.replace_program(&loaded, &candidate, Default::default()))
             .unwrap();
         let current = loaded.clone();
-        let current_selected = vm.runtime().select_program(&current).unwrap();
+        let current_selected = vm.select_program(&current).unwrap();
         let current_native = matches!(route, Route::Jit | Route::ArtifactJit).then(|| {
             prepare_native(
                 &mut vm,
@@ -615,9 +606,8 @@ fn run(
             )
         });
         assert_ne!(current_selected.key(), selected.key());
-        assert!(vm.runtime().execution_root().is_none());
+        assert!(vm.execution_root().is_none());
         let DriveResult::Complete(result) = vm
-            .vm
             .drive(&old_execution, NonZeroUsize::new(1024).unwrap())
             .unwrap()
         else {
@@ -629,9 +619,9 @@ fn run(
         let result = result.unwrap();
         assert!(
             script_equal(
-                vm.runtime().gc(),
-                &result.value(vm.runtime().gc()).unwrap(),
-                &(reload.selected_result)(vm.runtime().gc()),
+                vm.gc(),
+                &result.value(vm.gc()).unwrap(),
+                &(reload.selected_result)(vm.gc()),
             )
             .unwrap(),
             "{} ({route:?}): old body must call the current dependency",
@@ -646,20 +636,20 @@ fn run(
                         // entry, even when the host explicitly requests fallback.
                         for fallback_reason in [None, Some("interpret current entry")] {
                             let error = vm
-                                .vm
-                                .execute_prepared(
+                                .execute_prepared_module(
                                     &selected,
                                     *entry,
                                     PreparedNativeExecution {
                                         prepared,
                                         fallback_reason,
                                     },
+                                    vm.execution_options(),
                                 )
                                 .unwrap_err();
                             assert!(
                                 matches!(
-                                    error.cause(),
-                                    VmError::RuntimeError(error)
+                                    &error,
+                                    error
                                         if error.kind() == RuntimeErrorKind::ModuleValidation
                                 ),
                                 "{} ({route:?}): {error:?}",
@@ -668,48 +658,48 @@ fn run(
                         }
                     }
                     PreparedNativeEntry::Unsupported { .. } => {
-                        let outcome =
-                            vm.vm
-                                .execute_prepared(&selected, ProgramEntry::Main, prepared);
+                        let outcome = vm.execute_prepared_module(
+                            &selected,
+                            ProgramEntry::Main,
+                            prepared,
+                            vm.execution_options(),
+                        );
                         assert_eq!(
                             outcome.as_ref().unwrap().jit.as_ref().unwrap().status,
                             JitExecutionStatus::InterpreterFallback
                         );
-                        assert_outcome(vm.runtime(), candidate, route, 0, outcome);
+                        assert_outcome(&vm, candidate, route, 0, outcome);
                     }
                 }
             }
         }
         assert_outcome(
-            vm.runtime(),
+            &vm,
             candidate,
             route,
             0,
-            vm.vm.execute(&selected, ProgramEntry::Main),
+            vm.execute_module(&selected, ProgramEntry::Main, vm.execution_options()),
         );
         assert_outcome(
-            vm.runtime(),
+            &vm,
             candidate,
             route,
             0,
             execute_route(&vm, &current, candidate, route, current_native.as_ref()),
         );
-        let before = vm.runtime().modules().loaded_count();
+        let before = vm.modules().loaded_count();
         let stale_members = stale.module().members().count();
         assert!(matches!(
-            vm.runtime_mut().publish_staged_reload(stale),
+            vm.publish_staged_reload(stale),
             Err(ReloadValidationError::ModuleNotActive { .. })
         ));
         assert_eq!(
-            vm.runtime().select_program(&current).unwrap().key(),
+            vm.select_program(&current).unwrap().key(),
             current_selected.key()
         );
-        assert_eq!(
-            vm.runtime().modules().loaded_count(),
-            before - stale_members
-        );
+        assert_eq!(vm.modules().loaded_count(), before - stale_members);
         assert_outcome(
-            vm.runtime(),
+            &vm,
             candidate,
             route,
             1,
@@ -717,24 +707,23 @@ fn run(
         );
     }
     assert_eq!(
-        vm.runtime().resources().counters().current_call_depth,
+        vm.resources().counters().current_call_depth,
         0,
         "{} ({route:?}): call resources must be released after success or failure",
         case.name
     );
     if let Some((_, expected)) = case.vector {
         assert_eq!(
-            vm.runtime().gc().active_roots(),
+            vm.gc().active_roots(),
             1,
             "only the explicit observer root remains"
         );
-        vm.runtime().collect_garbage().unwrap();
-        let Value::Array(array) = retained.as_ref().unwrap().value(vm.runtime().gc()).unwrap()
-        else {
+        vm.collect_garbage().unwrap();
+        let Value::Array(array) = retained.as_ref().unwrap().value(vm.gc()).unwrap() else {
             unreachable!()
         };
         assert_eq!(
-            vm.runtime().gc().array_snapshot(array),
+            vm.gc().array_snapshot(array),
             Some(expected.iter().copied().map(Value::I32).collect()),
             "{} ({route:?}): post-execution heap state",
             case.name

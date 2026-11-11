@@ -4,7 +4,6 @@ use crate::{
         KagariEngine,
         source::{ArtifactOptions, NativeInputExport},
     },
-    error::EmbeddingError,
     program::Compilation,
 };
 use kagari_bytecode::{
@@ -18,6 +17,7 @@ use kagari_compiler::{
 };
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::value::Value;
 use kagari_source::{
     source::SourceFile,
@@ -87,7 +87,7 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -132,21 +132,19 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
         .load_program(first.program(), Default::default())
         .unwrap();
     let root = old.root();
-    let retained = runtime.function::<(), i32>(&root, "main").unwrap();
+    let retained = runtime.bind_function::<(), i32>(&root, "main").unwrap();
     assert_ne!(
-        runtime.runtime().select_program(&old).unwrap().id,
-        runtime.runtime().select_program(&independent).unwrap().id
+        runtime.select_program(&old).unwrap().id,
+        runtime.select_program(&independent).unwrap().id
     );
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(second.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(second.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
-    let selected = runtime.runtime().select_program(&current).unwrap();
+    let selected = runtime.select_program(&current).unwrap();
     assert!(
         second
             .program()
@@ -155,34 +153,29 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
     );
     let error = runtime
         .program(&current)
-        .and_then(|base| {
-            base.prepare_replacement(incompatible.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(incompatible.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&current, &candidate, Default::default()))
         .unwrap_err();
     assert!(
-        matches!(&error, EmbeddingError::ReloadValidation { code, .. }
-            if *code == "KG_RELOAD_PUBLIC_EXPORT_MISMATCH"),
+        matches!(error, ReloadValidationError::PublicExportMismatch),
         "{error:?}"
     );
     assert_eq!(
-        runtime.runtime().select_program(&current).unwrap().key(),
+        runtime.select_program(&current).unwrap().key(),
         selected.key()
     );
     runtime
         .program(&old)
-        .and_then(|base| {
-            base.prepare_replacement(second.program(), &Default::default())
-                .map_err(Into::into)
-        })
+        .map_err(ReloadValidationError::Runtime)
+        .and_then(|base| base.prepare_replacement(second.program(), &Default::default()))
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     assert_eq!(runtime.call(&retained, ()).unwrap(), 2);
-    let rebound = runtime.function::<(), i32>(&root, "main").unwrap();
+    let rebound = runtime.bind_function::<(), i32>(&root, "main").unwrap();
     assert_eq!(runtime.call(&rebound, ()).unwrap(), 2);
     let separate = runtime
-        .function::<(), i32>(&independent.root(), "main")
+        .bind_function::<(), i32>(&independent.root(), "main")
         .unwrap();
     assert_eq!(runtime.call(&separate, ()).unwrap(), 1);
     assert_eq!(
@@ -190,7 +183,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
             .execute(&old, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(2)
     );
@@ -199,7 +192,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
             .execute(&current, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(2)
     );

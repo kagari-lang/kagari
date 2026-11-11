@@ -5,6 +5,7 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::updates::UpdateEvidence;
+use kagari_runtime::module::VerifiedProgram;
 use kagari_runtime::{Runtime, error::RuntimeErrorKind, value::Value};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
@@ -12,25 +13,29 @@ fn main() {
     let mut runtime = Runtime::default();
     let context = DefinitionContext::new().unwrap();
     let owner_program = runtime
-        .load_program(
+        .load_verified_program(
             "arrays",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    // This owner has no declarations or executable bodies.
-                    update_evidence: UpdateEvidence {
-                        source_manifest: None,
-                        sources: vec![],
-                        bodies: vec![],
-                        initializers: vec![],
-                        targets: vec![],
-                        selections: vec![],
+            VerifiedProgram::new(
+                DefinitionMetadata::checked(
+                    context.snapshot(),
+                    BytecodeProgram {
+                        // This owner has no declarations or executable bodies.
+                        update_evidence: UpdateEvidence {
+                            source_manifest: None,
+                            sources: vec![],
+                            bodies: vec![],
+                            initializers: vec![],
+                            targets: vec![],
+                            selections: vec![],
+                        },
+                        exports: Default::default(),
+                        root: ModuleRef::new(0),
+                        modules: vec![BytecodeModule::default()],
                     },
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
+                    &Default::default(),
+                )
+                .unwrap(),
+                &context,
             )
             .unwrap(),
         )

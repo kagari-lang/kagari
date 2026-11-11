@@ -1,5 +1,7 @@
 //! Manual ownership/allocation probes; no elapsed-time or RSS attribution.
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     diagnostics::allocations::{self, Counts},
     frame::types::arguments::TypeArgument,
@@ -138,7 +140,7 @@ fn provenance_lifecycle(
 ) -> (ProvenanceResult, Counts) {
     allocations::measure(|| {
         let mut runtime = runtime();
-        let current_program = runtime.load_program("provenance", input.clone()).unwrap();
+        let current_program = load_bytecode(&mut runtime, "provenance", input.clone()).unwrap();
         let mut current = runtime.select_program(&current_program).unwrap();
         let mut holders = Vec::with_capacity(count);
         let mut graphs = Vec::with_capacity(count);

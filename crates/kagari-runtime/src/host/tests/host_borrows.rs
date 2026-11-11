@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime,
@@ -105,18 +107,18 @@ fn guard_rejects_borrow_tokens_from_another_live_frame() {
 fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
-    let module_program = runtime
-        .load_program(
-            "borrow-storage",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let module_program = load_bytecode(
+        &mut runtime,
+        "borrow-storage",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let resources = runtime.host_scope(&[]).unwrap();
     let frame = resources.borrows();

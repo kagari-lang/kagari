@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 mod measurements;
 
@@ -27,18 +29,17 @@ use std::mem::size_of;
 
 fn module() -> (Runtime, InstalledProgram, ExecutableModule) {
     let mut runtime = Runtime::default();
-    let module_program = runtime
-        .load_program(
-            "windows",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule::default()],
-            }
-            .metadata(runtime.host().definitions(), &Default::default())
-            .unwrap(),
-        )
+    let module_program = {
+        let bytecode = ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![BytecodeModule::default()],
+        }
+        .metadata(runtime.host().definitions(), &Default::default())
         .unwrap();
+        load_bytecode(&mut runtime, "windows", bytecode)
+    }
+    .unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     (runtime, module_program, module)
 }

@@ -8,7 +8,6 @@ use kagari::program::native::NativeCompiler;
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
-    error::EmbeddingError,
     program::{Compilation, Program},
 };
 use kagari_bytecode::{
@@ -17,6 +16,7 @@ use kagari_bytecode::{
     program::{identity, verify_program},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     error::RuntimeErrorKind, module::entry::ProgramEntry, native::objects::Object,
 };
@@ -110,19 +110,19 @@ fn portable_artifact_executes_without_source_compilation() {
         assert_eq!(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42),
             "{entry:?}",
         );
         drop(result);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0, "{entry:?}");
+        assert_eq!(runtime.gc().active_roots(), 0, "{entry:?}");
         assert_eq!(
-            runtime.runtime().resources().counters().current_call_depth,
+            runtime.resources().counters().current_call_depth,
             0,
             "{entry:?}",
         );
-        assert!(!runtime.runtime().is_quarantined(), "{entry:?}");
+        assert!(!runtime.is_quarantined(), "{entry:?}");
     }
 
     // The decoded export graph, not frontend state or a root-reset adapter, owns
@@ -131,19 +131,19 @@ fn portable_artifact_executes_without_source_compilation() {
     let cells = runtime.module(&facade, "cells").unwrap();
     assert!(runtime.module(&loaded.root(), "alias_model").is_err());
     let root_answer = runtime
-        .function::<(), i32>(&loaded.root(), "answer")
+        .bind_function::<(), i32>(&loaded.root(), "answer")
         .unwrap();
-    let answer = runtime.function::<(), i32>(&cells, "answer").unwrap();
+    let answer = runtime.bind_function::<(), i32>(&cells, "answer").unwrap();
     assert_eq!(runtime.call(&root_answer, ()).unwrap(), -1);
     assert_eq!(runtime.call(&answer, ()).unwrap(), 42);
     let executor = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
     let root_async = runtime
-        .async_function::<(), i32>(&loaded.root(), "answer_async")
+        .bind_async_function::<(), i32>(&loaded.root(), "answer_async")
         .unwrap();
     let answer_async = runtime
-        .async_function::<(), i32>(&cells, "answer_async")
+        .bind_async_function::<(), i32>(&cells, "answer_async")
         .unwrap();
     assert_eq!(
         executor
@@ -158,22 +158,24 @@ fn portable_artifact_executes_without_source_compilation() {
         42
     );
 
-    let closed = runtime.object_type(&cells, "SharedCell").unwrap();
-    let field = runtime.field::<i32>(&closed, "value").unwrap();
-    let make = runtime.function::<(), Object>(&cells, "make_cell").unwrap();
+    let closed = runtime.bind_type(&cells, "SharedCell", &[]).unwrap();
+    let field = runtime.bind_field::<i32>(&closed, "value").unwrap();
+    let make = runtime
+        .bind_function::<(), Object>(&cells, "make_cell")
+        .unwrap();
     let cell = runtime.call(&make, ()).unwrap();
     assert_eq!(runtime.get(&cell, &field).unwrap(), 42);
     runtime.set(&cell, &field, 43).unwrap();
     assert_eq!(runtime.get(&cell, &field).unwrap(), 43);
-    let unused = runtime.object_type(&cells, "UnusedCell").unwrap();
-    runtime.field::<i32>(&unused, "value").unwrap();
+    let unused = runtime.bind_type(&cells, "UnusedCell", &[]).unwrap();
+    runtime.bind_field::<i32>(&unused, "value").unwrap();
     // A structurally identical, different nominal layout cannot access this cell.
-    let wrong_field = runtime.field::<i32>(&unused, "value").unwrap();
+    let wrong_field = runtime.bind_field::<i32>(&unused, "value").unwrap();
     assert!(runtime.get(&cell, &wrong_field).is_err());
     assert_eq!(runtime.get(&cell, &field).unwrap(), 43);
     drop(cell);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]
@@ -191,17 +193,14 @@ fn source_free_shared_operator_contract_executes() {
     assert_eq!(
         result
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
     drop(result);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        runtime.runtime().resources().counters().current_call_depth,
-        0
-    );
-    assert!(!runtime.runtime().is_quarantined());
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]
@@ -220,29 +219,24 @@ fn source_free_native_bindings_execute_and_release_scopes() {
                     .execute(&loaded, entry, &[], &context)
                     .unwrap()
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .value(runtime.gc())
                     .expect("retained execution result"),
                 Value::I32(42)
             );
         }
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert_eq!(
-            runtime.runtime().resources().counters().current_call_depth,
-            0
-        );
-        assert!(!runtime.runtime().is_quarantined());
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert!(!runtime.is_quarantined());
         // Release the version's constant roots before checking for leaked native
         // scopes/results; the replacement cache has not been materialized.
         runtime
             .program(&loaded)
-            .and_then(|base| {
-                base.prepare_replacement(&program, &Default::default())
-                    .map_err(Into::into)
-            })
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(&program, &Default::default()))
             .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .unwrap();
-        runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc().allocated_objects(), 0);
     }
 }
 
@@ -260,13 +254,13 @@ fn source_free_native_enums_retain_nested_payloads() {
                 .execute(&loaded, "native_enum_values", &[], &Default::default())
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc().allocated_objects(), 0);
     }
 }
 
@@ -285,17 +279,14 @@ fn source_free_try_carriers_execute_with_selected_residual_calls() {
                     .execute(&loaded, entry, &[], &Default::default())
                     .unwrap()
                     .return_value
-                    .value(runtime.runtime().gc())
+                    .value(runtime.gc())
                     .expect("retained execution result"),
                 Value::I32(42)
             );
-            assert_eq!(runtime.runtime().gc().active_roots(), 0);
-            assert_eq!(
-                runtime.runtime().resources().counters().current_call_depth,
-                0
-            );
-            runtime.runtime().collect_garbage().unwrap();
-            assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+            assert_eq!(runtime.gc().active_roots(), 0);
+            assert_eq!(runtime.resources().counters().current_call_depth, 0);
+            runtime.collect_garbage().unwrap();
+            assert_eq!(runtime.gc().allocated_objects(), 0);
         }
     }
 }
@@ -379,7 +370,7 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
                 .unwrap()
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -412,8 +403,8 @@ mod native {
         BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
     };
     use kagari_mir::instruction::{Constant, Instruction, Terminator};
+    use kagari_runtime::execution::JitExecutionStatus;
     use kagari_runtime::jit_abi::jit_poll_execution;
-    use kagari_vm::vm::JitExecutionStatus;
     use std::sync::Arc;
     use {
         kagari_abi::{
@@ -517,7 +508,7 @@ mod native {
                 &mut Backend,
                 &Default::default(),
             )
-            .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+            .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
             .unwrap();
         let report = runtime
             .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
@@ -525,7 +516,7 @@ mod native {
         assert_eq!(
             report
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
@@ -537,7 +528,7 @@ mod native {
 #[test]
 fn real_cranelift_compiles_portable_artifact_without_source() {
     use kagari_codegen_cranelift::CraneliftBackend;
-    use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
+    use kagari_runtime::execution::{JitExecutionStatus, native::PreparedNativeEntry};
     let program =
         Compilation::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext {
@@ -556,7 +547,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
             &mut CraneliftBackend::for_host().unwrap(),
             &Default::default(),
         )
-        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+        .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
     let report = runtime
@@ -565,7 +556,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -577,7 +568,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
             &mut CraneliftBackend::for_host().unwrap(),
             &Default::default(),
         )
-        .and_then(|native_code| runtime.install_native(&loaded, &native_code))
+        .and_then(|native_code| (native_code).install(&mut runtime, &loaded))
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
     let report = runtime
@@ -586,7 +577,7 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     assert_eq!(
         report
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
@@ -613,13 +604,13 @@ fn source_free_application_payload_traces_closures_and_arrays() {
         assert_eq!(
             result
                 .return_value
-                .value(runtime.runtime().gc())
+                .value(runtime.gc())
                 .expect("retained execution result"),
             Value::I32(42)
         );
         drop(result);
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
         assert_eq!(drops.load(Ordering::SeqCst), expected);
     }
 }
@@ -671,12 +662,12 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
         .load_program(&program, Default::default())
         .unwrap_err();
     assert!(
-        matches!(&error, EmbeddingError::Load { error }
+        matches!(&error, error
             if error.kind() == RuntimeErrorKind::ModuleValidation
                 && error.to_string().contains("native declaration differs from its installed contract")),
         "{error:?}"
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]
@@ -709,9 +700,9 @@ fn source_free_converted_residual_keeps_its_original_failure_origin() {
             .ends_with("feature-artifact.kgr")
     );
     drop(report.return_value);
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc().allocated_objects(), 0);
 }
 
 fn editable_artifact() -> (DefinitionContext, KbcArtifact) {

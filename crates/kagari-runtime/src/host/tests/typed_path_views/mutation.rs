@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use kagari_common::cancellation::CancellationToken;
 use std::sync::{
@@ -222,18 +224,18 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
     let context = DefinitionContext::new().unwrap();
 
     let mut runtime = path_mutation_runtime();
-    let module_program = runtime
-        .load_program(
-            "commit.kgr",
-            ProgramFixture {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![Default::default()],
-            }
-            .metadata(context.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let module_program = load_bytecode(
+        &mut runtime,
+        "commit.kgr",
+        ProgramFixture {
+            exports: Default::default(),
+            root: ModuleRef::new(0),
+            modules: vec![Default::default()],
+        }
+        .metadata(context.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let module = runtime.select_program(&module_program).unwrap();
     let scalar = register_i32(&runtime);
     let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);

@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{Runtime, test_support::layouts::allocation_owner};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
@@ -258,7 +260,7 @@ fn metadata_roots_retain_programs_until_the_last_external_lease_drops() {
         .unwrap()
     };
     let mut runtime = Runtime::default();
-    let old_program = runtime.load_program("metadata-root", program()).unwrap();
+    let old_program = load_bytecode(&mut runtime, "metadata-root", program()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     let roots = runtime
         .root_metadata(vec![MetadataRoot::Program(old.clone())])
@@ -307,7 +309,7 @@ fn rejected_metadata_replacement_keeps_the_original_program_reachable() {
         .unwrap()
     };
     let mut runtime = Runtime::default();
-    let old_program = runtime.load_program("roots", program()).unwrap();
+    let old_program = load_bytecode(&mut runtime, "roots", program()).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     let roots = runtime
         .root_metadata(vec![MetadataRoot::Program(old.clone())])
@@ -319,7 +321,7 @@ fn rejected_metadata_replacement_keeps_the_original_program_reachable() {
 
     let current = runtime.select_program(&old_program).unwrap();
     let mut other = Runtime::default();
-    let foreign_program = other.load_program("roots", program()).unwrap();
+    let foreign_program = load_bytecode(&mut other, "roots", program()).unwrap();
     let foreign = other.select_program(&foreign_program).unwrap();
     let before = runtime.gc().active_roots();
     assert!(

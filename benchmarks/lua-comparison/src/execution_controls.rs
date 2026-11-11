@@ -1,16 +1,11 @@
 //! Owned roots parked at an instruction boundary; setup and retirement stay separate.
 use crate::Options;
-use kagari::{
-    context::ExecutionContext,
-    engine::KagariEngine,
-    error::{EmbeddingError, RuntimeFailureKind},
-    program::Program,
-    runtime::Runtime,
-};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program, runtime::Runtime};
+use kagari_runtime::error::RuntimeErrorKind;
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{module::ExecutableModule, session::owned::OwnedExecution, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
-use kagari_vm::vm::owned::DriveResult;
 use std::{hint::black_box, num::NonZeroUsize, time::Instant};
 
 #[cfg(feature = "diagnostics")]
@@ -37,7 +32,7 @@ impl Fixture {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let program = runtime.load_program(program, Default::default()).unwrap();
-        let module = runtime.runtime().select_program(&program).unwrap();
+        let module = runtime.select_program(&program).unwrap();
         Self {
             runtime,
             module,
@@ -50,7 +45,6 @@ impl Fixture {
         for index in 0..population {
             let execution = self
                 .runtime
-                .backend()
                 .start(
                     &self.module,
                     "hold",
@@ -60,7 +54,6 @@ impl Fixture {
                 .unwrap();
             assert!(matches!(
                 self.runtime
-                    .backend()
                     .drive(&execution, NonZeroUsize::new(1).unwrap())
                     .unwrap(),
                 DriveResult::Runnable
@@ -83,7 +76,6 @@ impl Fixture {
             }
             let DriveResult::Complete(result) = self
                 .runtime
-                .backend()
                 .drive(&execution, NonZeroUsize::new(10_000).unwrap())
                 .unwrap()
             else {
@@ -91,24 +83,18 @@ impl Fixture {
             };
             if cancel {
                 assert!(matches!(
-                    result.map_err(EmbeddingError::from),
-                    Err(EmbeddingError::Runtime {
-                        kind: RuntimeFailureKind::Cancelled,
-                        ..
-                    })
+                    result,
+                    Err(ref error) if error.kind() == RuntimeErrorKind::Cancelled
                 ));
                 checksum += 1;
             } else {
-                let value = result.unwrap().value(self.runtime.runtime().gc()).unwrap();
+                let value = result.unwrap().value(self.runtime.gc()).unwrap();
                 assert_eq!(value, Value::I32((index as i32 + 1) * 8));
                 checksum += i64::from((index as i32 + 1) * 8);
             }
         }
         roots.clear();
-        assert_eq!(
-            self.runtime.runtime().drain_retired_executions().unwrap(),
-            0
-        );
+        assert_eq!(self.runtime.drain_retired_executions().unwrap(), 0);
         checksum
     }
 }
@@ -163,7 +149,7 @@ pub(super) fn run(options: &Options) {
                 let checksum = fixture.retire(&mut roots, &indices, cancel);
                 let retirement = start.elapsed().as_nanos();
                 let start = Instant::now();
-                fixture.runtime.runtime().collect_garbage().unwrap();
+                fixture.runtime.collect_garbage().unwrap();
                 let collection = start.elapsed().as_nanos();
                 if sample >= options.warmups {
                     let sample = sample - options.warmups;
@@ -204,7 +190,7 @@ fn count(
                 fixture.park(&mut roots, population);
                 phase.0 = allocations::current().unwrap();
                 fixture.retire(&mut roots, order, cancel);
-                fixture.runtime.runtime().collect_garbage().unwrap();
+                fixture.runtime.collect_garbage().unwrap();
                 phase.1 = allocations::current().unwrap();
             }
             (setup, phases)

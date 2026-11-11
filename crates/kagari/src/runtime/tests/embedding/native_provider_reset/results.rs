@@ -183,13 +183,13 @@ fn concrete_native_results_construct_declared_interfaces_in_generic_calls(#[case
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap()
             .return_value
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .expect("retained execution result"),
         Value::I32(42)
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc().allocated_objects(), 0);
 }
 
 #[test]
@@ -291,8 +291,8 @@ fn native_result_conversion_validates_the_rust_body_value() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .is_err()
     );
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
-    assert!(!runtime.runtime().is_quarantined());
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]

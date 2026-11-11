@@ -5,6 +5,7 @@ use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetada
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_runtime::module::VerifiedProgram;
 use kagari_runtime::{
     Runtime,
     frame::driver::ReturnAction,
@@ -90,9 +91,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (snapshot, decoded) = decoded.into_parts();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime)?;
-    let loaded_program = runtime.load_program(
+    let loaded_program = runtime.load_verified_program(
         "trait-table",
-        DefinitionMetadata::checked(snapshot, decoded.program, &Default::default())?,
+        VerifiedProgram::new(
+            DefinitionMetadata::checked(snapshot, decoded.program, &Default::default())?,
+            &definitions,
+        )?,
     )?;
     let loaded = runtime.select_program(&loaded_program)?;
     let tables: usize = loaded

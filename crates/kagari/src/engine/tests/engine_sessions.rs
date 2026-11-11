@@ -40,7 +40,7 @@ fn constructors_do_not_install_implicit_library_providers() {
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
         assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
+            result.return_value.value(runtime.gc()).unwrap(),
             Value::I32(42)
         );
     }
@@ -108,7 +108,7 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
         assert_eq!(
-            result.return_value.value(runtime.runtime().gc()).unwrap(),
+            result.return_value.value(runtime.gc()).unwrap(),
             Value::I32(answer)
         );
     }
@@ -235,7 +235,7 @@ fn runtimes_from_one_installation_have_independent_native_state_and_heap_owners(
         )
         .unwrap();
     let module = module.finish().unwrap();
-    module.install(first.runtime_mut()).unwrap();
+    module.install(&mut first).unwrap();
     builder.install(module).unwrap();
     let artifact = builder
         .build()
@@ -259,8 +259,8 @@ fn runtimes_from_one_installation_have_independent_native_state_and_heap_owners(
         42
     );
     assert!(second.load_program(&program, Default::default()).is_err());
-    let value = first.runtime().gc().alloc_string("owned".into()).unwrap();
-    let rooted = first.runtime().root_value(value).unwrap();
-    assert!(rooted.value(second.runtime().gc()).is_none());
-    assert!(rooted.value(first.runtime().gc()).is_some());
+    let value = first.gc().alloc_string("owned".into()).unwrap();
+    let rooted = first.root_value(value).unwrap();
+    assert!(rooted.value(second.gc()).is_none());
+    assert!(rooted.value(first.gc()).is_some());
 }

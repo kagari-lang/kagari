@@ -98,7 +98,7 @@ pub(super) fn run(directory: &Path) -> Result<(), CliError> {
     println!(
         "{:?}: {:?}",
         report.jit.as_ref().map(|jit| jit.status),
-        report.return_value.value(runtime.runtime().gc())
+        report.return_value.value(runtime.gc())
     );
     if let Some(failure) = report.failure {
         return Err(CliError::message(1, format!("Result::Err: {failure}")));

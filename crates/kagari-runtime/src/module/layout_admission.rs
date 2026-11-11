@@ -2,6 +2,8 @@
 //! Weak producer links cannot retain executable instances or create descriptor cycles.
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::{
     frame::types::compatibility::TypeView,
     module::{
@@ -271,9 +273,9 @@ mod tests {
             .lookup_child(native_root, DefinitionKind::AssociatedType, "Payload", 0)
             .unwrap();
         let code = installation_layouts();
-        let left_program = runtime.load_program("same", code.clone()).unwrap();
+        let left_program = load_bytecode(&mut runtime, "same", code.clone()).unwrap();
         let left = runtime.select_program(&left_program).unwrap();
-        let right_program = runtime.load_program("same", code.clone()).unwrap();
+        let right_program = load_bytecode(&mut runtime, "same", code.clone()).unwrap();
         let right = runtime.select_program(&right_program).unwrap();
         let record = left.struct_layout(StructId::new(0)).unwrap();
         let foreign_record = right.struct_layout(StructId::new(0)).unwrap();

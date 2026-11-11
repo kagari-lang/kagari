@@ -2,6 +2,8 @@
 #[cfg(test)]
 use crate::error::fault::EngineFault;
 use crate::module::{ModuleEpochRetention, ModuleEpochRetentionCounts};
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use std::sync::Arc;
 
 /// Keeps registered module versions reachable until the last clone is dropped.
@@ -124,7 +126,7 @@ mod tests {
     }
 
     fn load(runtime: &mut Runtime) -> (InstalledProgram, ExecutableModule) {
-        let program = runtime.load_program("retention", program()).unwrap();
+        let program = load_bytecode(runtime, "retention", program()).unwrap();
         let executable = runtime.select_program(&program).unwrap();
         (program, executable)
     }
@@ -278,7 +280,9 @@ mod tests {
         );
         assert!(runtime.publish_staged_reload(candidate).is_err());
         assert_eq!(
-            runtime.load_program("new", program()).unwrap_err().kind(),
+            load_bytecode(&mut runtime, "new", program())
+                .unwrap_err()
+                .kind(),
             RuntimeErrorKind::EngineFault
         );
         assert_eq!(

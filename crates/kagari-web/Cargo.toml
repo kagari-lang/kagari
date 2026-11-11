@@ -15,7 +15,6 @@ source = ["kagari/source", "dep:kagari-source"]
 kagari-stdlib.workspace = true
 kagari = { workspace = true, default-features = false, features = ["web"] }
 kagari-runtime.workspace = true
-kagari-vm.workspace = true
 kagari-types.workspace = true
 kagari-source = { workspace = true, optional = true }
 serde.workspace = true

@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use kagari_contract::{
     layout::{StructFieldLayout, StructLayout},
@@ -85,9 +87,8 @@ fn adding_an_unrelated_specialization_and_reordering_layouts_preserves_cells() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let mut code = fixture(&context);
-    let old_program = runtime
-        .load_program("boxes", metadata(&context, code.clone()))
-        .unwrap();
+    let old_program =
+        load_bytecode(&mut runtime, "boxes", metadata(&context, code.clone())).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     let boolean = boxed(&context, &code.modules[0], Ty::Builtin(BuiltinType::Bool));
     let ty = Ty::Struct(NominalTy {
@@ -178,9 +179,8 @@ fn private_interface_signatures_follow_applied_payloads_not_layout_inventory() {
     });
     module.module_slots[0].contract.ty = ty.clone();
     module.functions[0].metadata.semantic.result = Some(ty);
-    let old_program = runtime
-        .load_program("factory", metadata(&context, code.clone()))
-        .unwrap();
+    let old_program =
+        load_bytecode(&mut runtime, "factory", metadata(&context, code.clone())).unwrap();
     let boolean = boxed(&context, &code.modules[0], Ty::Builtin(BuiltinType::Bool));
     code.modules[0].structures.insert(0, boolean);
     let candidate = runtime
@@ -214,9 +214,8 @@ fn selected_specialization_and_recursive_payload_changes_are_rejected() {
     let context = DefinitionContext::new().unwrap();
     let mut runtime = Runtime::default();
     let code = fixture(&context);
-    let old_program = runtime
-        .load_program("boxes", metadata(&context, code.clone()))
-        .unwrap();
+    let old_program =
+        load_bytecode(&mut runtime, "boxes", metadata(&context, code.clone())).unwrap();
     let old = runtime.select_program(&old_program).unwrap();
     for recursive in [false, true] {
         let mut changed = code.clone();

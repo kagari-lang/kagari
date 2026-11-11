@@ -271,6 +271,7 @@ fn inherent_matches(id: DefinitionId, expected: &ImplDecl, actual: &InherentTabl
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::bytecode::load_bytecode;
     use crate::test_support::native::program::ProgramFixture;
     use crate::{Runtime, RuntimeConfig};
     use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
@@ -326,7 +327,7 @@ mod tests {
         let input =
             DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap();
         let mut runtime = Runtime::new(RuntimeConfig::default());
-        let error = runtime.load_program("external", input).unwrap_err();
+        let error = load_bytecode(&mut runtime, "external", input).unwrap_err();
         assert!(
             error
                 .to_string()

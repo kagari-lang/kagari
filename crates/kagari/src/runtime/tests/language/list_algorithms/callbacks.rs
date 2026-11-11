@@ -110,17 +110,16 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             .unwrap()
             .as_ref()
             .unwrap()
-            .value(runtime.runtime().gc())
+            .value(runtime.gc())
             .unwrap();
         let snapshot = runtime
             .execute(&loaded, "inspect", &[value], &ExecutionContext::default())
             .unwrap()
             .return_value;
-        let Value::Array(array) = snapshot.value(runtime.runtime().gc()).unwrap() else {
+        let Value::Array(array) = snapshot.value(runtime.gc()).unwrap() else {
             panic!("snapshot")
         };
         let mut actual = runtime
-            .runtime()
             .gc()
             .array_snapshot(array)
             .unwrap()
@@ -138,8 +137,8 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
         assert_eq!(actual, retained_values);
         drop(snapshot);
         retained.lock().unwrap().take();
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert_eq!(runtime.runtime().collect_garbage().unwrap().live_objects, 0);
-        assert!(!runtime.runtime().is_quarantined());
+        assert_eq!(runtime.gc().active_roots(), 0);
+        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+        assert!(!runtime.is_quarantined());
     }
 }

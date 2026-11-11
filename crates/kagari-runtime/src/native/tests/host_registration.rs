@@ -1,5 +1,7 @@
 //! Host registration uses shared declarations, explicit callbacks and atomic installation.
 use crate::test_support as support;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 
 use crate::{
     Runtime,
@@ -107,7 +109,7 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     root(&mut runtime);
-    let loaded_program = runtime.load_program("borrow-result", program).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "borrow-result", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(
         invoke(&runtime, &loaded, 0, &[]).unwrap_err().kind(),
@@ -157,7 +159,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
     let root = root(&mut runtime);
-    let loaded_program = runtime.load_program("heal", program).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "heal", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     let registered = &loaded.bytecode.native_declarations[0];
     assert_eq!(registered.function.name, "heal");
@@ -196,7 +198,7 @@ fn installed_host_functions_are_available() {
     let program = free_function_program(&module.to_declaration());
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
-    let loaded_program = runtime.load_program("tick", program).unwrap();
+    let loaded_program = load_bytecode(&mut runtime, "tick", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(invoke(&runtime, &loaded, 0, &[]).unwrap(), Value::Unit);
     assert_eq!(*calls.lock().unwrap(), 1);
@@ -223,9 +225,12 @@ fn rejects_duplicate_host_function_symbols() {
         module.install(&mut runtime).unwrap_err().kind(),
         RuntimeErrorKind::MetadataConflict
     );
-    let loaded_program = runtime
-        .load_program("original", free_function_program(&module.to_declaration()))
-        .unwrap();
+    let loaded_program = load_bytecode(
+        &mut runtime,
+        "original",
+        free_function_program(&module.to_declaration()),
+    )
+    .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
     assert_eq!(invoke(&runtime, &loaded, 0, &[]).unwrap(), Value::Unit);
 }

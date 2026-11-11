@@ -1,9 +1,9 @@
 //! Detached failure origins survive shared waits, report retirement and stripped debug records.
 use super::{Fixture, Value};
-use crate::error::EmbeddingError;
 use crate::{BytecodeArtifact, program::Compilation};
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_runtime::execution::owned::DriveResult;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     error_trace::asynchronous::{AsyncBoundary, MAX_ASYNC_BOUNDARIES},
@@ -11,7 +11,6 @@ use kagari_runtime::{
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
 };
 use kagari_source::source::SourceFile;
-use kagari_vm::vm::owned::DriveResult;
 use std::{
     num::NonZeroUsize,
     slice,
@@ -66,15 +65,14 @@ fn fixture(stripped: bool) -> Fixture {
 }
 
 fn id(f: &Fixture, handle: &RootedValue) -> TaskId {
-    f.runtime.runtime().task_id(&f.value(handle)).unwrap()
+    f.runtime.task_id(&f.value(handle)).unwrap()
 }
 
 fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         let result = f
             .runtime
-            .backend()
             .drive_task(scope, id, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
@@ -88,12 +86,11 @@ fn drive(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
 fn async_failure_provenance_contract() {
     for stripped in [false, true] {
         let f = fixture(stripped);
-        let runtime = f.runtime.runtime();
+        let runtime = &f.runtime;
         let scope = f
             .runtime
-            .runtime()
-            .create_task_scope(
-                &f.runtime.runtime().select_program(&f.module).unwrap(),
+            .create_dispatched_task_scope(
+                &f.runtime.select_program(&f.module).unwrap(),
                 Default::default(),
                 Arc::new(|_| Ok(())),
             )
@@ -125,7 +122,6 @@ fn async_failure_provenance_contract() {
         assert_eq!(
             report.origin.factory.code_fingerprint,
             f.runtime
-                .runtime()
                 .select_program(&f.module)
                 .unwrap()
                 .program_fingerprint()
@@ -167,7 +163,6 @@ fn async_failure_provenance_contract() {
             };
             let owner = f
                 .runtime
-                .runtime()
                 .select_program(&f.module)
                 .unwrap()
                 .member(site.module)
@@ -195,15 +190,14 @@ fn async_failure_provenance_contract() {
         let execution = f.start_future(&future);
         let DriveResult::Complete(Err(error)) = f
             .runtime
-            .backend()
             .drive(&execution, NonZeroUsize::new(100).unwrap())
             .unwrap()
         else {
             panic!("cached failed Task propagates to the SDK")
         };
-        let error = EmbeddingError::from(error);
+
         assert_eq!(error.task_origin().unwrap().task, producer_id);
-        assert_eq!(error.error_trace().unwrap().async_boundaries.len(), 2);
+        assert_eq!(error.trace().unwrap().async_boundaries.len(), 2);
         drop((future, execution));
         // Cancellation before first drive has a spawn origin even without a body stack.
         let queued = f.invoke("submit", slice::from_ref(&capability));
@@ -276,7 +270,6 @@ fn async_failure_provenance_contract() {
         assert_eq!(
             host_report.origin.factory.code_fingerprint,
             f.runtime
-                .runtime()
                 .select_program(&f.module)
                 .unwrap()
                 .program_fingerprint()
@@ -300,7 +293,7 @@ fn async_failure_provenance_contract() {
         assert_eq!(
             runtime
                 .modules()
-                .retention_counts(f.runtime.runtime().select_program(&f.module).unwrap().key())
+                .retention_counts(f.runtime.select_program(&f.module).unwrap().key())
                 .runtime_values,
             0,
             "diagnostics own no executable-version leases"

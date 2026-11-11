@@ -1,5 +1,7 @@
 //! Source-free nominal checks and optional origin forwarding at the policy boundary.
 use super::*;
+#[cfg(test)]
+use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{error_trace::ErrorTrace, module::ExecutableModule};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
@@ -63,22 +65,22 @@ fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, Varia
             }],
         })
         .collect();
-    let owner_program = runtime
-        .load_program(
-            "pair-origin",
-            ProgramFixture {
-                root: ModuleRef::new(0),
-                exports: Default::default(),
-                modules: vec![BytecodeModule {
-                    identity,
-                    enumerations: layouts,
-                    ..Default::default()
-                }],
-            }
-            .metadata(definitions.snapshot(), &Default::default())
-            .unwrap(),
-        )
-        .unwrap();
+    let owner_program = load_bytecode(
+        runtime,
+        "pair-origin",
+        ProgramFixture {
+            root: ModuleRef::new(0),
+            exports: Default::default(),
+            modules: vec![BytecodeModule {
+                identity,
+                enumerations: layouts,
+                ..Default::default()
+            }],
+        }
+        .metadata(definitions.snapshot(), &Default::default())
+        .unwrap(),
+    )
+    .unwrap();
     let owner = runtime.select_program(&owner_program).unwrap();
     let types = types
         .into_iter()

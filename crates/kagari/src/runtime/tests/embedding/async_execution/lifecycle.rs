@@ -1,11 +1,8 @@
 //! Parked, queued and cold executions retain their checked generation at reload.
 use super::{Fixture, Value};
-use crate::{
-    BytecodeArtifact,
-    engine::EngineConfig,
-    error::{EmbeddingError, RuntimeFailureKind},
-    program::Compilation,
-};
+use crate::{BytecodeArtifact, engine::EngineConfig, program::Compilation};
+use kagari_runtime::execution::owned::DriveResult;
+use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::roots::RootedValue,
@@ -14,7 +11,6 @@ use kagari_runtime::{
     task::{TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
 };
 use kagari_source::source::SourceFile;
-use kagari_vm::vm::owned::DriveResult;
 use std::{
     num::NonZeroUsize,
     sync::{Arc, atomic::Ordering},
@@ -39,10 +35,9 @@ fn prepare(f: &Fixture, source: &str) -> Compilation {
 
 fn task_boundary(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
     for _ in 0..1000 {
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         let result = f
             .runtime
-            .backend()
             .drive_task(scope, id, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if result != TaskDriveResult::Runnable {
@@ -54,10 +49,9 @@ fn task_boundary(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveRe
 
 fn owned_boundary(f: &Fixture, execution: &OwnedExecution) -> DriveResult {
     for _ in 0..1000 {
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         let result = f
             .runtime
-            .backend()
             .drive(execution, NonZeroUsize::new(1).unwrap())
             .unwrap();
         if !matches!(result, DriveResult::Runnable) {
@@ -70,11 +64,10 @@ fn owned_boundary(f: &Fixture, execution: &OwnedExecution) -> DriveResult {
 fn spawn(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedValue) -> TaskId {
     let task = f
         .runtime
-        .runtime()
         .spawn_task(&f.value(scope.capability()), &f.value(factory))
         .unwrap()
         .unwrap();
-    f.runtime.runtime().task_id(&f.value(&task)).unwrap()
+    f.runtime.task_id(&f.value(&task)).unwrap()
 }
 
 fn reply(f: &Fixture, value: i32) {
@@ -91,7 +84,6 @@ fn finish_task(f: &Fixture, scope: &TaskScopeOwner, id: TaskId, version: i32) {
     assert_eq!(task_boundary(f, scope, id), TaskDriveResult::Complete);
     let result = f
         .runtime
-        .runtime()
         .take_task_report(scope, id)
         .unwrap()
         .unwrap()
@@ -101,7 +93,7 @@ fn finish_task(f: &Fixture, scope: &TaskScopeOwner, id: TaskId, version: i32) {
 }
 
 fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedValue) {
-    let runtime = f.runtime.runtime();
+    let runtime = &f.runtime;
     let ready = runtime.ready_tasks(scope).unwrap();
     for entry in ["cold", "native_cold", "spawn"] {
         let candidate = runtime
@@ -119,17 +111,12 @@ fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedVa
         } else {
             let error = f
                 .runtime
-                .backend()
-                .execute(candidate.module(), entry)
-                .map_err(EmbeddingError::from)
+                .execute_module(candidate.module(), entry, f.runtime.execution_options())
                 .unwrap_err();
             assert!(
                 matches!(
                     error,
-                    EmbeddingError::Runtime {
-                        kind: RuntimeFailureKind::ExecutionPhaseViolation,
-                        ..
-                    }
+                    ref error if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation
                 ),
                 "{error:?}"
             );
@@ -159,7 +146,7 @@ fn string_cursor_retains_dynamic_source_across_native_waits() {
     for input in [10, 20, 30] {
         assert!(matches!(owned_boundary(&f, &owner), DriveResult::Waiting));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
-        f.runtime.runtime().collect_garbage().unwrap();
+        f.runtime.collect_garbage().unwrap();
         assert_eq!(
             f.sent.lock().unwrap().pop().unwrap().complete(Ok(14)),
             CompletionStatus::Accepted
@@ -173,17 +160,10 @@ fn string_cursor_retains_dynamic_source_across_native_waits() {
     assert_eq!(*f.inputs.lock().unwrap(), [10, 20, 30]);
     drop(result);
     drop(owner);
-    f.runtime.runtime().collect_garbage().unwrap();
-    assert_eq!(f.runtime.runtime().gc().active_roots(), 0);
-    assert_eq!(
-        f.runtime
-            .runtime()
-            .resources()
-            .counters()
-            .current_call_depth,
-        0
-    );
-    assert!(!f.runtime.runtime().is_quarantined());
+    f.runtime.collect_garbage().unwrap();
+    assert_eq!(f.runtime.gc().active_roots(), 0);
+    assert_eq!(f.runtime.resources().counters().current_call_depth, 0);
+    assert!(!f.runtime.is_quarantined());
 }
 
 #[test]
@@ -193,14 +173,13 @@ fn lifecycle_reload_contract() {
     let mut f = Fixture::configured_source(SOURCE, config);
     let scope = f
         .runtime
-        .runtime()
-        .create_task_scope(
-            &f.runtime.runtime().select_program(&f.module).unwrap(),
+        .create_dispatched_task_scope(
+            &f.runtime.select_program(&f.module).unwrap(),
             Default::default(),
             Arc::new(|_| Ok(())),
         )
         .unwrap();
-    let old_key = f.runtime.runtime().select_program(&f.module).unwrap().key();
+    let old_key = f.runtime.select_program(&f.module).unwrap().key();
     let factory = f.invoke("factory", &[]);
     let future = f.invoke("cold", &[]);
     let captured = f.invoke("captured", &[]);
@@ -223,19 +202,14 @@ fn lifecycle_reload_contract() {
         );
         f.runtime
             .program(&f.module)
-            .and_then(|base| {
-                base.prepare_replacement(replacement.program(), &Default::default())
-                    .map_err(Into::into)
-            })
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| base.prepare_replacement(replacement.program(), &Default::default()))
             .and_then(|candidate| {
                 f.runtime
                     .replace_program(&f.module, &candidate, Default::default())
             })
             .unwrap();
-        assert_ne!(
-            f.runtime.runtime().select_program(&f.module).unwrap().key(),
-            old_key
-        );
+        assert_ne!(f.runtime.select_program(&f.module).unwrap().key(), old_key);
         f.program = replacement;
         assert_eq!(f.value(&f.invoke("version", &[])), Value::I32(version));
     }
@@ -244,7 +218,7 @@ fn lifecycle_reload_contract() {
         1,
         "reload must not drive waiting or queued work"
     );
-    assert!(f.runtime.runtime().modules().loaded(old_key).is_some());
+    assert!(f.runtime.modules().loaded(old_key).is_some());
     finish_task(&f, &scope, waiting, 200);
     // A Future captured before publication remains cold until its queued factory runs.
     assert_eq!(task_boundary(&f, &scope, queued), TaskDriveResult::Waiting);
@@ -282,16 +256,12 @@ fn lifecycle_reload_contract() {
     finish_task(&f, &scope, fresh, 200);
     assert_eq!(f.cancels.load(Ordering::SeqCst), 0);
     scope.close();
-    f.runtime.runtime().drain_cancelled_tasks().unwrap();
+    f.runtime.drain_cancelled_tasks().unwrap();
     drop(scope);
-    f.runtime.runtime().collect_garbage().unwrap();
+    f.runtime.collect_garbage().unwrap();
     assert_eq!(
-        f.runtime
-            .runtime()
-            .modules()
-            .retention_counts(old_key)
-            .runtime_values,
+        f.runtime.modules().retention_counts(old_key).runtime_values,
         0
     );
-    assert_eq!(f.runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(f.runtime.gc().active_roots(), 0);
 }

@@ -84,22 +84,18 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
                     .execute(&loaded, entry, &[], &context)
                     .unwrap_or_else(|error| panic!("{route} run {run}: {error:?}"));
                 assert_eq!(
-                    result.return_value.value(runtime.runtime().gc()).unwrap(),
+                    result.return_value.value(runtime.gc()).unwrap(),
                     expected,
                     "{route} run {run}: {entry:?}"
                 );
                 drop(result);
+                assert_eq!(runtime.gc().active_roots(), 0, "{route} run {run}");
                 assert_eq!(
-                    runtime.runtime().gc().active_roots(),
+                    runtime.resources().counters().current_call_depth,
                     0,
                     "{route} run {run}"
                 );
-                assert_eq!(
-                    runtime.runtime().resources().counters().current_call_depth,
-                    0,
-                    "{route} run {run}"
-                );
-                assert!(!runtime.runtime().is_quarantined(), "{route} run {run}");
+                assert!(!runtime.is_quarantined(), "{route} run {run}");
             }
             println!("{route} run {run}: main=42 checksum=0x{EXPECTED_CHECKSUM:016x} roots=0");
         }

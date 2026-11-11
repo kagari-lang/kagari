@@ -64,9 +64,10 @@ mod tests {
             ..Default::default()
         });
         let reason = ScalarError::from(ArithmeticError::Overflow);
-        let error = BuiltinError::from(RuntimeError::from(reason).with_trace(trace.clone()))
-            .with_context(RuntimePrimitive::ValueCmp)
-            .into_runtime_error();
+        let error = RuntimeError::from(
+            BuiltinError::from(RuntimeError::from(reason).with_trace(trace.clone()))
+                .with_context(RuntimePrimitive::ValueCmp),
+        );
         assert_eq!(error.reason(), &ErrorReason::Scalar(reason));
         assert_eq!(error.to_string(), "ValueCmp: integer overflow");
         assert!(Arc::ptr_eq(error.trace().unwrap(), &trace));
