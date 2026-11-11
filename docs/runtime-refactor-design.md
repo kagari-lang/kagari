@@ -2,7 +2,7 @@
 
 Status: next-scope design recorded at the user's request on 2026-11-09;
 standard-library detachment D00-D05 is complete on 2026-11-11. The user requested
-the crate consolidation implementation plan CM00-CM04 on 2026-11-11; the user activated CM00-CM04 on 2026-11-11. CM00 is in progress; CM01-CM04
+the crate consolidation implementation plan CM00-CM04 on 2026-11-11; the user activated CM00-CM04 on 2026-11-11. CM00 is complete; CM01-CM04
 remain pending. Other proposed Runtime changes remain unstarted. Current product ownership, final call tables and
 publication are in the
 [Runtime model](architecture/runtime.md) and [reload walkthrough](architecture/runtime/reload.md).
@@ -168,7 +168,7 @@ paged-storage migration or the deferred enum/value representation redesign.
 #### Crate consolidation implementation plan (CM00-CM04)
 
 Status: implementation plan requested and activated on 2026-11-11 against
-`a656554a`. CM00 is in progress; CM01-CM04 remain pending. D00-D05 detachment is complete. This section owns the finite next
+`a656554a`. CM00 is complete; CM01-CM04 remain pending. D00-D05 detachment is complete. This section owns the finite next
 migration, checkpoint boundaries and acceptance; it does not activate the other
 Runtime proposals. Do not create another consolidation queue.
 
@@ -270,6 +270,68 @@ moving it. Current anchors include VM `native_wait`, `owned_drive`, `reentry_deb
 async output-publication cases; Runtime native-schema, root/loan and typed-error
 tests. Reuse their actual assertions and fixtures. A new test requires a distinct
 uncovered failure/lifecycle, not merely a renamed crate/API.
+
+##### CM00 baseline and resolved ownership map
+
+CM00 is complete against implementation `a656554a` (activation docs `49271109`).
+No runtime implementation changed in this checkpoint. The 2026-11-11 source audit
+finds these concrete collisions, beyond file placement:
+
+| Boundary | Current conflict | Chosen destination |
+| --- | --- | --- |
+| Construction/loading | Core constructs from RuntimeConfig and loads bytecode; Vm wraps it; SDK adds default ExecutionContext and Program/load options. | Canonical Runtime owns defaults and checked Program installation. Remove wrapper traversal; raw verification/staging stays a distinct internal mechanism, not an overloaded legacy load facade. |
+| Call/execute/session | All layers own call/execute variants; Vm and core have begin_execution, while SDK converts options and owns result-root/retirement orchestration. | Runtime owns host entry, typed conversion and session orchestration once. Borrowed interpreter activations consume that authority; internal script calls do not restart public admission. |
+| Tasks/debug/scopes | create_task_scope, scheduler polling, event retrieval, close and host-scope forwarding cross wrappers. Vm owns debug observer attachment and owned drivers. | Runtime owns the existing scheduler/task/observer/loan state and the moved drivers, without changing frame/storage or adding another execution owner. |
+| Diagnostics | VmError wraps RuntimeError/HostError/backend failures and trace; SDK maps execution failures again. Source inspection is already implemented in Runtime and merely forwarded. | Runtime owns typed execution reasons/context and inspection. Keep separate preparation errors and preserve termination/trace ordering. Delete redundant forwarding rather than broadening visibility. |
+| Program | SDK ProgramState strongly retains source/MIR; VerifiedProgram retains it via the only implementation of ProgramCodeOwner; installed-code lookup downcasts it. | Runtime Program owns verified backing, history and expected-base identity. Replace the SDK ownership back-reference with a typed runtime product association. Audit confirms no other ProgramCodeOwner implementation/with_owner consumer; remove that obsolete trait without losing ordinary executable holders. |
+| Preparation | Compilation currently pairs checked source/MIR/bytecode, then SDK Program absorbs the inputs. Source updates and NativeCompiler read those private fields. | Retain a public SDK-side Compilation as the explicit preparation owner with canonical Program access and source/MIR inputs. It is not another executable type: Runtime accepts Program, never Compilation. No automatic forwarding/Deref, installed-code recovery or source/MIR registry. Source/native consumers retain their Compilation explicitly; program-only compilation may discard preparation state. |
+
+Program extraction must not make compilation state a GC/code-retention edge. Source
+editing and NativeCompiler will use the explicit Compilation; their candidate/base
+checks use the canonical Program's identity/history. Preserve private/member edit
+locators, checked source/debug metadata and missing-input rejection. Artifact-only
+Program loading remains independent; native-enabled SDK artifact preparation also
+validates portable MIR correspondence before exposing it for compilation. This is
+the concrete CM01 migration, not a new generic preparation framework.
+
+Direct VM production consumers are SDK, CLI, web and the Lua-comparison benchmark,
+plus workspace manifest/dependency entries. `scripts/check_features.py` encodes
+execution/preparation dependency constraints and `scripts/check_aot.py` selects
+packages. Move the constraints to canonical owners, not remove them. Unique VM
+execution tests/fixtures and allocation/measurement targets belong to Runtime;
+compiler-product/backend/source-update integration stays SDK-side. Full-library
+fixtures remain retained with their existing NC availability gap.
+
+Fresh CM00 local evidence: 14 cases pass using the selectors below (one command
+per filter, rather than multiple positional Cargo filters):
+
+- `cargo test -p kagari --lib <filter>`: `program::tests::source_preparation`
+  (2 cases), `retained_old_closure_demands_recompile_generic_applications_removed_from_new_source_calls`,
+  `caches_products_across_runtimes_and_retains_them_after_backend_drop`, and
+  `mismatched_artifact_native_input_is_rejected_before_loading`.
+- `cargo test -p kagari-vm --lib <filter>`: `native_wait` (4 cases),
+  `nested_breakpoints_and_traps_include_the_suspended_host_caller`, and
+  `native_errors_never_restart_in_the_interpreter_and_keep_the_trace`.
+- `cargo test -p kagari-vm --test allocation_contracts warmed_scalar_and_array_read_boundaries_add_no_allocations`.
+- `cargo test -p kagari --test artifact_features real_cranelift_compiles_portable_artifact_without_source`.
+- `cargo test -p kagari --no-default-features --test artifact_features portable_artifact_executes_without_source_compilation`.
+
+The existing core-call release binary was retained before editing and run alone.
+Using the D05 method/environment (Windows x64 MSVC, i7-10700F/16 logical processors,
+Rust 1.99.1 `58cf8f9c3`/LLVM 23.1.1, workspace release/default features and Cargo
+parallelism, warmed Runtime/binding caches, one test thread), the CM00 medians are
+5096.17 / 5800.39 / 12003.29 ns per empty/script/Native whole host call. Three warm-up
+and eleven measured batches each contain 10,000 calls; compilation/loading/binding
+are outside timing. Allocation requests remain 38/38/103 and bytes 1808/1808/4688,
+with zero reallocations. Prepared scalar/array Native boundaries still allocate
+zero. The source workload/counter must stay identical after its target moves.
+
+No new implementation/build failure is carried. D05 required checks remain valid
+for unchanged Rust; this documentation checkpoint passes content/link/diff review.
+Full-workspace tests, feature/backend/platform matrices and AOT process execution
+are unrun local scope. Collection-dependent source programs still await NC; the
+selected core/artifact/native witnesses do not imply their restoration.
+
 
 ##### Verification, performance and commits
 

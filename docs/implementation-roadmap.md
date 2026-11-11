@@ -1530,7 +1530,7 @@ and the existing `kagari-gc`, whose Runtime integration is still pending. This i
 the recorded ownership direction, now activated through CM00-CM04.
 
 The [CM00-CM04 consolidation plan](runtime-refactor-design.md#crate-consolidation-implementation-plan-cm00-cm04)
-was requested and activated on 2026-11-11. CM00 is in progress; CM01-CM04
+was requested and activated on 2026-11-11. CM00 is complete; CM01-CM04
 remain pending. CM00 freezes
 entry/error/context and Program/preparation ownership plus focused baselines;
 CM01 relocates the canonical executable Program and separates source/MIR inputs;
