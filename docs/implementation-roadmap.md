@@ -1527,7 +1527,20 @@ wrapper, and makes the facade expose the canonical Runtime. It also assigns the
 source-free executable Program to runtime-side preparation and removes SDK owner
 downcasting; source/MIR preparation stays outside Runtime. Keep independent stdlib
 and the existing `kagari-gc`, whose Runtime integration is still pending. This is
-the recommended ownership direction, not an implemented deletion or activated phase.
+the recorded ownership direction, now activated through CM00-CM04.
+
+The [CM00-CM04 consolidation plan](runtime-refactor-design.md#crate-consolidation-implementation-plan-cm00-cm04)
+was requested and activated on 2026-11-11. CM00 is in progress; CM01-CM04
+remain pending. CM00 freezes
+entry/error/context and Program/preparation ownership plus focused baselines;
+CM01 relocates the canonical executable Program and separates source/MIR inputs;
+CM02 merges interpreter/Runtime entrypoints and removes Vm, the SDK Runtime wrapper
+and VM crate; CM03 closes async/debug/native, tooling and unique-test integration;
+CM04 audits dependencies, performance and final acceptance. CM02/CM03 may share
+one coherent checkpoint. The existing scalar interpreter, frame layout, collector,
+Host capability model and NC library gaps remain unchanged. GC integration,
+compact frames, new stack limits and tail recursion are explicitly outside this
+finite merge. The activated goal covers consolidation only.
 
 The [compact frame/storage refinement](runtime-refactor-design.md#compact-frame-and-stack-storage)
 uses Lua 5.4.9, pinned Wasmi v0.51.1 and Rust 1.99.1 as mechanism references.

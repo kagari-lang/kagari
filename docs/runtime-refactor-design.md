@@ -1,8 +1,9 @@
 # Runtime Architecture and Host Boundary Refactor
 
 Status: next-scope design recorded at the user's request on 2026-11-09;
-standard-library detachment D00-D05 is complete on 2026-11-11. Other proposed Runtime
-changes remain unstarted. Current product ownership, final call tables and
+standard-library detachment D00-D05 is complete on 2026-11-11. The user requested
+the crate consolidation implementation plan CM00-CM04 on 2026-11-11; the user activated CM00-CM04 on 2026-11-11. CM00 is in progress; CM01-CM04
+remain pending. Other proposed Runtime changes remain unstarted. Current product ownership, final call tables and
 publication are in the
 [Runtime model](architecture/runtime.md) and [reload walkthrough](architecture/runtime/reload.md).
 The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns any
@@ -48,8 +49,8 @@ does not establish that boundary.
 
 ### Proposed crate consolidation and single Runtime
 
-Recommended after the user's 2026-11-09 ownership review; implementation is not
-activated by this proposal. The current chain is SDK `runtime::Runtime { vm, ... }`
+Recommended after the user's 2026-11-09 ownership review; the CM00-CM04
+implementation plan below was requested and activated on 2026-11-11. The current chain is SDK `runtime::Runtime { vm, ... }`
 -> `kagari_vm::Vm { runtime }` -> `kagari_runtime::Runtime`. Vm has no separate
 execution-state fields, while interpretation is split between its executor and
 Runtime's `frame/cursor`. Preserve the useful modules, remove these object/crate
@@ -65,7 +66,9 @@ boundaries and converge on one Runtime type.
 | `kagari-gc` | Retain the implemented independent collector. It owns storage, tracing/collection machinery and GC-scoped access; Runtime owns language-specific layouts, edges, root sources and execution integration. |
 | `kagari-stdlib` | Retain as an independent provider of concrete library types/functions through Runtime's public Host API. Runtime neither depends on it nor installs it automatically. Detach privileged implementation paths before later library design. |
 
-Target production dependency direction (arrows mean depends on):
+Target production dependency direction (arrows mean depends on). The collector
+edge is the later GC integration target; CM00-CM04 keeps the current in-crate
+GcHeap and does not add the `kagari-gc` production dependency:
 
 ```mermaid
 flowchart TD
@@ -125,8 +128,9 @@ JIT/AOT code later uses the same Runtime data and call contracts, not another Vm
 Migration scope is finite: detach library-specific execution helpers; co-locate
 the interpreter modules and merge entry/error/context ownership; remove the two
 wrappers and VM package; migrate the executable-product boundary and affected
-SDK/CLI/web/benchmark/provider consumers; then integrate the existing GC crate.
-Preserve unique source-free, GC/reentry, debug/async and actual-native tests at
+SDK/CLI/web/benchmark/provider consumers. Integrating the existing GC crate follows
+as a separate task after consolidation. Preserve unique source-free, GC/reentry,
+debug/async and actual-native tests at
 their new owners. Exact file moves and intermediate build boundaries belong to
 implementation activation. Do not combine this with unrelated compiler changes.
 Acceptance includes absence of the VM dependency and Runtime wrappers, one call
@@ -160,6 +164,159 @@ Preserve checked owner/slot/generation handles, collection across Native callbac
 loan exclusion and cleanup on errors/reentry/cancellation. This may reorganize the
 current collector integration; it does not authorize a new GC algorithm, additional
 paged-storage migration or the deferred enum/value representation redesign.
+
+#### Crate consolidation implementation plan (CM00-CM04)
+
+Status: implementation plan requested and activated on 2026-11-11 against
+`a656554a`. CM00 is in progress; CM01-CM04 remain pending. D00-D05 detachment is complete. This section owns the finite next
+migration, checkpoint boundaries and acceptance; it does not activate the other
+Runtime proposals. Do not create another consolidation queue.
+
+Task: remove the VM crate and both Runtime wrappers, exposing one Runtime and one
+canonical immutable executable Program through the existing SDK facade.
+Context: Runtime owns execution/installations; SDK/compiler tooling owns source,
+MIR, backend preparation and artifact export. The current dependency is
+`kagari -> kagari-vm -> kagari-runtime`; `Vm` owns only a Runtime, while SDK Runtime
+owns Vm plus its default execution context.
+Expected behavior: an artifact-only host and an SDK host use the same Runtime,
+Program and checked execution path, with preserved effects, diagnostics, roots,
+reload selection and asynchronous cleanup.
+Scope: ownership, module/crate placement, public entry/error/context convergence
+and directly affected consumers. Keep the existing interpreter kernels, frame/value
+storage, collector, typed Native adapters and execution limits. Do not implement
+compact frames, tail calls, new stack limits, generic Host API redesign, collection
+reconstruction, JIT expansion/deoptimization, R13 reclamation or `kagari-gc`
+integration here. Those remain separate follow-up scope.
+Validation: focused owner tests plus the required repository checks below.
+Known intermediate errors: none at planning time; this is not a fresh passing-test
+claim. The D05 collection-dependent failures remain owned by NC and must not be
+hidden or reclassified as consolidation regressions.
+
+##### Ownership decisions and migration order
+
+- Runtime owns the executable product, exact revision/base/history, local
+  installations, entry/resume/reentry, scheduling and execution diagnostics. Preserve
+  the existing verified descriptor backing and immutable sharing. Distinguish a
+  verification proof from the public Program; do not create competing public
+  products or an extra wrapper merely to retain an old constructor.
+- SDK/preparation owns `CompilationInputs`, verified MIR, source checking/update
+  compilation and NativeCompiler's existing bounded cache. Preparation explicitly
+  associates its inputs with an exact canonical Program revision. Source updates
+  and native compilation consume that association, not a downcast from installed
+  Runtime code. Reuse existing preparation owners; do not add a global source/MIR
+  registry or duplicate bytecode/source caches. Checked source/debug attachments
+  may remain executable diagnostic data, without frontend state or compilation
+  authority. Missing preparation input must produce the existing appropriate
+  diagnostic/fallback, never silently reuse a previous version's input.
+- Runtime can retain finalized native pages and checked linkage/ABI evidence.
+  Backend compilation and portable MIR validation remain outside its production
+  dependencies. An artifact-only Runtime needs neither SDK nor a source/backend
+  compiler. Retain cancellation and exact native-input/bytecode correspondence
+  checks when relocating artifact preparation.
+- Execution policy/default context, typed calls, cold Future/Task driving, reports,
+  debug control and execution error ownership converge in Runtime. Move the useful
+  data/handlers, then remove VmError and SDK translations that only wrap execution
+  failures. Preserve typed reasons, KG codes, source traces and termination
+  precedence. Compilation/package/artifact/backend-preparation errors remain with
+  their actual preparation owner; do not force every error into RuntimeError.
+- The SDK may intentionally expose the canonical Runtime/Program through its
+  existing facade. Every new re-export needs an exact whitelist declaration and
+  consumer evidence. Remove runtime/backend/into-runtime forwarding accessors used
+  only to traverse wrappers; keep real diagnostics or preparation APIs at their
+  owner. No forwarding crate, alternate Runtime type, new backend trait framework
+  or permanent old-path alias is permitted.
+
+For `runtime.call(add, (1, 2))`, CM02 must admit the host arguments/session once,
+enter Runtime's private interpreter activation, transfer ordinary script arguments
+within existing frame storage, and return the rooted result directly. A Native
+callback releases storage borrows before calling out; synchronous script reentry
+uses the same active Runtime/session and restores the caller on return. Ordinary
+inner calls still select current implementations. No second persistent executor
+owns Runtime, and removing a public boundary must not remove its required checks.
+
+| Phase | Cohesive change | Build boundary and acceptance |
+| --- | --- | --- |
+| CM00: freeze the consolidation baseline | Inventory actual entrypoint/name/signature collisions across core Runtime, Vm and SDK Runtime; map error/context/report ownership. Map Program source/MIR/native preparation and update consumers, direct VM dependencies and all test targets. Reuse D05 core/reload/artifact witnesses and existing whole-call/allocation measurements. | No implementation replacement. Record the exact source-only, no-source, async/debug and actual-native sample selectors and their results before editing. Capture release binaries/revisions for comparison. Preserve known NC gaps separately. |
+| CM01: give executable Program its runtime owner | Move the canonical executable product/replacement history to Runtime-side preparation. Separate SDK source/MIR inputs and NativeCompiler preparation, migrate engine compilation, artifact import/export and body-update consumers together. Remove `Program::from_installed_code` and the SDK ProgramState downcast/retention edge; do not delete generic ownership needed by other executable holders without auditing them. | Core and SDK targets build. Load/replace/inspect the same canonical product through both direct Runtime and SDK composition. Shared Programs remain Send + Sync; installations/statics remain Runtime-local. Source-update exact-base/history, artifact/native mismatch rejection, failed publication cleanup and backend-cache/page lifetime witnesses pass. No Runtime-to-SDK/frontend/MIR/codegen dependency is introduced. |
+| CM02: merge execution and remove wrappers | Move VM executor/driver/dispatch, debug protocol, owned execution, reentry, scheduler/tasks, typed entry and prepared-native invocation into cohesive Runtime modules. Merge SDK Runtime execution/context/report/error responsibilities directly into the existing Runtime. Resolve conflicting APIs and migrate all direct callers in one coordinated cut. Delete Vm, SDK Runtime wrapper and the VM package/workspace/Cargo references. | All affected production and test targets compile; plain script/Native/callback/reentry and representative parked/native routes execute. There is one Runtime owner and one shared execution implementation, with no new CoreRuntime/state wrapper. Runtime stays Send + !Sync. Preserve specialized scalar kernels and GC/loan/initialization/owner checks. CM02 cannot finish with placeholder async/debug/native paths or a forwarding VM crate. |
+| CM03: close execution-mode and consumer integration | Review transferred paths for duplicate session/admission/conversion/retirement work and remove superseded forwarding. Complete unique test/fixture ownership, feature/tooling and error-diagnostic migration. Exercise the actual async/debug/native paths against the unified state and repair concrete integration defects. | Selected source-free, retained-body/current-inner-call, scoped-loan/reentry, cancellation/unwind/quarantine, task wake/drop/output publication and debug stack/stepping contracts pass. Actual Cranelift/native execution, honest unsupported fallback and no restart after native side effects remain distinct assertions. Required-feature consumers and scripts use the new owner, without broad visibility or test-only production dependencies. |
+| CM04: acceptance and handoff | Audit the final dependency/API/ownership graph, run isolated baseline comparisons and required checks, update current architecture/spec/guides and existing follow-up owners, then retire this completed phase ledger to Git history. | No VM package/dependency, Vm/SDK Runtime wrapper or installed-code-to-SDK downcast remains. Artifact-only execution uses canonical Runtime/Program without production compiler/stdlib dependencies. No known CM integration failure remains. Report local evidence, pending CI and unchanged NC gaps separately; later GC/frame/Host/library work is not marked complete. |
+
+CM01 precedes CM02 so program/preparation ownership does not get hidden inside a
+new Runtime wrapper. CM02 is an intentional coordinated crate/API cut: move its
+consumers in the same checkpoint rather than retaining hypothetical compatibility.
+CM02/CM03 may share one implementation commit if required to keep execution-mode
+integration meaningful. Do not retain a knowingly failing CM02 checkpoint merely
+because its nominal file moves are complete. CM00-CM04 are otherwise buildable
+checkpoints; record newly discovered failures, reproduction, cause and the owning
+repair before committing, and resolve them before declaring their phase complete.
+Preserve ordinary language behavior and the already recorded NC integration gaps.
+
+##### Concrete migration surface
+
+| Current owner | Required disposition |
+| --- | --- |
+| [VM](../crates/kagari-vm/src/lib.rs), [entrypoints](../crates/kagari-vm/src/vm.rs), [executor](../crates/kagari-vm/src/executor.rs), [reentry](../crates/kagari-vm/src/reentry.rs) | Move implementations under Runtime's execution/interpreter/debug owners; eliminate the VM object/crate rather than relocating it wholesale as another owner. Keep activations borrowing Runtime. |
+| [SDK Runtime](../crates/kagari/src/runtime.rs), [context](../crates/kagari/src/context.rs), runtime call/typed/scheduler/scoped/source modules | Move execution policy/state/orchestration to Runtime and remove translations/forwarding. Source analysis/update compilation stays SDK-side. Preserve Engine configuration and explicit provider installation. |
+| [SDK Program](../crates/kagari/src/program.rs), [updates](../crates/kagari/src/program/update.rs), [NativeCompiler](../crates/kagari/src/program/native.rs), [core verified backing](../crates/kagari-runtime/src/module.rs), [code-owner trait](../crates/kagari-runtime/src/module/owner.rs) | Preserve exact revision/history and native/source evidence while separating executable ownership from preparation inputs. Keep installed handles identity-only. Audit ordinary metadata/code holders, cycles and final release, without claiming the deferred R13 type/code lifetime split. |
+| SDK, CLI, web, Lua-comparison benchmark and their examples | Migrate current direct VM dependencies and low-level accessors to canonical owners. Preserve the existing required-feature paths; do not recreate withdrawn collection providers just to run an old workload. |
+| VM lib/integration tests, allocation contracts, library measurements and fixtures | Move unique runtime contracts/fixtures into Runtime test owners and SDK end-to-end/backend preparation contracts into SDK owners. Transfer explicit Cargo targets because helper files are not standalone tests. Keep source-free and actual-native oracles distinct; consolidate only equivalent coverage. |
+| Workspace manifests/lockfile, [feature checks](../scripts/check_features.py), [AOT checks](../scripts/check_aot.py), CI targets, [re-export whitelist](../scripts/structure-exceptions.toml) and current guides | Remove retired package/import/command references, update dependency constraints and exact facade exports. Do not weaken source-free constraints to accommodate a new cycle. Only update ABI/format IDs under the repository's publication policy. |
+
+CM00 fixes the semantic-owner destination and command for each selected case before
+moving it. Current anchors include VM `native_wait`, `owned_drive`, `reentry_debug`,
+`prepared_execution` and `native_boundary` tests; SDK `program/update` and
+`program/tests/native_preparation`, `runtime_transfer`, `artifact_features` and
+async output-publication cases; Runtime native-schema, root/loan and typed-error
+tests. Reuse their actual assertions and fixtures. A new test requires a distinct
+uncovered failure/lifecycle, not merely a renamed crate/API.
+
+##### Verification, performance and commits
+
+At every implementation checkpoint run the required structure/import/ownership
+review and `uv run --locked scripts/check_structure.py`, `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and `git diff --check`.
+Keep meaningful module boundaries and the existing narrow scalar-dispatch size
+exceptions; merging crates does not justify production globs, forwarding modules
+or blanket visibility/LOC exceptions. Keep tracked docs/source links valid as
+files move. Documentation-only planning needs content/link/diff checks, not builds.
+
+Local behavioral selection is bounded by each phase's changed owners. Sample
+normal Runtime-only dependency trees, SDK `--no-default-features` artifact loading,
+one source/body-update route, serde DTO conversion, debug/reentry, async cleanup
+and an actual-native route where affected. Check necessary diagnostic/AOT/target
+features in their supported scope; full-workspace tests and exhaustive feature,
+backend and platform matrices remain CI-only. Move affected CI commands rather
+than running that full matrix locally. Retain known NC failures and unrun scope
+in the plan; compilable targets alone are not execution acceptance.
+
+Reuse the existing `library_measurements` core-call and `allocation_contracts`
+workloads after relocating their target names. Preserve inputs, warm-up, timed
+region and allocation counter. Record exact Rust/machine/profile/features,
+revision/cache state and parallelism; compile first and run prebuilt baseline and
+candidate sequentially with no competing build. Prepared scalar/array Native
+invocation must preserve its zero-allocation contract, and whole-call allocation
+counts must not grow for this unchanged-workload ownership migration; diagnose
+an increase rather than weakening the workload or its counter. A repeatable
+median regression above 5% on the same workload triggers ownership/path diagnosis
+and repair before acceptance; confirm a suspected regression with three paired
+baseline/candidate runs rather than repeated broad suites. No speedup is required
+or inferred merely from deleting a crate. Compact-frame optimization remains later.
+
+When implementation and phase commits are authorized, use Conventional Commits
+with `Plan: docs/runtime-refactor-design.md` and `Plan-Phase: CMNN` (both trailers
+for a combined CM02/CM03 checkpoint). Mark public API removals as breaking, record
+actual validation/limits, and preserve unrelated work. Do not amend prior commits.
+On completion move lasting contracts to architecture/spec owners and remaining
+GC/frame/Host/NC work to its existing roadmap/plan, then remove this execution
+ledger. Planning does not authorize implementation or a commit by itself.
+
+The Lua 5.4.9 module/state/interpreter references above remain the mechanism
+reference: adopt one state owner with borrowed interpreter activations, while
+retaining Kagari's static contracts, Rust borrowing and precise GC/reload roots.
+This plan changes placement/ownership; it is not evidence for a new collector,
+stack format or unsafe execution shortcut.
+
 
 ### Standard-library detachment inventory and execution plan
 
