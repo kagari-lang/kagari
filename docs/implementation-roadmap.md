@@ -1504,10 +1504,14 @@ require a concrete task; implemented foundations are not prerequisites to replay
 The user-selected next scope is
 [standard-library detachment, Runtime/Host organization and existing-GC integration](runtime-refactor-design.md#next-scope-detach-the-standard-library-and-reuse-the-existing-gc).
 The Runtime design document owns responsibilities, records and complete execution
-paths. Current architecture remains the implementation inventory; NC owns later
-full collection design/implementation and PG owns later collector replacement.
-Record this order before activating finite implementation phases. No new collector,
-full standard-library rewrite or shared declaration-ID migration is activated here.
+paths. The [execution plan](runtime-refactor-plan.md) owns the selected RR00-RR06
+implementation sequence: baseline/inventory, reference/reentry proofs, mutable
+services/prepared Host entry, coherent GC cutover, compact calls/stack space/scalar
+self-tail calls, acceptance and documentation handoff. All phases are unstarted;
+RR00 is the next implementation task. Current architecture remains the implementation
+inventory. GC acceptance groups map to this same sequence; NC owns later full
+collection design/implementation. No new collector algorithm, full standard-library
+rewrite or shared declaration-ID migration is activated here.
 
 The [2026-11-11 D00-D05 detachment](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
 is complete. Runtime/SDK start empty, builtin arrays retain packed storage, and
@@ -1550,6 +1554,47 @@ zero-allocation regressions pass. The sampled Vec-dependent source/artifact case
 still fails at the known NC declaration gap; full workspace/matrix acceptance is
 not claimed. Retired private-provider combinations are recorded at their existing
 NC/type-provenance follow-up owners.
+
+The [integrated execution/Native/GC model](runtime-refactor-design.md#integrated-execution-native-and-gc-model)
+connects the existing prepared-call and codec proposals to one authoritative
+execution root source. Freeze the storage/lifetime partition and Native mapping
+ownership before GCR02/GCR03 cutover; do not first preserve old invocation/root
+machinery under the new collector and then rewrite it. Current typed adapters
+still duplicate pack roots and mapping checks. Fresh matched call/allocation
+baselines and actual Runtime GC/reentry/reload proofs are required at RR00-RR03.
+The execution plan schedules migration; it claims no Native speedup or collector
+acceptance before implementation and measurement.
+
+The [borrowing/shared-ownership policy](runtime-refactor-design.md#borrowing-and-shared-ownership-policy)
+prefers ordinary mutable ownership and scoped split borrows for execution/GC/Host
+operations. It does not ban clear bounded RefCell/Cell use or zero-cost Rc phantom
+markers. Change the current shared-reference mutation entrypoints coherently; avoid
+per-call/operand dynamic guards and Rc<RefCell> service backreferences, preserving
+Send, real Arc retention and Host/script alias checks without raw-pointer substitutes.
+
+The [pre-migration decisions](runtime-refactor-design.md#decisions-to-close-before-coordinated-implementation)
+narrow the remaining Runtime/GCR00/GCR02 work to persistent reference carriers,
+Native entry/codecs, mutable reentry services, authoritative roots, managed code/state
+cycles, observable boundaries and measured cutover gates. First-implementation decisions are selected in the
+[Native/execution/GC flow](runtime-refactor-design.md#selected-native-execution-and-gc-control-flow);
+Rust/layout/correctness/performance proofs remain required, not passing evidence or
+a second execution sequence. RR00 freezes the baseline and inventories;
+RR01 starts bounded carrier, Native/GC reentry and object/code-cycle witnesses;
+no complete library, niche layout or general native deoptimization is prerequisite.
+
+The [Native extraction removal](runtime-refactor-design.md#deferred-removal-of-native-payload-extraction)
+is selected but deferred to the Runtime/Host migration: remove the take API,
+capability and extraction-only invalidation/GC machinery together. Current APIs
+and tests remain until that checkpoint. New-GC integration does not need a payload
+extraction/tombstone feature; preserve unrelated alias, lifetime and cleanup rules.
+
+The [target crate/file ownership](runtime-refactor-design.md#target-crate-and-file-ownership)
+records the final Program/installation, execution/interpreter, unified Host and
+memory/value/type split. Current execution/session/resource and host/native/object
+families must be redistributed by actual ownership, with obsolete collector and
+forwarding paths removed at cutover. The tree is proposed: no mechanical file move,
+public module expansion or compatibility facade is activated. Native mapping/root
+cost removal and GC root-source ownership remain part of that same migration.
 
 The [compact frame/storage refinement](runtime-refactor-design.md#compact-frame-and-stack-storage)
 uses Lua 5.4.9, pinned Wasmi v0.51.1 and Rust 1.99.1 as mechanism references.
@@ -2435,14 +2480,16 @@ activated by this record.
 
 ## GC library redesign
 
-The [GC redesign plan](gc-redesign-plan.md) owns remaining GCR00-GCR05 work;
+The [GC acceptance register](gc-redesign-plan.md) owns remaining GCR00-GCR05
+requirements and measurements. The [Runtime execution plan](runtime-refactor-plan.md#order-and-build-boundaries)
+owns the single coordinated implementation order and maps those groups to RR phases;
 the [implementation design](gc-implementation-design.md) owns data structures and
 safety contracts. The [kagari-gc crate](../crates/kagari-gc/README.md) implements
 standalone typed/dynamic objects, roots, direct execution-root adapters,
 incremental collection, reclaimable metadata and opt-in safepoint pacing.
 
-Runtime integration, arbitrary erased layouts/native extraction, integrated
-pressure/cancellation policy and complete comparative acceptance remain deferred.
+Runtime integration, required erased layouts, integrated pressure/cancellation
+policy and complete comparative acceptance are scheduled but unimplemented.
 Main retains its existing Runtime collector. Historical PG/NC source and
 measurement references are pinned in the plan; they are integration obligations,
 not evidence that main's Runtime has been replaced or its gates have passed.

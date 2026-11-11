@@ -64,11 +64,12 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Runtime architecture and Host boundary refactor](runtime-refactor-design.md):
-  next-scope standard-library detachment, Runtime organization and existing-GC
-  integration; later slot/frame/Native-adapter and optimizing-native proposals.
-  Implemented immutable Program preparation, prepared reload and sharing belong in the
-  [Runtime map](architecture/runtime.md), not this future-work design.
+- [Runtime, Host and GC execution plan](runtime-refactor-plan.md): selected
+  RR00-RR06 sequence from baseline/reference proofs through mutable Host services,
+  coherent GC cutover, compact calls/stack space/scalar tail calls and acceptance.
+  All phases are unstarted. The [design](runtime-refactor-design.md) owns records
+  and flows; the [Runtime map](architecture/runtime.md) owns implemented behavior.
+  Standard-library detachment and single-Runtime consolidation are complete.
 
 - [Enum layouts](enum-layout-design.md): deferred pending Runtime execution and
   ownership review. EL00 baseline/models are retained; EL01-EL04 remain unstarted.
@@ -79,8 +80,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Standalone GC redesign](gc-redesign-plan.md): independent `kagari-gc` allocation,
   rooting, field access and incremental collection, with standalone tests and
   benchmarks. The [implementation design](gc-implementation-design.md) owns its
-  structures and safety contracts. Runtime integration remains deferred; main
-  retains its existing collector.
+  structures and safety contracts. GCR acceptance groups map to the Runtime
+  execution plan; integration is unimplemented and main retains its existing collector.
 
 - [Async Runtime CI acceptance](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api):
   async blocks, structured pair composition and the typed Runtime facade are

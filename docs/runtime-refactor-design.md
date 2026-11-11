@@ -6,9 +6,11 @@ ownership, API contracts and measurements belong to the
 [Runtime model](architecture/runtime.md#single-runtime-and-preparation-boundary),
 [embedding specification](spec/embedding-api.md) and
 [performance record](performance-baseline.md#runtime-consolidation-core-call-comparison-windows-2026-11-11).
-The remaining compact execution, Host and existing-GC proposals below are unstarted.
-The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns future
-activation; implemented foundations are not prerequisites to replay.
+The remaining compact execution, Host and existing-GC work is unstarted. The
+[execution plan](runtime-refactor-plan.md) owns the selected RR00-RR06 sequence;
+this document owns its design inputs. The
+[roadmap](implementation-roadmap.md#runtime-execution-model-review) locates that
+work; implemented foundations are not prerequisites to replay.
 
 ## Standard-library test boundary
 
@@ -47,7 +49,8 @@ through that model. Full standard-library design and implementation follow later
 This changes the earlier assumption that Runtime/library boundary work must wait
 for the paged incremental GC migration. D00-D05 implemented the detach-first boundary below. Single-Runtime consolidation
 is complete. The compact execution/Host redesign
-and existing-GC integration remain proposed, without an activated implementation plan.
+and existing-GC integration follow the [execution plan](runtime-refactor-plan.md);
+RR00 is the next implementation task and no code migration has started.
 
 This document is the design owner. [Current architecture](architecture/runtime.md)
 continues to describe implemented behavior. The [native collections plan](native-collections-plan.md)
@@ -75,6 +78,851 @@ Native calls and callbacks, native payload allocation/access, managed edges,
 temporary/escaping roots and scoped loans. Standard-library and application
 providers must receive the same capabilities; a public Vec-specific heap method
 does not establish that boundary.
+
+### Integrated execution, Native and GC model
+
+Architecture review, 2026-11-11: reuse the existing bound-call, compact execution
+and Native adapter proposals below together with the
+[GC integration map](gc-implementation-design.md#runtime-integration-map).
+These are one ownership/data-flow design, not a requirement to plug a new heap
+under the old call model and rewrite the same boundaries later. The records here
+are design sketches; the [execution plan](runtime-refactor-plan.md#order-and-build-boundaries)
+owns their implementation order and proof/cutover checkpoints.
+
+```text
+Compiler/source preparation -> checked immutable Program
+                                        |
+Host Native registrations -> installation/application preparation
+                                        |
+                              prepared bindings and codecs
+                                        |
+                             exclusive Runtime activation
+                                        |
+                     script call / Native call / return
+                                        |
+                     authoritative execution slots and roots
+                                        |
+                      RootDriver<ExecutionRoots> + kagari-gc
+```
+
+Program supplies verified script facts and checked Native requirements. Runtime
+installation supplies local implementation/type identities and fixed codecs;
+concrete generic applications own their prepared mappings. Host entry validates
+external authority/arguments once. Internal calls consume these facts instead of
+re-entering public admission. Prepared evidence has its existing installation,
+body/application lifetime; do not add a second target cache or version test per
+instruction. Publication is excluded for the entire synchronous activation,
+including Native callbacks and reentry. Actual resume refreshes current-call links
+without changing the selected old frame body.
+
+The execution subsystem owns the semantics of frames, slots, local-root marks,
+wait/results and retirement. The GC driver physically owns its complete root
+source: ExecutionRoots contains the authoritative managed slot/dependency storage
+for all active and parked executions. There is one copy of those slots, not one
+Runtime stack plus a mirrored GC RootSet per frame. Scheduling/control records
+outside that source carry no untraced managed references. The exact partition
+between frame/control and managed source records must be frozen during GCR02;
+these two design sketches must not be implemented as competing storage owners.
+
+Runtime owns language types, lookup/reload policy, checked object operations and
+Host borrowing. The collector owns physical storage, tracing/publication and
+reclamation. Reachability-bearing module/static/environment state participates in
+the managed graph; indexes and Rust Arc backing must not accidentally root every
+old version. Execution roots, native payload edges and durable host roots all
+enter this same graph. Value tags and persistent reference transport still need the representation proofs
+listed in GCR00/GCR02. Native payload extraction is selected for removal during
+the Runtime/Host migration; it is not a capability to add to the new collector.
+
+#### One prepared Native invocation
+
+For a verified script call `hp(player)` whose Rust callback reads a checked Player
+and returns i64, the target model is:
+
+1. Installation/application preparation checks the Rust/script mapping and owns
+   the prepared thunk/codecs. It does not repeatedly rebuild the Player or i64
+   mapping at invocation. Arbitrary custom converters still run for actual values.
+2. The interpreter selects the prepared Native binding, establishes its logical
+   call identity/result destination and a local-root/loan cleanup mark. Arguments
+   remain protected in execution slots. A synchronous direct Native call need not
+   push a complete script ExecutionFrame or copy a parameter window. Preserve the
+   existing prepared direct callback path while simplifying its adapters.
+3. The adapter decodes those slots, checks actual object/loan access at its owner,
+   and invokes Rust. Scalar-only adapters transfer bits without heap roots. An
+   owned DTO/string conversion may allocate for its real data contract.
+4. Rust can call script or request collection through the scoped service boundary.
+   All heap/source loans end first. Existing arguments remain in the root source;
+   new temporary values crossing that boundary use local roots. Reacquire access
+   afterward, without rerunning immutable Program/signature proofs. A synchronous
+   callback cannot publish another Program.
+5. Encode and publish the result while protected, release loans/local roots to
+   their marks and complete the ordinary return directly. A scalar result needs
+   no persistent root. Retaining an object beyond the call explicitly acquires a
+   durable host root. Preserve any enabled observer/slice boundary requiring a
+   saved completion; do not park a Running Rust callback.
+
+A Rust payload reference cannot stay borrowed through arbitrary reentry merely
+because the receiver is rooted. Roots prove liveness; loans govern access. Both
+are scoped without requiring per-argument persistent ownership. Error/cancellation
+paths retire the same suffix, preserve completed effects and run cleanup once.
+
+#### Work placement and performance acceptance
+
+| Work | Owner/frequency |
+| --- | --- |
+| Script arity/types, locations, frame requirements and executable validity | Compiler/independent verifier, once per product |
+| Rust mapping, fixed codecs and checked Native requirements | Installation or concrete application preparation |
+| External Runtime/installation/handle authority and external conversion | Actual Host entry/resume or supplied dynamic value boundary |
+| Current target, frame/slot reservation and parameter/result transfer | Internal call, consuming prepared links; backing growth is a slow path |
+| Actual object identity/type, payload loan, bounds and checked numeric operation | Their real access/operation boundary; never replaced by a static Rust wrapper proof |
+| Local temporary protection | Execution-owned root suffix; durable registration only for escaping ownership |
+| Collection work | Collector safe boundary after source/payload loans end; not a compulsory full scan or step for every call |
+
+Current source still has repeated work: native/typed.rs::invoke builds a Value
+pack, checks mappings and roots a cloned pack; conversion/arguments.rs::from_arguments
+checks mappings again and roots another copied pack. frame/admission.rs still
+combines internal prepared transfer with broad admission. The ownership defect is
+preparation/lifetime work assigned to invocation, not an inherent consequence of
+static typing or Rust callbacks. Keep value-dependent checks while relocating
+immutable proof work. Do not claim every Native route has the same overhead.
+
+The [November 8 attribution](performance-baseline.md#empty-call-attribution-windows-2026-11-08)
+is historical and predates later changes. The
+[November 11 consolidation comparison](performance-baseline.md#runtime-consolidation-core-call-comparison-windows-2026-11-11)
+measures complete bound Host calls, including their entry/conversion costs; its
+Native-forwarding allocation totals are not isolated script-to-Native allocations.
+Neither is a measurement of this proposal or of the later session-clock removal.
+Freeze fresh matched baseline binaries before implementation. Measure Host-to-script,
+script-to-script, raw/typed script-to-Native, reentry and real object conversion
+separately, with preparation outside warm call timing. Empty/scalar internal calls
+and borrowed Native adapters must have zero steady-state allocations, no rebuilt
+static mappings and no duplicate root leases. Deep owned conversion is a separate
+workload. Count total frame/source/control storage rather than reporting only a
+smaller Frame struct; run actual GC/reload/borrow/cleanup witnesses alongside gates.
+
+The next finite migration should settle these records, prepare Native mappings,
+and establish the execution-slot/root-source protocol together; GCR02 proves the
+actual Runtime adapters, and GCR03 coherently replaces old memory/root owners.
+Intermediate standalone proofs can coexist, but never put two collectors over the
+same object graph or treat a permanent old-heap adapter as completion. Do not make
+all frame packing, tail recursion, library reconstruction or incremental scheduling
+tuning prerequisites. Existing cancellation/debug/async contracts remain integration
+requirements, even when a deliberately plain performance baseline disables them.
+Public API ergonomics can follow the stable data/lifetime boundary without changing
+that boundary again.
+
+References remain the [Lua 5.4.9 call machinery](https://www.lua.org/source/5.4/ldo.c.html)
+for stack-based argument/result transfer and
+[JNI 25 local/global references](https://docs.oracle.com/en/java/javase/25/docs/specs/jni/design.html#global-and-local-references)
+for call-duration versus escaping retention. Adopt those ownership mechanisms,
+not Lua's dynamic type/longjmp behavior or JNI's thread-affine/moving-GC ABI. These
+references justify the boundary; they do not establish Kagari throughput.
+
+### Borrowing and shared ownership policy
+
+User preference: express ownership/access with ordinary Rust moves and borrows
+where that makes Runtime easier to reason about and cheaper to execute. This is
+not a blanket ban on Rc/RefCell or a reason to make otherwise clear code awkward.
+Review actual runtime ownership and operation frequency, not occurrences of names.
+
+Mutable Runtime operations should receive exclusive mutable access: ordinary call,
+execute, drive/resume, binding preparation that changes state, and explicit
+collection. Observational queries keep shared access. Split the required fields
+or lend a small service view instead of giving every helper an undifferentiated
+Runtime reference. The current &self call/execute/collection surfaces contribute
+to RefCell state in frames, sessions, object stores, caches, tasks and observers;
+change those API/ownership boundaries coherently, rather than deleting guards.
+Existing borrowing Call futures already own an exclusive Runtime reference.
+
+An interpreter region borrows execution and required memory/services exclusively.
+It holds direct frame/slot views only for that closed interval. Before arbitrary
+Native code, script reentry, collection or suspension, finish the scoped operation
+and release transient frame/payload loans. NativeCall lends checked services for
+short operations; reentry reborrows the same execution and then restores its suffix.
+Do not retain &mut Runtime and overlapping &mut field references through a callback,
+or take a RefCell guard over the entire Native callback to avoid designing the
+boundary. RootDriver::scope already supplies separate heap/source capabilities;
+collection and reentry occur after that scope ends. The exact callback service
+split belongs to the same Host/root-source migration, not a later workaround.
+
+| Storage/use | Preferred design and bounded exceptions |
+| --- | --- |
+| Frames, banks, current activation and Runtime-local registries/caches | One owner and ordinary mutable fields; reuse an admitted mutable view in hot regions rather than borrowing dynamically for every access. |
+| Immutable shared Program/code/metadata | Arc where independent retention or cross-thread sharing is real. Borrow prepared facts during execution; clone only when acquiring an actual lifetime obligation. Do not replace Arc with Rc merely because Runtime is not Sync. |
+| Reference-counted Runtime-local mutable nodes | Prefer owner-held stores and checked IDs where that fits the actual lifecycle. Avoid Rc<RefCell<T>> used only to connect services back to Runtime. IDs do not themselves root GC objects or replace semantic alias validation. |
+| Small flags and scoped observations | Cell/OnceCell can remain where they express a real shared-access requirement clearly. They are not RefCell's dynamic borrowing protocol; do not mechanically rewrite all cell types. |
+| Irreducible scoped dynamic borrowing or cold cache/observer implementation | A narrowly owned RefCell may remain when alternatives introduce convoluted state extraction, extensive generic lifetimes or unnecessary unsafe code. Document who can borrow, the guard interval and reentry behavior. Keep repeated guards out of ordinary call/operand access. |
+| Scoped !Send/!Sync markers | Preserve PhantomData<Rc<()>> where it encodes thread affinity. This stores no Rc allocation and performs no reference counting; test/authoring uses are reviewed separately from Runtime-owned state. |
+
+Runtime remains Send and not Sync. Actual Rc-owned state cannot silently become
+part of transferable Runtime state; local authoring/scoped values have their own
+lifetimes and transfer checks. RefCell is not an allocator by itself; its relevant
+cost is dynamic borrow tracking and its failure/guard paths. Rc/Arc ownership costs
+include allocation and clone/drop accounting; dereferencing alone does not clone
+the owner. Removing either name is not evidence of a measured speedup.
+
+Rust's exclusive access cannot prove every Kagari/Host alias rule. Keep actual
+object generation/identity, external view and host-loan checks
+at their semantic boundaries. Conversely, keep one proof per closed access interval
+rather than reconstructing it at each internal helper. Do not emulate a removed
+RefCell with scattered raw pointers, blanket UnsafeCell, repeated Option::take
+ownership tricks or long-lived unsafe aliases. Existing necessary GC/provider
+unsafe code stays isolated behind reviewed scoped contracts.
+
+Reference: Rust 1.99.1 documents [Cell/RefCell borrowing](https://doc.rust-lang.org/std/cell/index.html),
+[Rc ownership and Send restrictions](https://doc.rust-lang.org/std/rc/index.html),
+and [PhantomData's zero-sized markers](https://doc.rust-lang.org/std/marker/struct.PhantomData.html).
+Use their actual ownership/borrowing contracts; this policy does not predict a
+nanosecond saving or authorize removing language-level dynamic access checks.
+
+### Deferred removal of Native payload extraction
+
+The user selected removal of Opaque<T>::take, NativeTake and the takeable storage
+capability, then deferred implementation to the coordinated Runtime refactor.
+Do not remove Rust APIs, examples, tests or current specification contracts in
+this design-only step. At migration, retire extraction-only tests and remove the
+moved-identity registry, GC special cases and dead helpers together with their
+consumers. Preserve independent stale-generation, alias/loan, accounting and
+payload-destruction coverage. No compatibility stub, replacement take API or GC
+tombstone feature is required. Removing a global/table binding is a separate
+operation and does not imply invalidation of all object aliases.
+
+### Decisions to close before coordinated implementation
+
+This register narrows the existing Runtime/Host and GCR00/GCR02 obligations; it
+creates no parallel migration queue. The single Runtime, immutable shared Program,
+explicit providers, exclusive publication, prepared current-call tables and scoped
+mutable ownership are already selected directions. Do not replay those decisions.
+The user delegated closure of the remaining choices. The first-implementation
+choices below and the detailed control flow after the carrier proposal are selected
+as the migration baseline. Rust borrowing/layout, correctness and performance
+proofs remain required acceptance; they have not been run on a new implementation.
+Directory naming and public authoring syntax are not blocking decisions.
+
+| Decision and owner | First implementation choice | Required implementation evidence |
+| --- | --- | --- |
+| Persistent value/reference transport; GCR00/GCR02 | Keep scalar/managed banks and existing language value semantics. Distinguish a scoped access value, an edge stored in traced execution/object state, and a durable Host root. Do not require every stored value to be Copy, register a Root per copy, or place a branded Gc into unbranded persistent Value. If opaque transport support is missing, extend the generic collector protocol at its owner. | Concrete carriers and operations for argument copy, field write, local temporary, Host retention and return. Prove foreign/stale input rejection and publication before an old source is cleared. Freeze actual sizes; enum niche/bit packing stays deferred. |
+| Native entry and codec ownership; Runtime/Host | One erased binding entry, preferably a Rust-monomorphized adapter decoding the complete typed pack and publishing its result to prepared slots. Do not add a virtual codec call for each scalar just to remove another dispatch. Separate authoring type descriptions, prepared binding evidence and custom per-value conversion. | Complete empty, scalar, borrowed-object and custom-converter signatures. Fixed mapping preparation occurs before effects and only once per closed application. Use private Result<(), Box<RuntimeError>> status and a prepared result place; measure actual layout/cost without adding another error framework. Preserve typed errors and effect/return ordering. |
+| Mutable service/reentry boundary; Runtime/Host | Mutable execution/collection entrypoints with a short NativeCall service view. Release RootDriver source/payload loans before arbitrary callbacks/collection; reborrow afterward. Prepared entry lifetime must survive the callback without borrowing a mutable table. Prefer the immutable registry; permit a necessary existing Arc descriptor pin across callback when that is clearer than unsafe lifetime tricks, then measure it. | A Rust implementation sketch that actually type-checks for Native -> script -> GC -> Native return, plus observer/error/unwind cleanup. Do not substitute pervasive RefCell, moving fields out of Runtime on every call, or scattered raw pointers. |
+| Authoritative roots and storage; execution/GCR02 | RootDriver owns one complete source for active and parked frames, managed slots, local roots, uncommon dependencies and wait/results. Scheduling/control retains IDs or genuine roots, not another untraced copy. Keep eight-byte scalar banks and existing initialization discipline initially. | Exact root inventory and root/source mutation operations, including stack growth/reuse, parallel argument moves, return publication and independent parked retirement. No mirrored frame RootSets or per-call auxiliary allocations. |
+| Code/static/environment graph; GCR02/GCR03 | Keep immutable edge-free code/backing in Arc where needed. Put reachability-bearing static/environment/capture state in ordinary managed representations; lookup indexes do not root every old version. Remove the old Native payload extraction API during the Runtime/Host migration rather than reproducing taken-object states in the new collector. | One unrooted object/closure/static cycle is reclaimed, a real retained old computation remains valid, and ordinary inner calls select current code. Preserve exactly-once destruction of retained payloads. Do not expand this into the separate R13 type/code-retention redesign. |
+| Observable execution boundaries; execution/debug/task | Ordinary direct Native calls use caller slots and a lightweight logical-call record as necessary, not an obligatory script frame. Preserve executing/completed origins, cleanup and actual cancellation/observer/slice boundaries. Synchronous Native code never parks while running. | Explicit before-call, callback, result-publication, return, trap and resume transitions with one cleanup owner. Map existing guarantees before removing repeated checks. Retain actual unwind cleanup and Native-stack protection; remove the unused PanicPolicy field instead of adding a catch to every call. Coordinate logical-depth-to-stack-space API changes at their own checkpoint. |
+| Measurement gates and finite cutover; Runtime/GCR04 | Freeze matched release binaries before modifying the call path. Measure internal Native calls separately from complete Host calls and separate raw/scalar/borrowed/owned conversion costs. Reuse current workloads/providers and change only the necessary preparation. | Zero warm allocations/root leases/static-mapping rebuilds for empty/scalar borrowed adapters; argument/result correctness, actual callbacks and bounded repeated timing. Record total execution/control/root memory, preparation cost and object/GC behavior. Set numerical latency limits from the baseline/required workload, not an invented target. List temporarily broken consumers and the checkpoint that repairs each; no permanent old-heap facade or two collectors over one graph. |
+
+First implementation proofs are bounded: scoped/Stored/Host-root transfer;
+Native reentry plus collection and a protected managed result; and a mixed
+object/code-state cycle with retained-old/current-inner-call behavior. Use the
+existing GCR02 and Runtime fixture owners. Their purpose is to settle the actual
+records and borrow/retirement boundaries, not build a second toy Runtime or claim
+full cutover acceptance. GCR03 then removes old owners coherently. Do not repeatedly
+add gates unrelated to these concrete representation and invocation risks.
+
+The declaration/verification boundary remains source-free. Compile-time facts are
+verified independently, recipient bindings are admitted once, and actual object/
+loan/value checks remain at their dynamic boundary. Ordinary scalar calls should
+not pay repeated whole-contract verification, publication lookup, reflection or
+persistent root registration. Unsupported native machine-code execution selects
+its existing fallback before entry; full JIT/AOT deoptimization is not required to
+prove the first interpreted Host/GC model.
+
+Deferred choices include mixed-width packing, enum niches/value structs, automatic
+mutual/async tail calls, complete standard-library reconstruction, declaration-ID
+domain redesign, incremental scheduling tuning and general native deoptimization.
+Keep their existing owners. The first migration retains actual language/cleanup/
+reload contracts while changing who performs repeated preparation and owns storage.
+
+Reference mechanisms: [Wasmi 0.51.1 TypedFunc](https://docs.rs/wasmi/0.51.1/wasmi/struct.TypedFunc.html)
+checks the typed contract at construction and calls through mutable store context;
+[Caller](https://docs.rs/wasmi/0.51.1/wasmi/struct.Caller.html) lends Host context and
+mutable user data. Adopt prepared type evidence and scoped mutable services, not
+Wasm's lack of Kagari's managed object graph or its resumable-host-error semantics.
+JNI's previously cited local/global reference distinction supports retention
+lifetimes; it does not supply the missing Runtime carrier representation or justify
+per-argument global roots. The implemented kagari-gc RootDriver/Scope/Edge contracts
+remain the direct integration requirements. No throughput claim follows from these
+references.
+
+### Runtime reference carriers and transfers
+
+Selected first design for the representation decision above. kagari-gc already owns
+Gc<'gc, T>, Edge<T>, Root<T> and RootDriver<RootSource>; the Runtime wrappers below
+are proposed, not existing public APIs. Use those kernels first rather than add a
+raw pointer/number transport API to keep the old Value: Copy contract. All sketches
+omit some existing scalar/value tags and use text, not compilable Rust declarations.
+
+#### Three lifetimes, three representations
+
+```text
+// Private transient representation, usable only inside RootDriver::scope.
+// Existing Gc is Copy; copying this object handle registers no root.
+enum ScopedValue<'gc> {
+    Unit,
+    Bool(bool),
+    I64(i64),
+    ...other existing scalar variants...,
+    Object { kind: ObjectKind, target: Gc<'gc, AnyObject> },
+}
+
+// Private persistent representation in traced Runtime slots/objects.
+// Existing Edge is neither Copy nor Clone and cannot be dereferenced alone.
+enum StoredValue {
+    Unit,
+    Bool(bool),
+    I64(i64),
+    ...other existing scalar variants...,
+    Object { kind: ObjectKind, target: Edge<AnyObject> },
+}
+
+// Public Host handle with hidden representation and checked constructors.
+struct RootedValue { repr: RootedValueRepr }
+enum RootedValueRepr {
+    Unit,
+    Bool(bool),
+    I64(i64),
+    ...other existing scalar variants...,
+    Object { kind: ObjectKind, target: Root<AnyObject> },
+}
+```
+
+ObjectKind describes the existing physical value category, such as String, Array,
+Struct, Enum, Closure or Native. It is not sufficient nominal type authority.
+Checked constructors bind the tag to its actual protected object representation;
+never expose independent tag/ref setters or accept an arbitrary erased reference
+as a Player. Preserve prepared type/layout evidence and real Host input admission.
+GC itself sees references, not Kagari value tags or declaration identities.
+
+The flattened variants preserve once-only value semantics. These are ownership
+sketches, not a size/layout commitment: measure flattened Rust enums at the selected
+checkpoint. Do not introduce nested dynamic payload boxing just to implement these
+names, require all values to be Copy, or claim that three wrapper types allocate
+three objects. No Rc/RefCell or refcount is needed to copy a scoped Gc. Root clones
+share their actual Host lease; they do not deep-copy the managed object.
+
+StoredValue is a generic-cell representation, not a requirement to store a tagged
+enum in every field. Known scalar slots remain eight-byte scalar cells. Fixed
+known reference fields can use their checked GC reference accessor/layout without
+a redundant dynamic tag. Keep current enum/Option/Result semantics: a GC reference
+slot is not authorization for the deferred language enum niche optimization.
+
+These sketches cover ordinary storable values. Ref/RefMut and other ephemeral
+Host views retain their stricter scope/access rules. Rooting their identity cannot
+extend the underlying Rust loan or make them legal persistent script fields.
+
+#### Authoritative execution and object storage
+
+```text
+RootDriver<ExecutionRoots>
+    heap                          objects, fields and collector metadata
+    ExecutionRoots
+        executions[]
+            frames[]              exact body/control and dependency roots
+            scalars[]             raw scalar cells + verified initialization
+            managed[]             StoredValue generic/reference cells
+            local_roots[]         StoredValue temporaries, checkpoint retirement
+            wait/result state     stored managed references and dependencies
+```
+
+Active and parked executions remain in this source. Object representations store
+reference fields through dynamic field accessors or reviewed GcObject providers.
+Their outgoing references, including code/static/environment relationships, are
+ordinary collector edges. Host Root entries are the independent escaping roots;
+execution slots are not registered again in the Host root table.
+
+#### Loading, copying, publishing and retaining
+
+Runtime slot-adapter operations below are proposed; the corresponding collector
+primitives already exist in root_source.rs and access/scope.rs.
+
+| Operation | Implementation and protection |
+| --- | --- |
+| Read a managed execution slot | Enter a closed RootDriver scope, admit the paired source/slot, use Scope::source_get on the still-retained Edge and produce ScopedValue. No host Root is created. |
+| Copy slot a to b | Load a as a scoped value; publish the incoming target with Scope::source_edge; commit the new StoredValue into b in the same paired source. Do not clone Edge, memcpy arbitrary stored carriers or update the tag separately. |
+| Write a reference field | Use the prepared Dynamic ReferenceField::set or reviewed provider field/mutation operation. It publishes before replacement and preserves scanner repair; source_edge is only for the paired execution source, not arbitrary object fields. |
+| Create an object | Allocate within Scope; install it in a caller/result/local slot before the scope ends. Partial construction follows the existing initializer/provider protocol. No intermediate persistent root is needed solely for allocation. |
+| Keep a value in Rust across calls | Use Scope::retain for a protected object and wrap the Root with its checked tag. Scalars can be retained inline without a GC lease. |
+| Reopen a Host handle | Scope::get validates the actual Root against this heap and creates a scoped handle without cloning/registering another root. |
+| Clear/retire execution storage | Remove the old stored references under the source protocol and fix scanner coordinates/frontiers where needed. This removes a tracing path; it does not recursively destroy the object. |
+
+Publication is not optional: a marker may already have scanned b. A newly installed
+white target must become protected before the old value is replaced, even though
+this Runtime has one exclusive driver. On publication failure the old slot/field
+remains intact, and collector fault policy applies. A coupled tag/reference write
+is one prepared no-callback/no-collection commit. A source cursor stores stable
+coordinates, not borrowed Vec pointers. Scope-created handles remain physically
+live through that scope even if their original source edge is cleared.
+
+For argument moves, keep all required source handles protected until overlapping
+moves finish; f(b, a) must not overwrite a prematurely. For a managed return,
+publish into the caller/root result before retiring callee/local protection.
+These transfers create stored edges, not independent ownership registrations.
+Write barriers have real phase-dependent work; this proposal does not call all
+reference assignments free or remove their publication checks.
+
+#### Native callback and collection boundary
+
+A Native callback can request collection/reentry, so its entire Rust body cannot
+run inside one collection-excluding GC Scope. NativeCall keeps prepared argument
+locations and a local-root mark. Call-lifetime object views refer to those rooted
+locations; they do not store a Gc<'gc, T> across scopes. Their private IDs/brands
+cannot outlive the call or be used after slot retirement.
+
+Read/edit/allocate services open short GC scopes and end object/source loans before
+returning control to arbitrary Rust or invoking script. Results that must survive
+another callback are first installed in the execution's local-root source. A new
+local handle refers to that slot, without a Host Root registration; explicit retain
+is required to escape the Native call. No raw pointer or borrowed payload reference
+crosses a collecting callback.
+
+For hp(player) -> i64, the caller's existing player slot is the protection. The
+adapter accesses that slot during a short scope, reads hp and returns bits; it
+creates no independent player root. For make_player() -> Player, the new object
+is published into the prepared result/local slot before releasing scope protection,
+then transferred to the caller before local retirement. Native reentry may grow
+banks, so held handles use checked locations rather than slices into those banks.
+
+#### Existing support and proof boundary
+
+[Collector handles](../crates/kagari-gc/src/object.rs) implement the three pointer/
+carrier roles; [host roots](../crates/kagari-gc/src/root.rs) implement retention;
+[Scope](../crates/kagari-gc/src/access/scope.rs) supplies get/retain;
+[RootDriver](../crates/kagari-gc/src/root_source.rs) supplies paired source import/
+publication; [the frame adapter](../crates/kagari-gc/examples/root_access/frames.rs)
+already copies a slot by scoped get followed by published set, without cloning
+Edge or creating a Root. This is standalone protocol evidence, not Runtime acceptance.
+
+GCR02 must implement the actual tagged Runtime adapters and complete scanning,
+including managed fields, Native argument/local/result views, exact dependency
+retention, stack growth/reuse and error cleanup. Test tags/nominal identity, foreign
+root admission, a copy followed by source clear/collection, parent result handoff,
+Native collection/reentry, and final Host-root release. The three lifetime roles
+are selected for the first implementation; wrapper names and exact enum sizes
+remain implementation details subject to that proof. The Host entry/control-flow
+choices below use this same representation. No extraction/tombstone
+support or per-frame mirror root bank is part of it.
+
+### Selected Native, execution and GC control flow
+
+The user requested closure of the other pending choices. This section selects a
+finite first implementation, not passing Rust prototypes or measured performance.
+Keep the existing GCR02/GCR03 owners; a failed borrow/layout/performance proof must
+be diagnosed at its real boundary, not bypassed with disabled checks or a second
+execution model. The records are responsibility sketches in text.
+
+#### Native entry and result placement
+
+```text
+trait ErasedNativeEntry: Send + Sync {
+    invoke(&self, call: &mut NativeCall) -> NativeStatus
+}
+NativeStatus = Result<(), Box<RuntimeError>>       // private Runtime ABI
+
+PreparedNativeBinding {
+    entry: erased monomorphized Rust adapter,
+    contract: checked argument/result mapping and application evidence,
+}
+
+NativeCallSite {
+    binding: committed binding locator,
+    arguments: prepared operand locations,
+    result: prepared caller/scope destination,
+}
+
+NativeCall {
+    services: short mutable Runtime services,
+    origin: exact caller body/call PC and Native identity,
+    application: traced prepared application locator,
+    arguments: locations into existing protected execution storage,
+    destination: prepared result place,
+    pending: PendingReturn,
+    mark: NativeMark,
+}
+
+PendingReturn = Unset | Unit | Scalar(representation, bits) | ManagedLocal(slot)
+NativeMark { local_top, loan_top, logical_call_top }
+```
+
+The binding's concrete Rust adapter owns F/A/R and decodes the complete pack;
+there is one erased entry dispatch, no Any downcast of the callback environment
+and no per-scalar virtual codec call. Fixed mapping is prepared before invocation.
+Custom value converters remain explicit and can perform their actual effects.
+Existing owned DTO conversion remains available but is not the default cost of a
+scalar/borrowed argument. Raw and typed authoring adapt to this same boundary.
+
+Lifetime-dependent object results use the scoped entry's explicit result setter,
+which stages a call-local reference. Do not force that case through an owned
+R: 'static callback shape or register a Host Root solely to make Rust's generic
+return type expressible. Typed scalar/owned callbacks remain convenient adapter
+forms; all forms publish into the same pending result place. Exact builder names
+can change without creating a second runtime protocol.
+
+NativeStatus returns no language value through a large success union. The generated
+adapter stages its result in the prepared call context. Successful Unit calls need
+no payload or root; scalar scratch lives inline in the short call context; managed
+scratch is a location in the authoritative execution local-root area. Neither
+scalar scratch nor a logical Native record implies a complete script frame or a
+new heap allocation. Exact sizes and the Rust return ABI must be measured.
+
+Only actual execution errors allocate the Box at this private boundary; preserve
+the existing RuntimeError reason/context/trace, and unwrap at the outer public
+RuntimeError boundary when needed. Public typed callback ergonomics can continue
+returning Result<R, RuntimeError>. Script Result::Err is normal data encoded into
+the prepared result place, not NativeStatus::Err. Do not allocate/render diagnostic
+strings on successful calls or add a second error side channel.
+
+Result staging preserves current trap order: a callback/custom encoder can finish
+its effects and still fail, or the post-Native cancellation check can win before
+caller result publication. Therefore do not overwrite the caller destination
+prematurely. After the recorded post-call precedence is resolved, commit the
+pending value exactly once. A managed result is published into the destination
+before its local protection is retired. A simpler direct store may be selected
+only when the closed transfer preserves those boundaries, never by ignoring them.
+
+#### Mutable services, reentry and lifetime anchors
+
+```text
+NativeServices {
+    entries: immutable prepared Native registry view,
+    code: already-admitted immutable code/type facts,
+    memory: exclusive RootDriver service,
+    control: exclusive activation/execution control,
+    host: exclusive Rust resource/loan services,
+    scheduler: exclusive task/completion services,
+}
+```
+
+Split fields or reborrow a short view; NativeCall does not contain &Runtime plus
+RefCells behind it. It holds no mutable slice into banks or payload borrow while
+user code runs. A read/edit/allocate operation opens its own short RootDriver scope.
+A call-lifetime object view names an already-rooted location; a Rust payload loan
+must end before requesting collection or calling script. Reentry borrows these
+same services, pushes its own script suffix, and returns without rebuilding the
+parent activation or parameters.
+
+Prepared entries/code are immutable through synchronous execution. Generic
+application facts are prepared once per actual closed application using existing
+checked keys including scope/witness provenance. Misses use the explicit cold
+preparation path; the application index is not a root retaining every old context.
+Actual frames/Native records trace the application they use. Do not create a fresh
+per-call identity just to use it as a cache key, or solve types in a warm invocation.
+
+First prefer borrowing a frozen entry registry with disjoint mutable services.
+When stable operand/descriptor ownership across arbitrary reentry needs an existing
+Arc pin, retain that pin explicitly without allocation. This is an allowed clarity/
+lifetime tradeoff, not permission for clones in every helper, a new per-call scope
+object or a cache retaining all previously called bodies. Do not force zero atomic
+operations with raw pointers or expand the source graph's lifetime assumptions.
+
+#### Execution records and sole root ownership
+
+```text
+ExecutionRoots {
+    executions: checked execution store,        // live and parked
+}
+ExecutionStorage {
+    frames: reusable ScriptFrame stack,
+    scalars: Vec<u64>,
+    initialized: verified initialization bank,
+    managed: Vec<StoredValue>,
+    locals: Vec<StoredValue>,
+    native_calls: reusable logical-call/dependency records,
+    extras: uncommon script/observer/initializer state pool,
+    pending: stored wait/result/completion state,
+}
+ScriptFrame {
+    body: exact code/member/function plus traced state dependency,
+    environment: lexical checked environment when needed,
+    links: replaceable prepared current-call view,
+    pc/phase: exact execution/observation position,
+    base: StackMark,
+    return_to: ReturnTarget,
+    extra: optional pool index,
+}
+```
+
+Keep existing owner/generation validation for execution handles that cross Host
+activations. Ordinary nested frames use stack suffixes and marks, not independent
+Window registrations/generations. Native logical records protect trace origins and
+managed dependencies; they need not allocate a ScriptFrame or parameter pack.
+All active/parked frames, local values, pending completion and uncommon state are
+scanned from this single source; control/scheduler indexes do not mirror the values.
+
+Keep eight-byte scalar banks, current valid initialization rules and managed slot
+clearing initially. Unit has no payload cell. Do not shrink ID widths or remove
+initialization facts to meet a Frame-only byte target. Measure total stack/source/
+control capacity. Tight packing and managed-slot coloring require later evidence.
+Existing call-depth/Native-stack behavior remains until the designated coordinated
+stack-space API/spec/test checkpoint; it is not silently changed by GC integration.
+
+#### Managed installation graph
+
+```text
+InstallationRecord {
+    identity and non-owning checked lookup indexes,
+    publication_root: Root<InstallationState>,
+}
+InstallationState {
+    current_revision: Edge<RevisionState>,
+    statics: Edge<StaticState>,
+}
+RevisionState {
+    code: immutable edge-free Program backing,
+    local binding/type facts and traced dependencies,
+}
+```
+
+Published installations contribute genuine roots. Compatible publication replaces
+current_revision and prepared current-call links while preserving statics. Active
+frames, closures and Futures retain their selected revision/state through traced
+dependencies; immutable code backing may remain Arc-owned where required for closed
+instruction access. Internal state-to-state references are edges, not permanent
+host roots or Arc-only object/static cycles. Lookup indexes are non-owning checked
+locators; remove/invalidate their retired entries at the graph retirement owner.
+Program bytecode/debug/layout data contain no hidden mutable script values.
+Materialized managed constants belong to the revision/state graph, while literal
+bytes and numeric descriptors can stay in Program. An activation view's lookup
+indexes do not replace these roots or authorize an unretained pointer.
+
+After the publication root and real retained computations disappear, an
+object -> closure -> environment/revision -> static -> object cycle must die.
+An identity-only InstalledProgram handle does not itself keep the publication
+alive after explicit close. Ordinary Host function bindings remain current routes;
+closures and admitted/queued computations retain exact bodies. Preserve existing
+old-body/current-inner-call tables and whole-stack resume refreshes. Do not reopen
+R13's broader type-only code-retention work or keep every revision as a workaround.
+
+#### One cleanup and observation sequence
+
+For a direct Native call:
+
+1. Reuse the admitted activation/binding; enter the lightweight logical record and
+   capture local/loan marks. Preserve the required pre-call cancellation boundary,
+   reusing an equivalent driver poll when no invalidating work intervened.
+2. Decode once and invoke the prepared Rust adapter. Nested access scopes end
+   before arbitrary callbacks/reentry; long Native code uses explicit cooperative
+   polling. New temporary objects enter locals before collection can observe them.
+3. Keep the callback/encoding outcome, perform the required post-call poll and
+   resolve the existing cancellation/error precedence without skipping it on Err.
+4. On success, publish the pending result; on failure, preserve completed effects
+   and leave the caller result uncommitted. Capture origin/trace while the logical
+   call/dependencies are still available, then retire this call's loans/locals.
+5. Continue the same interpreter. Where the existing contract allows a completed
+   Native operation to park before its next transition, transfer its protected
+   result/origin to execution-owned completion state and never invoke Rust twice.
+
+Native scope cleanup owns only its local/loan/logical-call suffix. A reentry guard
+owns the script suffix it created; execution retirement owns the whole execution.
+Do not add multiple cleanup owners that can pop the same frames or release the
+last managed-result protection twice. Rust unwind follows those same ownership
+rules and never undoes completed user mutations.
+
+Current PanicPolicy/panic_policy is declared and exported but has no execution
+consumer. Remove that unused configuration during this migration; do not implement
+an extra catch on every callback to make a dead option appear meaningful. Ordinary
+Rust callback panic propagation and scoped unwind cleanup remain the initial
+behavior. Keep existing GC/provider/completion fault containment at its actual
+owner. No Rust unwind may cross a non-unwind machine-code/FFI boundary; that backend
+retains its required boundary conversion, not a catch in each interpreter helper.
+
+#### Collection scheduling and acceptance
+
+Use kagari-gc's existing collect/safepoint/publication mechanisms. Explicit collect
+drains through the collector API; Runtime chooses valid service points after
+access loans end and retains allocation-pressure collection. Do not add a second
+allocation-debt counter or force a collector step on every scalar/Native call.
+The library's existing incremental mechanism remains; new pacing algorithms and
+budgets/latency tuning are separate from first cutover. Pending GC work must still
+make progress when allocations stop, under the existing driver service policy.
+
+Freeze release baseline binaries before implementation. Warm empty/scalar and
+borrowed-object Native adapters use zero persistent root registrations, zero
+argument-pack allocations and no rebuilt static mapping. Require no stable
+regression in the already optimized direct scalar path; typed scalar registration
+must converge on that same entry protocol. Real DTO ownership, Host call entry,
+capacity growth and actual GC work remain separate measurements. No absolute
+nanosecond promise or measured pass is asserted by these record choices.
+
+GCR02 proves carrier transfer, mutable reentry with collection/protected return,
+and object/code-state cycle retirement. GCR03 moves consumers and deletes old
+memory/root owners and the selected take API/PanicPolicy; required source-free,
+Host alias/borrow, error/effect, cancellation, async/debug and native backend
+contracts remain acceptance. Retain local structure/fmt/workspace Clippy/diff
+checks and CI-only full workspace matrices. This closes design choices, not their
+implementation or performance evidence.
+
+### Target crate and file ownership
+
+Proposed final organization, reviewed 2026-11-11. This refines the integrated model
+above; it is not a mechanical file-move task or a new implementation phase. The
+current architecture map continues to describe implemented paths. Leaves below
+name responsibility boundaries, not a requirement to create empty placeholder
+files; keep cohesive implementations together and split at actual size/ownership
+boundaries. Every out-of-line Rust module uses foo.rs plus foo/, never mod.rs.
+
+```text
+crates/kagari-runtime/src/
+  lib.rs                         # intentional public entrypoints and module wiring
+  runtime.rs                     # the one Runtime, configuration and orchestration
+
+  program.rs                     # immutable, shareable executable Program
+  program/
+    prepare.rs                   # source-free preparation of verified contracts
+    code.rs                      # prepared bodies, instructions and call-site facts
+    code/instruction.rs          # generated instruction regions where applicable
+    layout.rs                    # immutable function/slot/root-map requirements
+    source.rs                    # retained source/debug data; no frontend analysis
+
+  installation.rs                # per-Runtime installed state and identity authority
+  installation/
+    store.rs                     # current installations and checked lookup indexes
+    bind.rs                      # final local calls, application links and bindings
+    publication.rs               # stage/commit/retire and resume-link refresh
+    statics.rs                   # managed static state and initialization lifecycle
+    retention.rs                 # actual installation/body lifetime requirements
+    inspection.rs                # declared metadata/source queries and reflection gates
+
+  execution.rs                   # logical executions and their state/slot protocol
+  execution/
+    entry.rs                     # Host entry/resume and scoped reentry admission
+    activation.rs                # exclusive activation, options and termination
+    store.rs                     # active/parked execution identities and retirement
+    frame.rs                     # Frame, BodyRef, ReturnTarget and uncommon state
+    stack.rs                     # reusable scalar/managed banks and StackMark
+    roots.rs                     # authoritative execution roots and GC RootSource
+    transfer.rs                  # argument/result publication and cleanup handoff
+    wait.rs                      # pending/result state crossing owned suspension
+
+  interpreter.rs                 # borrowed executor, not another Runtime owner
+  interpreter/
+    driver.rs                    # drive/park/resume orchestration
+    dispatch.rs                  # instruction selection and region continuation
+    calls.rs                     # consume bound calls and enter script frames
+    returns.rs                   # return, suffix retirement and failure unwind
+    native.rs                    # enter the common Native boundary and continue
+    objects.rs                   # prepared object/field instruction handlers
+    scalar.rs                    # scalar region setup
+    scalar/execute.rs            # generated scalar execution regions
+
+  host.rs                        # one public Host/Native protocol
+  host/
+    registration.rs              # declarations, provider composition and sealing
+    registration/                # catalog, builders, modules and schema authoring
+    binding.rs                   # installed thunk/codecs and concrete applications
+    call.rs                      # NativeCall view, invoke and script callbacks
+    codec.rs                     # slot-based conversion and custom converters
+    codec/                       # arguments, results and composite conversions
+    handles.rs                   # bound functions/objects/interfaces and retention
+    payload.rs                   # checked Native payload storage and scoped access
+    borrow.rs                    # external Rust loans, scopes and access validation
+    paths.rs                     # typed host paths, projection and mutation records
+    serde.rs                     # optional generic Serde bridge
+
+  memory.rs                      # Runtime integration of kagari-gc
+  memory/
+    driver.rs                    # paired collector/root-source access and safe points
+    roots.rs                     # durable Host roots and scoped temporary integration
+    providers.rs                 # reviewed Runtime representation/GC adapters
+    accounting.rs                # Runtime policy and report/error integration
+    clock.rs                     # GC measurement clock only
+
+  value.rs                       # transport and language representations
+  value/
+    scalar.rs                    # scalar encoding/decoding
+    arrays.rs                    # builtin fixed arrays and packed elements
+    strings.rs                   # immutable builtin String operations
+    aggregates.rs                # struct/enum/tuple representations and fields
+    closure.rs                   # captures, cells and retained callable values
+    semantics.rs                 # checked equality/hash/format language kernels
+    reflection.rs                # object/member reflection operations
+
+  types.rs                       # checked Runtime type/layout evidence
+  types/
+    registry.rs                  # local checked type identities
+    layout.rs                    # object representation facts and field accessors
+    environment.rs               # generic environments and their managed dependencies
+    interface.rs                 # interface/application metadata and checked views
+
+  task.rs                        # existing Future/Task/TaskScope mechanisms
+  task/                          # future, scheduler, scope, completion and cleanup
+  backend.rs                     # finalized script machine-code execution integration
+  backend/                       # native eligibility, installed pages and ABI
+  debug.rs                       # execution observer, debug session and protocol
+  debug/                         # observer, session and protocol
+  error.rs                       # RuntimeError and typed causes
+  error/                         # reason, context, trap/fault and asynchronous traces
+  diagnostics.rs                 # optional measurement hooks, not execution policy
+  diagnostics/                   # allocation/storage observations
+```
+
+The host directory owns both callback registration and checked external Rust state
+access. Remove the current competing top-level native/host/objects entry families;
+their useful implementations become cohesive children, not forwarding modules or
+compatibility aliases. Native describes Rust callbacks; backend describes compiled
+script code. These must not share a misleading native execution abstraction.
+
+Program and installation are intentionally separate. Program contains shareable
+immutable checked facts; installation contains local current bindings, statics,
+identity and publication policy. Initial preparation reuses bytecode verification
+rather than adding a second verifier. Program has no HIR/MIR/source-compiler owner;
+retained source packages only support declared diagnostics/queries.
+
+Execution owns storage semantics; interpreter owns transitions over that storage.
+A call handler uses stack/transfer operations without routing through public Host
+admission. The Native handler hands the same slots to host/call; it does not build
+a second parameter stack or invoke another round of type preparation. Host callback
+reentry goes through execution/entry for the real reentry boundary and returns to
+the same executor. Calls, return cleanup and error propagation each have one owner.
+
+Memory owns no replacement collector algorithm or duplicate object directory.
+Its driver pairs kagari-gc with execution/roots' authoritative source, including
+active/parked stacks and dependencies. Those slots have one physical owner under
+RootDriver, as specified above; an execution control index does not duplicate
+managed slots outside the source. Value/types/installation adapters provide their
+actual managed edges. Do not copy today's ResourceState into a new Memory struct.
+
+#### Existing sources and their destinations
+
+| Current family | Final responsibility |
+| --- | --- |
+| lib.rs, loading.rs, publication.rs, authority.rs | Small runtime orchestration; product preparation versus installation publication/admission split by actual responsibility |
+| program.rs and module/execution/ | program prepared immutable bodies/layouts; local call links go to installation/bind |
+| module/, reload/, source/, cache.rs | installation store/publication/retention/inspection; immutable source attachment goes to program/source; remaining backend/application caches stay at their concrete owners |
+| execution/, executor/, frame/cursor/ | public entry and owned control in execution; private driving/dispatch/handlers in interpreter; Native adapter work in host/call |
+| frame/, session/, execution_state.rs, resource.rs | execution records, stack, roots, activation and transfer; split allocation policy to memory and scoped Rust access to host |
+| host/, host_scope/, native/, objects/ | host registration/binding/codec/handle/payload/borrow/path owners; builtin language operations go to value or interpreter instead |
+| gc/collector.rs, gc/directory.rs, gc/collection.rs | removed at GCR03 cutover; generic collection/storage live in kagari-gc, Runtime scheduling/report adaptation in memory |
+| gc/fields.rs, gc/arrays.rs, gc/values.rs, gc/interfaces.rs | value representations and types access facts with reviewed GC providers; remove old heap-specific storage/scanning algorithms |
+| execution_metadata/ | split environment/interface facts to types, application/call evidence to host/installation and roots to execution; reachability-bearing state uses the managed graph |
+| builtin/, numeric.rs, range.rs, closure.rs, value_check.rs, value_semantics/ | value/type semantics or prepared interpreter kernels; reused scalar rules stay in kagari-types rather than being copied |
+| scheduler/, task/, frame/future.rs, native/future/, completion | task lifecycle, execution waits and Host producer binding respectively; no new general scheduler framework |
+| debug.rs, debug_protocol.rs, observer.rs, error_trace/ | debug observation versus error trace ownership; no compulsory debug state in every ordinary frame |
+
+Existing private test modules follow their semantic owners. Keep integration
+contracts under the existing explicit Cargo test targets, including core_calls;
+keep application-only fixtures in Runtime and standard-provider scenarios in
+stdlib. Preserve generated catalog/check tooling and move its configured paths
+with generated consumers; never hand-edit generated regions as a migration shortcut.
+
+#### Migration and performance boundaries
+
+First freeze records, lifetime contracts and the common Native entry. Then migrate
+execution/root storage and actual GC/object providers coherently, moving code when
+its responsibility changes. Resolve current duplicated type preparation and root
+packs at host/binding and host/codec boundaries; do not mechanically move the old
+costs into prettier paths. Full frame packing, tail recursion, public authoring
+syntax refinement and library reconstruction remain later scoped work.
+
+After migration, an ordinary call must be readable through execution/entry,
+interpreter/calls, host/call when Native, and interpreter/returns. Looking at
+installation/publication must reveal exactly when current bindings change; looking
+at execution/roots and memory/driver must reveal every root/collection boundary.
+This is a navigation requirement, not a count of public layers executed per call.
+Directories and Rust modules do not inherently add runtime dispatch or allocation.
+
+lib.rs exposes intentional public owners only; the target tree is not a mandate
+for pub mod everywhere. Remove obsolete APIs directly and update real consumers;
+do not widen visibility or add re-exports merely to preserve old paths. Public
+facade exports need exact whitelist/consumer evidence when implemented. Passing
+structure checks or reducing file counts does not establish faster execution;
+retain the integrated model's call/allocation and GC/borrow/reload acceptance.
 
 ### Crate consolidation and single Runtime
 
@@ -165,35 +1013,17 @@ retain Kagari's nominal Vec/hash storage in Runtime or to skip typed mutation ru
 
 ### Sequence and reviewable exit conditions
 
-1. **Detach existing library implementation dependencies.** Inventory privileged
-   Runtime/GC/VM/SDK paths and their consumers; establish the Runtime-only build
-   and checked executable-input boundary before designing replacement libraries.
-2. **Organize the Runtime and Host model.** Describe ownership with core records,
-   diagrams and complete host-entry, script-call, Native-call, return, park/resume,
-   trap and publication paths. Reuse implemented immutable Programs, prepared
-   calls and exclusive Runtime publication. Settle one coherent registration and
-   call model before naming multiple public adapters.
-3. **Integrate the existing GC and prove the generic boundary.** Exercise allocation,
-   root handoff, payload edges, mutation and cleanup through the reorganized model.
-   A small external Native provider containing a managed reference and a script
-   callback is a Runtime contract witness; it does not require designing the full
-   Vec/HashMap/HashSet library. Test it under collection, reentry and failure.
-4. **Design and reconnect full libraries later.** Rebase the existing collection
-   plan on the proven protocol. Standard implementations must use that same
-   public path; restoring privileged paths is not an independent-library result.
+Detachment and crate consolidation are complete. The
+[RR00-RR06 execution plan](runtime-refactor-plan.md#order-and-build-boundaries)
+now owns the finite remaining sequence, removal inventory, affected consumers,
+build/repair boundaries and exit conditions. Do not replay completed detachment
+or maintain a second phase ledger in this design document.
 
-Before implementation activation, freeze the finite removal inventory, affected
-crate/build boundaries and consumer reconnection checkpoints. Any intermediate
-unbuildable SDK/library targets or deferred integration tests must have explicit
-causes and owning follow-up steps; do not disable checks or add fake-success
-stubs. Runtime-focused evidence is not a full-workspace or restored-stdlib claim.
-Retain the independent behavioral, source-free, GC/loan, cancellation and reload
-oracles at their semantic owners.
-
-Full collection/API redesign, paged/incremental GC, enum/niche/value-struct layouts,
-the deferred shared declaration-ID migration, R13 reclamation and broader
-AOT/JIT/deoptimization remain separate. Later call-model sections are design
-inputs; this scope record does not automatically activate every proposed optimization.
+The migration proves the public boundary with a small application-owned Native
+provider containing a managed edge and a script callback. Full Vec/HashMap/HashSet
+reconstruction follows at the [collection plan](native-collections-plan.md), using
+that same public protocol. Other deferred work is listed at the execution plan;
+collector contracts and inherited measurements remain at their existing owners.
 
 Reference boundaries: [Lua 5.4.9 library initialization](https://github.com/lua/lua/blob/v5.4.9/linit.c)
 and [table library](https://github.com/lua/lua/blob/v5.4.9/ltablib.c) demonstrate
@@ -474,6 +1304,60 @@ separate those contracts coherently; do not silently hoist arbitrary converter c
 [Prepared call tables](architecture/runtime/reload.md#exact-old-bodies-current-ordinary-calls)
 own shared body/call recipes, installation-local final bindings and refreshed
 activation views.
+The root Runtime owns distinct services rather than a generic ResourceState
+containing execution, publication and heap policy. The target ownership sketch is:
+
+```text
+Runtime {
+    installations: InstallationStore,
+    host: HostState,                       // registrations, Rust resources and loans
+    types: RuntimeTypes,                   // identities and immutable checked facts
+    memory: RootDriver<ExecutionRoots>,    // heap plus authoritative managed source
+    control: ExecutionControl,             // activation and selected execution IDs
+    tasks: TaskScheduler,
+    observer: optional observation state,
+}
+
+ExecutionRoots {
+    executions: ExecutionStorage,          // active AND parked frames/slots/locals
+    dependency_roots: ExecutionDependencies,
+}
+```
+
+These names are responsibilities, not new public types. Control and scheduler
+records may retain checked IDs or genuine durable roots, but cannot keep untraced
+managed carriers outside the authoritative source. An execution's frames/slots
+are not copied into a second RootSet bank. The interpreter is a temporary borrower
+of these owners; it is not another persistent execution engine or Runtime wrapper.
+
+Keep four program/installation concepts distinct:
+
+- Program is the immutable shareable product: verified code/layout/call recipes,
+  diagnostic source and compatibility evidence, with no per-Runtime mutable state.
+- An installed revision is one exact product with its recipient's admitted local
+  facts. A body reference retains this exact code and required managed dependencies.
+- The installation owns current implementation selection and committed ordinary
+  call links, including views for still-retained old callers. Active execution
+  uses admitted links; actual resume refreshes them after publication.
+- Static state belongs to the installation lifecycle and survives compatible body
+  replacement. Managed old bodies reach required state through the real graph;
+  neither an ID nor an Arc-only cycle is a substitute for traced relationships.
+
+A normal bound Host function identifies an installation/declaration and prepared
+call contract; it does not freeze an implementation by accidentally owning its
+old body. Closures, admitted invocations and Futures retain the selected body and
+lexical environment. A data/type descriptor's lifetime is separate from that
+ordinary current-call choice. Do not combine these handles to save type names.
+
+For Program v1 shared by Runtimes A and B, each installation has its own bindings,
+statics and managed objects. Prepare v2 independently, then publish it to A under
+exclusive mutable access. A's compatible statics persist; its ordinary calls use
+v2. B remains on v1 until its own publication. A's retained v1 computation keeps
+v1 code, but refreshed ordinary inner calls use A's current targets. No global
+current Program, Runtime-wide code lock or per-instruction publication check is
+needed. Reuse existing correspondence and call tables; do not introduce another
+version-selection abstraction.
+
 The later execution-slot model adds only:
 
 ```text
@@ -1002,6 +1886,15 @@ arguments and writes the declared result. Raw access and typed adapters use this
 boundary, with the same identity, loan, cancellation and cleanup rules. The concrete
 public context name and bind syntax are not settled by this record sketch.
 
+Separate reusable Native binding facts from individual call-site locations.
+The binding/application owns the erased thunk, prepared codecs and closed signature
+evidence. A call site owns its argument locations and result destination, referring
+to that binding through the committed table. Ten callers of the same closed Native
+application do not need ten mapping preparations or codec copies. NativeCall is a
+transient invocation view with local-root/loan marks, not a new persistent owner of
+Program, arguments or heap state. Retained computation state is created only for
+real escaping work, not every immediate callback.
+
 Bind the Rust type mapping and expected script type once for a fixed application.
 Invocation uses that codec; it does not construct a new TypeArgument just to prove
 again that Rust () matches Unit. Custom value conversion, runtime owner/generation
@@ -1017,10 +1910,12 @@ objects or release-channel messages. Actual local-root growth is a fallible slow
 path. A handle explicitly retained beyond the call needs a durable owning root;
 requesting an owning argument representation also pays that ownership cost.
 
-Synchronous Native execution normally invokes the callback and performs the common
-return transition directly. Keep its logical Native frame for stack storage and
-enabled tracing; release storage borrows before arbitrary Rust/reentry. Do not
-require three generic driver iterations for every callback. Explicit saved
+Synchronous Native execution normally invokes the callback and publishes the
+result directly to its prepared caller destination. Preserve logical Native call
+identity for tracing, reentry and cleanup through a scoped record when required;
+do not force every direct callback into a complete script ExecutionFrame or a
+separate parameter/result window. Release storage borrows before arbitrary
+Rust/reentry. Do not require three generic driver iterations for every callback. Explicit saved
 return/continuation state is
 still necessary when the existing debugger/slicing contract admits parking after
 the callback but before return. Preserve those observable boundaries and results;
@@ -1056,7 +1951,8 @@ claiming an improvement; the measured Lua numbers are context, not a promised ta
 This design crosses Runtime/SDK and, for call layouts/liveness/Unit storage,
 compiler/bytecode/native ABI boundaries. It is not a Runtime-only patch. Exact
 record layout, generated adapter API, slow-path ownership and observer/slice
-transition details require review before a finite implementation phase is activated.
+transition details are proved and migrated at RR01-RR03 of the
+[execution plan](runtime-refactor-plan.md).
 
 ## AOT, JIT and deoptimization
 

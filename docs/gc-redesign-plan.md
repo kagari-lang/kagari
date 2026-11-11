@@ -2,11 +2,15 @@
 
 The standalone library implements typed Rust and fixed dynamic objects, scoped
 access, host roots, direct execution-root adapters and incremental collection.
-Runtime still uses its existing collector. This plan owns remaining work and
-acceptance; the [implementation design](gc-implementation-design.md) owns storage,
-borrowing, tracing and mutation contracts, and the [crate guide](../crates/kagari-gc/README.md)
-owns usage and fixture commands. The [roadmap](implementation-roadmap.md#gc-library-redesign)
-owns activation of the integration phases.
+Runtime still uses its existing collector. This document owns the remaining GC
+acceptance register and inherited measurements. The
+[Runtime execution plan](runtime-refactor-plan.md#order-and-build-boundaries) is the
+single coordinated implementation sequence and maps RR phases to the GCR groups
+below; do not execute two parallel migration queues. The
+[implementation design](gc-implementation-design.md) owns storage, borrowing,
+tracing and mutation contracts, and the [crate guide](../crates/kagari-gc/README.md)
+owns usage and fixture commands. The
+[roadmap](implementation-roadmap.md#gc-library-redesign) locates this work.
 
 ## Scope and status
 
@@ -16,16 +20,18 @@ host root leases and a complete driver-supplied execution root source. Semantic
 IDs, language typing, execution policy, hot reload and code selection stay in
 Runtime; host Rust state stays outside the script heap.
 
-The standalone implementation is usable without language crates. Runtime cutover,
-arbitrary erased providers and native extraction/tombstones remain deferred.
+The standalone implementation is usable without language crates. Runtime cutover
+and arbitrary erased providers remain deferred. Native payload extraction is
+selected for removal in the Runtime/Host refactor, not implementation in the new GC;
+its current API remains until that coordinated migration.
 Concurrent/moving collectors, foreign graph stores or Domain bindings, generic
 finalizers/resurrection, shared heaps across Runtimes, derive tooling and new
 container libraries are outside this scope. The current fixed dynamic API does
 not enforce language nominal types or implement all Runtime storage needs.
 
-| Phase | Current state and remaining exit condition |
+| Acceptance group | Current state and remaining exit condition |
 | --- | --- |
-| GCR00: contract closure | Typed/fixed dynamic access, typed schema keys, branded handles, provider mutation, cursor repair and direct root-source contracts are implemented. Close Runtime representation/extraction requirements and freeze comparable performance gates. General safe custom-object construction remains an explicitly reviewed provider responsibility. |
+| GCR00: contract closure | Typed/fixed dynamic access, typed schema keys, branded handles, provider mutation, cursor repair and direct root-source contracts are implemented. Close Runtime representation requirements, coordinate removal of the old extraction API and freeze comparable performance gates. General safe custom-object construction remains an explicitly reviewed provider responsibility. |
 | GCR01: standalone heap | Allocation, roots, mutation, resumable collection, metadata reclamation and opt-in safepoints are implemented. Complete the remaining representation/diagnostic requirements selected for integration; do not invent placeholder APIs. |
 | GCR02: Runtime object-model proof | Standalone frame adapters exist. Map every genuine root and managed relationship, prove object/code-state cycles and pinned computation lifetime, then measure actual frame/layout adapters. |
 | GCR03: coherent Runtime cutover | Connect Value/layout/Native providers and direct frame scanning; rehome execution state and remove the replaced collector and graph owners. Not started. |
@@ -33,8 +39,9 @@ not enforce language nominal types or implement all Runtime storage needs.
 | GCR05: documentation and cleanup | Move lasting behavior to architecture/spec/authoring owners, remove obsolete paths, transfer unresolved work and retire this plan. |
 
 GCR01 and standalone GCR02 fixtures can coexist with Runtime because they own
-separate heaps. Before GCR03, list affected crates and any finite temporarily
-non-building migration boundary here, with its owning repair checkpoint. No
+separate heaps. RR00/RR01 of the execution plan list affected crates and any
+finite temporarily non-building migration boundary, with repair inside RR03.
+GCR03 acceptance closes at that coherent cutover. No
 production stubs, disabled validation, duplicate semantic implementations or
 compatibility facades are part of the transition.
 
@@ -79,7 +86,8 @@ No new API, state cache or performance claim is introduced.
 ## Remaining decisions and work
 
 - **Runtime representations:** validate fixed layouts against packed Value fields,
-  custom erased layouts, Native take/tombstones and outstanding aliases. Do not
+  custom erased layouts and outstanding aliases. Remove Native take rather than
+  adding extraction/tombstones to the collector. Do not
   assume a transient Gc remains valid after adding an in-scope representation
   change. The [Runtime map](gc-implementation-design.md#runtime-integration-map)
   owns proposed responsibility changes.
@@ -111,6 +119,20 @@ No new API, state cache or performance claim is introduced.
 - **Validation:** full CI/platform/backend acceptance, integrated pressure and
   cancellation behavior, coverage-guided fuzzing, automatic trace reduction and
   sanitizers remain open. Existing deterministic graph/Miri evidence is scoped.
+
+The [Runtime carrier proposal](runtime-refactor-design.md#runtime-reference-carriers-and-transfers)
+reuses Gc for scoped access, Edge for traced slots/fields and Root for escaping
+Host retention. Tagged wrappers and Native call-lifetime slot views are selected for the first
+implementation, not implemented Runtime APIs; the standalone frame adapter supplies the underlying
+get/publish/set mechanism. GCR02 must prove the actual Runtime tags, roots and
+transfers before this can close representation acceptance. Do not preserve the
+old unbranded Value: Copy API using raw pointers or a persistent Root per value.
+
+The [selected Native/execution/GC flow](runtime-refactor-design.md#selected-native-execution-and-gc-control-flow)
+closes the first implementation choices: slot-based Native entry/results, mutable
+service reentry, sole execution-root storage, managed installation/state edges and
+single-owner cleanup. GCR02 still owes real proofs and GCR03 the coherent cutover;
+these design decisions do not establish compiler/GC/performance acceptance.
 
 ### Integration obligations
 
@@ -149,7 +171,7 @@ Four integration scenarios define the boundary:
    graph accounting of this cycle.
 4. **Suspension and shutdown:** parked frames keep live values and required code;
    cancellation releases them through ordinary retirement. Runtime/heap transfer,
-   final host-root drop, taken aliases, and destructors on trap/unwind retain their
+   final host-root drop and destructors on trap/unwind retain their
    original safety and exactly-once cleanup contracts.
 
 No bridge may serialize and reload all objects to reconnect Runtime, duplicate
