@@ -815,8 +815,9 @@ Cancellation is checked cooperatively at interpreter/JIT safepoints and native
 polling boundaries. It cannot preempt a blocking host callback. Primitive bulk
 operations may finish before the next poll. A prepared commit is uninterrupted:
 cancellation requested inside it is observed after its target and dirty record
-are committed. ExecutionCounters reports lifecycle peaks and elapsed time;
-optional tracing provides observations without execution charging.
+are committed. ExecutionCounters reports current and peak call depth and heap units;
+reading counters does not sample the platform clock. Optional tracing provides
+observations without execution charging.
 `ExecutionOptions::inputs` supplies
 a fixed logical Unix time in milliseconds and a random seed for the root session.
 Host callbacks access those values through `HostCallContext`; random draws use a

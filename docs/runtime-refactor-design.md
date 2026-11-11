@@ -30,6 +30,15 @@ record the reduced combinations and public-provider follow-up. Existing NC libra
 gaps remain separate from this completed dependency cleanup. Compact frames,
 Host redesign and collector integration remain unstarted.
 
+## Session measurement boundary
+
+Session creation and ExecutionCounters snapshots do not sample the platform
+clock or retain a start timestamp. Counters expose current/peak call depth and
+heap units. GC pause measurement and host-selected deterministic time inputs are
+separate mechanisms. The [execution specification](spec/runtime.md#execution-control-and-lifecycle-accounting)
+owns this contract. Hosts measure their own call intervals when needed; there is
+no session elapsed-time field or timer configuration.
+
 ## Next scope: detach the standard library and reuse the existing GC
 
 The user-selected sequence is to detach the existing standard-library implementation,

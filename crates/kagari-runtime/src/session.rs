@@ -2,7 +2,6 @@
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
     Runtime, StagedReload,
-    clock::Instant,
     error::{RuntimeError, RuntimeErrorKind, fault::EngineFault, reason::CancellationReason},
     error_trace::ErrorTrace,
     frame::{
@@ -214,7 +213,6 @@ pub(crate) struct SessionState {
     random_counter: Cell<u64>,
     host_calls: RefCell<Vec<HostCallTrace>>,
     dropped_host_calls: Cell<usize>,
-    started: Instant,
 }
 
 impl SessionState {
@@ -252,7 +250,6 @@ impl SessionState {
             random_counter: Cell::new(0),
             host_calls: RefCell::new(Vec::new()),
             dropped_host_calls: Cell::new(0),
-            started: Instant::now(),
         }
     }
 
@@ -359,7 +356,6 @@ pub struct ExecutionCounters {
     pub peak_call_depth: u32,
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
-    pub elapsed_wall_time_ms: u64,
 }
 
 impl ExecutionSession<'_> {
@@ -399,11 +395,6 @@ impl ExecutionSession<'_> {
             peak_call_depth: state.peak_call_depth.get(),
             current_heap_units: counters.current_heap_units,
             peak_heap_units: state.peak_heap_units.get(),
-            elapsed_wall_time_ms: state
-                .started
-                .elapsed()
-                .as_millis()
-                .min(u128::from(u64::MAX)) as u64,
         }
     }
 }
