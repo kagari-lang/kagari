@@ -1,42 +1,16 @@
 //! Explicit standard owner contributors; composition contains no implementation policy.
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/arrays.rs")]
 mod arrays;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/character.rs")]
 mod character;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/comparison.rs")]
 mod comparison;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/enumerations.rs")]
 pub(crate) mod enumerations;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/future.rs")]
 mod future;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/host.rs")]
 mod host;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/iteration.rs")]
 mod iteration;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/numeric.rs")]
 mod numeric;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/propagation.rs")]
 mod propagation;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/protocols.rs")]
 mod protocols;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/ranges.rs")]
 mod ranges;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/string.rs")]
 pub(crate) mod string;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "foundation/tasks.rs")]
 mod tasks;
 
 use crate::{catalog::documentation, identity, namespaces};

@@ -1,8 +1,8 @@
 //! Nominal host identity and path validation retain one shared declaration owner.
-use super::support;
-use crate::tests::bytecode::load_bytecode;
+use crate::tests::support::bytecode::load_bytecode;
 
 use crate::declarations::StandardDeclarations;
+use crate::tests::support::native::{invoke::invoke, program::free_function_program};
 use kagari_bytecode::{
     artifact::KbcArtifact,
     program::{BytecodeProgram, ModuleRef},
@@ -47,7 +47,6 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use support::native::{invoke::invoke, program::free_function_program};
 
 fn field(name: &str, ty: Ty, access: PathAccess, visibility: Visibility) -> FieldDef {
     FieldDef {

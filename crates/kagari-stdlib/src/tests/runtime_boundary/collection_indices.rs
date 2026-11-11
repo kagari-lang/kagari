@@ -1,6 +1,7 @@
 //! Native stdlib contracts keep wide script indices until the storage boundary.
-use crate::tests::bytecode::load_bytecode;
-use crate::tests::runtime_boundary::support::{compile_program, native::invoke::invoke};
+use crate::tests::runtime_boundary::support::compile_program;
+use crate::tests::support::bytecode::load_bytecode;
+use crate::tests::support::native::invoke::invoke;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,

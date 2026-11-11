@@ -958,6 +958,17 @@ an initial whole product even after Futures finish. Shared product ownership doe
 not complete the separate type/code split. See the
 [Runtime ownership map](architecture/runtime.md#program-product-installation-and-publication).
 
+**Provider-test coverage boundary.** TC00 retires six private source-level
+combinations from the pre-correction `fdb536c1` interface suite: retained generic
+closure Fn constraints, Option in captured tuples/closures (two), List/Vec and
+mixed mutable-list captures (two), and repeat arrays under the standard PartialEq
+constraint. These depend on standard declarations and no longer belong in Runtime.
+Coverage for those combinations is reduced; reconstruct public-provider witnesses
+in stdlib when that library scope resumes. Runtime retains independent application
+record/aggregate/closure provenance, current-inner-call and candidate-interface
+oracles. This test-owner correction does not resolve the R13 type/code lifetime
+mismatch or establish zero-loss coverage.
+
 **Remaining ownership mismatch.** `StructLayoutRef` in
 [module.rs](../crates/kagari-runtime/src/module.rs) retains an `ExecutableModule`;
 [TypeArgument](../crates/kagari-runtime/src/frame/types/arguments.rs) and
@@ -1280,7 +1291,7 @@ scalar case does not need GC protection.
 
 Keep owned conversion, scoped borrowing and explicit raw/primitive implementations
 behind one validated binding entrypoint without forcing one data-movement path.
-The [VM allocation tests](../crates/kagari-runtime/tests/allocation_contracts/native_allocations.rs) establish
+The [VM allocation tests](../crates/kagari-stdlib/tests/allocation_contracts/native_allocations.rs) establish
 warm zero-allocation scalar/SequenceHandle paths; they do not establish that the
 general typed adapter is allocation-free. The completed
 [module-owned registration](native-registration.md) refactor preserves these

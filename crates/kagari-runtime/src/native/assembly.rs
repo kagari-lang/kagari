@@ -9,7 +9,7 @@ pub mod references;
 mod seal;
 
 #[cfg(test)]
-mod default_tests;
+mod selected_tests;
 
 #[cfg(test)]
 mod proof_tests;

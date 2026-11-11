@@ -105,6 +105,25 @@ establish that crate removal improves speed. The
 [paired call measurements](../performance-baseline.md#runtime-consolidation-core-call-comparison-windows-2026-11-11)
 record the observed costs and limits.
 
+## Test ownership
+
+Runtime has no standard-library dependency, including build/dev dependencies,
+examples and unit tests. Its generic storage, frame, reload, borrowing and cleanup
+witnesses author small application Native providers where necessary; Runtime tests
+never compile standard-provider implementation sources. Raw private instruction
+fixtures adopt identities into their receiving Runtime. External Program/artifact
+consumers retain detached preparation and its separate identity scope.
+
+Standard-provider source scenarios, Native/Serde consumer expansion, allocation
+contracts, library measurements and the host-trait example belong to kagari-stdlib.
+They use public Runtime entrypoints and ordinary provider installation. The
+provider-independent core_calls measurement remains in Runtime. Generic bytecode
+fixture builders/counters can be shared toward stdlib as test helpers; no reverse
+source sharing, Runtime facade for standard modules or conditional production child
+paths are required. Private assertions about the withdrawn standard bundle were
+retired at the user's direction; library reconstruction must use public provider
+behavior. These changes do not restore the queued NC collection functionality.
+
 ## Error reasons and diagnostic context
 
 [RuntimeError](../../crates/kagari-runtime/src/error.rs) owns one typed

@@ -1,6 +1,4 @@
 //! Task storage, fluent methods and callbacks share the canonical core::task owner.
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "tasks/composition.rs")]
 mod composition;
 use crate::{
     foundation::{

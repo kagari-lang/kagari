@@ -1,6 +1,4 @@
 //! Library-authored collection equality and hashing over checked reads and callbacks.
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "operations/readers.rs")]
 mod readers;
 use crate::foundation::comparison::operations::readers::{Cursor, Reader};
 use kagari_common::identity::metadata::DefinitionMetadata;

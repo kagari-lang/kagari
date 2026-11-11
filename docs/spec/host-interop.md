@@ -1084,7 +1084,7 @@ native calls: durable host roots remain checked, borrowed references do not beco
 storable, and synchronous reentry retains borrow validation and cleanup.
 
 
-The [trait table example](../../crates/kagari-runtime/examples/host_trait_table.rs)
+The [trait table example](../../crates/kagari-stdlib/examples/host_trait_table.rs)
 registers runtime-owned `Opaque<Counter>` separately from a Kagari `Readable` trait
 and its explicit impl. The bound `get` callback takes a checked shared loan and calls
 Rust's `RustReadable::read`. It then compiles and decodes KBC, installs the common

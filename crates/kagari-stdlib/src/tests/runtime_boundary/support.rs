@@ -6,7 +6,6 @@ use kagari_runtime::native::module::NativeModule;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::sync::Arc;
 
-pub(super) mod native;
 #[path = "../../../../kagari-runtime/tests/support/update_publication.rs"]
 pub(super) mod update_publication;
 

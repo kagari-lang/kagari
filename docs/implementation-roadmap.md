@@ -1539,6 +1539,18 @@ gaps remain separate and are not claimed passing. Completed phase ledgers live i
 Git history. Compact frames, Host redesign, kagari-gc integration, new stack limits
 and tail recursion remain unstarted; consolidation does not activate them.
 
+The [TC00 test-ownership correction](runtime-refactor-design.md#standard-library-test-boundary)
+is complete locally. Runtime has no stdlib dependency in production, build or test
+scopes, source injection or standard-provider examples. Provider scenarios and
+schema/Serde/allocation consumers live in stdlib; generic private Runtime tests use
+independently authored providers. Runtime's core_calls target remains provider-free.
+The dependency guard checks all declared root dependency kinds and the host test
+closure. Required checks and selected Runtime, public typed interface, Serde and
+zero-allocation regressions pass. The sampled Vec-dependent source/artifact case
+still fails at the known NC declaration gap; full workspace/matrix acceptance is
+not claimed. Retired private-provider combinations are recorded at their existing
+NC/type-provenance follow-up owners.
+
 The [compact frame/storage refinement](runtime-refactor-design.md#compact-frame-and-stack-storage)
 uses Lua 5.4.9, pinned Wasmi v0.51.1 and Rust 1.99.1 as mechanism references.
 Execution owns reusable banks and compact ordinary frames; proposed records

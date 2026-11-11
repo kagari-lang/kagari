@@ -10,6 +10,26 @@ The remaining compact execution, Host and existing-GC proposals below are unstar
 The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns future
 activation; implemented foundations are not prerequisites to replay.
 
+## Standard-library test boundary
+
+The user-requested TC00 correction removes Runtime's standard-library dependency
+from production, build, test and example scopes. Standard-provider scenarios and
+consumer targets belong to kagari-stdlib. Runtime keeps generic private execution,
+GC/borrowing/reload/cleanup witnesses and its provider-independent core_calls
+measurement, with application-owned Native declarations explicit per test.
+No standard-provider implementation sources are injected into Runtime, and the
+conditional production child paths are removed. Current ownership is described
+in the [Runtime map](architecture/runtime.md#test-ownership) and
+[testing guide](testing.md#default-placement-and-integration-exceptions).
+
+Twelve private standard-provider oracles were retired at the user's direction,
+without widening Runtime APIs or recreating standard implementations. The
+[collection plan](native-collections-plan.md) and
+[type/provenance review](review.md#r13--type-and-layout-provenance-retains-retired-code)
+record the reduced combinations and public-provider follow-up. Existing NC library
+gaps remain separate from this completed dependency cleanup. Compact frames,
+Host redesign and collector integration remain unstarted.
+
 ## Next scope: detach the standard library and reuse the existing GC
 
 The user-selected sequence is to detach the existing standard-library implementation,
@@ -76,8 +96,8 @@ remaining integration boundary. Current contracts belong to
 
 Runtime and SDK construction install no providers. Hosts compose exactly their
 checked modules; CLI/web explicitly select the reduced stdlib. SDK's normal
-no-default-feature dependency tree contains no stdlib, and Runtime has only
-dev dependencies on it. Empty/scalar and application-only Native execution need no
+no-default-feature dependency tree contains no stdlib. Runtime has no stdlib
+dependency in production, build or test scopes. Provider scenarios belong to stdlib. Empty/scalar and application-only Native execution need no
 standard bundle. Operator/trait syntax, language-role enums and async declarations
 still require their actual checked providers, never fabricated layouts or names.
 

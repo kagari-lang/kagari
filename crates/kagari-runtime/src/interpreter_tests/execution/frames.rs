@@ -7,7 +7,7 @@ use crate::module::entry::ProgramEntry;
 use crate::test_support::bytecode::load_bytecode;
 use crate::value_semantics::script_equal;
 use crate::{
-    execution::fixtures::FixtureExecution, interpreter_tests::common::standard_runtime,
+    execution::fixtures::FixtureExecution, interpreter_tests::common::test_runtime,
     test_support::native::program::ProgramFixture,
 };
 use kagari_bytecode::{
@@ -19,8 +19,8 @@ use kagari_contract::ids::FunctionRef;
 #[test]
 fn foreign_loaded_module_is_rejected_before_execution() {
     let bytecode = compile_test_bytecode("fn main() -> i32 { 7 }");
-    let mut first = standard_runtime(Default::default());
-    let mut second = standard_runtime(Default::default());
+    let mut first = test_runtime(Default::default());
+    let mut second = test_runtime(Default::default());
     let foreign = load_bytecode(&mut first, "same", bytecode.clone()).unwrap();
     let _foreign_program = foreign;
     let foreign = first.select_program(&_foreign_program).unwrap();
@@ -88,7 +88,7 @@ fn rejects_unverified_bytecode_before_publication() {
     }
     .build(&context);
     program.modules[0].function_table.clear();
-    let mut runtime = standard_runtime(RuntimeConfig {
+    let mut runtime = test_runtime(RuntimeConfig {
         limits: RuntimeLimits {
             ..RuntimeLimits::default()
         },
@@ -146,7 +146,7 @@ fn rejects_unsupported_bytecode_before_publication() {
         )],
         vec![],
     );
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     for (name, bytecode) in [
         ("register_call.kbc", register_call),
         ("dynamic_call.kbc", dynamic_call),
@@ -246,7 +246,7 @@ fn middle() -> i32 { leaf() }
 fn main() -> i32 { middle() }
 "#,
     );
-    let mut runtime = standard_runtime(RuntimeConfig {
+    let mut runtime = test_runtime(RuntimeConfig {
         limits: RuntimeLimits {
             max_call_depth: Some(2),
         },
@@ -430,7 +430,7 @@ fn main() -> Point {
 
 #[test]
 fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let context = DefinitionContext::new().unwrap();
     let module = module_with_mutable_slot(&context, 7);
     let loaded = load_bytecode(
@@ -471,7 +471,7 @@ fn lazy_static_driver_enters_hidden_initializer_but_stores_cannot_initialize() {
 
 #[test]
 fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let first_loaded = load_bytecode(
         &mut runtime,
         "hot_reload.kgr",

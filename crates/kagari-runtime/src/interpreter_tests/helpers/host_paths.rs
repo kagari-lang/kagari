@@ -12,7 +12,7 @@ use crate::{
     execution::reentry::reenter,
     execution::{fixtures::FixtureExecution, native::PreparedNativeEntry},
     interpreter_tests::{
-        common::{compile_logging_test_bytecode, module_program, round_trip_bytecode},
+        common::{module_program, round_trip_bytecode},
         native_fixtures,
     },
 };
@@ -150,8 +150,37 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
-            let bytecode = compile_logging_test_bytecode(
-                "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> [i32] { [7] }",
+            let descriptor = HostPathDescriptorId::new(0);
+            let root = runtime.host().root(HostObjectId(1)).unwrap();
+            let mut entered = ModuleBuilder::new("fixture::effects", &Default::default()).unwrap();
+            let entry = entered
+                .define_function(FunctionDecl::new("entered").host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: HostFunctionEffects {
+                        may_trap: true,
+                        may_call_host_services: true,
+                        may_mutate_host_state: true,
+                        ..Default::default()
+                    },
+                }))
+                .unwrap();
+            entered
+                .bind(entry, move |call: &HostCallContext<'_>, _: &[Value]| {
+                    call.runtime()
+                        .set_host_path(
+                            &call.runtime().gc().alloc_host_root(root).unwrap(),
+                            descriptor,
+                            vec![],
+                            Value::I32(20),
+                        )
+                        .unwrap();
+                    Ok(Value::Unit)
+                })
+                .unwrap();
+            let entered = entered.finish().unwrap();
+            let bytecode = crate::interpreter_tests::common::compile_native_test_bytecode(
+                "fn main() -> i32 { fixture::effects::entered(); 42 } fn compute() -> [i32] { [7] }",
+                &[&entered],
             );
             let compute = bytecode.records().modules[bytecode.records().root.index()]
                 .functions
@@ -159,8 +188,6 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .find(|f| f.name == "compute")
                 .unwrap()
                 .id;
-            let descriptor = HostPathDescriptorId::new(0);
-            let root = runtime.host().root(HostObjectId(1)).unwrap();
             let stages = Arc::new(Mutex::new(Vec::new()));
             let validation = stages.clone();
             let reading = stages.clone();
@@ -193,19 +220,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                         }),
                 )
                 .unwrap();
-            logging_module(move |call, _| {
-                call.runtime()
-                    .set_host_path(
-                        &call.runtime().gc().alloc_host_root(root).unwrap(),
-                        descriptor,
-                        vec![],
-                        Value::I32(20),
-                    )
-                    .unwrap();
-                Ok(Value::Unit)
-            })
-            .install(&mut runtime)
-            .unwrap();
+            entered.install(&mut runtime).unwrap();
             let mut program = bytecode;
             if encoded {
                 program = round_trip_bytecode(program);

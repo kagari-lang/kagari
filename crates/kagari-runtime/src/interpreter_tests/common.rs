@@ -23,7 +23,6 @@ use kagari_compiler::{
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib as foundation;
 use kagari_types::{
     declaration::logging,
     ty::{NominalTy, Ty},
@@ -34,7 +33,7 @@ pub fn load_bytecode_module(
     name: &str,
     bytecode: DefinitionMetadata<BytecodeModule>,
 ) -> (Runtime, InstalledProgram) {
-    load_bytecode_module_with_runtime(standard_runtime(Default::default()), name, bytecode)
+    load_bytecode_module_with_runtime(test_runtime(Default::default()), name, bytecode)
 }
 
 pub fn load_bytecode_module_with_runtime(
@@ -90,7 +89,7 @@ pub fn load_bytecode_program(
     name: &str,
     program: DefinitionMetadata<BytecodeProgram>,
 ) -> (Runtime, InstalledProgram) {
-    load_bytecode_program_with_runtime(standard_runtime(Default::default()), name, program)
+    load_bytecode_program_with_runtime(test_runtime(Default::default()), name, program)
 }
 
 pub fn load_bytecode_program_with_runtime(
@@ -104,9 +103,12 @@ pub fn load_bytecode_program_with_runtime(
 
 pub fn load_test_module(source_text: &str) -> (Runtime, InstalledProgram) {
     let program = compile_native_test_bytecode_with_options(source_text, &[], &Default::default());
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let loaded = runtime
-        .load_verified_program("test.kgr", VerifiedProgram::from_bytecode(program))
+        .load_verified_program(
+            "test.kgr",
+            VerifiedProgram::new(program.into_unverified(), runtime.definition_context()).unwrap(),
+        )
         .expect("test program should load");
     (runtime, loaded)
 }
@@ -120,20 +122,13 @@ pub fn logging_module(
 ) -> NativeModule {
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
-        &foundation::declarations::StandardDeclarations::default()
-            .catalog()
-            .unwrap(),
+        &Default::default(),
         Default::default(),
     )
     .unwrap();
     let log = builder.declared_function("log").unwrap();
     builder.bind(log, entry).unwrap();
     builder.finish().unwrap()
-}
-
-/// Compile the explicit logging contract; callers install their own logging implementation.
-pub fn compile_logging_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
-    compile_native_test_bytecode(source_text, &[&logging_module(|_, _| Ok(Value::Unit))])
 }
 
 pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
@@ -166,11 +161,7 @@ fn compile_native_test_bytecode_with_options(
         .set("test.kgr", source_text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    let mut declarations = foundation::modules()
-        .unwrap()
-        .iter()
-        .map(|module| Arc::new(module.to_declaration()))
-        .collect::<Vec<_>>();
+    let mut declarations = Vec::new();
     declarations.extend(
         modules
             .iter()
@@ -295,9 +286,14 @@ pub fn point_function_module(
     DefinitionMetadata::checked(program.definitions().clone(), module, &Default::default()).unwrap()
 }
 
-/// Explicit standard installation for script fixtures and their source-free products.
-pub fn standard_runtime(config: RuntimeConfig) -> Runtime {
-    let mut runtime = Runtime::new(config);
-    NativeModule::install_all(&foundation::modules().unwrap(), &mut runtime).unwrap();
-    runtime
+/// Empty Runtime for generic execution fixtures; providers are explicit per case.
+pub fn test_runtime(config: RuntimeConfig) -> Runtime {
+    Runtime::new(config)
+}
+
+pub fn compile_with_provider(
+    text: &str,
+    module: Option<&NativeModule>,
+) -> DefinitionMetadata<BytecodeProgram> {
+    compile_native_test_bytecode(text, &module.into_iter().collect::<Vec<_>>())
 }

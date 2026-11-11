@@ -1,7 +1,7 @@
 use crate::{
     Runtime,
     debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
-    interpreter_tests::common::{compile_test_bytecode, load_test_module, standard_runtime},
+    interpreter_tests::common::{compile_test_bytecode, load_test_module, test_runtime},
 };
 use crate::{
     RuntimeConfig,
@@ -202,13 +202,13 @@ fn reloadable_value_module(value: i32) -> BytecodeModule {
 }
 
 fn host_call_runtime() -> Runtime {
-    standard_runtime(RuntimeConfig {
+    test_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
 
 fn debug_runtime(_module_name: &str) -> Runtime {
-    standard_runtime(RuntimeConfig {
+    test_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
@@ -394,4 +394,3 @@ mod debugger;
 mod frames;
 mod host_effects;
 mod interfaces;
-mod statics;

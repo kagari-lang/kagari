@@ -610,7 +610,7 @@ Reuse existing owners rather than build a new mirrored opcode test suite:
 | Change | Local contracts / command selection |
 | --- | --- |
 | Numeric primitive/adapter replacement | `cargo test -p kagari-types --lib payload::tests --no-fail-fast`; select existing arithmetic owner cases as needed. Preserve malformed carriers, width bounds, signed MIN/-1, shifts, casts, NaN and signed zero. |
-| Prepared typed operations and commits | `cargo test -p kagari-runtime --lib interpreter_tests::numeric --no-fail-fast`; includes snapshots, predicate polarity, mixed constants, failed commits and rotated loops across existing artifact routes. |
+| Prepared typed operations and commits | `cargo test -p kagari-stdlib --lib tests::execution::numeric --no-fail-fast`; includes snapshots, predicate polarity, mixed constants, failed commits and rotated loops across existing artifact routes. |
 | Physical state and public-frame boundaries | `cargo test -p kagari-runtime --lib frame::execution_frames --no-fail-fast` plus `frame::cursor::tests` and the existing `physical_instruction_budget` filter. Add only uncovered outcome/state combinations at those owners. |
 | Canonical authority remains intact | Select existing compiler recurrence/native-input correspondence and invalid constant/branch initialization cases; no full compiler or backend matrix locally. |
 | Progress/poll changes | Select existing VM cancellation-after-effect, owned slicing and native-origin cases; retained frames/roots must clean up on traps and cancellation. |
@@ -1053,7 +1053,7 @@ cargo test -p kagari-runtime --lib async_owned_drive_contract
 
 # BO02/BO03: all numeric widths and source-free routes; new predicate/operand cases
 # belong here, not in a parallel opcode-smoke suite.
-cargo test -p kagari-runtime --lib interpreter_tests::numeric::
+cargo test -p kagari-stdlib --lib tests::execution::numeric::
 
 # Representative managed, captured-state and pinned-code dependents of placement.
 cargo test -p kagari-runtime --lib frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints
@@ -1062,7 +1062,7 @@ cargo test -p kagari-runtime --lib rooted_closure_retains_its_old_program_after_
 ```
 
 Use [compiler verification](../crates/kagari-compiler/src/tests/verify.rs),
-[numeric execution](../crates/kagari-runtime/src/interpreter_tests/numeric.rs),
+[numeric execution](../crates/kagari-stdlib/src/tests/execution/numeric.rs),
 [debugger](../crates/kagari-runtime/src/interpreter_tests/execution/debugger.rs) and
 [bytecode flow](../crates/kagari-bytecode/src/verifier/flow.rs) as existing owners.
 During BO01 name the exact additional source-free verifier, disassembly and native

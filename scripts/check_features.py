@@ -59,6 +59,34 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
         (output / f"{crate}-build-graph.log").write_text(graph)
         packages = {line.split()[0] for line in graph.splitlines() if line}
         assert not packages & constraints[crate], (f"{crate} build", packages & constraints[crate])
+    host = next(line.removeprefix("host: ") for line in subprocess.check_output(
+        ["rustc", "-vV"], cwd=ROOT, text=True,
+    ).splitlines() if line.startswith("host: "))
+    metadata = json.loads(subprocess.check_output([
+        "cargo", "metadata", "--locked", "--offline", "--format-version", "1",
+        "--filter-platform", host,
+    ], cwd=ROOT, text=True))
+    packages = {item["id"]: item for item in metadata["packages"]}
+    nodes = {item["id"]: item for item in metadata["resolve"]["nodes"]}
+    runtime = next(key for key, item in packages.items() if item["name"] == "kagari-runtime")
+    assert all(dependency["name"] != "kagari-stdlib" for dependency in packages[runtime]["dependencies"])
+    # Check the host test graph, including the root's dev dependencies, but not
+    # their own dev dependencies. Other target/backend matrices remain CI scope.
+    pending = [runtime]
+    seen = set()
+    while pending:
+        package = pending.pop()
+        if package in seen:
+            continue
+        seen.add(package)
+        assert packages[package]["name"] != "kagari-stdlib", "Runtime test/build graph reaches stdlib"
+        for dependency in nodes[package]["deps"]:
+            if package == runtime or any(kind["kind"] != "dev" for kind in dependency["dep_kinds"]):
+                pending.append(dependency["pkg"])
+    (output / "runtime-test-graph.json").write_text(json.dumps(sorted(
+        packages[package]["name"] for package in seen
+    ), indent=2))
+    print("Runtime production, build and test dependencies exclude stdlib", flush=True)
     print(f"{len(constraints)} production crate boundaries pass", flush=True)
     print("ABI/contract build graphs are independent of source analysis and execution", flush=True)
 

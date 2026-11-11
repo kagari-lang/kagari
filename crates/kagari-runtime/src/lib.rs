@@ -53,42 +53,6 @@ use std::{
 pub mod error_trace;
 #[cfg(test)]
 extern crate self as kagari_runtime;
-// Unit tests must register providers against this test crate's Runtime, not the
-// separately linked library instance in a cyclic stdlib dev-dependency. Share the
-// actual provider sources at their original crate-root paths; production builds
-// contain none of these modules. Integration targets use the ordinary stdlib crate.
-#[cfg(test)]
-extern crate self as kagari_stdlib;
-#[cfg(test)]
-#[path = "../../kagari-stdlib/src/assembly.rs"]
-mod assembly;
-#[cfg(test)]
-// This shared test consumer does not use every public stdlib catalog API.
-#[allow(dead_code)]
-#[path = "../../kagari-stdlib/src/catalog.rs"]
-mod catalog;
-#[cfg(test)]
-// This shared test consumer does not use every public stdlib catalog API.
-#[allow(dead_code)]
-#[path = "../../kagari-stdlib/src/declarations.rs"]
-mod declarations;
-#[cfg(test)]
-#[path = "../../kagari-stdlib/src/foundation.rs"]
-mod foundation;
-#[cfg(test)]
-#[path = "../../kagari-stdlib/src/identity.rs"]
-mod identity;
-#[cfg(test)]
-// This shared test consumer does not use every public stdlib catalog API.
-#[allow(dead_code)]
-#[path = "../../kagari-stdlib/src/namespaces.rs"]
-mod namespaces;
-
-#[cfg(test)]
-fn modules() -> native::binding::NativeResult<Vec<native::module::NativeModule>> {
-    assembly::modules()
-}
-
 pub mod backend;
 pub mod builtin;
 pub mod cache;

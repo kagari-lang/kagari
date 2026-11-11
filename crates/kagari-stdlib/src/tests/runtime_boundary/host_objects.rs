@@ -1,4 +1,4 @@
-use crate::tests::bytecode::load_bytecode;
+use crate::tests::support::bytecode::load_bytecode;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};

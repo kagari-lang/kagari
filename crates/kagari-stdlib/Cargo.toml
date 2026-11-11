@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "kagari-stdlib"
 version.workspace = true
 edition.workspace = true
@@ -12,9 +13,25 @@ kagari-runtime.workspace = true
 kagari-bytecode.workspace = true
 
 [dev-dependencies]
+kagari-runtime = { workspace = true, features = ["serde"] }
+serde.workspace = true
+kagari-derive.workspace = true
+kagari-mir.workspace = true
 rstest.workspace = true
 kagari-abi.workspace = true
 kagari-hir.workspace = true
 kagari-source.workspace = true
 
 kagari-compiler = { workspace = true, features = ["source"] }
+
+[[test]]
+name = "native_schema"
+path = "tests/native_schema.rs"
+
+[[test]]
+name = "allocation_contracts"
+path = "tests/allocation_contracts/main.rs"
+
+[[test]]
+name = "library_measurements"
+path = "tests/library_measurements.rs"

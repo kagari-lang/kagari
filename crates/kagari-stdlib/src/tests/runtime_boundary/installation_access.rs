@@ -1,7 +1,10 @@
 use super::support;
-use crate::tests::bytecode::load_bytecode;
+use crate::tests::support::bytecode::load_bytecode;
 use rstest::rstest;
 
+use crate::tests::support::native::invoke::invoke;
+use crate::tests::support::native::program::ProgramFixture;
+use crate::tests::support::native::program::free_function_program;
 use crate::{declarations::StandardDeclarations, namespaces};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::{
@@ -30,13 +33,7 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::declaration::{NativeDeclaration, TraitDef, host::HostCallPolicy};
-use support::{
-    native::{
-        invoke::invoke,
-        program::{ProgramFixture, free_function_program},
-    },
-    update_publication::publish_without_execution,
-};
+use support::update_publication::publish_without_execution;
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {

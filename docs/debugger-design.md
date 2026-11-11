@@ -227,8 +227,8 @@ All stages are unstarted. They define a finite proposal, not active phase gates.
    CLI/host entrypoints; verify a real IDE session and disconnect handling.
 
 Reuse [VM debug tests](../crates/kagari-runtime/src/interpreter_tests/execution/debugger.rs),
-[protocol tests](../crates/kagari-runtime/src/interpreter_tests/debug_protocol.rs),
-[reentry tests](../crates/kagari-runtime/src/interpreter_tests/reentry_debug.rs) and
+[protocol tests](../crates/kagari-stdlib/src/tests/execution/debug_protocol.rs),
+[reentry tests](../crates/kagari-stdlib/src/tests/execution/reentry_debug.rs) and
 [async SDK tests](../crates/kagari/src/runtime/tests/embedding/async_execution/debugger.rs).
 Current snapshot tests alone cannot prove interactive stopping. Add distinct
 coverage using command handshakes and bounded waits, not timing-dependent sleeps:

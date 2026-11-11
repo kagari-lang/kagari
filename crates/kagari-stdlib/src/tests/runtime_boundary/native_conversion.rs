@@ -1,5 +1,5 @@
-use crate::tests::bytecode::load_bytecode;
 use crate::tests::runtime_boundary::support::compile_program;
+use crate::tests::support::bytecode::load_bytecode;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
 };

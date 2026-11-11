@@ -1,6 +1,6 @@
 //! Cold nominal schemas and explicit trait contracts use common declarations and KBC.
 use crate::declarations::StandardDeclarations;
-use crate::tests::bytecode::load_bytecode;
+use crate::tests::support::bytecode::load_bytecode;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,

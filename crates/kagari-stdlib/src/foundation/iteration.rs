@@ -1,12 +1,6 @@
 //! Lazy cursor owners and authored Iterable defaults use the runtime's shared lowerer.
-// Preserve module children during Runtime-only test source sharing.
-#[cfg_attr(test, path = "iteration/cursor.rs")]
 pub(super) mod cursor;
-// Preserve module children during Runtime-only test source sharing.
-#[cfg_attr(test, path = "iteration/operations.rs")]
 pub(super) mod operations;
-// Preserve module children during Runtime-only test source sharing.
-#[cfg_attr(test, path = "iteration/traversal.rs")]
 pub(super) mod traversal;
 use crate::{
     catalog::documentation,

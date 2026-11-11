@@ -331,7 +331,7 @@ require a separate integration executable. Cargo schedules test executables
 sequentially; the harness schedules cases within one executable concurrently.
 Compilation parallelism (`-j`) does not remove those execution barriers.
 
-The workspace keeps eight integration targets for concrete boundaries:
+The workspace keeps nine integration targets for concrete boundaries:
 
 | Package / target | Reason |
 | --- | --- |
@@ -340,9 +340,17 @@ The workspace keeps eight integration targets for concrete boundaries:
 | `kagari` / `async_execution` | Standalone native-wait/owned-execution consumer, including builds without source/native features. Source scenarios live in the runtime unit tree. |
 | `kagari` / `async_facade` | External consumer of public typed async calls, direct await and externally driven execution; keeps public API visibility and lifecycle checks outside the library harness. |
 | `kagari-analyzer` / `stdio` | Launches the actual analyzer process to verify framed stdio messages, synchronization, bounded transport and shutdown. |
-| `kagari-runtime` / `native_schema` | External derive, `native_data!` and Serde expansion against ordinary runtime visibility. Manual rollback cases live beside schema registration. |
-| `kagari-runtime` / `allocation_contracts` | A single custom global allocator with thread-local measurement windows for the existing native/interface allocation assertions. |
-| `kagari-runtime` / `library_measurements` | Ignored manual timing workload with a separate allocator process; ordinary test success is not a performance result. |
+| `kagari-stdlib` / `native_schema` | External derive, `native_data!` and Serde expansion against ordinary runtime visibility. Manual rollback cases live beside schema registration. |
+| `kagari-stdlib` / `allocation_contracts` | A single custom global allocator with thread-local measurement windows for the existing native/interface allocation assertions. |
+| `kagari-stdlib` / `library_measurements` | Ignored manual timing workload with a separate allocator process; ordinary test success is not a performance result. |
+| `kagari-runtime` / `core_calls` | Provider-independent whole-call measurement with an explicitly authored application Native module and a separate allocator process. |
+
+Runtime's unit/test/example graph excludes kagari-stdlib. Standard-library-dependent
+fixtures and consumer scenarios live in kagari-stdlib and use public Runtime APIs;
+no provider implementation is injected into Runtime's test crate. The stdlib schema
+consumer enables Runtime serde only through dev dependencies, without adding a
+standard-library product feature. Raw Runtime unit fixtures use recipient-local
+identity preparation; detached/source-free consumers keep the independent scope.
 
 Lifetime/compile-fail doctests, standalone AOT deployment and executable examples
 retain their separate purposes. The feature script uses standalone manifests;
@@ -382,7 +390,7 @@ Select by package, library and qualified test filter, for example:
 
 ```text
 cargo test -p kagari --lib -- runtime::tests::language::syntax_examples::source_examples::path_01__UP__UP_examples_syntax_array_operations_kgr
-cargo test -p kagari-runtime --test allocation_contracts -- native_allocations::
+cargo test -p kagari-stdlib --test allocation_contracts -- native_allocations::
 ```
 
 Do not combine these examples into a routine workspace sweep.

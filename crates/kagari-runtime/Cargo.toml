@@ -27,9 +27,8 @@ serde = { workspace = true, optional = true }
 web-time = { version = "=1.1.0", optional = true }
 
 [dev-dependencies]
-rstest.workspace = true
 kagari-derive.workspace = true
-kagari-stdlib.workspace = true
+rstest.workspace = true
 kagari-hir.workspace = true
 kagari-source.workspace = true
 kagari-compiler = { workspace = true, features = ["source"] }
@@ -37,13 +36,5 @@ kagari-mir.workspace = true
 kagari-syntax.workspace = true
 
 [[test]]
-name = "native_schema"
-path = "tests/native_schema.rs"
-
-[[test]]
-name = "allocation_contracts"
-path = "tests/allocation_contracts/main.rs"
-
-[[test]]
-name = "library_measurements"
-path = "tests/library_measurements.rs"
+name = "core_calls"
+path = "tests/core_calls.rs"

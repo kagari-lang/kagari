@@ -16,8 +16,6 @@ use crate::{
         declarations::FunctionDecl,
         future::NativeStart,
         installation::NativeInstallation,
-        module::NativeModule,
-        storage::NativeStorage,
         types::Type,
     },
     session::owned::OwnedExecution,
@@ -38,7 +36,6 @@ use kagari_bytecode::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
-use kagari_stdlib::catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -170,8 +167,9 @@ struct Fixture {
 impl Fixture {
     fn new(panic_hook_capture: bool) -> Self {
         let probe = Arc::new(Probe::default());
-        let declarations = catalog::declarations().unwrap();
-        let catalog = DeclarationCatalog::from_declarations(&declarations).unwrap();
+        let role_provider = crate::test_support::future::provider();
+        let role_declaration = role_provider.to_declaration();
+        let catalog = role_provider.catalog();
         let future = catalog.future_type().unwrap().apply([Type::i32()]).unwrap();
         let mut native = ModuleBuilder::new("test::owned_cleanup", &catalog).unwrap();
         let request = native
@@ -219,7 +217,7 @@ impl Fixture {
             .unwrap();
         let native = native.finish().unwrap();
         let definitions = DefinitionContext::new().unwrap();
-        let (snapshot, mut program) = free_function_program(&native.to_declaration())
+        let (_snapshot, mut program) = free_function_program(&native.to_declaration())
             .import_into(&definitions, &Default::default())
             .unwrap()
             .into_parts();
@@ -235,31 +233,7 @@ impl Fixture {
             .position(|decl| decl.function.name == "continued")
             .unwrap();
         let future = application.native_imports[request].signature.result.clone();
-        let Ty::NativeObject(nominal) = &future else {
-            panic!("nominal Future")
-        };
-        let owner = snapshot
-            .resolve(nominal.declaration)
-            .unwrap()
-            .module()
-            .clone();
-        let foundation_declaration = catalog::shared()
-            .unwrap()
-            .into_iter()
-            .find(|decl| decl.records().identity == owner)
-            .unwrap();
-        let foundation_native = NativeModule::checked(
-            foundation_declaration
-                .import_into(catalog.types.context(), &Default::default())
-                .unwrap()
-                .into_records(),
-            vec![],
-            [(catalog.future_type().unwrap().id(), NativeStorage::future())].into(),
-            vec![],
-            &catalog,
-        )
-        .unwrap();
-        let foundation = foundation_declaration
+        let role_module = role_declaration
             .import_into(&definitions, &Default::default())
             .unwrap()
             .into_records();
@@ -329,12 +303,16 @@ impl Fixture {
         });
         application.functions.push(function);
         program.modules.push(BytecodeModule {
-            identity: owner,
-            public_items: foundation.types.into_iter().map(PublicItem::Type).collect(),
+            identity: role_declaration.records().identity.clone(),
+            public_items: role_module
+                .types
+                .into_iter()
+                .map(PublicItem::Type)
+                .collect(),
             types: vec![ValueType::Unit],
             ..Default::default()
         });
-        let modules = [foundation_native, native];
+        let modules = [role_provider, native];
         let mut runtime = NativeInstallation::prepare(&modules)
             .unwrap()
             .runtime(Default::default());

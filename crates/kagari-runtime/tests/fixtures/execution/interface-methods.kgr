@@ -1,0 +1,32 @@
+pub trait Read<T> {
+    fn get(self) -> T;
+}
+
+pub trait Player: Read<i32> {
+    fn damage(self, amount: i32) -> i32 {
+        self.get() - amount
+    }
+    fn fail(self, divisor: i32) -> i32 {
+        self.get() / divisor
+    }
+}
+
+struct Data {
+    val hp: i32
+}
+
+impl Read<i32> for Data {
+    fn get(self) -> i32 {
+        self.hp
+    }
+}
+
+impl Player for Data {}
+
+pub fn make(hp: i32) -> Player {
+    Data { hp: hp }
+}
+
+pub fn evidence(value: Player) -> i32 {
+    value.damage(2) + value.get()
+}

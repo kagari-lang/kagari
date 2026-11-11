@@ -33,11 +33,7 @@ use std::{
     time::Duration,
 };
 
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "tests/failures.rs")]
 mod failures;
-// Keep the same children when this provider is shared by Runtime unit tests.
-#[cfg_attr(test, path = "tests/standard.rs")]
 mod standard;
 
 const WAIT: Duration = Duration::from_secs(10);

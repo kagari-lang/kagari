@@ -5,5 +5,6 @@ pub(crate) mod update_programs;
 pub(crate) mod update_publication;
 
 // Shared raw-fixture preparation for unit and integration boundaries.
-#[path = "../tests/support/bytecode.rs"]
 pub(crate) mod bytecode;
+
+pub(crate) mod future;

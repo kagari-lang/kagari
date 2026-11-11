@@ -2,7 +2,7 @@ use crate::{
     Runtime,
     interpreter_tests::common::{
         compile_test_bytecode, load_bytecode_module, load_bytecode_program, load_test_module,
-        standard_runtime, test_function_module,
+        test_function_module, test_runtime,
     },
 };
 use crate::{
@@ -99,7 +99,7 @@ fn player_module() -> NativeModule {
 }
 
 fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {
-    let mut runtime = standard_runtime(RuntimeConfig::default());
+    let mut runtime = test_runtime(RuntimeConfig::default());
     let module = player_module();
     let declaration = module.to_declaration();
     let player = declaration
@@ -273,4 +273,3 @@ fn with_path_contract(
 
 mod host_paths;
 mod reflection;
-mod standard;

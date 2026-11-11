@@ -1,16 +1,12 @@
+use crate::native::interfaces::Interface;
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
-mod fixtures;
 
-use self::fixtures::closure_constraint_provider;
 use super::*;
 use crate::{
     execution::fixtures::FixtureExecution,
     executor::Executor,
-    interpreter_tests::{
-        common::{round_trip_bytecode, standard_runtime},
-        native_boundary::compile_without_foundation,
-    },
+    interpreter_tests::common::{round_trip_bytecode, test_runtime},
 };
 use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
@@ -283,7 +279,7 @@ fn static_bound_calls_preserve_explicit_self_typed_arguments_and_checked_signatu
     }
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
-    let mut runtime = standard_runtime(config);
+    let mut runtime = test_runtime(config);
     let loaded = load_bytecode(&mut runtime, "static-bound", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -324,7 +320,7 @@ fn interface_method_selects_current_implementation_after_reload() {
     let source = "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self + 1 } } fn read<T: Tag>(x: T) -> i32 { x.tag() } fn main() -> i32 { read(7) }";
     let first = compile_test_bytecode(source);
     let second = compile_test_bytecode(&source.replace("self + 1", "self + 2"));
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let old = load_bytecode(&mut runtime, "interface-reload", first).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -361,7 +357,7 @@ fn interface_frames_and_descendants_select_current_code() {
     let new_code = compile_test_bytecode(
         &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
     );
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let old = load_bytecode(&mut runtime, "interface-frames", old_code).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -427,7 +423,7 @@ fn source_interface_dispatch_selects_current_method_and_descendant_after_reload(
     let new_code = compile_test_bytecode(
         &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
     );
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let old = load_bytecode(&mut runtime, "interface-dispatch-reload", old_code).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -479,7 +475,7 @@ fn source_interface_dispatch_selects_current_method_and_descendant_after_reload(
 #[test]
 fn generic_interface_and_retained_closure_keep_their_environment_after_reload() {
     let source = include_str!("../../../tests/fixtures/execution/generic-interface-capture.kgr");
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let old = load_bytecode(&mut runtime, "shared-reload", compile_test_bytecode(source)).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -639,7 +635,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     let decoded = round_trip_bytecode(
         DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap(),
     );
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let loaded = load_bytecode(&mut runtime, "interface-instruction", decoded).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -723,7 +719,7 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
         DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap(),
     );
 
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let loaded = load_bytecode(&mut runtime, "interface-consumer", decoded).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -739,70 +735,6 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     let _root = vm.root_value(value).unwrap();
     vm.collect_garbage().unwrap();
     assert!(vm.modules().loaded(dependency_key).is_some());
-}
-
-#[test]
-fn a_retained_generic_closure_keeps_constraint_evidence_but_calls_current_code() {
-    let source =
-        include_str!("../../../tests/fixtures/execution/constraint-generation-capture.kgr");
-    fn execute(runtime: &Runtime, module: &ExecutableModule, name: &str, args: &[Value]) -> Value {
-        let entry = module
-            .bytecode
-            .functions
-            .iter()
-            .find(|function| function.name == name)
-            .unwrap()
-            .id;
-        Executor::new(runtime, module, entry, args)
-            .unwrap()
-            .run()
-            .unwrap()
-    }
-    // Keep this fixture focused on its registered callable constraint protocol.
-    let provider = closure_constraint_provider();
-    let compile = |text: &str| compile_without_foundation(text, Some(&provider));
-    let mut runtime = Runtime::default();
-    provider.install(&mut runtime).unwrap();
-    let first = load_bytecode(&mut runtime, "constraint-reload", compile(source)).unwrap();
-    let _first_program = first;
-    let first = runtime.select_program(&_first_program).unwrap();
-    let receiver = execute(&runtime, &first, "source", &[]);
-    let receiver_root = runtime.root_value(receiver).unwrap();
-    assert_eq!(source.matches("42").count(), 1);
-    let candidate = runtime
-        .stage_reload_program(
-            &_first_program,
-            Some("constraint-reload".into()),
-            compile(&source.replace("42", "43")),
-        )
-        .unwrap();
-    let second = candidate.module().clone();
-    runtime.publish_staged_reload(candidate).unwrap();
-    let _second_program = _first_program.clone();
-    let closure = execute(&runtime, &second, "make", &[receiver]);
-    let closure_root = runtime.root_value(closure).unwrap();
-    drop(receiver_root);
-    let candidate = runtime
-        .stage_reload_program(
-            &_second_program,
-            Some("constraint-reload".into()),
-            compile(&source.replace("42", "44")),
-        )
-        .unwrap();
-    let third = candidate.module().clone();
-    runtime.publish_staged_reload(candidate).unwrap();
-    let _third_program = _second_program.clone();
-    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
-    assert!(!reclaimed.contains(&first.key()));
-    assert!(!reclaimed.contains(&second.key()));
-    assert_eq!(
-        execute(&runtime, &third, "use_closure", &[closure]),
-        Value::I32(44)
-    );
-    drop(closure_root);
-    let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
-    assert!(reclaimed.contains(&first.key()));
-    assert!(reclaimed.contains(&second.key()));
 }
 
 #[test]
@@ -823,49 +755,8 @@ fn shared_calls_retain_the_callers_nominal_layout_generation() {
     check_type_provenance_installations(source, 1);
 }
 
-#[test]
-fn shared_composite_arguments_keep_distinct_nominal_generations() {
-    check_type_provenance_installations(
-        r#"
-        struct Item { val value: i32 }
-        fn keep<T>(value: T) -> T { value }
-        trait Capture {
-            fn capture<T>(self, value: T) -> fn() -> i32 {
-                val mixed: (Item, Option<T>) = (Item { value: 1 }, Some(value));
-                || { val held: (Item, Option<T>) = keep(mixed); helper() }
-            }
-        }
-        impl Capture for i32 {}
-        fn helper() -> i32 { 42 }
-        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-    "#,
-        2,
-    );
-}
-
-#[test]
-fn shared_closures_keep_type_metadata_and_pinned_construction_dependencies() {
-    check_type_provenance_installations(
-        r#"
-        struct Item { val value: i32 }
-        fn keep<T>(value: T) -> T { value }
-        trait Capture {
-            fn capture<T>(self, value: T) -> fn() -> i32 {
-                || { val empty: Option<T> = None; val held: Option<T> = keep(empty); helper() }
-            }
-        }
-        impl Capture for i32 {}
-        fn helper() -> i32 { 42 }
-        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-    "#,
-        1,
-    );
-}
-
 fn check_type_provenance_installations(source: &str, item_constructions: usize) {
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let old = load_bytecode(
         &mut runtime,
         "type-provenance",
@@ -1082,28 +973,6 @@ fn shared_aggregate_fields_retain_the_callers_nominal_generation() {
 }
 
 #[test]
-fn shared_native_lists_retain_the_callers_nominal_generation() {
-    check_type_provenance_installations(
-        r#"use std::collections::{List};
-
-        struct Item { val value: i32 }
-        fn keep<T>(value: T) -> T { value }
-        trait Capture {
-            fn capture<T>(self, value: T) -> fn() -> i32 {
-                val list: List<T> = Vec::from([value]);
-                || { val held: T = keep(list[0]); helper() }
-            }
-        }
-        impl Capture for i32 {}
-        fn helper() -> i32 { 42 }
-        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-    "#,
-        1,
-    );
-}
-
-#[test]
 fn shared_closure_signatures_distinguish_nominal_generations() {
     let source = r#"
         struct Item { val value: i32 }
@@ -1111,7 +980,7 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
         impl Capture for i32 {}
         fn make(source: Capture) -> fn() -> Item { source.capture(Item { value: 1 }) }
     "#;
-    let mut runtime = standard_runtime(Default::default());
+    let mut runtime = test_runtime(Default::default());
     let old = load_bytecode(&mut runtime, "closure-scope", compile_test_bytecode(source)).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -1199,31 +1068,51 @@ fn shared_closure_signatures_distinguish_nominal_generations() {
 }
 
 #[test]
-fn shared_mutable_lists_preserve_mixed_nominal_scopes_and_parent_views() {
-    check_type_provenance_installations(
-        include_str!("../../../tests/fixtures/execution/mixed-nominal-list-capture.kgr"),
-        4,
-    );
-}
+fn retained_interface_calls_cannot_escape_candidate_initialization() {
+    let source = include_str!("../../../tests/fixtures/execution/interface-methods.kgr");
 
-#[test]
-fn shared_repeat_arrays_keep_scalar_contracts_in_generic_frames() {
-    check_type_provenance_installations(
-        r#"use std::collections::{List};
+    let (vm, old) = load_test_module(source);
 
-        struct Item { val value: i32 }
-        fn keep<T>(value: T) -> T { value }
-        trait Capture {
-            fn capture<T>(self, value: T) -> fn() -> i32 {
-                val list: [i32] = [42; 2];
-                || { val held: i32 = keep(list[1]); helper() + held - 42 }
-            }
-        }
-        impl Capture for i32 {}
-        fn helper() -> i32 { 42 }
-        fn make(source: Capture) -> fn() -> i32 { source.capture(Item { value: 1 }) }
-        fn use_closure(call: fn() -> i32) -> i32 { call() }
-    "#,
-        1,
+    let _old_program = old;
+
+    let old = vm.select_program(&_old_program).unwrap();
+
+    let old_value: Interface = vm.execute_module_typed(&old, "make", (100,)).unwrap();
+
+    let old_get = vm
+        .bind_interface_method::<(), i32>(&old_value.member(&vm, "get").unwrap())
+        .unwrap();
+
+    let candidate = vm
+        .stage_reload_program(
+            &_old_program,
+            Some("functions".into()),
+            compile_test_bytecode(source),
+        )
+        .unwrap();
+
+    {
+        let _session = vm.begin_candidate_initialization(&candidate).unwrap();
+
+        let candidate_value: Interface = vm
+            .execute_module_typed(candidate.module(), "make", (42,))
+            .unwrap();
+
+        let get = vm
+            .bind_interface_method::<(), i32>(&candidate_value.member(&vm, "get").unwrap())
+            .unwrap();
+
+        let mut cx = vm.context(candidate.module()).unwrap();
+
+        assert!(old_value.call(&mut cx, &old_get, ()).is_err());
+
+        assert_eq!(candidate_value.call(&mut cx, &get, ()).unwrap(), 42);
+    }
+
+    assert_eq!(
+        old_value
+            .call(&mut vm.context(&old).unwrap(), &old_get, ())
+            .unwrap(),
+        100
     );
 }

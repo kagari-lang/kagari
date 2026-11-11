@@ -1,6 +1,9 @@
 //! Frozen D00 whole-call workload with only an explicitly authored Native provider.
-use super::native_allocations_counter::{measured, verify_counter};
+#[path = "support/bytecode.rs"]
+mod bytecode_fixture;
+mod native_allocations_counter;
 use crate::bytecode_fixture::load_bytecode;
+use crate::native_allocations_counter::{measured, verify_counter};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{

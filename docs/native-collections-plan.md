@@ -20,6 +20,23 @@ generic payload tracing/accounting/loans and explicit stored selections remain.
 The older file inventory below describes the removed baseline; `(retired)` paths
 are historical evidence, not current callable APIs or migration prerequisites.
 
+Test ownership correction TC00 moves standard-provider execution/fixtures,
+Native schema/Serde, allocation contracts and library measurements into
+kagari-stdlib. Runtime has no stdlib dev dependency or source-sharing alias. Six
+private standard-bundle/default inventory cases from `fdb536c1` were retired:
+List/cursor/concrete-Vec default sealing and proof/codec ordering (four), exact
+standard binding dependency inventory, and standard alias/reexport installation.
+NC must prove the relevant public preparation/admission/default/reexport behavior
+through the ordinary provider API; private Runtime fields are not an acceptance
+route. This is reduced legacy coverage, not restored library functionality.
+
+A local post-move sample,
+`cargo test -p kagari-stdlib --lib direct_native_imports_run_from_source_and_decoded_artifacts`,
+still fails during source analysis with UnknownTypeAnnotation Vec<i32> and
+UnknownName Vec::new. The retained case is active; it remains the existing NC
+implementation gap. No Runtime capability or collector change is authorized by
+moving its test owner.
+
 NC01-NC06 remain unstarted. Before activation, rebase them on the later Runtime/Host
 public dynamic-payload/edit protocol. Restore Vec/HashMap/HashSet, builtin
 array/range iteration, String traversal/split, List algorithms and explicit
@@ -818,9 +835,9 @@ Reuse existing semantic owners, extending only distinct missing contracts:
 | Coverage owner | Required evidence |
 | --- | --- |
 | [Interfaces](../crates/kagari/src/runtime/tests/language/collection_interfaces.rs), [access](../crates/kagari/src/runtime/tests/language/collection_access.rs), [arrays](../crates/kagari/src/runtime/tests/language/array_operations.rs) | Nominal distinction, generic/interface dispatch, invariance, shallow views, aliases, bounds, Array separation and once-only mutation targets. |
-| [Iteration](../crates/kagari/src/runtime/tests/language/iteration_traits.rs), [conversions](../crates/kagari/src/runtime/tests/language/conversion_traits.rs), [library collections](../crates/kagari-runtime/src/interpreter_tests/library_collections.rs) | Preserve implemented adapter/terminal behavior while changing source/destination storage: generic/interface traversal, custom destination dispatch, HashMap last-value-wins, HashSet deduplication, early exit and shared progress. |
-| [Lazy cursor boundaries](../crates/kagari-runtime/src/interpreter_tests/library_collections/library_mapping.rs), [source-free pipeline fixture](../crates/kagari/tests/fixtures/feature_artifact.kgr) | Reuse retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload and existing recursive-next/cycle/invalidation coverage. Prove migrated sources propagate through nested/paired adapters and source-free short-circuit consumption, without rebuilding a duplicate iterator suite. |
-| [Native builder](../crates/kagari-stdlib/src/tests/runtime_boundary/native_builder.rs), [native boundary](../crates/kagari-runtime/src/interpreter_tests/native_boundary.rs) | Public extensions, wrong nominal/payload/type/owner rejection, dynamic edges, roots, reentry/traps/cancellation, cyclic collection cleanup and host retention. |
+| [Iteration](../crates/kagari/src/runtime/tests/language/iteration_traits.rs), [conversions](../crates/kagari/src/runtime/tests/language/conversion_traits.rs), [library collections](../crates/kagari-stdlib/src/tests/execution/library_collections.rs) | Preserve implemented adapter/terminal behavior while changing source/destination storage: generic/interface traversal, custom destination dispatch, HashMap last-value-wins, HashSet deduplication, early exit and shared progress. |
+| [Lazy cursor boundaries](../crates/kagari-stdlib/src/tests/execution/library_collections/library_mapping.rs), [source-free pipeline fixture](../crates/kagari/tests/fixtures/feature_artifact.kgr) | Reuse retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload and existing recursive-next/cycle/invalidation coverage. Prove migrated sources propagate through nested/paired adapters and source-free short-circuit consumption, without rebuilding a duplicate iterator suite. |
+| [Native builder](../crates/kagari-stdlib/src/tests/runtime_boundary/native_builder.rs), [native boundary](../crates/kagari-stdlib/src/tests/execution/native_boundary.rs) | Public extensions, wrong nominal/payload/type/owner rejection, dynamic edges, roots, reentry/traps/cancellation, cyclic collection cleanup and host retention. |
 | [Reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs), [artifacts](../crates/kagari/tests/artifact_features.rs), [native artifacts](../crates/kagari/src/program/tests/native_artifacts.rs) | Retained type/cursor and exact computation owners, current ordinary callback bodies, source-free linking, forged storage/call evidence rejection and backend agreement. |
 
 Cover script key collisions and side effects, failures before commit, GC objects

@@ -1,6 +1,4 @@
 //! Range constructors and receiver-owned implementations; iterator algorithms remain shared.
-// Preserve module children during Runtime-only test source sharing.
-#[cfg_attr(test, path = "ranges/operations.rs")]
 pub(super) mod operations;
 use crate::foundation::{enumerations::value as enums, interface, override_entry, type_docs};
 use kagari_runtime::native::{

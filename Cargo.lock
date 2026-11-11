@@ -793,7 +793,6 @@ dependencies = [
  "kagari-hir",
  "kagari-mir",
  "kagari-source",
- "kagari-stdlib",
  "kagari-syntax",
  "kagari-types",
  "rstest",
@@ -819,11 +818,14 @@ dependencies = [
  "kagari-common",
  "kagari-compiler",
  "kagari-contract",
+ "kagari-derive",
  "kagari-hir",
+ "kagari-mir",
  "kagari-runtime",
  "kagari-source",
  "kagari-types",
  "rstest",
+ "serde",
 ]
 
 [[package]]

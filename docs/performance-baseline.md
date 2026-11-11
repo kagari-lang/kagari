@@ -7,6 +7,13 @@ are not measurements of the consolidated harnesses. CM00-CM04 also moved VM
 execution/tests into kagari-runtime; historical kagari-vm labels below refer to
 their recorded revisions, not a current workspace package.
 
+The subsequent TC00 test-ownership correction moves provider-dependent targets
+(native_schema, allocation_contracts and library_measurements) to kagari-stdlib.
+Runtime's provider-independent workload is now `cargo test -p kagari-runtime
+--release --test core_calls core_only_script_and_native_calls -- --ignored
+--nocapture --test-threads=1`. The recorded measurements below remain specific
+to their recorded images and setup, not reruns of the renamed harness.
+
 This page retains measurements needed for the open test-cost, interpreter
 performance and architecture follow-up work. Each result applies to its recorded revision and environment,
 not automatically to current HEAD. Superseded checkpoint reports live in Git

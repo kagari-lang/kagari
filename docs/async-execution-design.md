@@ -800,8 +800,8 @@ State replacement remains outside this contract.
 ## Contract coverage
 
 The [SDK async tests](../crates/kagari/tests/async_execution.rs) cover source,
-artifact and host-driven execution. [Session tests](../crates/kagari-runtime/src/interpreter_tests/sessions.rs)
-and [native boundaries](../crates/kagari-runtime/src/interpreter_tests/native_boundary.rs) own cleanup,
+artifact and host-driven execution. [Session tests](../crates/kagari-stdlib/src/tests/execution/sessions.rs)
+and [native boundaries](../crates/kagari-stdlib/src/tests/execution/native_boundary.rs) own cleanup,
 reentry and runtime safety. Use deterministic host completion/dispatch fixtures;
 preserve cold-effect timing, single Future drive, shared Task results, cancellation,
 GC, exact admitted-body retention/current ordinary-call selection across reload
