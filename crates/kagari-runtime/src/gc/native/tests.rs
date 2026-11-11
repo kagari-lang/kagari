@@ -1,6 +1,7 @@
 use crate::{
     Runtime,
     error::fault::EngineFault,
+    gc::arrays::storage::PackedStorage,
     gc::mutations::PreparedCollectionCommit,
     native::{binding::NativeResult, conversion::context::ConversionContext},
     resource::HeapCharge,
@@ -263,11 +264,12 @@ fn sequence_reserve_clear_failed_growth_and_partial_edit_keep_committed_charge()
 }
 
 #[test]
-fn sequence_layouts_charge_capacity_not_values_or_zst_capacity_sentinel() {
-    use crate::native::sequence::{SequencePayload, SequenceStorage};
+fn array_layouts_charge_capacity_not_values_or_zst_capacity_sentinel() {
+    use crate::gc::arrays::ArrayPayload;
+    use crate::test_support::layouts::allocation_owner;
     use kagari_types::{scalar::BuiltinType, ty::Ty};
     let mut runtime = Runtime::default();
-    let owner = sequence_owner(&mut runtime);
+    let owner = allocation_owner(&mut runtime);
     for (ty, value, width) in [
         (Ty::Builtin(BuiltinType::Unit), Value::Unit, 0),
         (
@@ -285,15 +287,15 @@ fn sequence_layouts_charge_capacity_not_values_or_zst_capacity_sentinel() {
         let heap = runtime.gc();
         let id = runtime.alloc_array(&owner, ty, vec![value; 3]).unwrap();
         let capacity = heap
-            .with_native::<SequencePayload, _>(id, |payload| Ok(payload.values.capacity()))
+            .with_native::<ArrayPayload, _>(id, |payload| Ok(payload.values.capacity()))
             .unwrap();
-        let bytes = size_of::<SequencePayload>() + capacity.checked_mul(width).unwrap();
+        let bytes = size_of::<ArrayPayload>() + capacity.checked_mul(width).unwrap();
         assert_eq!(heap.stats().current_retained_bytes, bytes as u128);
         runtime.collect_garbage().unwrap();
         assert_eq!(heap.stats().current_retained_bytes, 0);
     }
     // Traced slots have Value width even when their current values are scalar.
-    let values = SequenceStorage::Traced(Vec::with_capacity(37));
+    let values = PackedStorage::Traced(Vec::with_capacity(37));
     assert_eq!(
         values.retained_bytes(),
         values.capacity() * size_of::<Value>()

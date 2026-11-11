@@ -1,0 +1,31 @@
+use alloc::string::String;
+
+pub struct Item {
+    pub var value: i32
+}
+
+pub enum Packet<T> {
+    Empty,
+    Unit(()),
+    Data(T, String)
+}
+
+enum Hidden {
+    Value(i32)
+}
+
+pub fn item(value: i32) -> Item {
+    Item { value: value }
+}
+
+pub fn read(packet: Packet<Item>) -> i32 {
+    match packet {
+        Packet::Empty => 0,
+        Packet::Unit(value) => 1,
+        Packet::Data(item, text) => item.value,
+    }
+}
+
+pub fn hidden() -> Hidden {
+    Hidden::Value(42)
+}

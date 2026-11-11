@@ -121,11 +121,6 @@ impl GcHeap {
         }
     }
 
-    pub(super) fn array_storage(&self) -> &NativeStorage {
-        self.sequence_storage
-            .get_or_init(|| NativeStorage::sequence(0))
-    }
-
     pub(crate) fn native_type_name(&self, id: HeapObjectId) -> Option<String> {
         let objects = self.objects.borrow();
         let object = self.native_ref(&objects, id)?;

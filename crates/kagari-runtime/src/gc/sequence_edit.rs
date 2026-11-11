@@ -1,12 +1,11 @@
 //! Exclusive sequence storage leases restore completed edits on every exit path.
 use crate::{
     error::{RuntimeError, fault::EngineFault},
-    gc::{GcHeap, HeapObjectId, leases::BorrowedLease, roots::RootSet, storage::HeapObject},
-    native::{
-        binding::NativeResult,
-        sequence::{SequencePayload, SequenceStorage},
-        sequence_edit::SequenceEdit,
+    gc::{
+        GcHeap, HeapObjectId, arrays::storage::PackedStorage, leases::BorrowedLease,
+        roots::RootSet, storage::HeapObject,
     },
+    native::{binding::NativeResult, sequence::SequencePayload, sequence_edit::SequenceEdit},
 };
 
 use std::mem;
@@ -15,7 +14,7 @@ struct StorageLease<'heap> {
     heap: &'heap GcHeap,
     _mutation: BorrowedLease<'heap>,
     id: HeapObjectId,
-    values: SequenceStorage,
+    values: PackedStorage,
     before: usize,
     revision: u64,
     // Rust sorting temporarily moves elements out of the slice. These roots
@@ -96,7 +95,7 @@ impl GcHeap {
         let before = sequence.values.len();
         let values = mem::replace(
             &mut sequence.values,
-            SequenceStorage::empty(&sequence.element),
+            PackedStorage::empty(&sequence.element),
         );
         sequence.detached = true;
         drop(objects);

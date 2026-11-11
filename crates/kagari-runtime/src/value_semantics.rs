@@ -1,4 +1,5 @@
 //! Script equality is independent of Rust's structural Value comparisons.
+pub(crate) mod hashing;
 use crate::{
     error::{RuntimeError, trap::TrapReason},
     gc::{GcHeap, GcObjectKind},

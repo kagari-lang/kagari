@@ -1,10 +1,7 @@
 use crate::{
     error::{RuntimeError, trap::TrapReason},
-    gc::GcHeap,
-    native::{
-        hash_storage::{HashMapStorage, HashSetStorage},
-        sequence::SequenceStorage,
-    },
+    gc::{GcHeap, arrays::storage::PackedStorage},
+    native::hash_storage::{HashMapStorage, HashSetStorage},
     value::Value,
 };
 
@@ -19,7 +16,7 @@ impl GcHeap {
             self.ensure_sequence(*id)?;
         }
         match value {
-            Value::GcHandle(id) => self.with_buffer(*id, SequenceStorage::capacity),
+            Value::GcHandle(id) => self.with_buffer(*id, PackedStorage::capacity),
             Value::Map(id) => self.with_map(*id, HashMapStorage::capacity),
             Value::Set(id) => self.with_set(*id, HashSetStorage::capacity),
             _ => None,

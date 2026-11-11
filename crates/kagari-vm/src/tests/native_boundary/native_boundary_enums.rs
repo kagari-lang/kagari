@@ -1,8 +1,13 @@
-use crate::tests::native_boundary::{compile_program, native_boundary_functions::fixture};
+use crate::tests::native_boundary::{
+    compile_program,
+    native_boundary_functions::{fixture, fixture_without_foundation},
+};
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_runtime::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     native::{
+        assembly::{ModuleDefinition, ModuleSetBuilder},
         binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
@@ -14,23 +19,35 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::language::binding;
+use kagari_types::{declaration::native::NativeTypeConstructor, language::binding};
 use std::{slice, thread};
 
-const SOURCE: &str = r#"
-    pub struct Item { pub var value: i32 }
-    pub enum Packet<T> { Empty, Unit(()), Data(T, String) }
-    enum Hidden { Value(i32) }
-    pub fn item(value: i32) -> Item { Item { value: value } }
-    pub fn read(packet: Packet<Item>) -> i32 {
-        match packet { Packet::Empty => 0, Packet::Unit(value) => 1, Packet::Data(item, text) => item.value }
-    }
-    pub fn hidden() -> Hidden { Hidden::Value(42) }
-"#;
+const SOURCE: &str = include_str!("../../../tests/fixtures/core_enum_payloads.kgr");
 
 #[test]
 fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction() {
-    let (vm, owner) = fixture(SOURCE, None);
+    let mut providers = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
+    providers
+        .add(ModuleDefinition::new(
+            ModuleIdentity {
+                package: PackageId("kagari-alloc".into()),
+                path: vec!["string".into()],
+            },
+            |module| {
+                module.package_alias("alloc");
+                module.define_constructor("String", NativeTypeConstructor::String)?;
+                Ok(())
+            },
+        ))
+        .unwrap();
+    let strings = providers
+        .finish()
+        .unwrap()
+        .into_modules()
+        .unwrap()
+        .pop()
+        .unwrap();
+    let (vm, owner) = fixture_without_foundation(SOURCE, Some(&strings));
     let _owner_program = owner;
     let owner = vm.runtime().select_program(&_owner_program).unwrap();
     let runtime = vm.runtime();

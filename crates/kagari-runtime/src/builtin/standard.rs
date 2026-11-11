@@ -3,11 +3,10 @@ use crate::{
     Runtime,
     builtin::BuiltinError,
     error::{RuntimeError, trap::TrapReason},
-    gc::GcHeap,
+    gc::{GcHeap, arrays::storage::PackedStorage},
     module::{ExecutableModule, linked_execution::builtin_results::BuiltinResult},
-    native::sequence::SequenceStorage,
-    value::{MapKey, Value},
-    value_semantics,
+    value::Value,
+    value_semantics::{self, hashing},
 };
 
 use kagari_contract::standard::RuntimePrimitive;
@@ -78,8 +77,8 @@ pub fn invoke(
             let [value] = args else {
                 return Err(BuiltinError::new(TrapReason::HashExpectsOneOperand));
             };
-            MapKey::from_value(gc, value)
-                .map(|key| Value::I64(key.script_hash()))
+            hashing::builtin_hash(gc, value)
+                .map(Value::I64)
                 .ok_or_else(|| {
                     BuiltinError::new(TrapReason::ValueHasNoHashSemanticsOrExceedsKeySizeLimit)
                 })
@@ -113,7 +112,7 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     }
     let output = gc
         .with_buffer(*handle, |values| {
-            let SequenceStorage::Traced(values) = values else {
+            let PackedStorage::Traced(values) = values else {
                 return Err(BuiltinError::new(
                     TrapReason::ArrayJoinExpectsStringElements,
                 ));

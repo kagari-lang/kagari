@@ -4,12 +4,10 @@ use crate::{
     closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, RuntimeErrorKind},
     frame::{ExecutionFrame, ExecutionStack},
+    gc::arrays::ArrayPayload,
     host::HostCallContext,
     module::{ExecutableModule, InstalledProgram},
-    native::{
-        builder::ModuleBuilder, callable::PreparedClosure, declarations::FunctionDecl,
-        sequence::SequencePayload,
-    },
+    native::{builder::ModuleBuilder, callable::PreparedClosure, declarations::FunctionDecl},
     reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
     test_support::native::{
@@ -322,7 +320,7 @@ fn publication_rechecks_native_borrows_and_rejects_foreign_targets() {
         .unwrap();
     runtime
         .gc()
-        .with_native::<SequencePayload, _>(array, |_| {
+        .with_native::<ArrayPayload, _>(array, |_| {
             assert_eq!(
                 runtime.check_initial_publication().err().unwrap().kind(),
                 RuntimeErrorKind::ModuleValidation
@@ -334,7 +332,7 @@ fn publication_rechecks_native_borrows_and_rejects_foreign_targets() {
     let candidate = guard
         .stage_reload_verified_program(None, module.verified_program().clone())
         .unwrap();
-    guard.runtime().gc().with_native::<SequencePayload, _>(array, |_| {
+    guard.runtime().gc().with_native::<ArrayPayload, _>(array, |_| {
         assert!(matches!(guard.runtime().publish_admitted_reload(candidate, &guard),
             Err(ReloadValidationError::Runtime(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
         Ok(())

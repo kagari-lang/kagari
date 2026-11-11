@@ -79,7 +79,7 @@ pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, Insta
     fixture_program(compile_program(source, module), modules.iter())
 }
 
-fn fixture_without_foundation(
+pub(super) fn fixture_without_foundation(
     source: &str,
     module: Option<&NativeModule>,
 ) -> (Vm, InstalledProgram) {

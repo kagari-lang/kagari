@@ -1,7 +1,7 @@
 use crate::{
     error::{RuntimeError, trap::TrapReason},
-    gc::{GcHeap, HeapObjectId},
-    native::sequence::{SequencePayload, SequenceStorage},
+    gc::{GcHeap, HeapObjectId, arrays::storage::PackedStorage},
+    native::sequence::SequencePayload,
     value::Value,
 };
 
@@ -31,7 +31,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
-        let value = self.with_buffer_mut(id, 0, SequenceStorage::pop)?;
+        let value = self.with_buffer_mut(id, 0, PackedStorage::pop)?;
         Ok(value)
     }
 

@@ -2,11 +2,14 @@
 
 use crate::{
     error::{RuntimeError, trap::TrapReason},
-    gc::{CollectionMutation, GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
+    gc::{
+        CollectionMutation, GcHeap, GcObjectKind, HeapObjectId, arrays::storage::PackedStorage,
+        storage::HeapObject,
+    },
     native::{
         hash_storage::{HashMapStorage, HashSetStorage},
         hashed::{MapPayload, SetPayload},
-        sequence::{SequencePayload, SequenceStorage},
+        sequence::SequencePayload,
     },
     value::Value,
 };
@@ -93,7 +96,7 @@ impl GcHeap {
                     if payload.values.len() != input.len() {
                         return Err(invalid());
                     }
-                    let mut copy = SequenceStorage::empty(&payload.element);
+                    let mut copy = PackedStorage::empty(&payload.element);
                     copy.try_reserve(kept).map_err(|_| allocation())?;
                     for index in 0..input.len() {
                         if matches!(input.get(index), Some(Value::Bool(true))) {

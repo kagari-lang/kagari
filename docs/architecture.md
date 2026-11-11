@@ -2861,12 +2861,23 @@ retains only independent Array context and installed List indexing roles. Nomina
 Vec and List indexing use checked Index/MutableList contracts. Place lowering
 preserves once-only root/index/RHS evaluation and completed effects.
 
-Runtime-owned Array objects and registered nominal sequences may share compact
-SequenceStorage kernels after family admission. Growth, capacity and detached
-edit leases require nominal sequence storage; builtin array replacement retains
+Runtime-owned Array objects have an exact `gc::arrays::ArrayPayload` and a
+Runtime-local descriptor independent of nominal Sequence storage declarations.
+`gc::arrays::storage::PackedStorage` retains scalar packing and traced-value
+representation. Registered nominal sequences temporarily reuse these physical
+kernels through their separate payload; the D03/D04 detachment checkpoint removes
+that bridge. Growth, capacity and detached edit leases require nominal sequence
+storage; builtin array replacement retains
 bounds, owner/generation and callback guards. No public sequence codec or Rust Vec
 conversion accepts an Array handle. String interpolation uses fixed [String]
 temporary storage owned by its compiler/runtime primitive contract.
+
+Builtin structural hashing belongs to `value_semantics::hashing`: checked primitive,
+string, tuple and declared-enum contents/identities form the immutable structural
+key. RuntimePrimitive::ValueHash consumes that mechanism directly. Collection
+MapKey separately retains the original value and custom hash/equality token policy;
+table policy does not own builtin hash semantics. Existing depth/size/type and
+owner validation remain unchanged.
 
 String literal typing/representation may remain intrinsic while its methods are
 ordinary native-authored implementations. Adding trim or split needs no compiler

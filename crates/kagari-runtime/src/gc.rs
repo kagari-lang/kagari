@@ -39,7 +39,7 @@ use std::{
 
 #[cfg(feature = "execution-diagnostics")]
 mod accounting;
-mod arrays;
+pub(crate) mod arrays;
 mod fields;
 mod future;
 mod maps_sets;
@@ -216,7 +216,7 @@ pub struct GcHeap {
     native_borrows: Cell<usize>,
     // Heap-local immutable codecs contain no object identity or loaded types.
     // Initialize only when used; descriptor construction cannot execute callbacks.
-    sequence_storage: OnceCell<NativeStorage>,
+    array_storage: OnceCell<NativeStorage>,
     map_storage: OnceCell<NativeStorage>,
     set_storage: OnceCell<NativeStorage>,
     cursor_storage: OnceCell<NativeStorage>,
@@ -261,7 +261,7 @@ impl GcHeap {
             native_operations: Default::default(),
             next_key_token: Cell::new(0),
             native_borrows: Cell::new(0),
-            sequence_storage: OnceCell::new(),
+            array_storage: OnceCell::new(),
             map_storage: OnceCell::new(),
             set_storage: OnceCell::new(),
             cursor_storage: OnceCell::new(),

@@ -2,11 +2,8 @@
 //! and restores the edited storage even when a callback fails or unwinds.
 use crate::{
     error::{RuntimeError, trap::TrapReason},
-    native::{
-        binding::NativeResult,
-        scalar::NativeScalar,
-        sequence::{NativeElement, SequenceStorage},
-    },
+    gc::arrays::storage::PackedStorage,
+    native::{binding::NativeResult, scalar::NativeScalar, sequence::NativeElement},
     value::Value,
 };
 
@@ -16,7 +13,7 @@ use std::{
 };
 
 pub struct SequenceEdit<'buffer> {
-    pub(crate) values: &'buffer mut SequenceStorage,
+    pub(crate) values: &'buffer mut PackedStorage,
 }
 
 impl SequenceEdit<'_> {
@@ -55,23 +52,23 @@ macro_rules! edits {
             /// user code after the first error while Rust finishes its bookkeeping.
             pub fn sort_by(&mut self, mut compare: impl FnMut(Value, Value) -> NativeResult<Ordering>) -> NativeResult<()> {
                 match self.values {
-                    $(SequenceStorage::$variant(values) => sort(values, |a, b| compare(a.encode(), b.encode())),)+
-                    SequenceStorage::Traced(values) => sort(values, compare),
+                    $(PackedStorage::$variant(values) => sort(values, |a, b| compare(a.encode(), b.encode())),)+
+                    PackedStorage::Traced(values) => sort(values, compare),
                 }
             }
 
             /// Successful removals remain visible when a later predicate fails.
             pub fn retain(&mut self, mut keep: impl FnMut(Value) -> NativeResult<bool>) -> NativeResult<()> {
                 match self.values {
-                    $(SequenceStorage::$variant(values) => retain(values, |value| keep(value.encode())),)+
-                    SequenceStorage::Traced(values) => retain(values, keep),
+                    $(PackedStorage::$variant(values) => retain(values, |value| keep(value.encode())),)+
+                    PackedStorage::Traced(values) => retain(values, keep),
                 }
             }
 
             pub fn dedup_by(&mut self, mut equal: impl FnMut(Value, Value) -> NativeResult<bool>) -> NativeResult<()> {
                 match self.values {
-                    $(SequenceStorage::$variant(values) => dedup(values, |a, b| equal(a.encode(), b.encode())),)+
-                    SequenceStorage::Traced(values) => dedup(values, equal),
+                    $(PackedStorage::$variant(values) => dedup(values, |a, b| equal(a.encode(), b.encode())),)+
+                    PackedStorage::Traced(values) => dedup(values, equal),
                 }
             }
         }

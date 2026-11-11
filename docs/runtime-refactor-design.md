@@ -248,7 +248,7 @@ through it before deleting old paths. That is broader work than detach-first.
 #### Activated execution and D00 baseline
 
 Activated by the user on 2026-11-11, starting from `204e7276`. D00 is complete;
-D01 is complete; D02-D05 remain pending. Phase commits use `Plan: docs/runtime-refactor-design.md`
+D01-D02 are complete; D03-D05 remain pending. Phase commits use `Plan: docs/runtime-refactor-design.md`
 and `Plan-Phase: DNN`. This activation covers detachment only; later Runtime/Host,
 VM, frame and collector proposals remain design inputs.
 
@@ -353,8 +353,52 @@ contains no stdlib. Workspace Clippy checks all default targets, including CLI,
 web, examples and benchmark consumers. Structure (1881 files, no violations,
 three existing exceptions), formatting, documentation links and diff checks pass.
 No integration failures are carried. Full-workspace tests, feature/platform
-matrices and aot-build-only examples remain unrun locally/CI scope. D02-D05 remain
-pending; no collection backend has been removed yet.
+matrices and aot-build-only examples remain unrun locally/CI scope. D01 removes
+no collection backend.
+
+D02 separates builtin array storage from nominal sequence policy. The exact
+`gc::arrays::ArrayPayload` owns a checked element contract and packed/traced buffer;
+it has no nominal factory, growable-element policy or detached-edit state. Arrays
+use a Runtime-owned payload descriptor and their own admission/access entrypoints.
+Scalar buffer kernels now live with arrays, and the array capacity/accounting
+witness uses an empty executable owner rather than registering Vec. Existing
+publication/Native-borrow witnesses use the exact array payload. Diagnostics
+continue to count both array and remaining sequence backing.
+
+One finite D02 bridge remains in `gc/buffers.rs`: ordinary array kernels and the
+old nominal backend select their distinct payloads before using physical scalar
+storage. D03/D04 must remove that nominal branch, its shared growth-only kernels,
+and nominal edit leases. This is not a replacement generic collection API.
+Array owner/generation/type/bounds guards, scalar packing, managed tracing,
+repeat-allocation cancellation polls and lease error ordering remain required.
+
+Builtin structural hash preparation moved from MapKey to `value_semantics::hashing`.
+RuntimePrimitive::ValueHash now calls that owner directly; current table keys reuse
+the immutable structural key while retaining their own original-value/custom-token
+policy. The hashing traversal, enum identity, scalar distinctions and size bound
+are unchanged. Assert stays because compiler narrow-integer checks emit it;
+StringByteLength stays as a checked builtin String operation. Option/Result/
+Ordering construction, ranges and Future/Task/TaskScope execution stay core/checked
+language mechanisms; concrete collection cursors remain scheduled for removal.
+
+D02 local validation passes: 12 distinct selected contracts cover array scalar/
+traced/ZST accounting, Native charge, structural table keys, core-only and Native
+calls, closures, numeric traps, resumed calls, nominal enum factories/layout
+retention, array string join, failed/unwound detached edits, and enum hash stability.
+Unchanged passing evidence is reused rather than repeating package suites.
+The enum provider-isolation recheck initially failed with UnknownTypeAnnotation
+(`String`) and then InvalidImports (missing `alloc` package alias). Its existing
+string payload, GC, visibility and runtime-identity oracle now uses one sealed
+NativeTypeConstructor::String provider with an explicit package alias/import;
+it installs no complete stdlib or Vec. The source program is an ordinary formatted
+fixture. The preserved enum-layout reload route also passes with the updated import.
+
+Workspace Clippy, Runtime `execution-diagnostics,serde` library check, structure
+(1883 files, no violations, three existing exceptions), format, fixture format,
+documentation links and diff checks pass. No build/test errors are carried. The
+initial missing-import warning was removed during ownership review. Full-workspace
+tests and exhaustive features/platforms remain CI-only. The nominal packed-buffer
+bridge is the explicit D03/D04 removal obligation, not completed detachment.
 
 #### Validation and deferred work
 

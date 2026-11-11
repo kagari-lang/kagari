@@ -1513,7 +1513,8 @@ The [2026-11-11 detachment inventory and D00-D05 plan](runtime-refactor-design.m
 records the concrete coupling in collection layouts/types, packed array sharing,
 heap services, Native codecs/primitives, cursors, Rust adapters/Serde and automatic
 SDK composition. The user activated D00-D05 on 2026-11-11; D00 core-only baseline is complete
-and committed. D01 explicit SDK composition is complete; D02-D05 are pending. Establish a core-only
+and committed. D01 explicit SDK composition and D02 builtin array/hash separation are complete;
+D03-D05 are pending. Establish a core-only
 witness, make installation explicit, separate builtin storage, perform one coherent
 contract cut, remove library adapters and hand off the Runtime baseline. This is
 detach-first; complete old library availability is not promised during backend
