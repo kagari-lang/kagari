@@ -69,7 +69,10 @@ fn main() {
         .unwrap();
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(&second, &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();

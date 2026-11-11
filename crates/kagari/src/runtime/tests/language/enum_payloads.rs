@@ -186,7 +186,9 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     assert!(
         runtime
             .program(&loaded)
-            .and_then(|base| base.prepare_replacement(&changed, &Default::default()))
+            .and_then(|base| base
+                .prepare_replacement(&changed, &Default::default())
+                .map_err(Into::into))
             .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .is_err()
     );
@@ -350,6 +352,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
                 &Program::from_artifact(changed, &Default::default(), &Default::default()).unwrap(),
                 &Default::default(),
             )
+            .map_err(Into::into)
         })
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap_err();
@@ -373,11 +376,13 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     assert!(
         runtime
             .program(&loaded)
-            .and_then(|base| base.prepare_replacement(
-                &Program::from_artifact(body_edit, &Default::default(), &Default::default())
-                    .unwrap(),
-                &Default::default()
-            ))
+            .and_then(|base| base
+                .prepare_replacement(
+                    &Program::from_artifact(body_edit, &Default::default(), &Default::default())
+                        .unwrap(),
+                    &Default::default()
+                )
+                .map_err(Into::into))
             .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .is_ok()
     );

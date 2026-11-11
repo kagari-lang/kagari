@@ -2,7 +2,7 @@
 use super::native_program;
 use crate::{
     engine::{KagariEngine, builder::KagariEngineBuilder},
-    program::Program,
+    program::Compilation,
     runtime::Runtime,
 };
 use kagari_runtime::value::Value;
@@ -114,7 +114,7 @@ impl Fixture {
     }
 }
 
-fn prepare_source(engine: &KagariEngine, text: &str) -> Program {
+fn prepare_source(engine: &KagariEngine, text: &str) -> Compilation {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("async-script.kgr", text),
@@ -124,5 +124,5 @@ fn prepare_source(engine: &KagariEngine, text: &str) -> Program {
     let artifact =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-    Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }

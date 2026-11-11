@@ -8,7 +8,7 @@ use crate::{
     context::ExecutionContext,
     engine::EngineConfig,
     error::{EmbeddingError, RuntimeFailureKind},
-    program::Program,
+    program::Compilation,
 };
 use kagari_runtime::{
     Runtime,
@@ -420,10 +420,13 @@ pub async fn run() -> i32 { val (a,b)=core::task::join(branch(),branch()).await;
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     f.runtime
         .program(&f.module)
-        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(program.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| {
             f.runtime
                 .replace_program(&f.module, &candidate, Default::default())

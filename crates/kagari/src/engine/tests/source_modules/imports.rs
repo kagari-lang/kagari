@@ -1,7 +1,7 @@
 use super::*;
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
-use crate::{context::JitPolicy, program::Program};
+use crate::{context::JitPolicy, program::Compilation};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_stdlib as stdlib;
@@ -42,9 +42,9 @@ fn public_source_glob_reexports_members_through_artifacts() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if native {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -98,9 +98,9 @@ fn parent_module_can_execute_pub_super_child_function() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
@@ -136,9 +136,9 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         assert_eq!(
             runtime
@@ -188,9 +188,9 @@ fn parent_module_can_call_pub_super_inherent_method() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
@@ -222,9 +222,9 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
@@ -265,9 +265,9 @@ fn wildcard_import_can_expose_a_public_inline_child_module() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
@@ -300,9 +300,9 @@ fn wildcard_import_follows_a_public_module_alias() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
@@ -329,9 +329,9 @@ fn wildcard_import_follows_a_public_native_module_alias() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
@@ -373,9 +373,9 @@ fn declared_external_child_module_resolves_qualified_calls() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime

@@ -12,7 +12,6 @@ use crate::{
         layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
         layout_identity::{LayoutFacts, LayoutIdentity, ProgramLayouts},
         layout_scope::LayoutScope,
-        owner::ProgramCodeOwner,
         records::ModuleRecord,
         retention::{ProgramLease, Retentions},
         revision::ProgramRevision,
@@ -23,6 +22,7 @@ use crate::{
         },
     },
     native::binding::LinkedNativeFunction,
+    program::Program,
     reload::{
         ModuleEpoch, ModuleEpochAllocator, ReloadValidationError,
         updates::{ReloadAdmission, RetainedDemands, coverage::CoverageFacts},
@@ -47,7 +47,6 @@ pub(crate) mod layout_scope;
 pub(crate) mod layout_storage;
 mod layouts;
 pub(crate) mod linked_execution;
-pub mod owner;
 mod records;
 pub mod retention;
 pub mod revision;
@@ -187,7 +186,7 @@ pub struct ExecutableModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
-    owner: Option<Arc<dyn ProgramCodeOwner>>,
+    product: Option<Program>,
     product_identity: VerifiedProductIdentity,
     source_package: Option<VerifiedSourcePackage>,
     update_evidence: Arc<UpdateEvidence>,
@@ -329,7 +328,7 @@ impl VerifiedProgram {
             .collect::<Vec<HashSet<FunctionRef>>>()
             .into();
         Self {
-            owner: None,
+            product: None,
             product_identity: program.product_identity(),
             source_package: None,
             update_evidence: Arc::new(program.program().update_evidence.clone()),
@@ -413,16 +412,14 @@ impl VerifiedProgram {
         self.version.clone()
     }
 
-    /// Attach a lifetime owner to this installed wrapper without changing checked
-    /// code identity. The owner provides no evidence, metadata or call authority.
-    pub fn with_owner(mut self, owner: Arc<dyn ProgramCodeOwner>) -> Self {
-        self.owner = Some(owner);
+    /// Associate the exact canonical executable product without a preparation owner.
+    pub(crate) fn with_product(mut self, product: Program) -> Self {
+        self.product = Some(product);
         self
     }
 
-    /// Clone the optional preparation owner, independently of Runtime authority.
-    pub fn owner(&self) -> Option<Arc<dyn ProgramCodeOwner>> {
-        self.owner.clone()
+    pub(crate) fn product(&self) -> Option<&Program> {
+        self.product.as_ref()
     }
 
     pub fn definitions(&self) -> &DefinitionTable {

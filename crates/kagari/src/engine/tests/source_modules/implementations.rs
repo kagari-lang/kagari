@@ -1,7 +1,7 @@
 use super::*;
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
-use crate::{context::JitPolicy, program::Program};
+use crate::{context::JitPolicy, program::Compilation};
 use kagari_bytecode::{
     artifact::{ArtifactValidationError, KbcArtifact},
     program::{identity, verify_program},
@@ -63,9 +63,9 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         assert_eq!(
             runtime
@@ -113,9 +113,9 @@ fn main() -> i32 {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         assert_eq!(
             runtime
@@ -204,9 +204,9 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -272,9 +272,9 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -340,9 +340,9 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -554,9 +554,9 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -663,9 +663,9 @@ fn dependency_generic_instances_follow_transitive_method_calls() {
     let artifact = compile(&engine, root);
     let mut runtime = engine.runtime(Default::default());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     let report = runtime
         .execute(
@@ -722,9 +722,9 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -784,8 +784,10 @@ fn public_generic_inherent_members_execute_across_source_and_artifact_modules() 
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let prepared =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-        let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(prepared.program(), Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)

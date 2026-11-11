@@ -5,7 +5,7 @@ use crate::{
         source::{ArtifactOptions, NativeInputExport},
     },
     error::EmbeddingError,
-    program::Program,
+    program::Compilation,
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
@@ -74,12 +74,14 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert_eq!(
             program.has_native_input(),
             native_input == NativeInputExport::PortableMir
         );
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -116,15 +118,19 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
         let bytecode = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
         let artifact =
             KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
     };
     let first = prepare("pub fn main() -> i32 { 1 }");
     let second = prepare("pub fn main() -> i32 { 2 }");
     let incompatible = prepare("pub fn main() -> bool { true }");
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let old = runtime.load_program(&first, Default::default()).unwrap();
-    let independent = runtime.load_program(&first, Default::default()).unwrap();
+    let old = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
+    let independent = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
     let root = old.root();
     let retained = runtime.function::<(), i32>(&root, "main").unwrap();
     assert_ne!(
@@ -133,15 +139,26 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
     );
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(second.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     let selected = runtime.runtime().select_program(&current).unwrap();
-    assert!(second.bytecode().same_version(selected.verified_program()));
+    assert!(
+        second
+            .program()
+            .bytecode()
+            .same_version(selected.verified_program())
+    );
     let error = runtime
         .program(&current)
-        .and_then(|base| base.prepare_replacement(&incompatible, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(incompatible.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&current, &candidate, Default::default()))
         .unwrap_err();
     assert!(
@@ -155,7 +172,10 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
     );
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(second.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     assert_eq!(runtime.call(&retained, ()).unwrap(), 2);

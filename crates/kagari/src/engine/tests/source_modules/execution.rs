@@ -185,7 +185,10 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
             .unwrap();
         let error = runtime
             .program(&active)
-            .and_then(|base| base.prepare_replacement(&prepare(&artifacts[1]), &Default::default()))
+            .and_then(|base| {
+                base.prepare_replacement(&prepare(&artifacts[1]), &Default::default())
+                    .map_err(Into::into)
+            })
             .and_then(|candidate| runtime.replace_program(&active, &candidate, Default::default()))
             .unwrap_err();
         assert_eq!(error.code(), "KG_RELOAD_PUBLIC_EXPORT_MISMATCH");
@@ -201,7 +204,10 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
         // Rejection leaves the baseline active, so a valid reload can still publish.
         runtime
             .program(&active)
-            .and_then(|base| base.prepare_replacement(&prepare(&artifacts[0]), &Default::default()))
+            .and_then(|base| {
+                base.prepare_replacement(&prepare(&artifacts[0]), &Default::default())
+                    .map_err(Into::into)
+            })
             .and_then(|candidate| runtime.replace_program(&active, &candidate, Default::default()))
             .unwrap();
     }
@@ -230,7 +236,7 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
     let mut runtime = engine.runtime(context.clone());
     let old_program = first;
     let old = runtime
-        .load_program(&old_program, Default::default())
+        .load_program(old_program.program(), Default::default())
         .unwrap();
     let _selected_old = runtime.runtime().select_program(&old).unwrap();
     let dependency = _selected_old
@@ -249,7 +255,7 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         .unwrap();
     let stale = runtime
         .runtime()
-        .stage_reload_verified_program(&old, None, second.bytecode().clone())
+        .stage_reload_verified_program(&old, None, second.program().bytecode().clone())
         .unwrap();
     let staged_members: HashSet<_> = stale
         .module()
@@ -258,7 +264,10 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
         .collect();
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&second.clone(), &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement((second.clone()).program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let new = old.clone();

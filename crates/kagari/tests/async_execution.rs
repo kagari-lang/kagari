@@ -3,7 +3,7 @@ use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine, builder::KagariEngineBuilder},
     error::{EmbeddingError, RuntimeFailureKind},
-    program::Program,
+    program::Compilation,
     runtime::Runtime,
 };
 use kagari_runtime::{
@@ -146,7 +146,7 @@ fn sdk_scheduler_source_free_wake_contract() {
 #[test]
 fn sdk_owned_native_wait_contract() {
     let f = Fixture::new();
-    assert!(f.program.bytecode().modules().len() > 1);
+    assert!(f.program.program().bytecode().modules().len() > 1);
     assert!(
         f.runtime
             .execute(&f.module, "run", &[], &Default::default())

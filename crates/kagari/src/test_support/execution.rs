@@ -6,7 +6,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine, source::CheckedModule},
-    program::Program,
+    program::Compilation,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -58,7 +58,7 @@ pub fn assert_returns_i32(
                 &artifact.records().to_bytes(artifact.definitions()).unwrap(),
             )
             .unwrap();
-            Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
+            Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap()
         });
     assert_prepared_returns_i32(engine, direct.as_ref(), encoded.as_ref(), routes, expected);
 }
@@ -72,7 +72,7 @@ pub fn assert_artifact_returns_i32(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     assert_prepared_returns_i32(
         engine,
         None,
@@ -84,8 +84,8 @@ pub fn assert_artifact_returns_i32(
 
 fn assert_prepared_returns_i32(
     engine: &KagariEngine,
-    direct: Option<&Program>,
-    encoded: Option<&Program>,
+    direct: Option<&Compilation>,
+    encoded: Option<&Compilation>,
     routes: &[Route],
     expected: i32,
 ) {
@@ -104,7 +104,9 @@ fn assert_prepared_returns_i32(
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = NativeCompiler::default()

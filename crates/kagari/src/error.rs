@@ -5,6 +5,7 @@ use kagari_compiler::{bytecode::BytecodeLoweringError, source::lower::MirLowerin
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
+    program::ProgramPreparationError,
     reload::ReloadValidationError as RuntimeReloadValidationError,
     task::TaskFailureOrigin,
 };
@@ -303,5 +304,32 @@ impl From<ArtifactValidationError> for ReloadValidationError {
 impl From<RuntimeReloadValidationError> for ReloadValidationError {
     fn from(error: RuntimeReloadValidationError) -> Self {
         Self::Runtime(error)
+    }
+}
+
+impl From<ProgramPreparationError> for EmbeddingError {
+    fn from(error: ProgramPreparationError) -> Self {
+        match error {
+            ProgramPreparationError::Cancelled => Self::Cancelled,
+            ProgramPreparationError::Artifact(error) => Self::ArtifactValidation { error },
+            ProgramPreparationError::SourcePackage(error) => error.into(),
+            ProgramPreparationError::History(error) => Self::reload_validation(error),
+            ProgramPreparationError::Identity(error) => Self::Source {
+                message: error.to_string(),
+            },
+        }
+    }
+}
+
+impl From<RuntimeReloadValidationError> for EmbeddingError {
+    fn from(error: RuntimeReloadValidationError) -> Self {
+        match error {
+            RuntimeReloadValidationError::Runtime(error)
+                if error.kind() == RuntimeErrorKind::Cancelled =>
+            {
+                Self::Cancelled
+            }
+            error => Self::reload_validation(error),
+        }
     }
 }

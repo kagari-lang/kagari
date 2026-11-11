@@ -43,6 +43,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         let program = engine
             .prepare(&checked, Default::default())
             .map_err(|error| format!("{error:?}"))?;
-        host::run(engine, program, io)
+        host::run(engine, program.into_program(), io)
     }
 }

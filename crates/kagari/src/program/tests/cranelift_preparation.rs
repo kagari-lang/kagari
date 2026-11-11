@@ -8,7 +8,7 @@ use crate::{
         source::{ArtifactOptions, PreparationOptions},
     },
     error::{EmbeddingError, RuntimeFailureKind},
-    program::{Program, native::NativePreparationError},
+    program::{Compilation, native::NativePreparationError},
     runtime::Runtime as SdkRuntime,
 };
 use kagari_abi::native::NativeCodeOwner;
@@ -112,10 +112,11 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                     &artifact.records().to_bytes(artifact.definitions()).unwrap(),
                 )
                 .unwrap();
-                Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+                Compilation::from_artifact(artifact, &Default::default(), &Default::default())
+                    .unwrap()
             } else {
                 engine
-                    .compile_to_program(
+                    .compile(
                         SourceFile::new("native.kgr", source),
                         PreparationOptions {
                             retain_native_input: true,
@@ -129,9 +130,10 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         assert_eq!(PLAYER_SOURCE.matches("40 + 2 % 5").count(), 1);
         let replacement = prepare(&PLAYER_SOURCE.replace("40 + 2 % 5", "43"));
         let candidate = program
-            .prepare_replacement(&replacement, &Default::default())
+            .program()
+            .prepare_replacement(replacement.program(), &Default::default())
             .unwrap();
-        let mir = Arc::downgrade(program.state.mir.as_ref().unwrap());
+        let mir = Arc::downgrade(program.mir.as_ref().unwrap());
         let context = ExecutionContext {
             jit_policy: JitPolicy::Enabled,
             ..Default::default()
@@ -146,26 +148,21 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             context.clone(),
         );
         drop(modules);
-        let first_program = first.load_program(&program, Default::default()).unwrap();
-        let second_program = second.load_program(&program, Default::default()).unwrap();
-        assert!(Arc::ptr_eq(
+        let first_program = first
+            .load_program(program.program(), Default::default())
+            .unwrap();
+        let second_program = second
+            .load_program(program.program(), Default::default())
+            .unwrap();
+        assert!(
             first
                 .program(&first_program)
                 .unwrap()
-                .state
-                .mir
-                .as_ref()
-                .unwrap(),
-            second
-                .program(&second_program)
-                .unwrap()
-                .state
-                .mir
-                .as_ref()
-                .unwrap()
-        ));
+                .bytecode()
+                .same_version(second.program(&second_program).unwrap().bytecode())
+        );
         let worker_program = program.clone();
-        let worker_candidate = candidate.clone();
+        let worker_candidate = replacement.clone();
         let (native, next_native, pages) = thread::spawn(move || {
             let mut compiler = NativeCompiler::default();
             let mut backend = LifetimeBackend {
@@ -301,7 +298,10 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             pages[1].upgrade().is_none(),
             "failed delivery must not retain the new pages in player two"
         );
-        assert!(mir.upgrade().is_some());
+        assert!(
+            mir.upgrade().is_none(),
+            "installed code and native pages must not retain compiler MIR"
+        );
         second_value.store(202, Ordering::SeqCst);
         assert_eq!(scalar(&second, &second_program, "host_value"), 202);
         let report = second
@@ -360,13 +360,15 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext {
         jit_policy: JitPolicy::Enabled,
         ..Default::default()
     };
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let prepared = NativeCompiler::default()
         .prepare(
             &program,
@@ -409,7 +411,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
                 Default::default(),
             )
             .unwrap();
-        Program::from_artifact(
+        Compilation::from_artifact(
             BytecodeArtifact::from_bytes(
                 &artifact.records().to_bytes(artifact.definitions()).unwrap(),
             )
@@ -444,7 +446,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
         context.clone(),
     );
     let old = runtime
-        .load_program(&old_program, Default::default())
+        .load_program(old_program.program(), Default::default())
         .unwrap();
     let mut backend = CraneliftBackend::for_host().unwrap();
     let old_native = NativeCompiler::default()
@@ -461,7 +463,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     };
     let old_entry = installed_old.artifact().code.entry.clone();
     let independent = runtime
-        .load_program(&old_program, Default::default())
+        .load_program(old_program.program(), Default::default())
         .unwrap();
     let independent_native = NativeCompiler::default()
         .prepare(
@@ -504,7 +506,10 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     drop(outer);
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&candidate, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(candidate.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();

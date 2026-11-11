@@ -4,7 +4,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::Program,
+    program::Compilation,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -43,8 +43,10 @@ fn execute_entries(source: &str, entries: &[(ProgramEntry<'_>, i32)]) {
         };
         let mut runtime = engine.runtime(context.clone());
         let prepared =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-        let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(prepared.program(), Default::default())
+            .unwrap();
         for &(entry, expected) in entries {
             let result = if jit {
                 let mut backend = CraneliftBackend::for_host().unwrap();

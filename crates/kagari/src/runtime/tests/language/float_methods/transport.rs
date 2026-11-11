@@ -1,6 +1,6 @@
 use super::{FLOATS, Float, assert_checks, context, engine, programs};
 use crate::{
-    BytecodeArtifact, program::Program, runtime::tests::language::numeric_checks::NumericChecks,
+    BytecodeArtifact, program::Compilation, runtime::tests::language::numeric_checks::NumericChecks,
 };
 use kagari_bytecode::{instruction::ConstantOperand, program::updates};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
@@ -39,7 +39,9 @@ fn exact_bits_survive_locals_gc_fields_native_methods_and_typed_host_entries() {
         let consumer = engine();
         let context = context();
         let mut runtime = consumer.runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         let result: i32 = runtime
             .execute_typed(&loaded, ProgramEntry::Main, (), &context)
             .unwrap();
@@ -169,7 +171,7 @@ fn serialized_float_constants_reach_installed_to_bits_without_payload_changes(
         ("encoded constants", decoded),
     ] {
         let program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert_checks(&program, route, &source, &checks);
     }
 }

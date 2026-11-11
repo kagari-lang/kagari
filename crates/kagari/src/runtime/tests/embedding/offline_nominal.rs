@@ -3,7 +3,7 @@ use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
-    program::Program,
+    program::Compilation,
 };
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -236,8 +236,10 @@ fn assert_source_index_path(field_prefix: bool) {
             .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
             .unwrap();
         let program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = NativeCompiler::default()

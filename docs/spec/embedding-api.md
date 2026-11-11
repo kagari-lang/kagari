@@ -30,9 +30,11 @@ no package acquisition or source-analysis dependency.
 
 ## Direct source preparation
 
-`KagariEngine::compile_to_program` checks source and prepares it for execution;
-`prepare` accepts an already checked module or captured package. Both return the
-same `Program` used by artifact import. One private lowering owner pairs
+`KagariEngine::compile` checks source and returns SDK `Compilation`; `prepare`
+accepts an already checked module or captured package and returns the same
+preparation owner. `Compilation::program()` exposes the canonical Runtime Program;
+`into_program()` discards preparation inputs. `compile_to_program` is the explicit
+executable-only convenience and does not retain compiler inputs. One private lowering owner pairs
 verified MIR with bytecode emitted from that exact MIR. The bytecode seal retains
 scoped identities, exports and suspension facts. Preparation does not construct a
 KBC envelope, encode/decode MIR or repeat unchanged bytecode graph verification.
@@ -41,7 +43,8 @@ still perform their own host binding and generation checks before execution.
 
 `PreparationOptions` enables bounded MIR simplification by default. With native
 support compiled in, `retain_native_input` explicitly preserves the paired MIR for
-native preparation; it defaults to false even if Cargo unifies the native feature.
+native preparation in Compilation; it defaults to false even if Cargo unifies the
+native feature. Program itself never owns MIR or source-analysis inputs.
 This does not remove required MIR verification. Explicit artifact export remains
 `compile_to_artifact` or `emit_artifact` on checked input, with separate portable
 MIR options. Export derives metadata from the exact seal, while editable/imported
@@ -438,7 +441,10 @@ ModuleLoader
   resolves source modules, bytecode artifacts, package roots, and imports
 
 Program
-  shares an immutable verified product, source inputs and optional MIR
+  shares immutable verified code/layouts and replacement history
+
+Compilation
+  explicitly retains SDK source inputs and optional MIR for one canonical Program
 
 InstalledProgram / Module
   identify a live installation and one of its logical modules
@@ -455,7 +461,8 @@ The actual Rust API may split these objects across crates, but the same ownershi
 
 ## Installed programs and public paths
 
-SDK `Program` is an immutable `Send + Sync` preparation product.
+Runtime `Program`, also exposed by the SDK facade, is an immutable `Send + Sync`
+executable product. SDK Compilation owns optional preparation inputs separately.
 `Runtime::load_program` returns an `InstalledProgram`; loading the same product
 again creates independent state and authority even with the same display label.
 `InstalledProgram::root()` constructs its root identity `Module`.
@@ -468,7 +475,7 @@ The SDK surface is:
 
 ```text
 Runtime::load_program(&mut self, &Program, LoadOptions) -> LoadResult<InstalledProgram>
-Program::prepare_update(&self, Update) -> CompileResult<Program>
+Compilation::prepare_update(&self, Update) -> CompileResult<Compilation>
 Runtime::replace_program(&mut self, &InstalledProgram, &Program, ReloadOptions) -> ReloadResult<()>
 InstalledProgram::root(&self) -> Module
 Runtime::module(&self, &Module, path: &str) -> RunResult<Module>
@@ -478,11 +485,12 @@ Runtime::object_type(&self, &Module, path: &str) -> RunResult<ObjectType>
 `function` and `async_function` also bind relative to a supplied `Module`; neither
 falls back to the installation root. Whole-program `execute`, `execute_prepared` and
 native entry execution instead take `InstalledProgram` and explicitly select its current
-root. Detached native compilation takes the immutable `Program`. `ProgramEntry::Main` retains its separate private-root-entry capability.
+root. Detached native compilation takes the explicit SDK `Compilation`. `ProgramEntry::Main` retains its separate private-root-entry capability.
 There is no implicit InstalledProgram-to-Module conversion or legacy `LoadedModule` alias.
 `LoadOptions.program_name` and `ReloadOptions.program_name` are diagnostic labels,
 not compiled or installation identities; reload changes the label only on success.
-Detached `Program::prepare_update` produces an immutable candidate. Mutable
+Detached `Compilation::prepare_update` produces preparation for an immutable
+candidate; publish its `program()` and retain the candidate Compilation explicitly. Mutable
 `Runtime::replace_program` publishes it into the same installation and returns unit
 success, not replacement handles. See [source updates](#source-updates).
 
@@ -576,7 +584,7 @@ compile_to_artifact(source, artifact_options) -> CompileResult<DefinitionMetadat
 prepare_artifact(artifact, compatibility, cancellation) -> Program
 load_program(program, load_options) -> LoadResult<InstalledProgram>
 execute(installed, entry, args, execution_context) -> RunResult<Value>
-base.prepare_update(update_batch) -> CompileResult<Program>
+compilation.prepare_update(update_batch) -> CompileResult<Compilation>
 base.prepare_replacement(candidate, cancellation) -> ReloadResult<Program>
 replace_program(installed, prepared_candidate, reload_options) -> ReloadResult<()>
 ```
@@ -976,7 +984,7 @@ or Actor state-replacement mode; general Serde conversion remains independent.
 ## Source updates
 
 With the SDK `source` feature, `kagari::update::Update` builds a detached batch;
-`Program::prepare_update(Update) -> CompileResult<Program>` checks and prepares it
+`Compilation::prepare_update(Update) -> CompileResult<Compilation>` checks and prepares it
 without borrowing Runtime. `Runtime::replace_program` publishes separately.
 The builder does not compile or publish. Its operations are:
 
@@ -991,16 +999,17 @@ The builder does not compile or publish. Its operations are:
   in an already captured package, allowing a new module in the candidate closure.
 - `with_cancellation(token)`: choose a submission cancellation token.
 
-For an existing `installed` handle with a replaceable public `answer` declaration:
+For an existing `installed` handle and its explicit `compilation` preparation
+owner, with a replaceable public `answer` declaration:
 
-```rust,ignore
+```text
 use kagari::update::Update;
 
 let mut update = Update::new();
 update.replace_function("answer", "pub fn answer() -> i32 { 42 }");
-let base = runtime.program(&installed)?;
-let candidate = base.prepare_update(update)?;
-runtime.replace_program(&installed, &candidate, Default::default())?;
+let candidate = compilation.prepare_update(update)?;
+runtime.replace_program(&installed, candidate.program(), Default::default())?;
+compilation = candidate; // retain the new revision's explicit preparation inputs
 ```
 
 This illustrates submission; admission still checks frozen declarations, local
@@ -1030,20 +1039,23 @@ for interpreter/optional JIT execution, not AOT patch delivery. Native preparati
 remains explicit, with exact-product validation and pre-entry fallback under the
 [JIT contract](jit.md); no hidden backend callback is retained in Runtime.
 
-Source preparation retains an immutable compilation capsule in Program: physical
+Source preparation retains immutable inputs in SDK Compilation: physical
 bytes/origins, package/module mappings, declaration environment, selected root,
-acquisition provenance, compiler identity and preparation settings. It carries no
-installed Rust callback captures or mutable source database. `source_declarations`
-returns checked product-owned edit targets with weak exact-base identity; targets
-from another product reject. Runtime source observations remain diagnostic, not
-portable edit authority.
+acquisition provenance, compiler identity and preparation settings. They carry no
+installed Rust captures or mutable source database. `source_declarations` returns
+checked edit targets with exact executable revision identity; targets from another
+revision reject. Identity tokens retain no code or compilation inputs. Runtime
+source observations remain diagnostic, not portable edit authority.
 
-A candidate carries bounded cumulative demands plus a weak exact-base association,
-not a strong predecessor chain. `Runtime::program(&InstalledProgram)` obtains the
-current shared SDK product, including its exact optional source/native inputs.
-A low-level publication without that owner reports `MissingCompilationContext`
-instead of rebuilding a cache wrapper or reusing a stale source capsule. Artifact
-source packages supply diagnostics, not compilation inputs, even when text exists.
+A candidate Program carries bounded cumulative demands and a weak exact-base
+association, not a strong predecessor chain. `Runtime::program(&InstalledProgram)`
+obtains the current canonical executable, without SDK state or source/MIR inputs.
+Source updates and native compilation use explicit Compilation, never a recovered
+publication capsule. An artifact Compilation has no source-compilation inputs and
+reports `MissingCompilationContext` for updates, even with diagnostic source text.
+An explicitly retained preparation for an old revision cannot authorize publication
+against a different current Program. Failed compilation/publication preserves the
+current program and the caller's retained preparation.
 
 ## Exact source inspection
 

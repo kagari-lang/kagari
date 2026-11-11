@@ -280,6 +280,7 @@ pub fn main() -> u64 {
                     .unwrap(),
                 &Default::default(),
             )
+            .map_err(Into::into)
         })
         .and_then(|candidate| {
             runtime.replace_program(

@@ -2,8 +2,7 @@
 
 Status: next-scope design recorded at the user's request on 2026-11-09;
 standard-library detachment D00-D05 is complete on 2026-11-11. The user requested
-the crate consolidation implementation plan CM00-CM04 on 2026-11-11; the user activated CM00-CM04 on 2026-11-11. CM00 is complete; CM01-CM04
-remain pending. Other proposed Runtime changes remain unstarted. Current product ownership, final call tables and
+the crate consolidation implementation plan CM00-CM04 on 2026-11-11; the user activated CM00-CM04 on 2026-11-11. CM00-CM01 are complete; CM02-CM04 remain pending. Other proposed Runtime changes remain unstarted. Current product ownership, final call tables and
 publication are in the
 [Runtime model](architecture/runtime.md) and [reload walkthrough](architecture/runtime/reload.md).
 The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns any
@@ -258,7 +257,7 @@ Preserve ordinary language behavior and the already recorded NC integration gaps
 | --- | --- |
 | [VM](../crates/kagari-vm/src/lib.rs), [entrypoints](../crates/kagari-vm/src/vm.rs), [executor](../crates/kagari-vm/src/executor.rs), [reentry](../crates/kagari-vm/src/reentry.rs) | Move implementations under Runtime's execution/interpreter/debug owners; eliminate the VM object/crate rather than relocating it wholesale as another owner. Keep activations borrowing Runtime. |
 | [SDK Runtime](../crates/kagari/src/runtime.rs), [context](../crates/kagari/src/context.rs), runtime call/typed/scheduler/scoped/source modules | Move execution policy/state/orchestration to Runtime and remove translations/forwarding. Source analysis/update compilation stays SDK-side. Preserve Engine configuration and explicit provider installation. |
-| [SDK Program](../crates/kagari/src/program.rs), [updates](../crates/kagari/src/program/update.rs), [NativeCompiler](../crates/kagari/src/program/native.rs), [core verified backing](../crates/kagari-runtime/src/module.rs), [code-owner trait](../crates/kagari-runtime/src/module/owner.rs) | Preserve exact revision/history and native/source evidence while separating executable ownership from preparation inputs. Keep installed handles identity-only. Audit ordinary metadata/code holders, cycles and final release, without claiming the deferred R13 type/code lifetime split. |
+| [SDK Program](../crates/kagari/src/program.rs), [updates](../crates/kagari/src/program/update.rs), [NativeCompiler](../crates/kagari/src/program/native.rs), [core verified backing](../crates/kagari-runtime/src/module.rs), `module/owner.rs` (retired by CM01) | Preserve exact revision/history and native/source evidence while separating executable ownership from preparation inputs. Keep installed handles identity-only. Audit ordinary metadata/code holders, cycles and final release, without claiming the deferred R13 type/code lifetime split. |
 | SDK, CLI, web, Lua-comparison benchmark and their examples | Migrate current direct VM dependencies and low-level accessors to canonical owners. Preserve the existing required-feature paths; do not recreate withdrawn collection providers just to run an old workload. |
 | VM lib/integration tests, allocation contracts, library measurements and fixtures | Move unique runtime contracts/fixtures into Runtime test owners and SDK end-to-end/backend preparation contracts into SDK owners. Transfer explicit Cargo targets because helper files are not standalone tests. Keep source-free and actual-native oracles distinct; consolidate only equivalent coverage. |
 | Workspace manifests/lockfile, [feature checks](../scripts/check_features.py), [AOT checks](../scripts/check_aot.py), CI targets, [re-export whitelist](../scripts/structure-exceptions.toml) and current guides | Remove retired package/import/command references, update dependency constraints and exact facade exports. Do not weaken source-free constraints to accommodate a new cycle. Only update ABI/format IDs under the repository's publication policy. |
@@ -332,6 +331,38 @@ Full-workspace tests, feature/backend/platform matrices and AOT process executio
 are unrun local scope. Collection-dependent source programs still await NC; the
 selected core/artifact/native witnesses do not imply their restoration.
 
+
+##### CM01 implementation and validation
+
+CM01 is complete. Canonical Program/replacement history now lives in
+`kagari-runtime::program`; VerifiedProgram's optional association is typed to that
+runtime product. The SDK facade re-exports that exact Program/ProgramPreparationError
+with a declaration-scoped whitelist entry. ProgramCodeOwner, Any/downcast recovery
+and installed-code ownership of compilation inputs/MIR are removed.
+
+SDK Compilation explicitly retains its canonical Program plus source/MIR inputs.
+`engine.prepare`/`compile` return Compilation; `compile_to_program` discards those
+inputs and returns Program. Source updates advance the caller's explicit Compilation
+only after successful publication; NativeCompiler consumes Compilation. CLI,
+benchmarks and source/native consumers use the proper owner. Private edit locators
+retain revision identity tokens, not code or inputs. The existing snapshot/base/
+history and source/native mismatch assertions remain, with input-release assertions
+updated to the new explicit lifetime rather than old installed SDK retention.
+
+Production Runtime and SDK/all-target checks pass; SDK no-default library, CLI jit
+and the diagnostic enum example build. Workspace all-target Clippy passes. Structure
+passes for 1847 Rust files with three existing scalar size exceptions and one exact
+SDK facade re-export. Source update (12), Native preparation (10), real Cranelift
+(6), artifact input (2) and default Native artifact (5) cases pass. The direct core
+Program installation witness passes after explicitly installing the same declared
+providers as its SDK route; missing providers continue to reject before publication.
+Source cancellation also passes. The no-default opaque-artifact case and actual
+Cranelift with only the SDK native feature enabled both pass. Documentation links,
+Rust formatting and diff checks pass. The isolated source-free Core installation
+setup initially lacked its declared providers; explicitly installing them repaired
+the witness without weakening declaration admission. No build/test errors are
+carried at this checkpoint. No execution
+wrapper/interpreter/frame/GC change belongs to CM01; CM02-CM04 remain pending.
 
 ##### Verification, performance and commits
 

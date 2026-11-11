@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::Program,
+    program::Compilation,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
@@ -58,7 +58,7 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
         let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
         let decoded = BytecodeArtifact::from_bytes(&bytes).unwrap();
         let encoded =
-            Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
         [("source", direct), ("encoded", encoded)]
     };
     for (route, program) in programs {
@@ -68,7 +68,9 @@ fn numeric_example_source_and_encoded_are_deterministic_and_release_roots() {
             ..Default::default()
         };
         let mut runtime = consumer.runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         // Reuse the same loaded program and heap: RNG state must be local to each call.
         for run in 1..=2 {
             for (entry, expected) in [

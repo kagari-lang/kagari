@@ -1,5 +1,5 @@
 //! Compile immutable products outside Runtime; bind native authority at installation.
-use crate::{program::Program, runtime::Runtime};
+use crate::{program::Compilation, runtime::Runtime};
 use kagari_abi::{
     native::{BackendId, ExecutableEntryPoint, NativeLinkDescription},
     version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
@@ -87,13 +87,14 @@ impl NativeCompiler {
     /// without inserting a decision. Unsupported bodies retain a checked fallback.
     pub fn prepare<'a>(
         &mut self,
-        program: &Program,
+        compilation: &Compilation,
         entry: impl Into<ProgramEntry<'a>>,
         backend: &mut dyn CodegenBackend,
         cancel: &CancellationToken,
     ) -> Result<NativeCode, NativePreparationError> {
         check_cancel(cancel)?;
         let entry = entry.into();
+        let program = compilation.program();
         let target = entry
             .resolve_program(program.bytecode())
             .ok_or_else(|| NativePreparationError::MissingEntry(entry.label().into()))?;
@@ -106,7 +107,7 @@ impl NativeCompiler {
             CachedFunction::Unsupported(vec![
                 "resume bodies require the owned interpreter driver".into(),
             ])
-        } else if program.state.mir.is_none() {
+        } else if compilation.mir.is_none() {
             CachedFunction::Unsupported(vec!["artifact has no portable native input".into()])
         } else {
             let key = NativeCacheKey {
@@ -117,7 +118,7 @@ impl NativeCompiler {
                 runtime_abi: KAGARI_RUNTIME_ABI_VERSION,
                 helper_abi: KAGARI_RUNTIME_HELPER_ABI_VERSION,
             };
-            self.compile_function(program, key, backend, cancel)?
+            self.compile_function(compilation, key, backend, cancel)?
         };
         check_cancel(cancel)?;
         Ok(NativeCode {
@@ -132,7 +133,7 @@ impl NativeCompiler {
 
     fn compile_function(
         &mut self,
-        program: &Program,
+        compilation: &Compilation,
         key: NativeCacheKey,
         backend: &mut dyn CodegenBackend,
         cancel: &CancellationToken,
@@ -143,8 +144,7 @@ impl NativeCompiler {
         if self.cache.len() >= MAX_CACHED_FUNCTIONS {
             return Err(NativePreparationError::CacheLimit);
         }
-        let mir = program
-            .state
+        let mir = compilation
             .mir
             .as_ref()
             .expect("native input checked before compilation");

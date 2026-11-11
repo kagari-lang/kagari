@@ -24,7 +24,7 @@ use crate::{
     },
     error::{EmbeddingError, RuntimeFailureKind},
     program::{
-        Program, ProgramPreparationError,
+        Compilation, CompilationPreparationError,
         native::{NativeCode, NativePreparationError},
     },
 };
@@ -169,11 +169,11 @@ fn context() -> ExecutionContext {
     }
 }
 
-fn prepare(engine: &KagariEngine, native: NativeInputExport) -> Program {
+fn prepare(engine: &KagariEngine, native: NativeInputExport) -> Compilation {
     prepare_source(engine, native, "fn main() {}")
 }
 
-fn prepare_source(engine: &KagariEngine, native: NativeInputExport, source: &str) -> Program {
+fn prepare_source(engine: &KagariEngine, native: NativeInputExport, source: &str) -> Compilation {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("shared", source),
@@ -183,7 +183,7 @@ fn prepare_source(engine: &KagariEngine, native: NativeInputExport, source: &str
             },
         )
         .unwrap();
-    Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }
 
 #[test]
@@ -193,7 +193,9 @@ fn disabled_installation_validates_before_choosing_local_fallback() {
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(Default::default());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let mut backend = Backend::default();
     let prepared = compiler
         .prepare(
@@ -240,7 +242,9 @@ fn disabled_installation_validates_before_choosing_local_fallback() {
         Err(NativePreparationError::MissingEntry(_))
     ));
     let mut foreign = engine.runtime(context());
-    let foreign_module = foreign.load_program(&program, Default::default()).unwrap();
+    let foreign_module = foreign
+        .load_program(program.program(), Default::default())
+        .unwrap();
     assert!(matches!(
         {
             let native_code = compiler.prepare(
@@ -282,7 +286,9 @@ fn execution_policy_preserves_cancellation_observers_and_native_failures() {
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let enabled = context();
     let mut runtime = engine.runtime(enabled.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let _selected_loaded = runtime.runtime().select_program(&loaded).unwrap();
     let mut backend = Backend {
         mode: 3,
@@ -397,8 +403,10 @@ fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
     let context = context();
     let mut a = engine.runtime(context.clone());
     let mut b = engine.runtime(context.clone());
-    let ma = a.load_program(&program, Default::default()).unwrap();
-    let mb = b.load_program(&copy, Default::default()).unwrap();
+    let ma = a
+        .load_program(program.program(), Default::default())
+        .unwrap();
+    let mb = b.load_program(copy.program(), Default::default()).unwrap();
     let mut backend = Backend::default();
     let dropped = backend.dropped.clone();
     let pa = compiler
@@ -471,7 +479,9 @@ fn rejects_equal_but_distinct_versions_at_native_installation() {
     let first = prepare(&engine, NativeInputExport::PortableMir);
     let second = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(context());
-    let loaded = runtime.load_program(&first, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
     let mut backend = Backend::default();
     assert!(matches!(
         {
@@ -496,7 +506,9 @@ fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not(
     let context = context();
     let mut runtime = engine.runtime(context.clone());
     let bytecode = prepare(&engine, NativeInputExport::BytecodeOnly);
-    let loaded = runtime.load_program(&bytecode, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(bytecode.program(), Default::default())
+        .unwrap();
     let mut backend = Backend::default();
     let missing = compiler
         .prepare(
@@ -519,7 +531,9 @@ fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not(
         JitExecutionStatus::InterpreterFallback
     );
     let program = prepare(&engine, NativeInputExport::PortableMir);
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     backend.mode = 1;
     for _ in 0..2 {
         assert!(matches!(
@@ -562,7 +576,9 @@ fn cancellation_discards_compilation_results_and_can_be_retried() {
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(context());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let cancel = CancellationToken::default();
     let mut backend = Backend {
         cancel_during_compile: Some(cancel.clone()),
@@ -621,8 +637,8 @@ fn mismatched_artifact_native_input_is_rejected_before_loading() {
     let artifact =
         DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default()).unwrap();
     assert!(matches!(
-        Program::from_artifact(artifact, &Default::default(), &Default::default()),
-        Err(ProgramPreparationError::NativeInput(_))
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()),
+        Err(CompilationPreparationError::NativeInput(_))
     ));
 }
 
@@ -633,7 +649,9 @@ fn bounded_cache_keeps_existing_entries_usable_after_capacity_is_reached() {
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(context());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let mut backend = Backend {
         mode: 1,
         ..Default::default()
@@ -684,7 +702,9 @@ fn pre_cancelled_requests_do_not_compile() {
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(Default::default());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let mut backend = Backend::default();
     let cancel = CancellationToken::default();
     cancel.cancel();
@@ -708,7 +728,7 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
     let context = context();
     let mut runtime = engine.runtime(context.clone());
     let old = runtime
-        .load_program(&old_program, Default::default())
+        .load_program(old_program.program(), Default::default())
         .unwrap();
     let mut backend = Backend::default();
     let old_native = compiler
@@ -722,7 +742,7 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
         .unwrap();
     let mut other_runtime = engine.runtime(context.clone());
     let other = other_runtime
-        .load_program(&candidate, Default::default())
+        .load_program(candidate.program(), Default::default())
         .unwrap();
     let other_native = compiler
         .prepare(
@@ -737,18 +757,23 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
     let selected_old = runtime.runtime().select_program(&old).unwrap();
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&candidate, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(candidate.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let published = old.clone();
     let selected_published = runtime.runtime().select_program(&published).unwrap();
     assert!(
         candidate
+            .program()
             .bytecode()
             .same_version(selected_published.verified_program())
     );
     assert!(
         !old_program
+            .program()
             .bytecode()
             .same_version(selected_published.verified_program())
     );

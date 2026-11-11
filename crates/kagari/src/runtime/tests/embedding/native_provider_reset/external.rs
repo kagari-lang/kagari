@@ -37,7 +37,9 @@ pub fn update() { STATE = 5; }
         decoded,
     );
     let mut runtime = engine.runtime(Default::default());
-    let old = runtime.load_program(&first, Default::default()).unwrap();
+    let old = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
     let call = |module, entry| {
         runtime
             .execute(module, entry, &[], &Default::default())
@@ -49,7 +51,10 @@ pub fn update() { STATE = 5; }
     assert_eq!(call(&old, "read"), Value::I32(13));
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(second.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();

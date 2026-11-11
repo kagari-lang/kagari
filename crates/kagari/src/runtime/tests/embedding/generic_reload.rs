@@ -4,9 +4,9 @@ use crate::{
     BytecodeArtifact,
     engine::{
         KagariEngine,
-        source::{ArtifactOptions, compilation::Compilation},
+        source::{ArtifactOptions, compilation::Compilation as LoweredCompilation},
     },
-    program::Program,
+    program::Compilation,
     runtime::Runtime,
 };
 use kagari_bytecode::program::BytecodeProgram;
@@ -27,7 +27,7 @@ pub(super) fn prepare_static_program(
     engine: &KagariEngine,
     source: &str,
     decoded: bool,
-) -> Program {
+) -> Compilation {
     let checked = engine
         .compile_source(SourceFile::new("static-values.kgr", source))
         .unwrap();
@@ -36,7 +36,7 @@ pub(super) fn prepare_static_program(
     }
     let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-    Program::from_artifact(
+    Compilation::from_artifact(
         BytecodeArtifact::from_bytes(&bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -79,13 +79,17 @@ pub fn write() { STATE = 128578u32; }
     );
     let incompatible = prepare_static_program(&engine, retyped, decoded);
     let mut runtime = engine.runtime(Default::default());
-    let old = runtime.load_program(&first, Default::default()).unwrap();
+    let old = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
     assert_eq!(static_call(&runtime, &old, "read"), Value::I64(97));
     static_call(&runtime, &old, "write");
     assert_eq!(
         runtime
             .program(&old)
-            .and_then(|base| base.prepare_replacement(&changed_initializer, &Default::default()))
+            .and_then(|base| base
+                .prepare_replacement(changed_initializer.program(), &Default::default())
+                .map_err(Into::into))
             .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap_err()
             .code(),
@@ -93,14 +97,19 @@ pub fn write() { STATE = 128578u32; }
     );
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(second.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
     assert!(
         runtime
             .program(&current)
-            .and_then(|base| base.prepare_replacement(&incompatible, &Default::default()))
+            .and_then(|base| base
+                .prepare_replacement(incompatible.program(), &Default::default())
+                .map_err(Into::into))
             .and_then(|candidate| runtime.replace_program(&current, &candidate, Default::default()))
             .is_err()
     );
@@ -131,12 +140,16 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
         decoded,
     );
     let mut runtime = engine.runtime(Default::default());
-    let old = runtime.load_program(&first, Default::default()).unwrap();
+    let old = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
     assert_eq!(static_call(&runtime, &old, "check"), Value::Bool(true));
     assert_eq!(
         runtime
             .program(&old)
-            .and_then(|base| base.prepare_replacement(&changed_initializer, &Default::default()))
+            .and_then(|base| base
+                .prepare_replacement(changed_initializer.program(), &Default::default())
+                .map_err(Into::into))
             .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap_err()
             .code(),
@@ -144,7 +157,10 @@ fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases(
     );
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(second.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
@@ -173,14 +189,19 @@ fn persistent_static_callbacks_and_interfaces_call_current_helpers(#[case] decod
     let first = prepare_static_program(&engine, source, decoded);
     let second = prepare_static_program(&engine, replacement, decoded);
     let mut runtime = engine.runtime(Default::default());
-    let old = runtime.load_program(&first, Default::default()).unwrap();
+    let old = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
     assert_eq!(static_call(&runtime, &old, "init"), Value::Bool(true));
     // Force the aliases before replacing their original cells.
     assert_eq!(static_call(&runtime, &old, "saved"), Value::I32(22));
     assert_eq!(static_call(&runtime, &old, "function"), Value::I32(10));
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(second.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     let current = old.clone();
@@ -211,7 +232,9 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let mut runtime = engine.runtime(Default::default());
-    let old = runtime.load_program(&first, Default::default()).unwrap();
+    let old = runtime
+        .load_program(first.program(), Default::default())
+        .unwrap();
     for entry in ["map_lookup", "set_lookup"] {
         assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
     }
@@ -223,7 +246,10 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
         let candidate = prepare_static_program(&engine, updated, decoded);
         runtime
             .program(&old)
-            .and_then(|base| base.prepare_replacement(&candidate, &Default::default()))
+            .and_then(|base| {
+                base.prepare_replacement(candidate.program(), &Default::default())
+                    .map_err(Into::into)
+            })
             .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
             .unwrap();
         for entry in ["map_lookup", "set_lookup"] {
@@ -253,7 +279,10 @@ fn persistent_static_hash_comparators_use_current_bodies_and_helpers(#[case] dec
     let candidate = prepare_static_program(&engine, changed_hash, decoded);
     runtime
         .program(&old)
-        .and_then(|base| base.prepare_replacement(&candidate, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(candidate.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
     for entry in ["map_lookup", "set_lookup"] {
@@ -284,7 +313,7 @@ fn prepare_with_demands(
         .unwrap();
     let options = ArtifactOptions::default();
     let demands = baseline.retained_demands();
-    let compilation = Compilation::lower_with_demands(
+    let compilation = LoweredCompilation::lower_with_demands(
         &checked,
         &options.lowering,
         demands.metadata(),

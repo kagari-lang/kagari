@@ -2,7 +2,7 @@ use super::schema::NominalSchema;
 use super::*;
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
-use crate::{context::JitPolicy, program::Program};
+use crate::{context::JitPolicy, program::Compilation};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{
@@ -117,21 +117,22 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             unbound_engine
                 .runtime(context.clone())
                 .load_program(
-                    &Program::from_artifact(
+                    (Compilation::from_artifact(
                         artifact.clone(),
                         &Default::default(),
                         &Default::default()
                     )
-                    .unwrap(),
+                    .unwrap())
+                    .program(),
                     Default::default()
                 )
                 .is_err()
         );
         assert!(trace.lock().unwrap().is_empty());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -370,9 +371,9 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             .unwrap();
         assert_eq!(runtime.runtime().host().path_descriptors().count(), 1);
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -559,10 +560,10 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     .register_host_root(HostObjectId(8), ty, HostSchemaEpoch::new(0))
                     .unwrap();
                 let loaded_program =
-                    Program::from_artifact(artifact, &Default::default(), &Default::default())
+                    Compilation::from_artifact(artifact, &Default::default(), &Default::default())
                         .unwrap();
                 let loaded = runtime
-                    .load_program(&loaded_program, Default::default())
+                    .load_program(loaded_program.program(), Default::default())
                     .unwrap();
                 let result = if jit {
                     let mut backend = CraneliftBackend::for_host().unwrap();

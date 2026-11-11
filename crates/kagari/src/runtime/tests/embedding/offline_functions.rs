@@ -3,7 +3,7 @@ use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
-    program::Program,
+    program::Compilation,
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::KbcArtifact;
@@ -167,12 +167,13 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         assert!(
             incompatible
                 .load_program(
-                    &Program::from_artifact(
+                    (Compilation::from_artifact(
                         artifact.clone(),
                         &Default::default(),
                         &Default::default()
                     )
-                    .unwrap(),
+                    .unwrap())
+                    .program(),
                     LoadOptions::default()
                 )
                 .is_err()
@@ -185,21 +186,22 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         assert!(
             missing
                 .load_program(
-                    &Program::from_artifact(
+                    (Compilation::from_artifact(
                         artifact.clone(),
                         &Default::default(),
                         &Default::default()
                     )
-                    .unwrap(),
+                    .unwrap())
+                    .program(),
                     LoadOptions::default(),
                 )
                 .is_err()
         );
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, LoadOptions::default())
+            .load_program(loaded_program.program(), LoadOptions::default())
             .unwrap();
         assert!(calls.lock().unwrap().is_empty());
         let mut backend =
@@ -278,17 +280,22 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     assert!(
         missing
             .load_program(
-                &Program::from_artifact(artifact.clone(), &Default::default(), &Default::default())
-                    .unwrap(),
+                (Compilation::from_artifact(
+                    artifact.clone(),
+                    &Default::default(),
+                    &Default::default()
+                )
+                .unwrap())
+                .program(),
                 LoadOptions::default(),
             )
             .is_err()
     );
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, LoadOptions::default())
+        .load_program(loaded_program.program(), LoadOptions::default())
         .unwrap();
     assert!(calls.lock().unwrap().is_empty());
     assert_eq!(

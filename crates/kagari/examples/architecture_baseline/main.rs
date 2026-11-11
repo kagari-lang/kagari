@@ -11,7 +11,7 @@ mod memory;
 use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::Program,
+    program::Compilation,
 };
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
@@ -48,8 +48,8 @@ fn sample(mut action: impl FnMut(), label: &str, count: usize) {
     );
 }
 
-fn prepare(bytes: &[u8]) -> Program {
-    Program::from_artifact(
+fn prepare(bytes: &[u8]) -> Compilation {
+    Compilation::from_artifact(
         KbcArtifact::from_bytes(bytes).unwrap(),
         &Default::default(),
         &Default::default(),
@@ -76,7 +76,9 @@ fn sharing(bytes: &[u8], count: usize, shared: bool) {
         }
         let program = programs.last().unwrap();
         let mut runtime = engine.runtime(context());
-        let loaded = runtime.load_program(program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         runtimes.push((runtime, loaded));
     }
     let bytes = live_bytes() - before;
@@ -179,7 +181,11 @@ fn main() {
     sample(
         || {
             let mut runtime = engine.runtime(context());
-            black_box(runtime.load_program(&program, Default::default()).unwrap());
+            black_box(
+                runtime
+                    .load_program(program.program(), Default::default())
+                    .unwrap(),
+            );
         },
         "new_runtime_and_shared_program_link",
         101,
@@ -203,7 +209,9 @@ fn main() {
         ..context.clone()
     };
     let mut runtime = engine.runtime(native_context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let before_native = live_bytes();
     let native = NativeCompiler::default()
         .prepare(

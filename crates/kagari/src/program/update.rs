@@ -5,15 +5,12 @@ mod prepare;
 mod tests;
 
 use crate::{
-    CompileResult, RunResult,
-    engine::source::compilation::Compilation,
-    error::EmbeddingError,
-    program::{Program, ProgramState},
-    update::Update,
+    CompileResult, RunResult, engine::source::compilation::Compilation as LoweredCompilation,
+    error::EmbeddingError, program::Compilation, update::Update,
 };
 use kagari_common::identity::{DefinitionPath, table::DefinitionId};
 use kagari_contract::source::{AuthoredDeclaration, AuthoredKind};
-use std::sync::{Arc, Weak};
+use kagari_runtime::module::revision::ProgramRevision;
 
 /// Exact authored edit locator for one immutable base. It retains diagnostic
 /// identity only, not code or installation authority. A different base rejects it;
@@ -21,7 +18,7 @@ use std::sync::{Arc, Weak};
 /// be edited without granting permission to invoke them.
 #[derive(Debug, Clone)]
 pub struct SourceEditTarget {
-    base: Weak<ProgramState>,
+    base: ProgramRevision,
     declaration: DefinitionId,
     path: DefinitionPath,
     kind: AuthoredKind,
@@ -41,12 +38,13 @@ impl SourceEditTarget {
     }
 }
 
-impl Program {
+impl Compilation {
     /// Copy checked authored locators, including private functions and named locals.
     /// Diagnostic source attachment is sufficient for discovery; preparing edits
     /// additionally requires this product's immutable compilation inputs.
     pub fn source_declarations(&self) -> RunResult<Vec<SourceEditTarget>> {
         let package = self
+            .program
             .bytecode()
             .source_package()
             .ok_or_else(|| source_error("source declaration metadata is unavailable"))?;
@@ -61,7 +59,7 @@ impl Program {
                     .map_err(|error| source_error(error.to_string()))?
                     .to_path();
                 Ok(SourceEditTarget {
-                    base: Arc::downgrade(&self.state),
+                    base: self.program.bytecode().revision(),
                     declaration: declaration.declaration,
                     path,
                     kind: declaration.kind,
@@ -76,18 +74,18 @@ impl Program {
     /// installation, initializer, callback or publication is touched.
     pub fn prepare_update(&self, update: Update) -> CompileResult<Self> {
         prepare::validate_batch(&update)?;
-        let inputs = self.state.compilation.as_ref().ok_or_else(|| {
+        let inputs = self.compilation.as_ref().ok_or_else(|| {
             source_error(
                 "MissingCompilationContext: Program has no matching immutable compilation capsule",
             )
         })?;
         let checked = prepare::check_candidate(self, inputs, &update)?;
         let options = inputs.preparation_options(update.cancel.clone());
-        let compilation = Compilation::lower_with_demands(
+        let compilation = LoweredCompilation::lower_with_demands(
             &checked,
             &options.lowering,
-            self.state.history.metadata(),
-            self.state.history.implementation_headers(),
+            self.program.retained_demands().metadata(),
+            self.program.retained_demands().implementation_headers(),
         )?;
         let candidate = Self::from_compilation(compilation, &options, Some(self))?;
         update
@@ -98,12 +96,13 @@ impl Program {
     }
 
     fn resolve_edit_target(&self, target: &SourceEditTarget) -> CompileResult<AuthoredDeclaration> {
-        if !Weak::ptr_eq(&target.base, &Arc::downgrade(&self.state)) {
+        if target.base != self.program.bytecode().revision() {
             return Err(source_error(
                 "source edit target belongs to a different Program base",
             ));
         }
-        self.bytecode()
+        self.program
+            .bytecode()
             .source_package()
             .and_then(|package| {
                 package

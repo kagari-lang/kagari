@@ -7,7 +7,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::Program,
+    program::Compilation,
 };
 use kagari_bytecode::{
     instruction::NativeImportId,
@@ -83,9 +83,9 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
         let mut runtime = fixture.engine.runtime(context.clone());
         common::register_root(runtime.runtime_mut());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let result = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
@@ -137,8 +137,10 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
     let mut runtime = fixture.engine.runtime(context.clone());
     common::register_root(runtime.runtime_mut());
     let program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
@@ -551,8 +553,10 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
     let mut runtime = fixture.engine.runtime(context.clone());
     common::register_root(runtime.runtime_mut());
     let program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
@@ -657,14 +661,14 @@ fn interface_method_results_validate_nested_host_roots() {
     let context = context(false);
     let mut runtime = fixture.engine.runtime(context.clone());
     let root = common::register_root(runtime.runtime_mut());
-    let loaded_program = Program::from_artifact(
+    let loaded_program = Compilation::from_artifact(
         fixture.artifact.clone(),
         &Default::default(),
         &Default::default(),
     )
     .unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime

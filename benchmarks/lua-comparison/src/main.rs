@@ -16,7 +16,7 @@ use std::{env, hint::black_box, time::Instant};
 use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::Program,
+    program::Compilation,
     runtime::Runtime,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -275,7 +275,7 @@ fn run(workload: &Workload, options: &Options) {
             .expect("Kagari compilation")
     });
     let program = record.setup("artifact_prepare", "kagari_vm", || {
-        Program::from_artifact(artifact, &Default::default(), &Default::default())
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default())
             .expect("artifact verification")
     });
     let context = ExecutionContext::default();
@@ -293,7 +293,7 @@ fn run(workload: &Workload, options: &Options) {
     });
     let module = record.setup("program_link", "kagari_vm", || {
         runtime
-            .load_program(&program, Default::default())
+            .load_program(program.program(), Default::default())
             .expect("program link")
     });
     let lua = record.setup("engine_init", "lua54", Lua::new);

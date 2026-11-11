@@ -49,7 +49,10 @@ fn ordinary_execution(
     // Retire materialized module constants before checking execution-root cleanup.
     runtime
         .program(&loaded)
-        .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(&program, &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     runtime.runtime().collect_garbage().unwrap();

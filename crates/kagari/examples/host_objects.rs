@@ -184,7 +184,10 @@ pub fn main() {
     let replacement = prepare(200);
     runtime
         .program(&loaded)
-        .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(&replacement, &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
         .unwrap();
     // The retained binding still means `score`, now with its current body.

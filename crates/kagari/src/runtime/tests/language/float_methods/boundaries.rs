@@ -106,7 +106,9 @@ fn invalid_clamp_bounds_trap_after_arguments_and_release_roots_without_poisoning
         let consumer = engine();
         let context = context();
         let mut runtime = consumer.runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         let retained: Object = runtime
             .execute_typed(&loaded, ProgramEntry::Main, (), &context)
             .unwrap();

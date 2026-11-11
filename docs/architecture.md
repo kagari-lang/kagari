@@ -437,11 +437,12 @@ source database / snapshots
   -> compiler source lowering and bounded reachable monomorphization
   -> verified concrete MIR with sealed analyses
        -> compiler core bytecode emission -> verified bytecode
-            -> SDK direct Program (same-generation MIR retained on request)
+            -> Runtime Program + SDK Compilation (MIR retained on request)
        -> codegen + explicit helper links -> owned native product
 
 .kbc envelope (bytecode + optional portable MIR)
-  -> SDK Program (validation and, with native, canonical MIR correspondence)
+  -> Runtime Program (checked executable)
+  -> optional SDK Compilation (canonical MIR correspondence for backend use)
   -> runtime-specific linking and immutable module versions
   -> interpreter, or explicit native preparation/install/execute
 ```
@@ -1712,20 +1713,19 @@ Declared signatures, types, layouts, trait relationships and retained demands re
 separate requirements, not inferred from heap liveness. The
 [activation specification](spec/module-activation.md) owns admission and preserved-state semantics.
 
-SDK source preparation owns immutable compilation capsules, not a runtime frontend.
-`CheckedInputs` captures bytes/origins, package/declaration environment, root and
-compiler/acquisition identity; `CompilationInputs` adds lowering/preparation settings.
-An update creates a fresh analysis database, checks one bounded complete batch and
-lowers with retained demands. No mutable engine session, filesystem acquisition,
-callback or executable lease lives in the capsule. SDK publication associations are
-reserved by exact `PublicationToken` before initial-load/reload/update commit and
-rolled back on failure. A low-level publication without a matching capsule cannot
-fall back to old inputs; later source update reports `MissingCompilationContext`.
-Verified native MIR is immutable and shared by `Arc` between the prepared program
-and its exact publication attachment, rather than deep-cloned on load or when
-recovering current preparation. The last owner releases it; this does not retain
-the prepared program's local code cache, backend or executable lease. Artifact
-validation and generation matching still precede adoption and use.
+SDK `Compilation` explicitly owns immutable compilation inputs, independently
+of Runtime's executable Program. `CheckedInputs` captures bytes/origins, package/
+declaration environment, root and compiler/acquisition identity; `CompilationInputs`
+adds lowering/preparation settings. An update creates a fresh analysis database,
+checks one bounded complete batch and lowers with the canonical Program's retained
+demands. NativeCompiler consumes the explicit Compilation's optional verified MIR;
+its bounded cache and compiled pages remain separate owners. No mutable engine
+session, filesystem acquisition, callback or installation authority lives in the
+inputs. Runtime installation retains only the typed executable product; it neither
+retains source/MIR preparation nor recovers SDK state through a downcast. Cloned
+Compilations may share inputs/MIR by Arc, and their last explicit owner releases
+them while installed bytecode/native pages can remain live. Missing source input
+rejects updates; exact product/native-input and publication checks remain mandatory.
 
 Source text has a separate owner: bytecode verifies an optional source package
 against executable source-manifest anchors, then runtime `source` supplies exact

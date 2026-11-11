@@ -12,7 +12,7 @@ use crate::{
         source::{analysis::SourceAnalysis, compilation::Compilation, inputs::CheckedInputs},
     },
     error::{CompilationPhase, EmbeddingError},
-    program::Program,
+    program::{Compilation as PreparedCompilation, Program},
 };
 
 use blake3::Hasher;
@@ -382,9 +382,9 @@ impl KagariEngine {
         &self,
         checked: &CheckedModule,
         options: PreparationOptions,
-    ) -> CompileResult<Program> {
+    ) -> CompileResult<PreparedCompilation> {
         let compilation = Compilation::lower(checked, &options.lowering)?;
-        let prepared = Program::from_compilation(compilation, &options, None)?;
+        let prepared = PreparedCompilation::from_compilation(compilation, &options, None)?;
         options
             .lowering
             .cancel
@@ -393,16 +393,26 @@ impl KagariEngine {
         Ok(prepared)
     }
 
-    /// Check and prepare source for execution without constructing an artifact.
+    /// Check source and retain explicit preparation inputs for updates/native code.
+    pub fn compile(
+        &self,
+        source: SourceFile,
+        options: PreparationOptions,
+    ) -> CompileResult<PreparedCompilation> {
+        let checked = self
+            .analyze_source(source, &options.lowering.cancel)?
+            .check(&options.lowering.cancel)?;
+        self.prepare(&checked, options)
+    }
+
+    /// Compile an executable product, discarding source/MIR preparation inputs.
     pub fn compile_to_program(
         &self,
         source: SourceFile,
         options: PreparationOptions,
     ) -> CompileResult<Program> {
-        let checked = self
-            .analyze_source(source, &options.lowering.cancel)?
-            .check(&options.lowering.cancel)?;
-        self.prepare(&checked, options)
+        self.compile(source, options)
+            .map(PreparedCompilation::into_program)
     }
 
     /// Explicitly export checked source as an editable portable artifact.

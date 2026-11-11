@@ -131,7 +131,10 @@ fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies
     assert_eq!(runtime.call(&function, ()).unwrap(), 10);
     runtime
         .program(&program)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(&second, &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     runtime.runtime().collect_garbage().unwrap();
@@ -182,7 +185,10 @@ fn async_typed_admission_retains_selected_factory_before_any_poll() {
     let mut admitted = runtime.submit_async(&function, ()).unwrap();
     runtime
         .program(&program)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(&second, &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     runtime.runtime().collect_garbage().unwrap();
@@ -273,7 +279,10 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
     assert_ne!(old.target, other_source.target);
     runtime
         .program(&program)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(&second, &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     let SourceQuery::Available(current) = runtime.runtime().function_source(&target).unwrap()
@@ -372,7 +381,10 @@ fn interface_source_targets_intrinsic_bridges_survive_executable_reclamation() {
     }
     runtime
         .program(&program)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(&second, &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| runtime.replace_program(&program, &candidate, Default::default()))
         .unwrap();
     assert!(

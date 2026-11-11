@@ -5,7 +5,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::Program,
+    program::Compilation,
     runtime::LoadOptions,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -44,9 +44,9 @@ fn interpreter_traps_capture_frames_and_original_source_locations() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let error = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -93,10 +93,10 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact.clone(), &Default::default(), &Default::default())
+            Compilation::from_artifact(artifact.clone(), &Default::default(), &Default::default())
                 .unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let error = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -150,9 +150,9 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -283,9 +283,9 @@ fn main()->Result<i32,String>{recur(160)}
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -312,9 +312,9 @@ fn none_and_handled_errors_do_not_become_execution_failures() {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         assert!(
             runtime
@@ -340,9 +340,9 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let old_program =
-        Program::from_artifact(first, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(first, &Default::default(), &Default::default()).unwrap();
     let old = runtime
-        .load_program(&old_program, Default::default())
+        .load_program(old_program.program(), Default::default())
         .unwrap();
     let report = runtime
         .execute(&old, ProgramEntry::Main, &[], &context)
@@ -353,9 +353,12 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
         .program(&old)
         .and_then(|base| {
             base.prepare_replacement(
-                &Program::from_artifact(second, &Default::default(), &Default::default()).unwrap(),
+                (Compilation::from_artifact(second, &Default::default(), &Default::default())
+                    .unwrap())
+                .program(),
                 &Default::default(),
             )
+            .map_err(Into::into)
         })
         .and_then(|candidate| runtime.replace_program(&old, &candidate, Default::default()))
         .unwrap();
@@ -415,10 +418,10 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(
-            &loaded_program,
+            loaded_program.program(),
             LoadOptions {
                 program_name: Some("unrelated-load-alias".into()),
             },
@@ -455,9 +458,9 @@ fn cancellation_keeps_the_failing_frame_and_releases_resources() {
 
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     let cancellation = support::cancel_after(
         runtime.runtime(),
@@ -558,9 +561,9 @@ fn imported_error_frames_keep_their_own_source_locations() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        .load_program(loaded_program.program(), Default::default())
         .unwrap();
     let trace = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)

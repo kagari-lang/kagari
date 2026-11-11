@@ -66,7 +66,8 @@ impl Runtime {
     /// reconstructing inputs or falling back to a stale preparation association.
     pub fn program(&self, installed: &InstalledProgram) -> RunResult<Program> {
         let current = self.runtime().select_program(installed)?;
-        Program::from_installed_code(current.verified_program())
+        Program::from_verified(current.verified_program().clone(), &Default::default())
+            .map_err(Into::into)
     }
 
     pub fn load_program(

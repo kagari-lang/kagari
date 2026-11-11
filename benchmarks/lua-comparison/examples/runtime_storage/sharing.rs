@@ -200,9 +200,10 @@ pub(super) fn run() {
     let mut samples = Vec::with_capacity(11);
     for index in 0..14 {
         #[cfg(feature = "diagnostics")]
-        let (sample, total) = allocations::measure(|| lifecycle(&engine, &program, &options));
+        let (sample, total) =
+            allocations::measure(|| lifecycle(&engine, program.program(), &options));
         #[cfg(not(feature = "diagnostics"))]
-        let sample = lifecycle(&engine, &program, &options);
+        let sample = lifecycle(&engine, program.program(), &options);
         if index >= 3 {
             #[cfg(feature = "diagnostics")]
             assert_eq!(total.net_bytes, 0, "warm runtime lifecycle must balance");

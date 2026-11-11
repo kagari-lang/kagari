@@ -22,7 +22,9 @@ fn math_body_is_rejected_before_native_entry_then_runs_in_interpreter_fallback()
         ..Default::default()
     };
     let mut runtime = consumer.runtime(context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let mut backend = CraneliftBackend::for_host().unwrap();
     let prepared = NativeCompiler::default()
         .prepare(

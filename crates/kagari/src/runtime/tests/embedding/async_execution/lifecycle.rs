@@ -4,7 +4,7 @@ use crate::{
     BytecodeArtifact,
     engine::EngineConfig,
     error::{EmbeddingError, RuntimeFailureKind},
-    program::Program,
+    program::Compilation,
 };
 use kagari_runtime::{
     error::RuntimeErrorKind,
@@ -23,7 +23,7 @@ use std::{
 const SOURCE: &str =
     include_str!("../../../../../tests/fixtures/embedding/async/pinned-reload.kgr");
 
-fn prepare(f: &Fixture, source: &str) -> Program {
+fn prepare(f: &Fixture, source: &str) -> Compilation {
     let artifact = f
         .engine
         .compile_to_artifact(
@@ -34,7 +34,7 @@ fn prepare(f: &Fixture, source: &str) -> Program {
     let artifact =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-    Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }
 
 fn task_boundary(f: &Fixture, scope: &TaskScopeOwner, id: TaskId) -> TaskDriveResult {
@@ -105,7 +105,7 @@ fn reject_candidate_work(f: &Fixture, scope: &TaskScopeOwner, factory: &RootedVa
     let ready = runtime.ready_tasks(scope).unwrap();
     for entry in ["cold", "native_cold", "spawn"] {
         let candidate = runtime
-            .stage_reload_verified_program(&f.module, None, f.program.bytecode().clone())
+            .stage_reload_verified_program(&f.module, None, f.program.program().bytecode().clone())
             .unwrap();
         let session = runtime.begin_candidate_initialization(&candidate).unwrap();
         if entry == "spawn" {
@@ -223,7 +223,10 @@ fn lifecycle_reload_contract() {
         );
         f.runtime
             .program(&f.module)
-            .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+            .and_then(|base| {
+                base.prepare_replacement(replacement.program(), &Default::default())
+                    .map_err(Into::into)
+            })
             .and_then(|candidate| {
                 f.runtime
                     .replace_program(&f.module, &candidate, Default::default())

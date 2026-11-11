@@ -5,7 +5,7 @@ use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
-    program::Program,
+    program::Compilation,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -52,8 +52,10 @@ fn execute(artifact: DefinitionMetadata<BytecodeArtifact>) {
                 .unwrap()
                 .runtime(context.clone());
         let program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
             let prepared = NativeCompiler::default()
@@ -123,9 +125,9 @@ fn interpreter_execution(
                 .unwrap()
                 .runtime(context.clone());
         let program_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let program = runtime
-            .load_program(&program_program, Default::default())
+            .load_program(program_program.program(), Default::default())
             .unwrap();
         assert_eq!(
             runtime
@@ -161,9 +163,9 @@ fn encoded_execution(
             .unwrap()
             .runtime(context.clone());
     let program_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let program = runtime
-        .load_program(&program_program, Default::default())
+        .load_program(program_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime
@@ -195,9 +197,9 @@ fn direct_execution(
             .unwrap()
             .runtime(context.clone());
     let program_program =
-        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let program = runtime
-        .load_program(&program_program, Default::default())
+        .load_program(program_program.program(), Default::default())
         .unwrap();
     assert_eq!(
         runtime

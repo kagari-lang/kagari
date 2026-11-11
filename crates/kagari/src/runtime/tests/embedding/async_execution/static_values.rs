@@ -51,7 +51,10 @@ fn persistent_static_future_and_task_keep_old_code_but_observe_shared_state(#[ca
     );
     f.runtime
         .program(&f.module)
-        .and_then(|base| base.prepare_replacement(&replacement, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(replacement.program(), &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| {
             f.runtime
                 .replace_program(&f.module, &candidate, Default::default())

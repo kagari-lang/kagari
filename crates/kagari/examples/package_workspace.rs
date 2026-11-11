@@ -35,7 +35,7 @@ fn main() {
         .expect("verified program");
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime
-        .load_program(&program, Default::default())
+        .load_program(program.program(), Default::default())
         .expect("loaded program");
     let context = Default::default();
     let login = runtime

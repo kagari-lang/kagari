@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{EngineConfig, KagariEngine},
-    program::Program,
+    program::Compilation,
     runtime::tests::language::numeric_checks::NumericChecks,
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -93,7 +93,7 @@ fn context() -> ExecutionContext {
     }
 }
 
-fn programs(source: &str) -> [(&'static str, Program); 2] {
+fn programs(source: &str) -> [(&'static str, Compilation); 2] {
     let compiler = engine();
     let checked = compiler
         .compile_source(SourceFile::new("float-methods.kgr", source))
@@ -106,7 +106,7 @@ fn programs(source: &str) -> [(&'static str, Program); 2] {
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let encoded =
-        Program::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     [("source", direct), ("encoded", encoded)]
 }
 
@@ -118,11 +118,13 @@ fn execute_checks(checks: Vec<String>) {
     }
 }
 
-fn assert_checks(program: &Program, route: &str, source: &str, checks: &NumericChecks) {
+fn assert_checks(program: &Compilation, route: &str, source: &str, checks: &NumericChecks) {
     let consumer = engine();
     let context = context();
     let mut runtime = consumer.runtime(context.clone());
-    let loaded = runtime.load_program(program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap_or_else(|error| panic!("{route}: {error:?}\n{source}"));

@@ -4,7 +4,7 @@ use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::Program,
+    program::Compilation,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
@@ -53,9 +53,9 @@ fn ordinary_execution(
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let result = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();

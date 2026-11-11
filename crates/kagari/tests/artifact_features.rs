@@ -2,12 +2,14 @@
 #[cfg(feature = "native")]
 use kagari::context::JitPolicy;
 #[cfg(feature = "native")]
+use kagari::program::CompilationPreparationError;
+#[cfg(feature = "native")]
 use kagari::program::native::NativeCompiler;
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
     error::EmbeddingError,
-    program::Program,
+    program::{Compilation, Program},
 };
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
@@ -233,7 +235,10 @@ fn source_free_native_bindings_execute_and_release_scopes() {
         // scopes/results; the replacement cache has not been materialized.
         runtime
             .program(&loaded)
-            .and_then(|base| base.prepare_replacement(&program, &Default::default()))
+            .and_then(|base| {
+                base.prepare_replacement(&program, &Default::default())
+                    .map_err(Into::into)
+            })
             .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
             .unwrap();
         runtime.runtime().collect_garbage().unwrap();
@@ -355,18 +360,20 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
         .unwrap();
     let malformed =
         DefinitionMetadata::checked(context.snapshot(), malformed, &Default::default()).unwrap();
-    let result = Program::from_artifact(malformed, &Default::default(), &Default::default());
+    let result = Compilation::from_artifact(malformed, &Default::default(), &Default::default());
     #[cfg(feature = "native")]
     assert!(matches!(
         result,
-        Err(kagari::program::ProgramPreparationError::NativeInput(_))
+        Err(CompilationPreparationError::NativeInput(_))
     ));
     #[cfg(not(feature = "native"))]
     {
         let program = result.unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, ProgramEntry::Main, &[], &context)
@@ -492,14 +499,17 @@ mod native {
     #[test]
     fn native_artifact_preparation_and_execution_need_no_frontend() {
         let program =
-            Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact(), &Default::default(), &Default::default())
+                .unwrap();
         assert!(program.has_native_input());
         let context = ExecutionContext {
             jit_policy: JitPolicy::Enabled,
             ..Default::default()
         };
         let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         let prepared = NativeCompiler::default()
             .prepare(
                 &program,
@@ -529,14 +539,16 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     use kagari_codegen_cranelift::CraneliftBackend;
     use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
     let program =
-        Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext {
         jit_policy: JitPolicy::Enabled,
         ..Default::default()
     };
 
     let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     let prepared = NativeCompiler::default()
         .prepare(
             &program,

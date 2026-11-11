@@ -1,7 +1,7 @@
 //! Build a single-entry deployment bundle from checked portable compiler input.
 use crate::{
     aot::{AotError, BUILD_CONTRACT, check_cancel, read_bounded},
-    program::Program,
+    program::Compilation,
 };
 use blake3::hash;
 use kagari_abi::{
@@ -44,15 +44,14 @@ impl AotBuild {
         cancel: &CancellationToken,
     ) -> Result<Self, AotError> {
         check_cancel(cancel)?;
-        let program = Program::from_artifact(artifact.clone(), &Default::default(), cancel)
+        let program = Compilation::from_artifact(artifact.clone(), &Default::default(), cancel)
             .map_err(|e| AotError(e.to_string()))?;
         let target = match entry {
-            ProgramEntry::Main => program.bytecode().entry_function(),
-            ProgramEntry::Export(path) => program.bytecode().exported_function(path),
+            ProgramEntry::Main => program.program().bytecode().entry_function(),
+            ProgramEntry::Export(path) => program.program().bytecode().exported_function(path),
         }
         .ok_or_else(|| AotError("selected AOT entry does not exist".into()))?;
         let mir = program
-            .state
             .mir
             .as_ref()
             .ok_or_else(|| AotError("AOT build needs portable MIR".into()))?;

@@ -10,7 +10,7 @@ use crate::{
         },
     },
     error::{EmbeddingError, RuntimeFailureKind},
-    program::Program,
+    program::Compilation,
     update::{Edit, FunctionUpdateTarget, Update},
 };
 use kagari_bytecode::{
@@ -85,12 +85,12 @@ struct AddedDocument<'a> {
 }
 
 pub(super) fn check_candidate(
-    program: &Program,
+    program: &Compilation,
     inputs: &CompilationInputs,
     update: &Update,
 ) -> CompileResult<CheckedModule> {
     let captured = inputs.checked();
-    let current = program.bytecode();
+    let current = program.program().bytecode();
     if captured.compiler_contract() != KAGARI_COMPILER_FINGERPRINT
         || captured.root() != &current.modules()[current.root().index()].identity
     {

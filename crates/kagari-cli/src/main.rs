@@ -23,7 +23,7 @@ use kagari::{
         source::{ArtifactOptions, PreparationOptions},
     },
     error::EmbeddingError,
-    program::{Program, ProgramPreparationError},
+    program::{Compilation, CompilationPreparationError, ProgramPreparationError},
     runtime::{LoadOptions, Runtime},
 };
 use kagari_bytecode::artifact::ArtifactCompatibility;
@@ -146,7 +146,7 @@ fn run_source(path: &Path, jit: bool) -> Result<(), CliError> {
     let source = read_source(path)?;
     let engine = source_engine("target/kagari-declarations")?;
     let program = engine
-        .compile_to_program(source, source_preparation(jit))
+        .compile(source, source_preparation(jit))
         .map_err(|error| print_source_error(&engine, error))?;
     run_prepared_program(
         &engine,
@@ -177,7 +177,7 @@ fn run_loaded_artifact(
 
     jit: bool,
 ) -> Result<(), CliError> {
-    let program = Program::from_artifact(
+    let program = Compilation::from_artifact(
         artifact,
         &ArtifactCompatibility::default(),
         &Default::default(),
@@ -188,7 +188,7 @@ fn run_loaded_artifact(
 
 fn run_prepared_program(
     engine: &KagariEngine,
-    program: &Program,
+    program: &Compilation,
     load_options: LoadOptions,
     jit: bool,
 ) -> Result<(), CliError> {
@@ -202,7 +202,7 @@ fn run_prepared_program(
     };
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_program(program, load_options)
+        .load_program(program.program(), load_options)
         .map_err(print_embedding_error)?;
 
     let report = execute_entry(&mut runtime, program, &loaded, &context, jit)?;
@@ -214,7 +214,7 @@ fn run_prepared_program(
 
 fn execute_entry(
     runtime: &mut Runtime,
-    program: &Program,
+    program: &Compilation,
     loaded: &InstalledProgram,
     context: &ExecutionContext,
     jit: bool,
@@ -230,7 +230,7 @@ fn execute_entry(
 #[cfg(feature = "jit")]
 fn execute_entry_with_jit(
     runtime: &mut Runtime,
-    program: &Program,
+    program: &Compilation,
     loaded: &InstalledProgram,
     context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
@@ -253,7 +253,7 @@ fn execute_entry_with_jit(
 #[cfg(not(feature = "jit"))]
 fn execute_entry_with_jit(
     _runtime: &mut Runtime,
-    _program: &Program,
+    _program: &Compilation,
     _loaded: &InstalledProgram,
     _context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
@@ -352,12 +352,14 @@ fn print_source_error(engine: &KagariEngine, error: EmbeddingError) -> CliError 
     }
 }
 
-fn print_program_error(error: ProgramPreparationError) -> CliError {
+fn print_program_error(error: CompilationPreparationError) -> CliError {
     match error {
-        ProgramPreparationError::Artifact(error) => {
+        CompilationPreparationError::Program(ProgramPreparationError::Artifact(error)) => {
             print_embedding_error(EmbeddingError::ArtifactValidation { error })
         }
-        ProgramPreparationError::Cancelled => print_embedding_error(EmbeddingError::Cancelled),
+        CompilationPreparationError::Program(ProgramPreparationError::Cancelled) => {
+            print_embedding_error(EmbeddingError::Cancelled)
+        }
         other => CliError::message(1, format!("program preparation failed: {other}")),
     }
 }

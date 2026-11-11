@@ -3,7 +3,7 @@ use crate::program::native::NativeCompiler;
 use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, source::ArtifactOptions},
-    program::Program,
+    program::Compilation,
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::KbcArtifact;
@@ -138,9 +138,9 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         let mut runtime = engine.runtime(context.clone());
         trace.lock().unwrap().clear();
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, LoadOptions::default())
+            .load_program(loaded_program.program(), LoadOptions::default())
             .unwrap();
         assert!(trace.lock().unwrap().is_empty());
         let report = if jit {
@@ -301,9 +301,10 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             let mut runtime = engine.runtime(context.clone());
             *count.lock().unwrap() = 0;
             let loaded_program =
-                Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+                Compilation::from_artifact(artifact, &Default::default(), &Default::default())
+                    .unwrap();
             let loaded = runtime
-                .load_program(&loaded_program, LoadOptions::default())
+                .load_program(loaded_program.program(), LoadOptions::default())
                 .unwrap();
             let report = if jit {
                 let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();

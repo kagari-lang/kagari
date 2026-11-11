@@ -4,7 +4,7 @@ use crate::program::native::NativeCompiler;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
-    program::Program,
+    program::Compilation,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
@@ -228,12 +228,12 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let artifact = round_trip(&artifact, encoded);
         let context = context(jit);
         let program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert!(
             KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
                 .unwrap()
                 .runtime(context.clone())
-                .load_program(&program, Default::default())
+                .load_program(program.program(), Default::default())
                 .is_err()
         );
         assert!(trace.lock().unwrap().is_empty());
@@ -248,7 +248,9 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             .runtime_mut()
             .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
             .unwrap();
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         let mut backend = jit.then(|| CraneliftBackend::for_host().unwrap());
         for expected in [42, 44] {
             let result = if let Some(backend) = &mut backend {
@@ -360,13 +362,15 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             .runtime_mut()
             .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
             .unwrap();
-        let program = Program::from_artifact(
+        let program = Compilation::from_artifact(
             round_trip(&artifact, encoded),
             &Default::default(),
             &Default::default(),
         )
         .unwrap();
-        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        let loaded = runtime
+            .load_program(program.program(), Default::default())
+            .unwrap();
         assert!(trace.lock().unwrap().is_empty());
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();
@@ -410,16 +414,19 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
         assert!(module.external_types.contains(schema));
     }
     let program =
-        Program::from_artifact(artifact.clone(), &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact.clone(), &Default::default(), &Default::default())
+            .unwrap();
     assert!(
         KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
             .unwrap()
             .runtime(Default::default())
-            .load_program(&program, Default::default())
+            .load_program(program.program(), Default::default())
             .is_err()
     );
     let mut runtime = engine.runtime(Default::default());
-    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(program.program(), Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, ProgramEntry::Main, &[], &Default::default())

@@ -1,7 +1,7 @@
 use super::*;
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
-use crate::{context::JitPolicy, program::Program};
+use crate::{context::JitPolicy, program::Compilation};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_contract::types::PublicItem;
 use kagari_runtime::module::entry::ProgramEntry;
@@ -321,7 +321,8 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let prepared =
-        Program::from_artifact(artifact.clone(), &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(artifact.clone(), &Default::default(), &Default::default())
+            .unwrap();
     let context = ExecutionContext {
         jit_policy: JitPolicy::Disabled,
         ..Default::default()
@@ -337,7 +338,9 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .runtime_mut()
         .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
-    let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(prepared.program(), Default::default())
+        .unwrap();
     let report = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
@@ -369,9 +372,9 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     let omitted =
         DefinitionMetadata::checked(definitions.snapshot(), omitted, &Default::default()).unwrap();
     let omitted =
-        Program::from_artifact(omitted, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(omitted, &Default::default(), &Default::default()).unwrap();
     let error = runtime
-        .load_program(&omitted, Default::default())
+        .load_program(omitted.program(), Default::default())
         .unwrap_err();
     assert!(
         format!("{error:?}").contains("source trait references differ"),
@@ -461,9 +464,9 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         KbcArtifact::from_bytes(&changed.records().to_bytes(changed.definitions()).unwrap())
             .unwrap();
     let changed =
-        Program::from_artifact(changed, &Default::default(), &Default::default()).unwrap();
+        Compilation::from_artifact(changed, &Default::default(), &Default::default()).unwrap();
     let error = runtime
-        .load_program(&changed, Default::default())
+        .load_program(changed.program(), Default::default())
         .unwrap_err();
     assert!(
         format!("{error:?}").contains("source trait references differ"),
@@ -911,9 +914,9 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             .register_host_root(HostObjectId(7), counter_id, HostSchemaEpoch::new(0))
             .unwrap();
         let loaded_program =
-            Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+            Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         let loaded = runtime
-            .load_program(&loaded_program, Default::default())
+            .load_program(loaded_program.program(), Default::default())
             .unwrap();
         let report = if jit {
             let mut backend = CraneliftBackend::for_host().unwrap();

@@ -20,7 +20,7 @@ distinguishes completed detachment from deferred full-library acceptance.
 
 ```mermaid
 flowchart TD
-    PRODUCT["Immutable SDK Program<br/>Arc ProgramState, Send + Sync"] --> CODE["Verified bytecode, execution/layout facts<br/>source inputs and optional verified MIR"]
+    PREP["SDK Compilation<br/>source inputs and optional verified MIR"] --> PRODUCT["Immutable Runtime Program<br/>Arc ProgramState, Send + Sync"] --> CODE["Verified bytecode, execution/layout facts<br/>checked source/debug metadata"]
     SDK["SDK Runtime"] --> VM["Vm"]
     VM --> RT["Core Runtime<br/>Send, not Sync"]
     RT --> STORE["ModuleStore<br/>local current map and declaration allocator"]
@@ -49,7 +49,8 @@ ResourceState. Splitting these owners, redesigning slots and changing the collec
 are separate work. Arc references keep Rust owners alive; explicit roots and joint
 object/metadata traversal determine script reachability.
 
-Sources: [SDK Program](../../crates/kagari/src/program.rs),
+Sources: [Runtime Program](../../crates/kagari-runtime/src/program.rs),
+[SDK Compilation](../../crates/kagari/src/program.rs),
 [SDK Runtime](../../crates/kagari/src/runtime.rs), [Vm](../../crates/kagari-vm/src/vm.rs),
 [core Runtime](../../crates/kagari-runtime/src/lib.rs),
 [ModuleStore](../../crates/kagari-runtime/src/module.rs),
@@ -120,7 +121,7 @@ for these types and the former field record; no ignored probe file is required.
    verifies portable executable contracts. Optional retained source is diagnostic
    metadata; it does not replace verification or supply a compilation capsule.
 2. SDK `Program` shares immutable bytecode, checked call/layout facts, bounded
-   historical demands, optional immutable source inputs and optional verified MIR.
+   historical demands, optional immutable checked source/debug metadata.
    Preparation has no Runtime, script effects or installed Rust captures.
 3. Loading adopts declaration identities into the recipient scope without remapping
    a complete executable image. Runtime checks its own installed providers and builds
@@ -140,11 +141,14 @@ Sources: [identity admission](../../crates/kagari-runtime/src/module/admission.r
 ### Program product, installation and publication
 
 ```text
-Program { state: Arc<ProgramState> }              SDK immutable shared product
+Program { state: Arc<ProgramState> }              Runtime immutable executable product
 ProgramState {
     bytecode: VerifiedProgram,                    no owner back-reference
     history: Arc<RetainedDemands>,                metadata, not executable ancestry
     expected_base: Option<Weak<ProgramState>>,
+}
+Compilation {                                    SDK preparation, not an executable
+    program: Program,
     compilation: optional Arc<CompilationInputs>,
     mir: optional Arc<VerifiedMirProgram>
 }
@@ -158,7 +162,7 @@ ModuleStore {
 }
 ExecutableModule { program: Arc<ProgramDescriptor>, slot: ModuleRef }
 ProgramDescriptor {
-    code: VerifiedProgram,                       attaches shared SDK owner, if any
+    code: VerifiedProgram,                       typed executable product association, no SDK downcast
     definitions: Arc<DefinitionAdmission>,
     dispatch: Arc<PublicationDispatch>,
     retained_demands, layouts, layout_admissions, source,

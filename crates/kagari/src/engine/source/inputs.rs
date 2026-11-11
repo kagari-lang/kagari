@@ -591,7 +591,9 @@ mod tests {
             .prepare(checked, PreparationOptions::default())
             .unwrap();
         let mut runtime = engine.runtime(Default::default());
-        let program = runtime.load_program(&prepared, Default::default()).unwrap();
+        let program = runtime
+            .load_program(prepared.program(), Default::default())
+            .unwrap();
         runtime
             .execute_typed::<(), i32>(&program, "answer", (), &Default::default())
             .unwrap()

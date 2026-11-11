@@ -90,7 +90,10 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let previous = runtime.runtime().select_program(&loaded).unwrap();
     runtime
         .program(&loaded)
-        .and_then(|base| base.prepare_replacement(&second, &Default::default()))
+        .and_then(|base| {
+            base.prepare_replacement(&second, &Default::default())
+                .map_err(Into::into)
+        })
         .and_then(|candidate| {
             runtime.replace_program(
                 &loaded,

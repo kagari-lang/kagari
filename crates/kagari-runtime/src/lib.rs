@@ -70,6 +70,7 @@ pub mod metadata;
 pub mod module;
 pub mod native;
 pub mod numeric;
+pub mod program;
 pub mod publication;
 pub mod range;
 pub mod reflection;

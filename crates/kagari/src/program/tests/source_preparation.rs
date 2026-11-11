@@ -4,9 +4,10 @@ use crate::{
     error::EmbeddingError,
     program::{Program, ProgramPreparationError},
 };
-use kagari_runtime::{module::entry::ProgramEntry, value::Value};
+use kagari_runtime::{Runtime as CoreRuntime, module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
 use kagari_stdlib as stdlib;
+use kagari_vm::vm::Vm;
 
 #[test]
 fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
@@ -24,8 +25,25 @@ fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
             )
             .unwrap()
     };
-    #[cfg(feature = "native")]
-    assert!(!program.has_native_input());
+    // The same canonical product is directly installable without an SDK Runtime.
+    let mut direct = CoreRuntime::default();
+    kagari_runtime::native::module::NativeModule::install_all(
+        &stdlib::modules().unwrap(),
+        &mut direct,
+    )
+    .unwrap();
+    let installed = direct
+        .load_verified_program("direct", program.clone().into_verified())
+        .unwrap();
+    let vm = Vm::new(direct);
+    let loaded = vm.runtime().select_program(&installed).unwrap();
+    let result = vm.execute(&loaded, ProgramEntry::Main).unwrap();
+    assert_eq!(
+        result.return_value.value(vm.runtime().gc()).unwrap(),
+        Value::I32(42)
+    );
+    drop(result);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
     for _ in 0..2 {
         // Independent engine installations have independent definition contexts.
         let engine =

@@ -6,7 +6,7 @@ use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::source::PreparationOptions,
     error::EmbeddingError,
-    program::Program,
+    program::Compilation,
     runtime::Runtime,
 };
 use kagari_bytecode::artifact::{ArtifactCompatibility, KbcArtifact};
@@ -294,7 +294,7 @@ fn compile(case: &Case<'_>, publication: bool) -> Option<RoutePrograms> {
     let encoded =
         KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-    let encoded = Program::from_artifact(
+    let encoded = Compilation::from_artifact(
         encoded,
         &ArtifactCompatibility::default(),
         &Default::default(),
@@ -304,12 +304,12 @@ fn compile(case: &Case<'_>, publication: bool) -> Option<RoutePrograms> {
 }
 
 struct RoutePrograms {
-    source: Program,
-    encoded: Program,
+    source: Compilation,
+    encoded: Compilation,
 }
 
 impl RoutePrograms {
-    fn get(&self, route: Route) -> &Program {
+    fn get(&self, route: Route) -> &Compilation {
         match route {
             Route::Source | Route::Jit => &self.source,
             Route::Artifact | Route::ArtifactJit => &self.encoded,
@@ -412,7 +412,7 @@ fn execute_route(
 fn prepare_native(
     runtime: &mut Runtime,
     compiler: &mut NativeCompiler,
-    program: &Program,
+    program: &Compilation,
     loaded: &InstalledProgram,
     entry: ProgramEntry<'_>,
     backend: &mut CraneliftBackend,
@@ -423,7 +423,12 @@ fn prepare_native(
     runtime.install_native(loaded, &code).unwrap()
 }
 
-fn run(case: &Case<'_>, route: Route, module: &Program, candidate_program: Option<&Program>) {
+fn run(
+    case: &Case<'_>,
+    route: Route,
+    module: &Compilation,
+    candidate_program: Option<&Compilation>,
+) {
     let observe = observe_vector();
     let mut runtime = preparation::installation().runtime(RuntimeConfig {
         limits: RuntimeLimits {
@@ -489,7 +494,7 @@ fn run(case: &Case<'_>, route: Route, module: &Program, candidate_program: Optio
         builder.finish().unwrap().install(&mut runtime).unwrap();
     }
     let loaded = runtime
-        .load_verified_program(case.name, module.clone().into_verified())
+        .load_verified_program(case.name, module.clone().into_program().into_verified())
         .unwrap_or_else(|error| panic!("{} ({route:?}): {error}", case.name));
     let selected = runtime.select_program(&loaded).unwrap();
     let retained = case.vector.map(|(initial, _)| {
@@ -588,10 +593,13 @@ fn run(case: &Case<'_>, route: Route, module: &Program, candidate_program: Optio
             .unwrap();
         let stale = vm
             .runtime()
-            .stage_reload_verified_program(&loaded, None, program.bytecode().clone())
+            .stage_reload_verified_program(&loaded, None, program.program().bytecode().clone())
             .unwrap();
         vm.program(&loaded)
-            .and_then(|base| base.prepare_replacement(program, &Default::default()))
+            .and_then(|base| {
+                base.prepare_replacement(program.program(), &Default::default())
+                    .map_err(Into::into)
+            })
             .and_then(|candidate| vm.replace_program(&loaded, &candidate, Default::default()))
             .unwrap();
         let current = loaded.clone();

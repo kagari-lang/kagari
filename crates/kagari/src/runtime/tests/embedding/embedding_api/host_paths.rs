@@ -416,6 +416,7 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
                     .unwrap(),
                 &Default::default(),
             )
+            .map_err(Into::into)
         })
         .and_then(|candidate| {
             runtime.replace_program(

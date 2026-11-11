@@ -24,3 +24,10 @@ rule = "effective-loc"
 max_loc = 2980
 reason = "One scalar dispatch loop preserves direct specialized arms and common PC/error publication."
 evidence = "docs/architecture/runtime/scalar-execution.md"
+
+[[exceptions]]
+path = "crates/kagari/src/program.rs"
+rule = "reexport-whitelist"
+declaration = "pub use kagari_runtime::program::{Program, ProgramPreparationError};"
+reason = "The SDK facade exposes the canonical Runtime executable product; all SDK/CLI/web consumers share this type rather than a second Program wrapper."
+evidence = "docs/runtime-refactor-design.md"
