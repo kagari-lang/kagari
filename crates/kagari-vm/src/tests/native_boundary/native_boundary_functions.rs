@@ -22,9 +22,9 @@ use kagari_runtime::{
     gc::GcHeapConfig,
     module::InstalledProgram,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, conversion::KagariType,
-        declarations::FunctionDecl, function_handle::Function, module::NativeModule,
-        objects::Object, typed::NativeContext, types::Type,
+        binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
+        conversion::KagariType, declarations::FunctionDecl, function_handle::Function,
+        module::NativeModule, objects::Object, typed::NativeContext, types::Type,
     },
     resource::RuntimeLimits,
 };
@@ -36,8 +36,47 @@ use std::sync::{
 
 type ScalarCallback = Function<(i32,), i32>;
 
+#[test]
+fn empty_provider_and_custom_native_calls_need_no_standard_installation() {
+    let (vm, owner) = fixture_without_foundation("pub fn main() {}", None);
+    let main = vm
+        .runtime()
+        .bind_function::<(), ()>(&owner.root(), "main")
+        .unwrap();
+    vm.call(&main, ()).unwrap();
+
+    let mut module = ModuleBuilder::new("example::core", &DeclarationCatalog::default()).unwrap();
+    let echo = module
+        .define_function(
+            FunctionDecl::new("echo")
+                .parameter("value", Type::i32())
+                .returns(Type::i32()),
+        )
+        .unwrap();
+    module
+        .bind(
+            echo,
+            |_: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<i32> { Ok(value) },
+        )
+        .unwrap();
+    let module = module.finish().unwrap();
+    let (vm, owner) = fixture_without_foundation(
+        include_str!("../../../tests/fixtures/core_only_calls.kgr"),
+        Some(&module),
+    );
+    let main = vm
+        .runtime()
+        .bind_function::<(), i32>(&owner.root(), "main")
+        .unwrap();
+    assert_eq!(vm.call(&main, ()).unwrap(), 42);
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
+}
+
 pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, InstalledProgram) {
-    fixture_program(compile_program(source, module), module)
+    let mut modules = kagari_stdlib::modules().unwrap();
+    modules.extend(module.cloned());
+    fixture_program(compile_program(source, module), modules.iter())
 }
 
 fn fixture_without_foundation(
@@ -47,9 +86,9 @@ fn fixture_without_foundation(
     fixture_program(compile_without_foundation(source, module), module)
 }
 
-fn fixture_program(
+fn fixture_program<'a>(
     program: DefinitionMetadata<BytecodeProgram>,
-    module: Option<&NativeModule>,
+    modules: impl IntoIterator<Item = &'a NativeModule>,
 ) -> (Vm, InstalledProgram) {
     let program = round_trip_program(program);
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -62,10 +101,8 @@ fn fixture_program(
         },
         ..Default::default()
     });
-    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
-    if let Some(module) = module {
-        module.install(&mut runtime).unwrap();
-    }
+    let modules = modules.into_iter().cloned().collect::<Vec<_>>();
+    NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner = runtime.load_program("functions", program).unwrap();
     (Vm::new(runtime), owner)
 }

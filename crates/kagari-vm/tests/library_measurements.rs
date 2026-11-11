@@ -1,6 +1,7 @@
 //! Reproducible end-to-end interpreter samples; compilation/input creation are excluded.
 //! Run with --ignored --nocapture --test-threads=1. This is not a JIT benchmark.
 use kagari_stdlib::catalog as foundation_catalog;
+mod core_calls;
 mod native_allocations_counter;
 use kagari_common::identity::table::DefinitionId;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};

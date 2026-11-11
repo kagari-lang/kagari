@@ -1,7 +1,8 @@
 # Runtime Architecture and Host Boundary Refactor
 
 Status: next-scope design recorded at the user's request on 2026-11-09;
-implementation has not started. Current product ownership, final call tables and
+standard-library detachment was activated on 2026-11-11. Other proposed Runtime
+changes remain unstarted. Current product ownership, final call tables and
 publication are in the
 [Runtime model](architecture/runtime.md) and [reload walkthrough](architecture/runtime/reload.md).
 The [roadmap](implementation-roadmap.md#runtime-execution-model-review) owns any
@@ -163,8 +164,8 @@ paged-storage migration or the deferred enum/value representation redesign.
 ### Standard-library detachment inventory and execution plan
 
 Inventory date: 2026-11-11, implementation baseline `04a8e7e4`. The user requested
-an executable removal plan before reorganizing Runtime. D00-D05 below are proposed,
-unstarted checkpoints within this plan, not another NC/PG migration. Do not merge
+an executable removal plan before reorganizing Runtime. D00-D05 below were activated by the user on 2026-11-11
+within this plan, not another NC/PG migration. Do not merge
 the VM, replace the collector or implement tail recursion during these checkpoints.
 
 The production Cargo direction is already `kagari-stdlib -> kagari-runtime`;
@@ -243,6 +244,95 @@ D00's concrete target/error inventory and D02's preserved builtin boundary exist
 If continuous full-library availability becomes a requirement, change the sequence
 explicitly: prove the general public payload protocol first and migrate libraries
 through it before deleting old paths. That is broader work than detach-first.
+
+#### Activated execution and D00 baseline
+
+Activated by the user on 2026-11-11, starting from `204e7276`. D00 is complete;
+D01-D05 remain pending. Phase commits use `Plan: docs/runtime-refactor-design.md`
+and `Plan-Phase: DNN`. This activation covers detachment only; later Runtime/Host,
+VM, frame and collector proposals remain design inputs.
+
+The minimal composition is explicit checked declarations plus only the providers
+the executable actually imports. Empty/unit and scalar forwarding need none;
+an application Native function can be authored against `DeclarationCatalog::default()`.
+The D00 source-free round-trip witness uses `core_only_calls.kgr` and the existing
+Native-function fixture owner. That owner's `fixture_without_foundation` formerly
+omitted stdlib during compilation but still installed the full bundle at execution;
+it now installs only the supplied application provider. Existing closure/reload
+and selected-method witnesses therefore exercise real provider isolation.
+
+Language requirements are not a mandatory complete library bundle:
+
+| Operation | Required composition retained through the cut |
+| --- | --- |
+| Unit/scalar transport, ordinary script calls, builtin fixed arrays | Verified executable facts; no stdlib installation for the core witness. |
+| Operator/trait syntax and custom implementations | Actual checked protocol declarations/implementations in the source/executable closure when used; preserve intrinsic scalar lowering. |
+| `?`, comparisons returning enums, iteration protocols | Exact Option/Result/Ordering/ControlFlow roles and checked trait contracts from their declaration providers; no fabricated layouts or name-only admission. Standard enum/protocol authoring remains in stdlib. |
+| Futures/tasks | Explicit Future/Task/TaskScope declarations and runtime-owned execution/storage mechanisms; not collection cursors. |
+| Narrow integer checks | Keep RuntimePrimitive::Assert: `compiler/source/lower/expr/operators.rs::check_integer_range` emits it for i8/i16/u8/u16/u32 checks. It is a compiler bridge, not removable library policy. |
+
+The current full bundle mixes library defaults with language declarations (notably
+Iterable defaults and Vec-returning methods). Do not install the whole bundle as
+the core-only oracle or pretend that filtering its final modules creates a closed
+minimal provider. D02/D03 must separate these authored dependencies before removing
+their concrete bindings. Standard declarations stay explicit provider composition;
+there is no new core-wrapper crate or hidden runtime registration.
+
+Concrete affected targets and restoration ownership, frozen before the D03 cut:
+
+| Targets / selected command | Expected impact and owner |
+| --- | --- |
+| `cargo check -p kagari-runtime --lib`; `cargo check -p kagari-vm --lib` | D03/D04 must fix removed type/layout/value/codec variants and storage/cursor calls in production; these core builds must pass at the cut. |
+| `cargo check -p kagari-stdlib --all-targets` | Vec/hash/cursor contributors currently call NativeStorage::sequence/map/set, collection codecs and heap services. Expected missing-API diagnostics after removal; D03/D04 remove obsolete bindings coherently, preserve reusable language recipes and carry full collection reconstruction to NC. |
+| Runtime lib tests, `--test native_schema`, examples `collection_iteration`, `rooted_values`, `runtime_construction`, `offline_host`, `atomic_host_path`, `host_trait_table` | Collection-specific witnesses/adapters need D04 migration/removal; generic opaque payload/root/loan/reentry assertions stay active. Derive/schema code itself has no direct collection-variant matches; derived collection fields depend on removed conversion impls. |
+| VM lib tests, `--test allocation_contracts`, `--test library_measurements` | Mixed collection and generic Native witnesses depend on retiring handles/codecs. D04 preserves generic checks with custom providers; collection fixtures/oracles belong to later NC reconnection. The new core-call measurement has no full-library dependency. |
+| `cargo check -p kagari --all-targets`; `cargo check -p kagari --all-targets --features serde` | SDK lib/integration tests `artifact_features`, `async_execution`, `async_facade`; collection examples `value_interop`, `serde_interop`, `foundation_baseline`, `architecture_baseline`, `enum_layout_baseline` are direct adapter consumers. D01 makes composition explicit; D04 owns removed-adapter compile repairs. Retain source-free, enum, async and reload routes. |
+| Remaining SDK examples `aot_host`, `async_tasks`, `definition_pipeline`, `execution_completion`, `host_interfaces`, `host_objects`, `host_reentry`, `offline_compile`, `package_workspace`, `persistent_static`, `regenerate_feature_artifact`, `runtime_initialization`, `scoped_execution`, `scoped_host`, `source_modules`, `source_queries`, `typed_native` | D01 explicitly composes providers where needed. D04 separates core-capable examples from library-only behavior; NC restores removed full-library behavior. Required-feature examples are checked only with their actual supported feature routes. |
+| `cargo check -p kagari-cli --all-targets`; `cargo check -p kagari-web --all-targets` | CLI `kg`/`toolchain` and web output adapter receive explicit composition in D01. Collection source behavior may be unavailable until NC; no fake-success execution or disabled tests. |
+| `cargo check -p kagari-codegen-cranelift --all-targets` | D03 updates removed executable operations/type matches; D01 updates SDK-based test composition. Native supported-subset and fallback checks remain separate. |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Required at each implementation checkpoint. Any library compile failure is a real failure and blocks workspace acceptance, even when core detachment passes. Record actual errors once introduced; anticipated errors above are not observed failures. |
+
+The contract cut includes HIR, types, contract, MIR, compiler, bytecode, Runtime and
+VM consumers and serializers. Preserve ABI identifiers under the unpublished
+policy and invalidate affected disposable artifacts. D03/D04 may be one commit;
+do not stage incompatible partial enums in independent phase commits.
+
+D00 validation/results and the frozen warmed call measurements follow. The measurement command is
+`cargo test -p kagari-vm --release --test library_measurements core_only_script_and_native_calls -- --ignored --nocapture --test-threads=1`.
+It excludes compile/load/binding, uses 3 warm and 11 measured samples of 10,000
+bound host calls per shape, and separately counts one warmed invocation's allocator
+requests. Shapes are empty script, a nested scalar script call, and a nested
+script-to-Native echo call. Results are whole-call costs, not isolated lookup cost.
+
+D00 local evidence (2026-11-11): core Runtime/VM library checks pass. Six selected
+VM contracts pass: empty/custom-provider entry, retained closure/current binding,
+selected generic methods across GC/reload, checked payload edits/loan failure,
+nominal enum payloads, and resumed direct/recursive/shared/module calls. Three
+Runtime contracts pass: one-shot Native charge, rejected charge publication and
+invalid source-free executable rejection. These reuse owner assertions rather than
+adding duplicate root/reload tests. Only the empty/custom-provider composition was
+an uncovered case. Full-workspace tests and exhaustive features/platforms remain CI.
+
+Structure checks pass (1881 Rust files, no violations, three existing documented
+scalar-dispatch LOC exceptions), as do workspace Clippy, formatting, fixture format,
+documentation links and diff checks. No carried build or integration failures.
+
+Frozen D00 measurement: Windows x64 MSVC, Intel i7-10700F (16 logical CPUs),
+Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), workspace release/default features/default
+target and build parallelism. Compilation finished before measurement; one test
+thread, warmed execution storage and providers, no overlapping Cargo/check runs.
+Preparation is excluded; this measures the whole bound host invocation including
+result conversion and cleanup, with one separate warmed allocation sample.
+
+| Shape | Median ns/call (11 samples) | One warmed call allocation requests |
+| --- | ---: | --- |
+| empty | 5254.03 | `Counts { allocations: 38, reallocations: 0, deallocations: 38, requested_bytes: 1808 }` |
+| script | 6036.41 | `Counts { allocations: 38, reallocations: 0, deallocations: 38, requested_bytes: 1808 }` |
+| native | 12484.13 | `Counts { allocations: 103, reallocations: 0, deallocations: 103, requested_bytes: 4688 }` |
+
+These are baseline observations, not a speedup or zero-allocation claim. Reuse the
+same workload at D05 and diagnose repeatable regressions before introducing local
+optimizations; this detachment stage does not activate the compact-frame design.
 
 #### Validation and deferred work
 
