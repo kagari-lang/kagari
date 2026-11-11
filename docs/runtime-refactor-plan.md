@@ -1,8 +1,7 @@
 # Runtime, Host and GC Execution Plan
 
-Status: execution order selected on 2026-11-11; RR00-RR06 are not started.
-This document schedules implementation; writing it does not start code migration.
-The next implementation task is RR00.
+Status: RR00 completed locally on 2026-11-12; RR01 is next. RR02-RR06 are pending.
+Production call/storage/collector migration has not started.
 
 This is the single execution plan for the coordinated Runtime/Host/GC refactor.
 The [Runtime design](runtime-refactor-design.md) owns the selected records and
@@ -406,6 +405,186 @@ for example `Plan-Phase: RR03`; include the mapped GCR acceptance group when it
 changes. Disclose any explicitly recorded intermediate build failure in the
 commit body. No phase is complete while its exit conditions remain unmet.
 
-Current progress: all RR phases are pending. No new implementation, measurement
-or validation result is claimed by this plan. Begin with RR00 and reuse the
-completed foundations above.
+### RR00 audit and selected acceptance (2026-11-11)
+
+Baseline starts at `7b05d2ed` with a clean worktree. The preceding consolidation
+and session-clock removal are already implemented. Runtime has no dependency on
+kagari-gc or stdlib; its 468 source files still use the in-crate collector.
+The RR00 diff adds measurements/opt-in diagnostics only. It changes no production
+execution, reference or collection contract. Measurement results and frozen call
+gates belong in [the performance record](performance-baseline.md).
+
+#### Current execution paths and work placement
+
+- Host binding: `native/function_handle.rs` and `native/function_handle/cache.rs`
+  prepare typed handles; `execution.rs` plus `native/function_handle/execution.rs`
+  select the current route and admit external values. Conversion lives in
+  `native/conversion/arguments.rs` and `native/conversion/context.rs`.
+- Internal script call: `frame/calls.rs`, `frame/admission.rs` and
+  `frame/values.rs` consume linked locations, allocate a reusable window and
+  push `ExecutionFrame`. `module/linked_execution/calls.rs` already supplies final
+  current targets: preserve that direct path and scalar banks. Admission still
+  mixes dynamic owner/phase/depth/value checks with redundant prepared work.
+- Direct Native: `frame/native.rs::invoke_prepared_native` borrows caller slots
+  and pins the existing links without a new frame. Explicit Native frame entry
+  uses `start_native_entry` for observer/entry transitions. `native/binding.rs`
+  owns pre/post polls, result checks/adaptation and host-call observation.
+  `native/typed.rs::invoke` rebuilds a Value pack, rechecks mappings and registers
+  a copied pack; `native/conversion/arguments.rs` repeats checks and pack rooting.
+  Raw/flat callbacks already avoid that typed wrapper: keep their fast path.
+- Return: `frame/returns.rs` and `frame/transfer.rs` adapt before retiring the
+  callee, then publish the destination in a closed transition. RR02/RR03 must
+  preserve callback/converter outcome, post-call precedence and exactly-once commit.
+- Reentry: `executor/native.rs` pushes a suffix into the shared session and
+  `ExecutionStack::drop` retires that suffix. No frame/bank/payload loan may span
+  arbitrary callback execution. The new mutable service view must express this
+  lending without retaining `&Runtime` behind new interior mutation.
+- Park/resume: `frame/owned.rs`, `frame/waiting.rs`, `session/owned.rs`,
+  `session/group.rs` and `scheduler.rs` retain waits/results and refresh links
+  for every retained frame. Running synchronous Native callbacks cannot park;
+  completed callbacks must keep their completion and must not execute twice.
+- Publication: `loading.rs`, `publication.rs`, `module/staging.rs` and
+  `module/dispatch/bindings.rs` exclude synchronous activity and prepare links
+  atomically. Retained body identity and current inner calls remain separate.
+
+Paths in this inventory are relative to `crates/kagari-runtime/src/` unless a
+crate is named. File movement follows the existing design's target tree.
+
+#### Complete root and edge inventory
+
+| Existing owner and contents | RR03 target and lifetime rule |
+| --- | --- |
+| `resource.rs::frame_values`, `frame/values.rs::Window`: active and parked managed/scalar banks, exact program, environment, invocation and Native application | `RootDriver<ExecutionRoots>` owns the only execution storage. Scalars stay eight bytes; managed transfers publish stored edges. No per-frame mirror or Host lease. |
+| `session/store.rs`, `session.rs::SessionState`: frame stacks, root program, pending wait, queued Future/factory, factory output, initializer state | Execution storage scans frame dependencies and pending state, including independently parked sessions. Control uses checked execution IDs. |
+| `frame/waiting.rs`: awaitable, protected result, captures; `session/group.rs`: child executions | Execution-owned stored edges and checked child IDs; retire only the owned suffix/execution. |
+| `scheduler.rs`, `scheduler/tasks.rs`, `task/store.rs`: queued invocation, task output and delivery roots | Traced pending state under execution/task ownership; external delivery retains a genuine Host root. Producer threads carry completion/ready data, never heap borrows. |
+| `gc/roots.rs`: RootSet/RootedValue, conversion scratch roots, typed object/callable/interface handles | Escaping ownership becomes kagari-gc Root; transient arguments/results become source slots/local marks. Preserve foreign/stale rejection. |
+| `gc/storage.rs`, `gc/fields.rs`, `gc/arrays.rs`, `gc/buffers.rs`, `gc/future.rs`, `gc/native.rs`: struct/enum/tuple/array/String/cell/range/interface/closure/Future/native payload references | Runtime object providers trace ordinary library edges; field writes publish before replacement. Language tags/nominal/layout checks remain Runtime-owned. |
+| `execution_metadata.rs` and its environment/group/application/interface stores; `native/stored_callable.rs`, `native/stored_selection.rs`, `native/payload/managed.rs` | Managed application/environment/provider state; all outgoing references traced. Immutable checked code may be Arc-pinned but cannot hide managed edges. |
+| `module/collection.rs`, `module/state.rs`, `module/state/initialization.rs`, `module/installation.rs`, retained program leases | Publication roots keep installation/current revision/statics. Retained computations keep selected revisions. Indexes do not root every retired version; object/closure/environment/static cycles must be collectible. |
+| `host.rs`, `host/scoped.rs`, `host_scope.rs`, payload loans and temporary mutations in `frame.rs` | Rust host resources remain outside the script heap. Scoped loans exclude collection/reentry and are retired on all exits; roots prove liveness, never access authority. |
+
+Current `gc/collection.rs` snapshots roots and jointly traverses Object/Program
+nodes, then `execution_metadata.rs` expands foreign metadata stores. RR03 replaces
+that complete graph once; porting only objects would leave hidden retention and
+an incomplete source. Initialization/candidate authority, owner/generation checks,
+checked numerics, cancellation and disposal quarantine remain required.
+
+#### Finite consumer/build boundary
+
+RR02 owns entry signatures and adapters in Runtime `execution.rs`, `executor.rs`,
+`native/context.rs`, `native/typed.rs`, `native/functions.rs`,
+`native/adapter.rs`, `native/conversion/`, `native/function_handle/`,
+`native/typed/loans.rs` and `host_scope.rs`; their Runtime callers move with them.
+RR03 owns `value.rs`, `gc.rs`/`gc/`, `resource.rs`, `frame.rs`/`frame/`,
+`session.rs`/`session/`, `execution_metadata.rs`/`execution_metadata/`,
+`module/state.rs`, `module/collection.rs`, scheduler/task/observer/debug owners,
+`backend.rs` and `jit_abi.rs`. No public forwarding API is retained.
+
+External consumers to compile at each applicable boundary:
+
+- SDK `crates/kagari/src/{runtime,context,engine,program}.rs` and
+  `runtime/tests/embedding/{typed_calls,scoped_calls,offline_functions,offline_nominal,async_execution,native_provider_reset,runtime_transfer}`;
+  feature-isolated artifact/native consumers stay CI-owned.
+- `crates/kagari-derive/src/{value,schema}.rs` generated conversions/projections;
+  `crates/kagari-codegen/src/`, `crates/kagari-codegen-cranelift/src/{emit,scalar}.rs`
+  and `crates/kagari-abi/src/` native entry/link contracts. Preserve machine-code
+  unwind containment, independent ABI verification and capability fallback.
+- `crates/kagari-cli/src/`, `crates/kagari-web/src/`, SDK examples and
+  `benchmarks/lua-comparison`: update actual Runtime calls, values and conversions.
+- `crates/kagari-stdlib/src/foundation/` and
+  `tests/execution/native_boundary/`: update public Native authoring consumers,
+  without installing stdlib into Runtime or reconstructing deferred collections.
+
+Unused PanicPolicy occurs only in Runtime `context.rs` and SDK `context.rs`:
+remove those declarations/exports in RR02 and update the exact reexport allowance.
+NativeTake occurs in `native/payload/take.rs`, `native/payload.rs`,
+`native/storage.rs`, `gc/native/take.rs`, `gc/native/tests.rs` and stdlib
+`tests/execution/native_boundary/native_boundary_payload.rs` plus its `take.rs`:
+remove extraction-only storage/accounting/tests in RR03, preserving ordinary loans,
+owner/generation validation and exactly-once disposal. NativeData's blanket take
+implementation is not a reason to retain take.
+
+RR03 is one coordinated build window. RR01 proofs use a separate heap; no old
+Value can cross into it. No build break has yet been introduced. If the cutover
+breaks a target, record its diagnostic and repair here before advancing RR04.
+
+#### Selected checks and pre-existing limits
+
+RR00's new manual `core_calls::internal_calls` workload samples internal script,
+raw empty/scalar, typed empty/scalar, borrowed payload and owned String routes.
+Its match-based counter uses builtin literal matching, avoiding installation of
+operator/iteration libraries just to measure the core. One explicit String
+constructor declaration is an application provider, with no stdlib dependency.
+Atomic callback counts and result sums distinguish real callbacks from loop-only
+work; that common atomic operation is included in every Native timing.
+
+The selected recurring Runtime filters are `native::tests::offline_host`,
+`native::tests::native_execution`, `frame::values::tests`,
+`interpreter_tests::native_wait::async_native_completion_contract`,
+`interpreter_tests::owned_drive` and `interpreter_tests::execution::frames`.
+These sample source-free admission, actual machine code, foreign/stale handles,
+slot growth/reuse, cancellation/cleanup, saved completion and current inner calls.
+RR01 additionally selects kagari-gc `root_source`, dynamic/ownership and graph
+oracles as its concrete provider protocol changes require. SDK selections are
+`existing_typed_handles_select_current_implementations_and_keep_closure_bodies`,
+`scoped_native_calls_accept_compatible_reloaded_descriptors`,
+`offline_host_facades_preserve_linking_and_backend_call_traces` and
+`task_owns_a_live_runtime_across_message_receive_awaits` (not a workspace sweep).
+New uncovered production proof/stack/tail contracts belong at their semantic owner.
+
+Known inherited NC collection/library scenarios are unavailable after detachment;
+RR00 does not restore privileged providers or claim those pass. R13's finer
+code/type retention and general/managed/mutual/async/compiled tail optimization
+remain deferred. Full workspace/platform/backend feature matrices are CI-only.
+RR00 exit is satisfied locally. The final seven-process release set contains 770
+valid timing samples across ten routes, plus zero/one/10000-call allocation
+controls. All callback counts and independent results pass. The largest
+process-median spread is 4.76%; the frozen paired latency ceiling is 1.10. Raw
+empty/scalar batches retain 76 requests / 3784 bytes at all three call counts.
+Typed scalar adds 65 requests for one callback, two Host root registrations and
+five Runtime mapping preparations per internal callback. No improvement is claimed.
+The performance owner records exact environment, binary/lock hashes, summaries,
+setup times, memory accounting limits and the paired comparison method.
+
+Six selected release Runtime contracts pass using the exact names below, without
+running the whole library/workspace suite:
+
+```text
+native::tests::offline_host::callback_arguments_and_result_obey_the_declared_representation
+native::tests::native_execution::native_reentry_preserves_the_callers_frame_and_shared_execution
+frame::values::tests::register_arguments_survive_growth_reordering_and_repeated_sources
+frame::values::tests::retiring_an_outer_window_does_not_unroot_a_suspended_inner_window
+interpreter_tests::native_wait::async_native_completion_contract
+interpreter_tests::owned_drive::resumed_frames_select_current_direct_recursive_shared_and_module_calls
+```
+
+Run them with `cargo test -p kagari-runtime --release --lib <filter> -- --exact`,
+or pass these exact names to the reported release library binary with `--exact`.
+The latter six-filter invocation ran all six (651 other cases filtered out).
+The two manual measurement tests also pass across all seven processes; the
+separate feature-enabled diagnostic run passes. Workspace all-target Clippy,
+workspace fmt, structure (1855 Rust files, zero violations), fixture `kg fmt
+--check` and diff checks pass. New imports/paths and feature-only diagnostic
+ownership were reviewed; no visibility widening, new reexport, unsafe operation,
+compatibility layer or structural exception was introduced. The source-free /
+actual machine-code contract sampled here uses installed native test entries;
+SDK generated-code/source-free and broader platform/backend acceptance remain
+selected for later changed boundaries and CI. No inherited library failure is
+silently closed. The temporary fixture setup failures (receiver access, missing
+String declaration, comparison provider and match statement syntax) were repaired
+before measurement; no build/test failure is carried.
+
+**Next task (RR01):**
+
+```text
+Task: Prove scoped/stored/Host-root carriers and exclusive Native service reentry.
+Context: RR01; Runtime execution/value/Host owners and kagari-gc source protocol.
+Expected behavior: Copy/replace/return/retain publish before source retirement;
+Native -> script -> GC -> Native uses short loans; unrooted code/static cycles die.
+Scope: Three bounded proofs on a separate paired heap and concrete missing GC
+protocol only. No old/new graph crossing or production collector replacement.
+Validation: Focused carrier/source/reentry/cycle oracles, sizes, structure/fmt,
+workspace all-target Clippy and diff checks. Source-free production proof is RR03.
+Known intermediate errors: None. RR02-RR06 and CI matrices remain pending.
+```

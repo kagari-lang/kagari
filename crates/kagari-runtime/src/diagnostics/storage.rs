@@ -1,5 +1,42 @@
-//! Borrowed storage accounting without allocation or persistent counters.
+//! Opt-in backing observations and concrete buffer accounting.
+use crate::{
+    Runtime, frame::ExecutionFrame, resource::ResourceState, session::SessionState, value::Value,
+};
 use std::mem::size_of;
+
+/// Execution/root/control backing at a closed diagnostic boundary. Excludes
+/// immutable code, object payloads, allocator overhead and root-release channels.
+/// Repeated names describe distinct buffers, not duplicated accounting.
+#[derive(Debug)]
+pub struct ExecutionUsage {
+    pub runtime_bytes: usize,
+    pub resource_bytes: usize,
+    pub session_bytes: usize,
+    pub frame_bytes: usize,
+    pub value_bytes: usize,
+    pub buffers: Vec<BufferUsage>,
+}
+
+/// Snapshot execution backing after releasing all frame, bank and root-table loans.
+/// Allocates diagnostic output storage; do not include this in throughput timing.
+pub fn execution_usage(runtime: &Runtime) -> ExecutionUsage {
+    let mut buffers = Vec::new();
+    runtime
+        .resources()
+        .frame_values
+        .borrow()
+        .append_usage(&mut buffers);
+    runtime.resources().sessions.append_usage(&mut buffers);
+    runtime.gc().append_root_usage(&mut buffers);
+    ExecutionUsage {
+        runtime_bytes: size_of::<Runtime>(),
+        resource_bytes: size_of::<ResourceState>(),
+        session_bytes: size_of::<SessionState>(),
+        frame_bytes: size_of::<ExecutionFrame>(),
+        value_bytes: size_of::<Value>(),
+        buffers,
+    }
+}
 
 /// Occupied and reserved backing bytes for one concrete Vec, excluding children.
 #[derive(Debug, Clone, Copy)]

@@ -1,4 +1,6 @@
 //! Runtime-owned session records and independently borrowed frame stacks.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::storage::BufferUsage;
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
 use crate::{
@@ -55,6 +57,32 @@ impl Default for SessionStore {
 }
 
 impl SessionStore {
+    #[cfg(feature = "execution-diagnostics")]
+    pub(crate) fn append_usage(&self, usage: &mut Vec<BufferUsage>) {
+        let records = self.records.borrow();
+        let frames = self.frames.borrow();
+        usage.extend([
+            BufferUsage::new("session records", &records.slots),
+            BufferUsage::new("session free slots", &records.free),
+            BufferUsage::new("frame directories", &frames),
+        ]);
+        for frames in frames.iter() {
+            usage.push(BufferUsage::new("execution frames", frames));
+        }
+        for slot in &records.slots {
+            if let Some(state) = &slot.state {
+                usage.push(BufferUsage::new(
+                    "frame scopes",
+                    &state.frame_scopes.borrow(),
+                ));
+                usage.push(BufferUsage::new(
+                    "host call traces",
+                    &state.host_calls.borrow(),
+                ));
+            }
+        }
+    }
+
     pub(crate) fn detach_observers(&self) {
         for slot in &self.records.borrow().slots {
             if let Some(state) = &slot.state {

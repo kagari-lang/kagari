@@ -1,6 +1,6 @@
 //! Runtime-owned execution windows, independent of persistent host root leases.
 #[cfg(feature = "execution-diagnostics")]
-use crate::diagnostics::{self, Event};
+use crate::diagnostics::{self, Event, storage::BufferUsage};
 
 use kagari_abi::representation::ValueType;
 
@@ -115,6 +115,17 @@ impl Default for ExecutionValues {
 }
 
 impl ExecutionValues {
+    #[cfg(feature = "execution-diagnostics")]
+    pub(crate) fn append_usage(&self, usage: &mut Vec<BufferUsage>) {
+        usage.extend([
+            BufferUsage::new("managed values", &self.values),
+            BufferUsage::new("scalar values", &self.payloads),
+            BufferUsage::new("scalar initialization", &self.initialized),
+            self.windows.usage(),
+            BufferUsage::new("window allocation order", &self.allocation_order),
+        ]);
+    }
+
     pub(crate) fn allocate(
         &mut self,
         count: usize,

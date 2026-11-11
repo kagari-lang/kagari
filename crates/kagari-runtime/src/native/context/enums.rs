@@ -1,4 +1,6 @@
 //! Native enum operations consume installed nominal layouts and scoped type arguments.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -45,6 +47,8 @@ impl Runtime {
         owner: &ExecutableModule,
         ty: &Type,
     ) -> NativeResult<TypeArgument> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::NativeTypeMapping);
         let ty = ty.adopt(self.definition_context())?;
         let ty = owner
             .identity_admission()

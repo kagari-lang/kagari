@@ -1,6 +1,7 @@
 //! Frozen D00 whole-call workload with only an explicitly authored Native provider.
 #[path = "support/bytecode.rs"]
 mod bytecode_fixture;
+mod internal_calls;
 mod native_allocations_counter;
 use crate::bytecode_fixture::load_bytecode;
 use crate::native_allocations_counter::{measured, verify_counter};

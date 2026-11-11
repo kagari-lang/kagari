@@ -1,4 +1,6 @@
 //! One synchronous conversion scope protects unpublished values and exact versions.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -288,6 +290,8 @@ impl<'runtime> ConversionContext<'runtime> {
 
     /// Validate a requested Rust type before executing user code or converters.
     pub fn check_type<T: KagariType>(&self, expected: &TypeArgument) -> NativeResult<()> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::ConversionTypeCheck);
         expected.validate(self.runtime)?;
         T::check_type(self, expected)
     }

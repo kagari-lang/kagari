@@ -31,6 +31,9 @@ pub struct ExecutionCounts {
     pub bank_bytes_initialized: u64,
     pub bank_bytes_moved: u64,
     pub argument_transfers: u64,
+    pub root_registrations: u64,
+    pub conversion_type_checks: u64,
+    pub native_type_mappings: u64,
 }
 
 pub(crate) enum Event {
@@ -56,6 +59,9 @@ pub(crate) enum Event {
     BankBytesInitialized,
     BankBytesMoved,
     ArgumentTransfer,
+    RootRegistration,
+    ConversionTypeCheck,
+    NativeTypeMapping,
 }
 
 thread_local! {
@@ -94,6 +100,9 @@ pub(crate) fn record_amount(event: Event, amount: u64) {
             Event::BankBytesInitialized => &mut counts.bank_bytes_initialized,
             Event::BankBytesMoved => &mut counts.bank_bytes_moved,
             Event::ArgumentTransfer => &mut counts.argument_transfers,
+            Event::RootRegistration => &mut counts.root_registrations,
+            Event::ConversionTypeCheck => &mut counts.conversion_type_checks,
+            Event::NativeTypeMapping => &mut counts.native_type_mappings,
         };
         *counter += amount;
         active.set(Some(counts));

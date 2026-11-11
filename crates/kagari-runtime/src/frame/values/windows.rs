@@ -1,5 +1,7 @@
 //! Reusable window identities with in-slot free links and bounded trailing storage.
 use super::Window;
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::storage::BufferUsage;
 use std::collections::TryReserveError;
 
 const NO_SLOT: usize = usize::MAX;
@@ -42,6 +44,11 @@ impl Default for Windows {
 }
 
 impl Windows {
+    #[cfg(feature = "execution-diagnostics")]
+    pub(super) fn usage(&self) -> BufferUsage {
+        BufferUsage::new("value windows", &self.slots)
+    }
+
     /// Reserve before parameter/root publication. Reusing a hole needs no growth.
     #[inline]
     pub(super) fn reserve_slot(&mut self) -> Result<(), TryReserveError> {

@@ -1,4 +1,6 @@
 //! Heap-owned roots. Leases retain entries without owning their values or storage.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event, storage::BufferUsage};
 use crate::{
     Runtime, error::RuntimeError, execution_metadata::MetadataRoot, gc::GcHeap, value::Value,
 };
@@ -212,6 +214,8 @@ impl RootTable {
     }
 
     fn insert(&mut self, values: Vec<Value>) -> RootSet {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::RootRegistration);
         self.drain_released();
         let index = self.free.pop().unwrap_or_else(|| {
             self.slots.push(RootSlot {
@@ -318,6 +322,19 @@ impl Runtime {
 }
 
 impl GcHeap {
+    #[cfg(feature = "execution-diagnostics")]
+    pub(crate) fn append_root_usage(&self, usage: &mut Vec<BufferUsage>) {
+        let roots = self.roots.borrow();
+        usage.push(BufferUsage::new("root directory", &roots.slots));
+        usage.push(BufferUsage::new("root free slots", &roots.free));
+        for slot in &roots.slots {
+            if let Some(entry) = &slot.entry {
+                usage.push(BufferUsage::new("root values", &entry.values));
+                usage.push(BufferUsage::new("root metadata", &entry.metadata));
+            }
+        }
+    }
+
     pub(super) fn metadata_snapshots(&self) -> Option<Vec<MetadataRoot>> {
         let mut roots = self.roots.try_borrow_mut().ok()?.metadata_snapshots();
         self.resources

@@ -30,6 +30,187 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## RR00 Runtime and Native baseline, macOS 2026-11-12
+
+This freezes the pre-migration implementation at `7b05d2ed` plus RR00's manual
+workloads and opt-in counters. No execution/collector algorithm changes are
+included. Source and semantic oracles are the existing
+[core_calls target](../crates/kagari-runtime/tests/core_calls.rs), its
+[internal workload](../crates/kagari-runtime/tests/internal_calls.rs) and
+[script fixture](../crates/kagari-runtime/tests/fixtures/internal_calls.kgr).
+The execution plan owns the finite migration inventory and acceptance selection.
+
+Environment: Apple M1 Max, 32 GiB, macOS Darwin 25.6.0, aarch64-apple-darwin;
+Rust 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1, workspace release profile,
+default Cargo parallelism. Ordinary measurement has no Runtime features; the
+compiler dev dependency enables source preparation. Automatic collection retains
+Runtime defaults (1024 logical units / 64 KiB attributed backing). No compilation,
+profiling, diagnostic run or other benchmark overlaps ordinary timing. Inputs
+and binaries are warm within each process; each process constructs fresh Runtime
+state. This is a core-call baseline, not a sustainable GC or inherited PG gate.
+
+Reproduce with:
+
+```text
+cargo test -p kagari-runtime --release --test core_calls --no-run
+<reported-core_calls-binary> --ignored --nocapture --test-threads=1
+cargo test -p kagari-runtime --release --features execution-diagnostics --test core_calls --no-run
+<reported-diagnostic-binary> internal_script_and_native_calls --ignored --nocapture --test-threads=1
+```
+
+Build once, copy the reported executables and run seven ordinary processes
+serially. Each row has three warmups then eleven measured batches of 10000 calls.
+All 770 ordinary timing samples and their maxima are preserved in the local
+ignored `target/rr00/frozen` images/logs; the workload and summary here permit
+fresh reproduction without those files. Earlier exploratory images/logs remain
+under `target/rr00/baseline`; they are not substituted for the frozen samples.
+The final ordinary build took 23.32 s; diagnostic relinking took 2.30 s, excluded
+from execution. The preparation rows below separately time provider construction
+and source-to-bytecode, recipient installation/verification, and typed binding.
+They are characterization, not a compilation regression gate.
+
+Host rows retain the original whole-call workload: empty script, scalar script
+forwarding, and typed Native forwarding. Internal rows execute one Host call
+containing 10000 script or Native calls. They include loop/control, frame transfer,
+polling and any automatic collection. Each Native callback executes one common
+relaxed AtomicUsize increment; a separate before/after assertion checks its exact
+count and the independent sum checks returned values. No callback is replaced by
+an empty loop or optimized away. Raw callbacks use explicit codecs; typed scalar
+uses NativeContext plus a tuple; borrowed reads a checked `&Point` payload; owned
+converts the real seven-byte String each iteration. Borrowed creates one Point
+per batch and owned materializes its String outside the inner loop, inside the
+batch timer. They therefore include their real setup and conversion costs.
+
+All times below are ns per useful call/iteration: each process takes its median
+of eleven samples, then the summary takes the median of those seven medians.
+Internal timings are not isolated thunk latency and are not subtracted from a
+loop control. The range is across all 77 measured batches, not a p99 estimate.
+
+| Route | Seven process medians (ns) | Median | All-sample min/max |
+| --- | --- | ---: | --- |
+| core/empty | 3112.7, 3135.1, 3061.3, 3069.6, 3040.1, 3046.1, 3130.1 | 3069.6 | 3032.1 / 3198.3 |
+| core/script | 3507.3, 3509.5, 3552.0, 3526.3, 3530.4, 3472.9, 3475.8 | 3509.5 | 3464.9 / 3637.2 |
+| core/native | 6622.6, 6613.2, 6535.4, 6569.1, 6654.3, 6587.9, 6597.3 | 6597.3 | 6516.0 / 6766.6 |
+| internal/script | 421.2, 418.9, 409.5, 424.5, 424.4, 429.0, 425.0 | 424.4 | 409.2 / 438.2 |
+| internal/raw_empty | 508.3, 499.4, 505.6, 509.8, 508.2, 501.1, 507.8 | 507.8 | 498.7 / 521.7 |
+| internal/raw_scalar | 522.5, 521.0, 533.1, 528.9, 530.8, 530.9, 525.2 | 528.9 | 519.3 / 542.1 |
+| internal/typed_empty | 1620.6, 1615.0, 1654.4, 1645.3, 1623.8, 1611.9, 1621.6 | 1621.6 | 1590.0 / 1687.8 |
+| internal/typed_scalar | 3044.5, 3044.8, 3065.9, 3107.7, 3021.7, 3043.8, 3035.4 | 3044.5 | 3014.1 / 3166.4 |
+| internal/borrowed | 2463.0, 2450.8, 2448.8, 2453.8, 2431.9, 2474.0, 2434.6 | 2450.8 | 2425.4 / 2510.6 |
+| internal/owned | 3268.9, 3249.7, 3310.1, 3271.3, 3229.8, 3224.2, 3212.1 | 3249.7 | 3209.5 / 3969.5 |
+
+Largest process-median spread is 4.76% (max/min minus one).
+Freeze a **1.10 paired latency ceiling** for these ten rows before migration:
+this exceeds twice the largest observed baseline variation rounded upward to a
+whole percentage point. Compare seven alternating baseline/candidate process
+pairs, normalize each candidate process median by its paired baseline first,
+then take the median of ratios. All samples/maxima stay visible. Diagnose a
+stable regression or a failed row at its real owner; never move the denominator
+or average it away. The zero warm internal empty/scalar/borrowed allocation,
+Host-root-registration and fixed-mapping-rebuild targets are separate hard goals;
+owned conversions and outer Host entry are reported separately. Inherited GC
+throughput/latency/memory gates remain at the GC acceptance owner.
+
+Allocation counts below come from separate per-thread allocator runs after
+warming. All reported reallocations are zero except borrowed/one (two).
+Totals include the enclosing Host activation, real conversions, cleanup and any
+service, so do not divide the total by 10000 and call it pure thunk cost.
+Zero/one/10000 comparisons expose call-dependent work. Root release/collection
+can straddle a measured boundary; requests are neither retained bytes nor leaks.
+
+| Route | Calls | Allocation requests | Requested bytes |
+| --- | ---: | ---: | ---: |
+| core/empty | 1 | 37 | 1824 |
+| core/script | 1 | 37 | 1824 |
+| core/native | 1 | 102 | 4864 |
+| internal/script | 10000 | 76 | 3784 |
+| internal/script | 0 | 77 | 4784 |
+| internal/script | 1 | 76 | 3784 |
+| internal/raw_empty | 10000 | 76 | 3784 |
+| internal/raw_empty | 0 | 76 | 3784 |
+| internal/raw_empty | 1 | 76 | 3784 |
+| internal/raw_scalar | 10000 | 76 | 3784 |
+| internal/raw_scalar | 0 | 76 | 3784 |
+| internal/raw_scalar | 1 | 76 | 3784 |
+| internal/typed_empty | 10000 | 260721 | 13288784 |
+| internal/typed_empty | 0 | 76 | 3784 |
+| internal/typed_empty | 1 | 102 | 5048 |
+| internal/typed_scalar | 10000 | 650721 | 31048784 |
+| internal/typed_scalar | 0 | 76 | 3784 |
+| internal/typed_scalar | 1 | 141 | 6824 |
+| internal/borrowed | 10000 | 331056 | 16412364 |
+| internal/borrowed | 0 | 88 | 4364 |
+| internal/borrowed | 1 | 123 | 11412 |
+| internal/owned | 10000 | 681044 | 32161784 |
+| internal/owned | 0 | 76 | 3784 |
+| internal/owned | 1 | 144 | 6903 |
+
+Raw empty/scalar have 76 requests / 3784 bytes for zero, one and 10000 callbacks:
+no observed internal-call allocation growth. Typed empty adds 26 requests at one
+callback, typed scalar adds 65. Borrowed includes payload retention/mapping and
+one real payload allocation; owned includes String copying. The larger 10000
+batches include release-channel/collection work as well. This establishes targets,
+not an assertion that per-call overhead is unavoidable.
+
+The separately instrumented run adds counter overhead and an active-storage
+snapshot. Its timings are discarded. Counters below cover one 10000-call batch,
+including two outer root registrations and three outer type checks/mappings.
+Native type mappings count entries to Runtime::native_type_argument (adoption,
+identity mapping and resolution), not just successful allocations. Other fixed
+binding/application preparation remains visible in the existing counters.
+
+| Internal route | Host-root registrations | Conversion type checks | Native type mappings | Frame windows |
+| --- | ---: | ---: | ---: | ---: |
+| script | 2 | 3 | 3 | 10001 |
+| raw_empty | 2 | 3 | 3 | 10001 |
+| raw_scalar | 2 | 3 | 3 | 10001 |
+| typed_empty | 20002 | 20003 | 20003 | 10001 |
+| typed_scalar | 20002 | 50003 | 50003 | 10001 |
+| borrowed | 30006 | 20005 | 20003 | 10002 |
+| owned | 30002 | 50003 | 50003 | 10001 |
+
+This source route still admits a Native frame/window for every ordinary call.
+`frame/native.rs::invoke_prepared_native` has a separate caller-slot fast path;
+its existence does not prove this workload uses it. RR02/RR04 must unify the real
+source route without losing the existing fast path. Typed invocations add copied
+root packs and repeated mapping work; zero NativePreparation events alone would
+miss that cost. Ordinary script calls already use reusable scalar banks.
+
+The aarch64 diagnostic reports Value=16 bytes, ExecutionFrame=392, Window=208,
+SessionState=992, ResourceState=416 and Runtime=4112. These inline sizes overlap
+containment and must not be summed as separate allocations. During typed-empty
+callback execution there are two physical frames/windows, four occupied scalar
+cells/initialization bits and one session. Their observed execution/root/control
+Vec backing totals 2596 occupied / 7024 reserved bytes. After each batch, reserved
+backing is 6992 (script/raw/typed empty), 7024 (typed scalar), 7376 (borrowed) and
+7392 (owned). This includes the session directory (four 1000-byte slots), frame
+directory, frame capacity, value banks, window directory/order, Host root table,
+free lists and retained root value/metadata buffers. Frame scopes are included
+in the active snapshot. This is broader than sizeof(frame), but excludes immutable
+code, managed payloads, allocator overhead, root leases/release-channel allocations
+and other Runtime caches. Requested allocator bytes above expose activity outside
+those capacities; no total-RSS/whole-Runtime-memory claim is made.
+
+Preparation observations (seven-process median, microseconds):
+
+| Phase | Median | Min/max |
+| --- | ---: | --- |
+| provider + source compilation | 6346.7 | 6178.8 / 6526.5 |
+| installation + verification | 3037.6 | 3019.6 / 3114.2 |
+| bind script | 8.8 | 7.4 / 11.4 |
+| bind raw_empty | 6.6 | 3.9 / 10.8 |
+| bind raw_scalar | 6.0 | 3.5 / 8.5 |
+| bind typed_empty | 6.3 | 3.5 / 8.4 |
+| bind typed_scalar | 9.1 | 7.6 / 11.4 |
+| bind borrowed | 9.7 | 6.7 / 19.0 |
+| bind owned | 9.0 | 6.7 / 18.8 |
+
+Frozen SHA-256: ordinary `dcad529e99a95332bce33e2883ee909136c3b9f144428bd80afcba985f669b7e`;
+diagnostic `99e45b0c51f0964303f16a323f919f3cd7aca6688203ddcf8d9d00a636e5d155`;
+Cargo.lock `d1c416d4b854249b9f5f02c636bd5c3f6de4b99c8660650a13b392a1d9c2d40f`.
+
+No speedup, integrated collector acceptance or remote CI pass is claimed.
+
 ## Runtime consolidation core-call comparison, Windows 2026-11-11
 
 CM00-CM04 compares baseline implementation `a656554a` with `03a9be95` plus the
