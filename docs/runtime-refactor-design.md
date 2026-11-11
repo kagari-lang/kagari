@@ -160,6 +160,125 @@ loan exclusion and cleanup on errors/reentry/cancellation. This may reorganize t
 current collector integration; it does not authorize a new GC algorithm, additional
 paged-storage migration or the deferred enum/value representation redesign.
 
+### Standard-library detachment inventory and execution plan
+
+Inventory date: 2026-11-11, implementation baseline `04a8e7e4`. The user requested
+an executable removal plan before reorganizing Runtime. D00-D05 below are proposed,
+unstarted checkpoints within this plan, not another NC/PG migration. Do not merge
+the VM, replace the collector or implement tail recursion during these checkpoints.
+
+The production Cargo direction is already `kagari-stdlib -> kagari-runtime`;
+Runtime and VM reference stdlib only as dev dependencies. The defect is ownership
+inside Runtime and executable contracts, not a missing Cargo feature. Adding a
+`stdlib` switch around the same privileged implementation is not detachment.
+
+#### Concrete coupling inventory
+
+| Mechanism and current owner | Evidence | Disposition |
+| --- | --- | --- |
+| Automatic complete library composition | [SDK builder](../crates/kagari/src/engine/builder.rs), `KagariEngineBuilder::standard` installs `stdlib::modules()` | Supply an empty-provider construction route; library selection belongs to host/SDK consumers. Runtime already has an empty native-registry constructor. |
+| Nominal Vec storage and core recognition | [Vec declaration](../crates/kagari-stdlib/src/foundation/vector.rs), [native layout families](../crates/kagari-types/src/declaration/native.rs), [NativeStorage](../crates/kagari-runtime/src/native/storage.rs) | Remove Sequence/Map/Set/Iterator as privileged library storage families; later library types use ordinary nominal native payload declarations. Future/Task/TaskScope are separate execution mechanisms. |
+| Packed array and Vec implementation sharing | [sequence storage](../crates/kagari-runtime/src/native/sequence.rs), [buffer kernels](../crates/kagari-runtime/src/gc/buffers.rs), [fixed arrays](../crates/kagari-runtime/src/gc/arrays.rs), `gc/sequences.rs`, `gc/sequence_ops.rs`, `gc/sequence_edit.rs` | First give fixed arrays a Runtime-owned storage boundary; remove nominal Vec constructors/edit policy without discarding scalar packing or changing fixed-length array semantics. |
+| Hash storage and key policy | [hash payloads](../crates/kagari-runtime/src/native/hashed.rs), [table storage](../crates/kagari-runtime/src/native/hash_storage.rs), [heap operations](../crates/kagari-runtime/src/gc/maps_sets.rs), [custom keys](../crates/kagari-runtime/src/gc/custom_keys.rs) | Retire concrete tables, collision/lookup policy and stored Hash/Eq selections from Runtime. Preserve ordinary checked Hash/Eq calls and current-version selection. |
+| Special collection value/type branches | [Value and MapKey](../crates/kagari-runtime/src/value.rs), [type checks](../crates/kagari-runtime/src/value_check.rs), [Ty](../crates/kagari-types/src/ty.rs), [operation contracts](../crates/kagari-contract/src/operations.rs) | Remove Value::Map/Set and dedicated Ty::Map/Set/Iter with their consumers coherently. Do not rename them into a new generic container enum. Extract builtin structural hash semantics from MapKey before retiring its table-key policy. |
+| Collection Native codecs and public services | [Codec](../crates/kagari-runtime/src/native/binding.rs), [CallContext](../crates/kagari-runtime/src/native/context.rs), [operation services](../crates/kagari-runtime/src/native/context/operations.rs), [iterator services](../crates/kagari-runtime/src/native/context/iteration.rs) | Remove collection-specific codecs, factories, views and edits. Retain argument windows, typed calls, checked opaque payload access and roots. A public collection-specific method is still coupling. |
+| Cursors and string/range traversal | [NativeIter](../crates/kagari-runtime/src/gc/iter.rs), [string traversal](../crates/kagari-runtime/src/gc/string_iter.rs), [Runtime iteration entry](../crates/kagari-runtime/src/objects.rs) | Remove the universal concrete cursor, source-container dispatch, key snapshots and cursor-specific allocation. Preserve language for-loop lowering to checked iterator calls; library cursor implementations return later. String/array/range representations stay core. |
+| Privileged Native implementation selection | [NativePrimitive](../crates/kagari-runtime/src/native/primitive.rs), [prepared Native bodies](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs), [cursor execution](../crates/kagari-runtime/src/frame/cursor/primitives.rs) | Remove VecIndex/VecSet/VecSetFluent and their prepared execution branches together. Review StringByteLength as a builtin String operation rather than deleting it by filename; do not extend these privileges to replacement libraries. |
+| Host collection adapters and canonical identities | [owning adapters](../crates/kagari-runtime/src/native/collections.rs), [hardcoded Vec identity](../crates/kagari-runtime/src/native/collections/vector/storage.rs), [Rust conversions](../crates/kagari-runtime/src/native/conversion/composites.rs), [Serde schemas](../crates/kagari-runtime/src/native/serde/schema.rs) | Remove core knowledge of kagari-alloc::vec::Vec and library-specific handles/conversions. Rust Vec<T> conversion cannot simply move to stdlib: both the Runtime trait and Rust Vec would be foreign there. A later library-owned wrapper/explicit adapter belongs to the library API design. Preserve independent tuple/enum/scalar/struct conversion. |
+| Language protocol bridges colocated with library names | [Runtime primitives](../crates/kagari-runtime/src/builtin/standard.rs), [builtin result contracts](../crates/kagari-runtime/src/module/linked_execution/builtin_results.rs), [language enum identities](../crates/kagari-types/src/language/binding.rs) | Keep checked numeric/value operations, interpolation and required enum result construction. Option/Result propagation and Ordering are language contracts; removing the full stdlib bundle must not erase their identities or replace scope validation with names. Classify Assert by its compiler/contract consumers before moving it. |
+| Compiler/artifact/backend propagation | [HIR native declarations](../crates/kagari-hir/src/native.rs), [instance lowering](../crates/kagari-compiler/src/source/lower/instances/native.rs), [bytecode access verification](../crates/kagari-bytecode/src/access.rs), [VM aggregate dispatch](../crates/kagari-vm/src/executor/aggregate_ops.rs) | Update directly affected constructor/layout/type/operation consumers, serializers, verifiers and presentation. Preserve ordinary trait/index dispatch and source-free validation. This is finite contract removal, not a compiler architecture rewrite. |
+
+GC integration is mixed even though collection data is already stored as native
+payloads rather than a separate directory arena: `gc/native.rs` downcasts
+SequencePayload, buffers serve both arrays and nominal sequences, and concrete
+iterator payloads retain sources, keys and revisions. Removing only Value tags or
+moving table files leaves these paths behind. General heap owner/generation checks,
+native tracing/accounting, mutation revisions and joint value/program reachability
+remain Runtime mechanisms. Internal Rust HashMap/Vec used for engine bookkeeping
+are unrelated to script collection implementations.
+
+#### Scope and intermediate product boundary
+
+Follow the user's detach-first sequence: this stage does not promise that the old
+complete standard library remains usable while its privileged backend is removed.
+Retain the independent stdlib crate and reusable declarations/algorithms; do not
+move them back into Runtime or invent a replacement library crate. Full library
+reconnection and the bounded dynamic-payload/edit API belong to the later Runtime/
+Host work and NC acceptance. Removing a library implementation does not authorize
+changing the semantics of language features that remain supported.
+
+D00 must freeze a minimal language declaration/provider composition separately
+from the full bundle: primitive operators, Option/Result/Ordering roles and any
+required async declarations must still be expressible using checked declarations.
+No new public core wrapper crate, hidden auto-installation, hardcoded layouts or
+unchecked role substitution. Empty-provider execution of simple verified scalar
+bytecode must work independently; a source program using a role still needs its
+actual declarations. The compiler must not silently fabricate the missing library.
+
+Some complete-library SDK/VM/Serde/CLI/example/benchmark targets currently require
+the retiring backend. Before D03, list the exact affected targets and commands in
+this section, their expected diagnostics, and their restoration owner/checkpoint.
+These are planned integration gaps, not passing tests or permission to skip cases.
+Retain distinct behavioral fixtures/oracles for reconnection; move generic root,
+reentry, borrowing, cancellation, readonly and reload witnesses onto custom Native
+providers so they continue to exercise Runtime. Do not add ignored tests, empty
+feature implementations, compatibility shims or success-returning stubs. Unchanged
+failed library routes need not be rerun at every Runtime checkpoint.
+
+#### Ordered checkpoints
+
+| Checkpoint | Work and build boundary | Reviewable exit |
+| --- | --- | --- |
+| D00: freeze the core-only execution witness | Recheck the table against source consumers; record declaration requirements and exact affected targets. Reuse existing source-free, scalar, ordinary Native and opaque-payload fixtures; add only an uncovered empty-provider route. Separate the minimal language declaration composition from full library assembly. | A Runtime-only build and core test route use no stdlib module installation. Freeze empty script/Native call workload and selected integration baseline; do not claim library detachment yet. |
+| D01: make library composition explicit | Remove mandatory full-library installation from SDK construction and migrate CLI, web, examples, benchmark setup and complete-library test helpers to explicit composition while the old backend still exists. Separate library docs/providers from generic Runtime fixtures. | Core construction has no production stdlib dependency; callers that request the existing full library still work. No new Runtime wrapper, feature-based hidden bundle or duplicate registration route. This checkpoint should remain buildable. |
+| D02: separate builtin storage and value semantics | Split fixed arrays from nominal Sequence allocation/edit/capacity policy; keep compact scalar storage under its actual core owner. Separate builtin structural hash from MapKey/table policy. Classify string/range/enum/async primitives and keep their required checked contracts. | Existing fixed-array, numeric, string/interpolation, enum and opaque-payload tests pass without Vec. No blanket deletion of native/sequence.rs, native/collections.rs or builtin/standard.rs before their mixed responsibilities are resolved. This checkpoint should remain buildable. |
+| D03: remove privileged library execution end to end | Remove collection Native primitives/codecs/heap services/cursors, concrete storage factories and their type/value/layout/operation contracts as one coordinated change. Update HIR/MIR/bytecode/preparation/interpreter/backend consumers; invalidate disposable affected artifacts. | Core builds and selected core tests pass. No privileged Sequence/Map/Set/Iterator storage or Vec-specific prepared body remains. If full-library consumers are temporarily unbuildable, record actual commands/diagnostics and restoration ownership; the checkpoint is partial integration, not workspace acceptance. Preserve unpublished ABI/version policy. |
+| D04: retire library adapters and clean consumers | Remove hardcoded Vec identity, collection handles, automatic Rust collection conversions and dependent Serde branches; handle direct derive/schema consumers. Keep ordinary nominal payloads, typed interfaces/callbacks and builtin-value conversions. Remove now-unreachable core branches rather than retaining aliases. | Runtime API/data model contains no library-specific declaration path, table policy, container codec or cursor implementation. Inventory the deliberate removed APIs and remaining library reconnection gaps. Do not recreate the foreign Vec trait implementations in stdlib. |
+| D05: hand off a documented Runtime baseline | Update current architecture/spec ownership for actual retained contracts and removals. Review production dependencies and code paths; run selected behavioral/performance checks and required structural/format/Clippy/diff checks. Carry concrete remaining library gaps to the existing Runtime/Host and NC sections. | Report core detachment separately from full-product acceptance. All-target workspace Clippy remains required: if library targets cannot build, report it as failing and leave integration acceptance pending; never claim the whole refactor complete. Only later restored library routes close their own acceptance. |
+
+D03-D04 are a coordinated contract cut and may share one implementation checkpoint
+if their consumers cannot be kept meaningful separately. Do not spread broken
+contract variants over a long sequence of commits. Do not begin this cut before
+D00's concrete target/error inventory and D02's preserved builtin boundary exist.
+If continuous full-library availability becomes a requirement, change the sequence
+explicitly: prove the general public payload protocol first and migrate libraries
+through it before deleting old paths. That is broader work than detach-first.
+
+#### Validation and deferred work
+
+Locally sample directly affected contracts: scalar/array access and checked traps;
+ordinary script/Native entry plus synchronous callback; opaque payload tracing,
+accounting and borrow rejection; a retained-body/current-inner-call reload witness;
+source-free invalid type/layout rejection; enum propagation and one owned async
+route using the required declarations. Existing owners include Runtime
+`gc/native/tests.rs`, `native/assembly/default_tests.rs`, VM `tests/prepared_execution.rs`
+and `tests/native_boundary/`, and SDK `runtime/tests/language/`. Keep test-only
+stdlib use separate from the production dependency assertion. Dev dependency
+removal alone is not an architectural acceptance condition.
+
+Selected build commands start with `cargo check -p kagari-runtime --lib` and
+`cargo check -p kagari-vm --lib`; choose focused tests from the affected owners
+rather than running all package suites. At implementation checkpoints run
+`uv run --locked scripts/check_structure.py`, `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings` and `git diff --check`.
+For removed collection contracts, inspect serde-enabled consumers explicitly.
+Full-workspace tests and exhaustive backend/platform matrices stay CI-only.
+Compare warmed ordinary script/Native calls against D00; source/prepare timings,
+allocation and fixed-array packing remain separate measurements. No performance
+benefit follows merely from deletion.
+
+NC retains full library reconstruction, concrete storage/algorithm API design and
+external-provider parity; PG retains collector replacement. Current GC integration,
+Runtime/VM consolidation, generic Host redesign, tail recursion, enum niches and
+value structs are later checkpoints. D00-D05 do not complete those tracks.
+
+Mechanism reference: [Lua 5.4.9 library composition](https://www.lua.org/source/5.4/linit.c.html)
+selects/open libraries separately from execution, and its
+[table library](https://www.lua.org/source/5.4/ltablib.c.html) implements operations
+through public table APIs. Adopt explicit composition and a public provider
+boundary. Lua tables remain a VM builtin; this does not prove that Kagari's nominal
+Vec/hash storage should stay builtin or supply Kagari's typed GC mutation protocol.
+
 ### Sequence and reviewable exit conditions
 
 1. **Detach existing library implementation dependencies.** Inventory privileged
@@ -859,6 +978,189 @@ trap/cancellation and reload cases. Report setup separately from warmed executio
 require no warmed empty/scalar call allocations and measure any added indirection.
 Freeze numerical frame-memory/call-time gates at implementation activation, before
 changes. No unmeasured 32/64-byte frame target or predicted speedup is accepted here.
+
+### Tail recursion through frame replacement
+
+Proposal requested on 2026-11-11, within the compact-frame Runtime refactor.
+No optimization, new syntax, executable fact or diagnostic behavior is implemented
+by this design record. Treat this initially as an optional optimization of eligible
+calls, not a promise of proper tail calls for every source form/backend/debug mode.
+
+#### Operation and first scope
+
+A tail call has no remaining caller computation after the selected callee returns.
+For example, the final `sum(n - 1, acc + n)` below can replace the current frame;
+`n + sum(n - 1, acc)` cannot. Do not rewrite the latter into accumulator form:
+checked overflow, arithmetic order and completed effects would need another proof.
+
+```text
+fn sum(n: i64, acc: i64) -> i64 {
+    if n == 0 { acc } else { sum(n - 1, acc + n) }
+}
+
+ordinary: parent -> sum(3, 0) -> sum(2, 3) -> sum(1, 5) -> sum(0, 6)
+reused:   parent -> [sum(3, 0) => sum(2, 3) => sum(1, 5) => sum(0, 6)]
+```
+
+The bracket is one active control record and reusable slot suffix, returning 6
+directly to parent. Execution time remains linear in recursive steps; the intended
+benefit is bounded stack storage and removal of repeated push/return forwarding.
+This does not make arbitrary recursion constant-space or eliminate argument work.
+
+Build the transfer mechanism for an admitted target rather than a source-name
+special case. First automatic recognition is deliberately limited to direct
+self-recursion in concrete synchronous script functions, scalar-only caller storage,
+matching parameter/result ABI and no pending return adaptation or frame-extra
+cleanup obligation. Exclude async factories/resume bodies, shared generic evidence,
+closures/interfaces, Native targets/reentry, static-initializer frames and pending
+mutation/borrow/observer state. These execute their ordinary call/return path.
+Managed arguments/results, mutual/non-self tail calls and native tail transfers
+are later extensions of this same mechanism, not prerequisites for the first pass.
+Do not introduce a source annotation or a general call-policy framework.
+
+#### Checked facts and the ordinary fallback
+
+Current [MIR](../crates/kagari-mir/src/instruction.rs) stores calls as Instructions
+and Return as a Terminator; canonical
+[bytecode](../crates/kagari-bytecode/src/instruction.rs) likewise has ordinary Call
+and Return. Recommend recognizing a strict `call r = f(args); return r` shape in
+checked MIR and retaining the ordinary pair, with an explicit call-site candidate
+fact carried into executable metadata. First recognition need not chase CFG merges,
+casts, propagation or arbitrary copies. There must be no intervening operation,
+alternate entry into a removed step, result conversion/wrapping or cleanup action.
+A `Result` returned unchanged can become eligible later; `?` or `Ok(f())` is not
+assumed to be a direct return merely because it appears last in the source.
+
+Source-free verification must independently check candidate site/target identity,
+argument/result contracts and the untouched fallback sequence, rejecting forged
+facts. Runtime preparation consumes those checked facts once and prepares the
+argument move plan plus result/retirement eligibility; it does not re-analyze source
+or search for tail patterns on every call. An internal execution instruction may
+represent the prepared replacement. Preserve canonical PCs/origins and the ordinary
+Call/Return path so debugging or an unsuitable selected target needs no synthetic
+return-continuation stack or second copy of every function body. Activation must
+explicitly amend the current no-skipped-final-bytecode-boundary rule for this verified
+terminal pair: observers use the ordinary path; optimized execution retains the
+logical tail-call cancellation/slice boundary and does not execute the retired
+caller's Return. This is not permission for unrelated Runtime instruction fusion.
+Such metadata is an executable contract change: update its codec, verifier and direct consumers
+coherently, invalidate affected caches and follow unpublished version policy.
+
+#### Transfer and ownership
+
+A replacement keeps the current frame's original ReturnTarget and base StackMark;
+it changes the selected BodyRef, environment/links, PC and callee slot requirements.
+It never pushes a dummy return frame. The transition is:
+
+1. Evaluate all arguments left to right into protected outgoing locations while
+   the old frame remains intact. For `f(b, a)` use a parallel move plan/cycle scratch;
+   overwriting parameter a before fetching its old value is incorrect. Argument
+   calls, checked arithmetic and earlier effects retain their existing semantics.
+2. Use the ordinary current target prepared through BoundCall for this exclusive
+   activation, admit its ABI and reserve any extra slot capacity before destructive
+   changes. Publication cannot occur during synchronous execution, including Native
+   callbacks/reentry. Do not resolve the declaration or check publication versions
+   on every recursive step. Resume after parking refreshes existing execution links
+   and tail-transfer eligibility before using them again. Preserve enabled call
+   cancellation/slicing boundaries; repeated tail calls cannot become an unpollable
+   infinite loop.
+3. In the existing closed stack/GC handoff, publish the selected callee's argument
+   roots and metadata before retiring old roots/owners, apply overlap-safe moves,
+   and replace the top frame. Retire only that frame's suffix; preserve parent
+   frames, host activation/Native guards and the original return destination.
+4. Start the selected body at its entry PC. Its eventual return uses the inherited
+   destination once. Preparation/admission failures retain the old call-site
+   frame/PC for diagnosis; no callee instruction has executed. Cleanup/owner release
+   follows the existing retirement protocol, with no user callback across a live
+   stack-bank borrow. If an obligation must run after callee completion, replacement
+   is ineligible rather than silently moving it earlier.
+
+The scalar-only first pass avoids changing managed-local reachability. Later
+managed support must prove which roots may die at this boundary, preserve escaped
+captures/alias references and specify any observable payload cleanup timing. GC
+liveness shortening is not justified merely by recognizing a tail-position call.
+For fixed layouts and warmed capacity, replacement must not allocate a Vec<Value>,
+argument root set or frame-extra box per iteration. A newly selected larger body
+may require growth, but that storage is capacity reused on later steps.
+
+#### Reload, diagnostics and compiled execution
+
+Ordinary recursive calls select current implementations under the
+[reload contract](spec/module-activation.md#live-installations-and-call-selection),
+but publication is excluded for the entire exclusive synchronous activation.
+This includes Native callbacks, observers and synchronous reentry; they do not
+open a publication window. OS preemption also does not release Runtime ownership.
+For ordinary synchronous self-recursion whose prepared current target is its
+executing body, reuse the argument slots and jump to that body's entry. Establish
+exact body/environment/ABI agreement through existing entry/preparation links;
+no per-iteration declaration lookup, publication-version check or new validity
+cache is needed. Hot reload does not prevent this loop-shaped fast path.
+
+Reconsider that target only when the execution actually parks and returns control
+to the host, then resumes after publication. This can happen at async waits or
+owned-driver slice exits; the executed function need not itself contain await.
+A retained old invocation/body can also enter a newer activation. In these cases,
+the existing entry/resume link refresh selects the current ordinary-call target.
+A resumed v1 frame must tail-transfer to v2 when v2 is current, retaining v2 before
+releasing v1. Subsequent steps in that same activation can use v2's entry directly.
+A jump to the retained v1 entry is invalid only when its selected current target
+differs. Preserve cancellation polls and actual slice exits in either path;
+refresh after a real resume, not merely at every poll or synchronous callback.
+
+Physical frame elimination makes former callers unavailable to stack inspection.
+Propose optimized traces show surviving frames with a bounded per-active-chain
+elision marker, not a fabricated complete stack or an unbounded history list.
+The marker belongs in the compact frame's status/layout budget and disappears when
+that active chain returns. Argument/admission traps still show the intact caller;
+traps after replacement show the selected callee's real source origin. This is a
+proposed observable trace change, requiring execution/debug specifications and tests
+at activation. Current trace semantics are unchanged by this document.
+
+Full-stack debugging/observation initially uses the retained ordinary Call/Return
+path. Attaching later cannot recover already eliminated callers; report that limit
+and disable further replacement. A full-history session must select that mode
+before entry. This mode may use more stack; do not promise identical stack-exhaustion
+behavior across optimized and full-history modes.
+
+Do not rely on Rust/LLVM opportunistically optimizing recursive host calls. Initially
+route eligible tail-optimized functions to the interpreter before native entry if
+the backend cannot implement the same transfer. Unsupported decisions occur before
+execution, never by restarting partially executed code. Later JIT/AOT lowering must
+preserve ordinary current-target selection and inherited returns. If it specializes
+to a body/ABI, publication invalidates that eligibility under the existing native
+binding model. Deoptimization before replacement reconstructs the intact caller;
+after replacement it reconstructs the selected callee/roots/return target and the
+elision marker, not already retired callers. Old code can remain retained for actual
+active computations without authorizing future ordinary calls to choose old bodies.
+
+#### Sequencing and acceptance
+
+Implement after the compact frame/slot entry-return baseline is working; activate
+with the planned stack-space exhaustion model. The present logical-depth quota
+must not be accidentally bypassed by frame reuse before its API/spec/test migration.
+First add verified candidate facts and the ordinary fallback, then scalar self-tail
+replacement, then optional managed/general-tail and native implementations. Keep
+the first pass independently reviewable; no GC/stdlib rewrite is needed for it.
+
+Reuse owner fixtures for argument snapshots, checked traps, cleanup/cancellation
+and reload. Add distinct witnesses for argument permutation, very deep eligible
+recursion with bounded frame/slot use, a non-tail recursion control, nested parent
+return targets, old-body-to-current-body selection after park/publication, and
+forged source-free candidate metadata. Verify debug fallback/elision reporting and
+refusal with pending cleanup; later managed/native support needs its own root and
+actual compiled/deoptimization oracles. Compare explicit loops, ordinary recursion
+and replacement at identical inputs; separate preparation, warmed execution,
+allocation/peak stack storage and target-version/layout growth. Freeze regression
+gates for non-tail empty/Native calls before implementation. No speedup is predicted.
+
+Mechanism reference: [Lua 5.4.9 luaD_pretailcall](https://www.lua.org/source/5.4/ldo.c.html#luaD_pretailcall)
+reuses CallInfo, moves arguments and resets the selected code entry;
+[OP_TAILCALL](https://www.lua.org/source/5.4/lvm.c.html) separates that transfer from
+normal return. The [Lua 5.4 manual](https://www.lua.org/manual/5.4/manual.html#3.4.10)
+also documents the lost caller debug information and cleanup exclusions. Kagari
+adopts frame/argument reuse, not Lua's dynamic arity, raw-pointer/upvalue rules or
+language-wide proper-tail-call guarantee; its typed ABI, GC roots and live reload
+selection require the explicit handoff and narrower first scope above.
 
 ### Stack exhaustion and Native reentry
 

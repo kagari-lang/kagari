@@ -12,6 +12,16 @@ this plan retains concrete collection implementation and acceptance. Earlier
 NC/PG phase pairings below are historical sequencing to rebase before activation,
 not a prerequisite to organizing Runtime or integrating its current collector.
 
+Detachment planning update, 2026-11-11: the immediate
+[Runtime inventory and D00-D05 checkpoints](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
+own removal of existing privileged library dependencies before the Runtime rewrite.
+NC01-NC06 remain unstarted and own subsequent full library reconstruction/public
+provider parity, not a second concurrent removal sequence. The detach-first plan
+does not promise uninterrupted old-library availability. Preserve unique library
+fixtures/oracles for reconnection and keep generic Runtime guarantees exercised
+through independent Native providers. Rebase the older storage/API inventory below
+on the resulting Runtime/Host boundary before activating NC.
+
 Storage inventory refresh, 2026-10-18: the prioritized
 [runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) and
 [object overhead work](implementation-roadmap.md#object-storage-overhead) are locally complete.

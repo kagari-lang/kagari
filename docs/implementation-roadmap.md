@@ -1509,6 +1509,18 @@ full collection design/implementation and PG owns later collector replacement.
 Record this order before activating finite implementation phases. No new collector,
 full standard-library rewrite or shared declaration-ID migration is activated here.
 
+The [2026-11-11 detachment inventory and D00-D05 plan](runtime-refactor-design.md#standard-library-detachment-inventory-and-execution-plan)
+records the concrete coupling in collection layouts/types, packed array sharing,
+heap services, Native codecs/primitives, cursors, Rust adapters/Serde and automatic
+SDK composition. Checkpoints are proposed and unstarted: establish a core-only
+witness, make installation explicit, separate builtin storage, perform one coherent
+contract cut, remove library adapters and hand off the Runtime baseline. This is
+detach-first; complete old library availability is not promised during backend
+removal. D00 must freeze exact affected targets/restoration owners before the cut;
+core-only success cannot establish workspace acceptance. Retain required language
+roles, builtin semantics and generic safety/reload coverage. NC owns later full
+library reconnection; no replacement collector or Runtime/VM merge is activated.
+
 The [proposed crate consolidation](runtime-refactor-design.md#proposed-crate-consolidation-and-single-runtime)
 merges `kagari-vm` execution into `kagari-runtime`, removes Vm and the SDK Runtime
 wrapper, and makes the facade expose the canonical Runtime. It also assigns the
@@ -1529,6 +1541,19 @@ retain exact old-body/current-inner-call semantics. The recorded 392-byte frame 
 a current x64 layout observation, not a target or speed claim. Implementation must
 freeze memory/call-time gates and validate the complete entry/return/parking path.
 This refines the existing Runtime design; it activates no separate migration.
+
+The [tail-recursion proposal](runtime-refactor-design.md#tail-recursion-through-frame-replacement)
+adds eligible frame replacement to this same refactor after the compact entry/return
+baseline and coordinated stack-space migration. First recognize concrete synchronous
+scalar-only self-tail calls using checked MIR/executable facts, retaining ordinary
+Call/Return fallback. Preserve current-version recursive selection, argument order,
+root/owner handoff and the original return target. Current targets stay fixed within
+exclusive synchronous activation, allowing same-body entry jumps without repeated
+lookup/version checks; actual entry/resume refresh handles retained old bodies.
+Debug stack elision is a proposed
+observable change, not current behavior; Native, managed/general tail calls and
+compiled deoptimization support remain later scope. No implementation or speed claim
+is activated by this design record.
 
 The accepted [stack-exhaustion model](runtime-refactor-design.md#stack-exhaustion-and-native-reentry)
 replaces the proposed per-script-call depth quota/counter with VM frame/slot space
